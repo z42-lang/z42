@@ -7,7 +7,7 @@
 
 use crate::metadata::Function;
 use crate::object::Value;
-use crate::context::VmContext;
+use crate::vm::VmContext;
 
 // ── JitFrame ─────────────────────────────────────────────────────────────────
 

@@ -23,7 +23,7 @@ use anyhow::{bail, Result};
 use std::sync::Arc;
 
 /// Resolves a type name to its `TypeDesc` (for nested-struct recursion + is-struct checks).
-/// Production caller passes `&|n| ctx.try_lookup_type(n)`; tests pass a map-backed closure.
+/// Production caller passes `&|n| ctx.loader().try_lookup_type(n)`; tests pass a map-backed closure.
 pub type TypeResolver<'a> = dyn Fn(&str) -> Option<Arc<TypeDesc>> + 'a;
 
 /// A resolved top-level field of a value struct: where its data lives + how to decode it.

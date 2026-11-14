@@ -4,7 +4,7 @@
 use crate::object::Value;
 
 use crate::jit::runtime::frame::{FnEntry, JitFrame};
-use crate::context::VmContext;
+use crate::vm::VmContext;
 use crate::jit::runtime::invoke::call_entry;
 use super::{set_exception, vm_ctx_ref};
 
@@ -143,20 +143,20 @@ unsafe fn call_compiled(
     let ready = &callee.call_init_ready;
     if ready.load(std::sync::atomic::Ordering::Acquire) != vm.core().runtime().cctors.barrier_epoch() {
         let epoch = vm.core().runtime().cctors.barrier_epoch_acquire();
-        if vm.module_init_gate_open() || vm.any_cctor_pending() {
+        if vm.initialization().module_init_gate_open() || vm.initialization().any_cctor_pending() {
             if let Some(exc) = call_barriers(vm, ctx, callee, &entry.owner_init) {
                 set_exception(vm, exc);
                 return 1;
             }
         }
-        if vm.callee_barrier_settled(&entry.owner_init) {
+        if vm.initialization().callee_barrier_settled(&entry.owner_init) {
             ready.store(epoch, std::sync::atomic::Ordering::Release);
         }
     }
     // jit-stack-trace: stamp the caller's call-site offset. Before the forwarder
     // short-circuit too: with the wrapper's row gone, the caller's row is the top
     // of a trace captured inside the builtin.
-    vm.set_top_frame_pc(caller_offset);
+    vm.exec().set_top_frame_pc(caller_offset);
     // `[Native]` extern wrapper: dispatch its builtin straight from our registers
     // instead of building the wrapper's activation (see `jit::compile::lookup`).
     if let Some(id) = entry.forward {
@@ -186,7 +186,7 @@ unsafe fn call_interp(
     let vm = vm_ctx_ref(ctx);
     let module = super::jit_module(ctx);
     // jit-stack-trace: stamp the caller's call-site offset before descending.
-    vm.set_top_frame_pc(caller_offset);
+    vm.exec().set_top_frame_pc(caller_offset);
     // runtime-ambiguous-use-site：与 interp `exec_call` 对称（两后端同判据）。
     // 常态 = 一次 relaxed 原子读，进程内没发生过碰撞时恒 false。
     if let Some(exc) = crate::exec::symbol_resolution::ambiguous_function_exception(vm, module, &callee.name) {
@@ -223,14 +223,14 @@ unsafe fn call_interp(
 /// Package-init then type-init barrier for a static call of `callee`; `Some` = the
 /// `TypeInitializationException` to throw.
 unsafe fn call_barriers(
-    vm: &crate::context::VmContext, ctx: *const VmContext,
+    vm: &crate::vm::VmContext, ctx: *const VmContext,
     callee: &crate::metadata::Function, owner: &crate::metadata::OwnerInitCell,
 ) -> Option<Value> {
     let module = super::jit_module(ctx);
-    if let Err(msg) = vm.ensure_module_inits(Some(&callee.name)) {
+    if let Err(msg) = vm.initialization().ensure_module_inits(Some(&callee.name)) {
         return Some(crate::exec::init::make_type_init_exception(vm, module, &msg));
     }
-    if let Err(msg) = vm.ensure_callee_owner_init(&callee.name, owner) {
+    if let Err(msg) = vm.initialization().ensure_callee_owner_init(&callee.name, owner) {
         return Some(crate::exec::init::make_type_init_exception(vm, module, &msg));
     }
     None
@@ -293,7 +293,7 @@ pub unsafe extern "C" fn jit_native_module(
 /// leaves the error text: while the fatal flag is set the catch dispatch declines every
 /// handler, so it unwinds to the entry, which reports it.
 pub(crate) fn raised_into_exception(
-    vm: &crate::context::VmContext, r: crate::exec::call::builtin_abi::error::Raised,
+    vm: &crate::vm::VmContext, r: crate::exec::call::builtin_abi::error::Raised,
 ) -> u8 {
     use crate::exec::call::builtin_abi::error::Raised;
     let exc = match r {

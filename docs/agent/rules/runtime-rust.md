@@ -68,7 +68,7 @@
   组件实例间的语义依赖排序与二进制/包装载依赖分别表达，不能以保留实例排序为由继续在组件中开库。
   独立运行时库使用 loader/interop 的通用接入，不另造每库专用加载路径。
 - **host 是 VM 宿主契约，main 是一种宿主实现。** CLI 参数、帮助、进程退出、启动 hooks 等归 CLI/launcher 构建目标；平台库不编入这些实现和依赖。
-  同构建 Rust 宿主可直接动态链接 libz42，调用 host 的 Rust 功能接口；不为只属于 main 的实现额外增加 C 导出或入口表。跨 C ABI 只传版本化 C 布局/回调，不传 Rust trait 对象；是否定义 trait 由真实环境服务注入需求决定，不为空接口制造实现层。
+  同构建 Rust 宿主可动态链接 libz42，调用 host 的 Rust 功能接口。SDK main 使用 dlopen/LoadLibrary 和单个版本化进程入口，不设计入口表或 Windows 转发器。跨 C ABI 只传版本化 C 布局/回调，不传 Rust trait 对象；是否定义 trait 由真实环境服务注入需求决定，不为空接口制造实现层。
   环境变量、可执行文件相对路径和 CLI 默认目录由 main 等来源实现解析；host 加载接口消费明确的搜索路径、VFS/resolver，不重新推断 CLI 环境。不同来源共享加载机制，不复制包链接/VM 初始化。
 - **装配只保留一条主线。** 前端参数先转换为功能请求，再捕获不可变设置，由 VM 装配协调 zpkg/依赖准备、Core/服务、链接、组件和发布。
   C/Rust/CLI 适配不得各自重复初始化。区分宿主会话建立、VM 创建/包加载和托管初始化一次性屏障；进程级设置与每 VM 设置分别拥有。
@@ -127,3 +127,11 @@
 - 优先用成熟开源库，只在无合适库或需要深度定制时自行实现；引入前按 [philosophy.md](philosophy.md) 评估，
   并在 `Cargo.toml` 注明用途。
 - 动手前先查已调研的候选库与参考项目：[运行时 · 依赖与参考实现](../../internals/src/runtime/README.md#依赖与参考实现)。
+
+## VM 组合与状态行为归属（必须遵守）
+
+- 不建立 context 万能目录，也不在各模块散布 `impl VmContext` 承载域行为。`vm.rs` 只组合状态、管理固定地址与生命周期、提供最小借用入口；host 默认资源装配保持 host 所有。
+- 帧、arena 和异常交接使用 `ctx.exec()`；包安装、查询与延迟加载使用 `ctx.loader()`，loader 的服务不能持有整个 VmContext 或依赖堆/执行器。
+- 静态字段存储使用 `ctx.statics()`，类型/包初始化执行使用 `ctx.initialization()`；加载只登记初始化事实，执行屏障负责运行托管代码。
+- 观察与统计归 diagnostics，线程注册/GC 停顿归 threads。注销计数转移和汇总必须持同一注册表锁，GC 回调保持 Weak 核心引用。
+- 桌面只定义一个 `z42vm` bin，SDK 只安装 `bin/z42vm[.exe]`；`native/` 只放库及嵌入资源。main 动态加载 Core 的进程入口，不另设 Windows 转发器或 native 可执行载荷。

@@ -17,7 +17,7 @@ use crate::zpkg::ir::{BasicBlock, BuiltinInsn, CallInsn, Instruction, Terminator
 use crate::zpkg::ir::ExecMode;
 use crate::object::string::vstr::{jit_layout, Str};
 use crate::{zpkg::IrType, object::Value};
-use crate::context::VmContext;
+use crate::vm::VmContext;
 
 const GET_LENGTH: usize = 0;
 const CHAR_AT: usize = 1;

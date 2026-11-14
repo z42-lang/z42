@@ -5,7 +5,7 @@
 use crate::metadata::dispatch::ctor::{site_for, instance_type_args};
 use crate::metadata::Module;
 use crate::object::Value;
-use crate::context::VmContext;
+use crate::vm::VmContext;
 use anyhow::Result;
 
 use super::collect_args;
@@ -46,10 +46,10 @@ pub(crate) fn obj_new(
     // 已在手 → 检查代价就是一次 `Option` 判断（没有 cctor 的类型的冷区多半是 None），
     // 不需要 `pending` 门。
     // add-module-init-hook：跨包 `new` 同样可能刚拉进一个包 —— 其包初始化器先跑。
-    if let Err(msg) = ctx.ensure_module_inits(Some(type_desc.name.as_str())) {
+    if let Err(msg) = ctx.initialization().ensure_module_inits(Some(type_desc.name.as_str())) {
         return Ok(Some(crate::exec::init::make_type_init_exception(ctx, module, &msg)));
     }
-    if let Err(msg) = ctx.ensure_type_init(&type_desc) {
+    if let Err(msg) = ctx.initialization().ensure_type_init(&type_desc) {
         return Ok(Some(crate::exec::init::make_type_init_exception(ctx, module, &msg)));
     }
 
@@ -86,7 +86,7 @@ pub(crate) fn obj_new(
     let obj_val = if stack_alloc && crate::exec::call::stack_alloc::stack_alloc_enabled(ctx) {
         let obj = crate::object::OwnedObject::new_instance(type_desc.clone(), inst_args);
         let frame_id = frame.frame_id(ctx);
-        let idx = ctx.stack_alloc_obj(frame_id, obj);
+        let idx = ctx.exec().stack_alloc_obj(frame_id, obj);
         Value::StackObject { idx, frame_id }
     } else {
         let obj_val = ctx.heap().alloc_instance(type_desc, inst_args);

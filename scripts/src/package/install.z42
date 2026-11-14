@@ -18,7 +18,6 @@ using Std.IO;
 // 装组件需要的构建上下文。runtime 包只用到 CargoOut；apphost 组件要求后五项齐全（缺则报错，不静默跳过）。
 class _PkgInstallCtx {
     public string CargoOut;      // 宿主/目标 RID 的 cargo 输出目录（libz42.* 等组件动态库）
-    public bool DirectHostMain;
     public string LauncherOut;   // Windows 进程入口输出；旧树保留原启动器布局
     public string HostVm;        // 跑 z42b 的宿主 z42vm
     public string Z42bZpkg;      // 已编好的 z42.builder.zpkg
@@ -26,7 +25,7 @@ class _PkgInstallCtx {
     public string ApphostStub;   // 未 patch 的 apphost 模板（Z42_APPHOST_TEMPLATE）
     public string Rid;
     public _PkgInstallCtx() {
-        this.DirectHostMain = false; this.CargoOut = ""; this.LauncherOut = ""; this.HostVm = ""; this.Z42bZpkg = ""; this.Libs = ""; this.ApphostStub = ""; this.Rid = "";
+        this.CargoOut = ""; this.LauncherOut = ""; this.HostVm = ""; this.Z42bZpkg = ""; this.Libs = ""; this.ApphostStub = ""; this.Rid = "";
     }
 }
 
@@ -55,24 +54,14 @@ int _pkgInstallComponent(string root, _PkgComponent comp, string pkgDir, _PkgIns
     return 1;
 }
 
-// [component.z42vm] owns the SDK entry and its single dynamic closure.
-// POSIX installs Rust main directly; Windows puts main beside its DLLs and
-// installs a process-only forwarder in bin. Older trees retain their layout.
+// The only SDK executable lives in bin and loads the native Core in-process.
 int _pkgInstallZ42vm(_PkgInstallCtx ctx, string pkgDir) {
     string bin = Path.Join(pkgDir, "bin");
     Directory.Create(bin);
-    string cargoOut = !ctx.DirectHostMain && ctx.LauncherOut.Length > 0 ? ctx.LauncherOut : ctx.CargoOut;
+    string cargoOut = ctx.LauncherOut.Length > 0 ? ctx.LauncherOut : ctx.CargoOut;
     if (cargoOut.Length == 0) { ConsoleError.WriteLine("error: z42vm: no cargo output dir"); return 1; }
-    if (ctx.DirectHostMain && Platform.IsWindows()) {
-        if (ctx.LauncherOut.Length == 0) { ConsoleError.WriteLine("error: z42vm: no forwarder output dir"); return 1; }
-        string native = Path.Join(pkgDir, "native");
-        Directory.Create(native);
-        _componentCopyRequired(Path.Join(ctx.CargoOut, "z42vm.exe"), Path.Join(native, "z42vm.exe"));
-        _componentCopyRequired(Path.Join(ctx.LauncherOut, "z42vm-windows-launcher.exe"), Path.Join(bin, "z42vm.exe"));
-    } else {
-        string executable = Platform.IsWindows() ? "z42vm.exe" : "z42vm";
-        _componentCopyRequired(Path.Join(cargoOut, executable), Path.Join(bin, executable));
-    }
+    string executable = Platform.IsWindows() ? "z42vm.exe" : "z42vm";
+    _componentCopyRequired(Path.Join(cargoOut, executable), Path.Join(bin, executable));
     _makeExe(Path.Join(bin, "z42vm"));
     // native_closure：z42vm 的动态闭包（组件动态库 + 恰好一份共享 std）装进同包 native/ ——
     // 运行期发现路径 <exe>/../native/ 与之咬合。旧树无该字段时回退（有 CargoOut 即装，保持
@@ -126,6 +115,7 @@ void _copyAbiHeaders(string root, string destIncludeDir) {
     Directory.Create(destIncludeDir);
     File.Copy(Path.Join(root, "src/runtime/include/z42_abi.h"), Path.Join(destIncludeDir, "z42_abi.h"));
     File.Copy(Path.Join(root, "src/runtime/include/z42_host.h"), Path.Join(destIncludeDir, "z42_host.h"));
+    File.Copy(Path.Join(root, "src/runtime/include/z42_main.h"), Path.Join(destIncludeDir, "z42_main.h"));
     File.Copy(Path.Join(root, "src/runtime/include/z42_native.h"), Path.Join(destIncludeDir, "z42_native.h"));
 }
 

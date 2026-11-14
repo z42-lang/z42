@@ -5,7 +5,7 @@ use crate::object::Value;
 use crate::metadata::{Function, Module};
 use crate::metadata::ids::tokens::FnId;
 use crate::metadata::dispatch::functions::lazy_call_id;
-use crate::context::VmContext;
+use crate::vm::VmContext;
 
 
 /// The cold half of [`call`]: bind `fname` by name — this module's `func_index` first,
@@ -38,7 +38,7 @@ pub fn bind_callee<'a>(
     // fix-silent-symbol-resolution：所有回落（本模块 func_index → 惰性加载器）都穷尽了 ⇒
     // **确定不存在**，抛可 catch 的类型化 MissingSymbolException（不是 `bail!`——那条走
     // anyhow Err，不经 find_handler，用户 `catch` 抓不到）。与 JIT 侧同一场景统一。
-    let Some(lazy) = ctx.try_lookup_function(fname) else {
+    let Some(lazy) = ctx.loader().try_lookup_function(fname) else {
         return Err(crate::exec::exception::make_missing_symbol_exception(
             ctx, module, format!("undefined function `{fname}`")));
     };
@@ -91,7 +91,7 @@ pub fn bind_fn_ref(
     let id = match module.func_index.get(name) {
         Some(&idx) if idx < module.functions.len() => idx as u32,
         _ => {
-            let Some(lazy) = ctx.try_lookup_function(name) else {
+            let Some(lazy) = ctx.loader().try_lookup_function(name) else {
                 return Err(crate::exec::exception::make_missing_symbol_exception(
                     ctx, module, format!("undefined function `{name}`")));
             };

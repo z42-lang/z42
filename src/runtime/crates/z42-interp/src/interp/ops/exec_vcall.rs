@@ -9,7 +9,7 @@
 
 use crate::metadata::{Function, Module};
 use crate::object::Value;
-use crate::context::VmContext;
+use crate::vm::VmContext;
 use anyhow::Result;
 
 use crate::exec::ops::vcall::resolve_vcall;
@@ -27,7 +27,7 @@ fn try_native_method_call(
     ctx: &VmContext, frame: &mut Frame, dst: u32, id: usize,
     receiver: &Value, args: &[u32], method_type_args: &[String],
 ) -> Option<Result<Option<Value>>> {
-    let tier = ctx.tier()?;
+    let tier = ctx.exec().tier(&ctx.core().exec().engines)?;
     if matches!(receiver, Value::Ref { .. })
         || args.iter().any(|&r| matches!(frame.regs.get(r as usize), Some(Value::Ref { .. }))) { return None; }
     tier.invoke(ctx, crate::exec::engine::TierTarget::Site(id),

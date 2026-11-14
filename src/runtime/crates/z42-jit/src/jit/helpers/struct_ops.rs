@@ -29,7 +29,7 @@
 use crate::exec::ops::structs;
 use crate::object::Value;
 use crate::jit::runtime::frame::JitFrame;
-use crate::context::VmContext;
+use crate::vm::VmContext;
 use super::{set_exception, vm_ctx_ref};
 
 /// Lazily assign (and return) this JIT frame's monotonic id, so a `StructRef` it
@@ -38,7 +38,7 @@ use super::{set_exception, vm_ctx_ref};
 #[inline]
 pub(super) unsafe fn frame_id_of(frame: *mut JitFrame, ctx: *const VmContext) -> u32 {
     if (*frame).frame_id == 0 {
-        (*frame).frame_id = vm_ctx_ref(ctx).next_frame_id();
+        (*frame).frame_id = vm_ctx_ref(ctx).exec().next_frame_id();
     }
     (*frame).frame_id
 }

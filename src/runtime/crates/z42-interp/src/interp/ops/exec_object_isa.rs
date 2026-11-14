@@ -7,7 +7,7 @@
 use crate::metadata::ids::tokens::TypeKeyCell;
 use crate::metadata::Module;
 use crate::object::Value;
-use crate::context::VmContext;
+use crate::vm::VmContext;
 use anyhow::Result;
 
 use crate::metadata::dispatch::isa::array_isa;

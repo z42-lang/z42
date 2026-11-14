@@ -13,7 +13,7 @@
 use super::*;
 use crate::jit::runtime::frame::JitFrame;
 use crate::object::{Value, TAG_I32};
-use crate::context::VmContext;
+use crate::vm::VmContext;
 
 /// symbolic-struct-field-access P2：字段访问改带 `(root 类型名, 字段序号路径)`，
 /// 解析**必须**拿到该类型的布局 ⇒ 这些测试不能再用「没注册的 `"T"`」了。
@@ -53,7 +53,7 @@ fn register_pair(vm: &VmContext) {
         })),
         id: TypeId::UNRESOLVED,
     });
-    vm.install_lazy_loader(None, 0);
+    vm.loader().install_lazy_loader(None, 0);
     if let Some(l) = vm.core.loader.lazy_loader.write().as_mut() {
         l.insert_type(PAIR.to_string(), td);
     }

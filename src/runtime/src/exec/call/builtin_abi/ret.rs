@@ -3,7 +3,7 @@
 
 use super::{BuiltinError, CallResult, RetKind};
 use crate::object::Value;
-use crate::context::VmContext;
+use crate::vm::VmContext;
 
 /// A Rust result type a builtin can return. `None` = void (the destination register is
 /// left alone).

@@ -8,7 +8,7 @@ use crate::zpkg::ir::{BasicBlock, Instruction, LoadFnInsn, Terminator};
 use crate::metadata::resolve::ResolvedTokens;
 use crate::metadata::ids::tokens::UNRESOLVED;
 use crate::zpkg::ir::ExecMode;
-use crate::context::VmContext;
+use crate::vm::VmContext;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
@@ -59,7 +59,7 @@ fn module_of(functions: Vec<Function>) -> Module {
 /// A VM whose entry module is `App.Main` + a lazily loaded `Lib.F`; returns `Lib.F`.
 fn vm_with_lazy_target(main: Function) -> (std::pin::Pin<Box<VmContext>>, Arc<Function>) {
     let vm = VmContext::with_module(module_of(vec![main]));
-    vm.install_lazy_loader(None, 0);
+    vm.loader().install_lazy_loader(None, 0);
     let f = Arc::new(func("Lib.F", vec![]));
     assert!(vm.core.loader.lazy_loader.write().as_mut().unwrap().insert_function(f.name.clone(), Arc::clone(&f)));
     (vm, f)
@@ -112,7 +112,7 @@ fn undefined_target_throws_from_the_load_fn_helper() {
         Instruction::LoadFn(Box::new(LoadFnInsn { dst: 0, func: "Nowhere.F".to_string() })),
     ]);
     let vm = VmContext::with_module(module_of(vec![main]));
-    vm.install_lazy_loader(None, 0);
+    vm.loader().install_lazy_loader(None, 0);
     install(&vm, vm.module().unwrap(), crate::config::runtime_config().jit_config()).expect("install");
     let err = crate::jit::run_fn(&vm, "App.Main").expect_err("throws");
     assert!(err.to_string().contains("undefined function `Nowhere.F`"), "{err}");

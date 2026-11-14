@@ -25,7 +25,7 @@
 use crate::metadata::dispatch::functions::CallArity;
 use crate::metadata::Module;
 use crate::object::TypeDesc;
-use crate::context::VmContext;
+use crate::vm::VmContext;
 use crate::exec::ops::object::static_defaults::static_zero_value;
 
 /// 静态字段声明的类型：`type_tag`，以及它是不是声明类型的**未代换型参**（擦除泛型定义上的
@@ -51,7 +51,7 @@ fn lookup_static_field_tag(
         }
         let Some(base) = probe.base_name.as_deref() else { return Ok(None) };
         let next = module.type_registry.get(base).cloned()
-            .or_else(|| ctx.try_lookup_type(base));
+            .or_else(|| ctx.loader().try_lookup_type(base));
         match next {
             None => return Err(()),   // 基类不可解析 → 不下结论
             Some(b) => { probe = cur.insert(b); }
@@ -79,7 +79,7 @@ pub fn verify_static_field(
         return StaticNullVerdict::Ok;   // 无点 = 全局静态字段，不归任何类型
     };
     let resolved = module.type_registry.get(owner).cloned()
-        .or_else(|| ctx.try_lookup_type(owner));
+        .or_else(|| ctx.loader().try_lookup_type(owner));
     let Some(td) = resolved else {
         // 属主类型整个解析不出来。`try_lookup_type` **本身就是完整解析路径**（会触发所属包
         // 加载），它失败就再无回落 ⇒ 确定不存在。
@@ -236,7 +236,7 @@ pub fn ambiguous_function_exception(
 fn ambiguous_function_exception_slow(
     ctx: &VmContext, module: &Module, fname: &str,
 ) -> Option<crate::object::Value> {
-    if !ctx.is_ambiguous_function(fname) { return None; }
+    if !ctx.loader().is_ambiguous_function(fname) { return None; }
     Some(crate::exec::exception::make_missing_symbol_exception(
         ctx, module,
         format!(
@@ -262,7 +262,7 @@ pub fn ambiguous_type_exception(
 fn ambiguous_type_exception_slow(
     ctx: &VmContext, module: &Module, class_name: &str,
 ) -> Option<crate::object::Value> {
-    if !ctx.is_ambiguous_type(class_name) { return None; }
+    if !ctx.loader().is_ambiguous_type(class_name) { return None; }
     Some(crate::exec::exception::make_missing_symbol_exception(
         ctx, module,
         format!(

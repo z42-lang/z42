@@ -56,7 +56,12 @@ pub(crate) fn claim_with<G>(registry: &CctorRegistry, class_fq: &str, park: impl
     }
 }
 
-impl crate::context::VmContext {
+pub struct Initialization<'a> { ctx: &'a crate::vm::VmContext }
+impl<'a> Initialization<'a> {
+    #[inline]
+    pub fn new(ctx: &'a crate::vm::VmContext) -> Self { Self { ctx } }
+}
+impl Initialization<'_> {
     /// 登记一个类型的静态构造器（幂等；没有 cctor 的类型直接返回）。
     ///
     /// **必须早于该类型被使用**——`pending` 门只在「已登记」的前提下才有意义：
@@ -71,19 +76,19 @@ impl crate::context::VmContext {
     pub fn register_cctor_of(&self, td: &crate::object::TypeDesc) {
         if let Some(f) = td.cctor_func() {
             tracing::debug!("cctor-register: type `{}` -> `{}`", td.name, f);
-            self.core.runtime.cctors.register(&td.name, f);
+            self.ctx.core.runtime.cctors.register(&td.name, f);
         }
     }
 
     /// 全程序是否还有未初始化的静态构造器。**热路径的门**：`false` ⇒ 屏障可直接跳过。
     #[inline(always)]
-    pub fn any_cctor_pending(&self) -> bool { self.core.runtime.cctors.any_pending() }
+    pub fn any_cctor_pending(&self) -> bool { self.ctx.core.runtime.cctors.any_pending() }
 
     /// 包级初始化屏障的门：`false` ⇒ 没有待跑的包初始化器、也没有失败终态的包，
     /// [`Self::ensure_module_inits`] 必然 `Ok`，调用方可整个跳过（JIT `jit_call` 的热路径）。
     #[inline(always)]
     pub fn module_init_gate_open(&self) -> bool {
-        let cc = &self.core.runtime.cctors;
+        let cc = &self.ctx.core.runtime.cctors;
         cc.any_module_init_pending() || cc.any_module_init_failed()
     }
 
@@ -115,8 +120,8 @@ impl crate::context::VmContext {
     pub fn ensure_static_owner_init(&self, field: &str, field_id: Option<u32>) -> Result<(), String> {
         use crate::metadata::statics::StaticOwner;
         use crate::metadata::ids::tokens::StaticFieldId;
-        if !self.core.runtime.cctors.any_pending() { return Ok(()); }
-        if let Some(cell) = field_id.and_then(|id| self.core.runtime.statics.cell(StaticFieldId(id))) {
+        if !self.ctx.core.runtime.cctors.any_pending() { return Ok(()); }
+        if let Some(cell) = field_id.and_then(|id| self.ctx.core.runtime.statics.cell(StaticFieldId(id))) {
             match cell.owner() {
                 StaticOwner::Exempt => return Ok(()),
                 StaticOwner::Check(td) => return self.ensure_type_init(td),
@@ -134,7 +139,7 @@ impl crate::context::VmContext {
         if let Some(id) = field_id {
             // 基类链未合并的类型不缓存（加载器要 `Arc::get_mut` 原地补布局）。
             if !owner.as_ref().is_some_and(|td| td.base_unmerged()) {
-                self.core.runtime.statics.set_owner(StaticFieldId(id), owner.clone());
+                self.ctx.core.runtime.statics.set_owner(StaticFieldId(id), owner.clone());
             }
         }
         match owner {
@@ -148,9 +153,9 @@ impl crate::context::VmContext {
     /// 索引里（同 ensure_type_init 里函数查找那条注释）。
     fn static_field_owner(&self, field: &str) -> Option<Arc<crate::object::TypeDesc>> {
         let owner = owner_class_of_static_field(field)?;
-        let td = match self.module().and_then(|m| m.type_registry.get(owner)) {
+        let td = match self.ctx.module().and_then(|m| m.type_registry.get(owner)) {
             Some(td) => Arc::clone(td),
-            None => self.try_lookup_type(owner)?,
+            None => self.ctx.loader().try_lookup_type(owner)?,
         };
         td.cctor_func().is_some().then_some(td)
     }
@@ -187,7 +192,7 @@ impl crate::context::VmContext {
     /// 「之后每一次**触达**都会再抛一次」——本实现现在才与之相符。
     #[inline(always)]
     pub fn ensure_module_inits(&self, sym_fq: Option<&str>) -> Result<(), String> {
-        let cc = &self.core.runtime.cctors;
+        let cc = &self.ctx.core.runtime.cctors;
         // 稳态：两次 relaxed load 就返回，不进下面那个大函数（它的帧建立比这两次 load 贵）。
         if !cc.any_module_init_pending() && !cc.any_module_init_failed() {
             return Ok(());
@@ -197,7 +202,7 @@ impl crate::context::VmContext {
 
     #[inline(never)]
     fn ensure_module_inits_slow(&self, sym_fq: Option<&str>) -> Result<(), String> {
-        let cc = &self.core.runtime.cctors;
+        let cc = &self.ctx.core.runtime.cctors;
         if cc.any_module_init_pending() {
             let list = cc.module_init_snapshot();
             let mut first_err: Option<String> = None;
@@ -233,7 +238,7 @@ impl crate::context::VmContext {
     pub fn callee_barrier_settled(
         &self, owner: &crate::metadata::OwnerInitCell,
     ) -> bool {
-        let cc = &self.core.runtime.cctors;
+        let cc = &self.ctx.core.runtime.cctors;
         if cc.any_module_init_pending() { return false; }
         if !cc.any_pending() { return true; }
         match owner.get() {
@@ -254,7 +259,7 @@ impl crate::context::VmContext {
     pub fn ensure_callee_owner_init(
         &self, func_fq: &str, owner: &crate::metadata::OwnerInitCell,
     ) -> Result<(), String> {
-        if !self.core.runtime.cctors.any_pending() { return Ok(()); }
+        if !self.ctx.core.runtime.cctors.any_pending() { return Ok(()); }
         // Owner resolved and without a static constructor — almost every call.
         if let Some(None) = owner.get() { return Ok(()); }
         self.ensure_callee_owner_init_slow(func_fq, owner)
@@ -292,10 +297,10 @@ impl crate::context::VmContext {
     /// Never loads: a resolved callee's package already registered its types, and
     /// a free function's apparent owner may be a namespace rather than a type.
     fn loaded_type(&self, name: &str) -> Option<Arc<crate::object::TypeDesc>> {
-        if let Some(td) = self.module().and_then(|m| m.type_registry.get(name)) {
+        if let Some(td) = self.ctx.module().and_then(|m| m.type_registry.get(name)) {
             return Some(Arc::clone(td));
         }
-        self.core.loader.lazy_loader.read().as_ref().and_then(|l| l.loaded_type(name))
+        self.ctx.core.loader.lazy_loader.read().as_ref().and_then(|l| l.loaded_type(name))
     }
 
     /// Ensure a type's initializer has completed before its first use.
@@ -308,12 +313,12 @@ impl crate::context::VmContext {
         // 快路只信 `true`（已确知跑完）方向，`false` 一律走慢路复核 —— 与 `pending`
         // 门「只信 == 0 方向」是同一套手法，但**粒度是类型而非全程序**，因此不受
         // 「有类型从未被使用 ⇒ 全局门永远开着」的拖累。
-        let gen = self.core.runtime.cctors.generation();
+        let gen = self.ctx.core.runtime.cctors.generation();
         if td.init_done_in(gen) { return Ok(()); }
         let class_fq = td.name.clone();
-        self.core.runtime.cctors.register(&class_fq, func);
+        self.ctx.core.runtime.cctors.register(&class_fq, func);
 
-        let claimed = match claim_with(&self.core.runtime.cctors, &class_fq, || crate::threads::safepoint::NativeParkGuard::enter(self))
+        let claimed = match claim_with(&self.ctx.core.runtime.cctors, &class_fq, || crate::threads::safepoint::NativeParkGuard::enter(self.ctx))
         {
             Ok(None) => return Ok(()),           // 已完成 / 本线程重入 / 他线程在跑
             Ok(Some(f)) => f,
@@ -333,20 +338,20 @@ impl crate::context::VmContext {
         // 实测：`C.C$0` 当 entry 能正常跑，屏障里却查不到。
         let run = |f: &crate::metadata::Function,
                    module: &crate::metadata::Module| -> Option<String> {
-            match crate::exec::engine::invoke(self, module, f, &[]) {
+            match crate::exec::engine::invoke(self.ctx, module, f, &[]) {
                 Ok(crate::exec::call::outcome::ExecOutcome::Returned(_)) => None,
                 // 取异常对象的 Message 字段；非异常值（裸抛）才回落到值的文本形式。
                 // 直接 value_to_str 会得到 `Std.Exception{...}` 这种对象转储，不是消息。
                 Ok(crate::exec::call::outcome::ExecOutcome::Thrown(v)) => Some(
-                    crate::exec::exception::read_message(&v, self, module)
+                    crate::exec::exception::read_message(&v, self.ctx, module)
                         .unwrap_or_else(|| crate::object::value::format::value_to_str(&v))),
                 Err(e) => Some(format!("{e:#}")),
             }
         };
-        let err = match self.module() {
+        let err = match self.ctx.module() {
             Some(module) => match module.func_index.get(claimed.as_str()).copied() {
                 Some(i) => run(&module.functions[i], module),
-                None => match self.try_lookup_function(&claimed) {
+                None => match self.ctx.loader().try_lookup_function(&claimed) {
                     Some(f) => run(f.as_ref(), module),
                     // 哨兵载荷指向一个不存在的函数 = 编译期与运行期失配，必须响，别静默放过。
                     None => Some(format!("static ctor `{claimed}` not found")),
@@ -355,7 +360,7 @@ impl crate::context::VmContext {
             None => Some("no module installed".to_string()),
         };
 
-        self.core.runtime.cctors.finish(&class_fq, err.clone());
+        self.ctx.core.runtime.cctors.finish(&class_fq, err.clone());
         // unify-static-init-into-cctor（7.3）：**只有成功才打快路标记**。失败的类型
         // 必须每次都回到慢路，才能命中 `claim` 的 `Failed` 分支重新抛出（C# 语义：
         // 失败是终态、后续每次访问都抛、永不重试）。置位了就再也抛不出来了。
@@ -377,7 +382,7 @@ impl crate::context::VmContext {
 /// 逐级回落（TypeInitializationException → Exception → 裸串）保证 stdlib 缺任一类时
 /// 仍能把错误传出去，而不是静默吞掉。
 pub fn make_type_init_exception(
-    vm: &crate::context::VmContext,
+    vm: &crate::vm::VmContext,
     module: &crate::metadata::Module,
     msg: &str,
 ) -> crate::object::Value {
@@ -390,4 +395,67 @@ pub fn make_type_init_exception(
         return e;
     }
     crate::object::Value::Str(msg.into())
+}
+
+impl Initialization<'_> {
+    /// **The static-field barrier** — package initializers, then the owner type's static constructor —
+    /// for an access to `field` (`field_id` = its resolved id, `None` = a site without one). The one
+    /// implementation: the interpreter and the JIT helper call it, and JIT-compiled code inlines its
+    /// first line (`jit::translate::static_field`).
+    ///
+    /// Steady state: the field's cell records the barrier epoch at which the barrier was last found
+    /// a no-op (`StaticCell::barrier_ready`) — one relaxed load of the epoch plus one acquire load of
+    /// the cell. Any event that can make a passing barrier act again (a static constructor or package
+    /// initializer registered, a package initializer failing, a re-run generation, an explicit module
+    /// (re)load) moves the epoch on, and the next access re-runs the full barrier.
+    #[inline]
+    pub fn ensure_static_field_init(&self, field: &str, field_id: Option<u32>) -> Result<(), String> {
+        let cell = field_id.and_then(|id| self.ctx.core.runtime.statics.cell(crate::metadata::ids::tokens::StaticFieldId(id)));
+        if let Some(c) = cell {
+            if c.barrier_ready(self.ctx.core.runtime.cctors.barrier_epoch()) {
+                return Ok(());
+            }
+        }
+        self.ensure_static_field_init_slow(field, field_id, cell)
+    }
+
+    #[inline(never)]
+    fn ensure_static_field_init_slow(
+        &self, field: &str, field_id: Option<u32>, cell: Option<&crate::metadata::statics::StaticCell>,
+    ) -> Result<(), String> {
+        // Read before the barrier runs (acquire: an invalidating event published before this epoch
+        // is visible below), so an event while it runs leaves the record stale instead of wrong.
+        let epoch = self.ctx.core.runtime.cctors.barrier_epoch_acquire();
+        // Reading / writing a cross-package static may have just loaded that package: package
+        // initializers run before the type initializer.
+        self.ensure_module_inits(Some(field))?;
+        self.ensure_static_owner_init(field, field_id)?;
+        if let Some(c) = cell {
+            if self.static_barrier_settled(c) {
+                c.mark_barrier_ready(epoch);
+            }
+        }
+        Ok(())
+    }
+
+    /// The barrier just passed for `cell`'s field and keeps passing, on every thread, until the epoch
+    /// moves: no package initializer left to run (one running on this thread re-entrantly passes but
+    /// is not settled), and no static constructor pending at all, or the owner is exempt, or its
+    /// initializer is done in the current generation (a re-entrant one passes but is not done).
+    fn static_barrier_settled(&self, cell: &crate::metadata::statics::StaticCell) -> bool {
+        use crate::metadata::statics::StaticOwner;
+        let cc = &self.ctx.core.runtime.cctors;
+        if cc.any_module_init_pending() {
+            return false;
+        }
+        if !cc.any_pending() {
+            return true;
+        }
+        match cell.owner() {
+            StaticOwner::Exempt => true,
+            StaticOwner::Check(td) => td.init_done_in(cc.generation()),
+            StaticOwner::Unknown => false,
+        }
+    }
+
 }

@@ -32,7 +32,7 @@ use crate::zpkg::{
 use crate::zpkg::CallNativeInsn;
 use crate::metadata::resolve::ResolvedTokens;
 use crate::metadata::ids::tokens::UNRESOLVED;
-use crate::context::VmContext;
+use crate::vm::VmContext;
 use anyhow::Result;
 
 use super::Frame;
@@ -399,5 +399,5 @@ pub fn exec_instr(
 /// resolved from the offset only when a stack trace is built.
 #[inline]
 fn stamp_call_site(ctx: &VmContext, func: &Function, block_idx: usize, instr_idx: usize) {
-    ctx.set_top_frame_pc(func.linear_offset(block_idx as u32, instr_idx as u32));
+    ctx.exec().set_top_frame_pc(func.linear_offset(block_idx as u32, instr_idx as u32));
 }

@@ -34,7 +34,7 @@ fn publish(ctx: &VmContext, td: &Arc<TypeDesc>) {
 
 fn reflection_cache_context() -> std::pin::Pin<Box<VmContext>> {
     let ctx = VmContext::new();
-    ctx.install_lazy_loader(None, 0);
+    ctx.loader().install_lazy_loader(None, 0);
     let shell = fields(
         bare_td("Std.Type"),
         &[
@@ -66,9 +66,9 @@ fn type_objects_survive_unrelated_loads_and_pending_initialization() {
     publish(&ctx, &td);
     let first = make_type_object(&ctx, td.clone());
     publish(&ctx, &declaration("Demo.Added"));
-    ctx.enqueue_type_load("Demo.Pending");
+    ctx.loader().enqueue_type_load("Demo.Pending");
     assert!(same_object(&first, &make_type_object(&ctx, td.clone())));
-    assert!(ctx.type_load_drain_is_noop(&[]));
+    assert!(ctx.loader().type_load_drain_is_noop(&[]));
     assert!(same_object(&first, &make_type_object(&ctx, td)));
 }
 
@@ -201,7 +201,7 @@ fn thread_type_lookup_cache_follows_same_id_publication() {
     let updated = Arc::new(updated);
     publish(&ctx, &updated);
     assert!(Arc::ptr_eq(
-        &ctx.try_lookup_type(&initial.name).unwrap(),
+        &ctx.loader().try_lookup_type(&initial.name).unwrap(),
         &updated
     ));
 }
@@ -288,7 +288,7 @@ fn metadata_update_invalidates_all_live_projection_objects() {
     }));
     publish(&ctx, &definition);
     let argument = declaration("Plugin.Argument");
-    let shell = ctx.try_lookup_type("Std.Type").unwrap();
+    let shell = ctx.loader().try_lookup_type("Std.Type").unwrap();
     let make_argument = || {
         ctx.heap().alloc_object(
             shell.clone(),

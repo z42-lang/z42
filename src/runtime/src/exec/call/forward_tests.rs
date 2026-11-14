@@ -14,7 +14,7 @@ use crate::metadata::ids::tokens::TypeId;
 use crate::zpkg::ir::ExecMode;
 use crate::object::{FieldSlot, TypeDesc};
 use crate::object::Value;
-use crate::context::VmContext;
+use crate::vm::VmContext;
 use crate::exec::call::outcome::ExecOutcome;
 
 fn func(name: &str, params: usize, instructions: Vec<Instruction>, terminator: Terminator) -> Function {

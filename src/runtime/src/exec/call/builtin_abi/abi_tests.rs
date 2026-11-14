@@ -32,7 +32,7 @@ use crate::metadata::ids::tokens::TypeId;
 use crate::object::{FieldSlot, TypeDesc};
 use crate::metadata::Module;
 use crate::object::Value;
-use crate::context::VmContext;
+use crate::vm::VmContext;
 use std::sync::Arc;
 
 fn s(t: &str) -> Value { Value::Str(t.into()) }
@@ -146,13 +146,13 @@ fn ref_arguments_are_stored_through() {
     let ctx = VmContext::new();
     // A `ref` to slot 0 of a frame on the stack (what `LoadLocalAddr` makes).
     let target: Vec<Value> = vec![Value::I64(0)];
-    ctx.push_frame(crate::exec::call::frames::VmFrame::new(std::ptr::null(), &target));
-    let frame_id = ctx.next_frame_id();
-    let h = ctx.transient_alloc(frame_id, TransientPayload::Ref(RefKind::Stack { frame_idx: 0, slot: 0 }));
+    ctx.exec().push_frame(&ctx, crate::exec::call::frames::VmFrame::new(std::ptr::null(), &target));
+    let frame_id = ctx.exec().next_frame_id();
+    let h = ctx.exec().transient_alloc(frame_id, TransientPayload::Ref(RefKind::Stack { frame_idx: 0, slot: 0 }));
     let r = Value::Ref { idx: h, frame_id };
     assert_eq!(call_regs(&ctx, "__test_abi_store", None, &[r, Value::I64(7)], &[0, 1]).unwrap(), None);
     assert_eq!(target[0], Value::I64(7));
-    ctx.pop_frame();
+    ctx.exec().pop_frame();
     // A plain value where the location would be (reflection passes values): the store
     // goes nowhere, no error.
     assert_eq!(call_regs(&ctx, "__test_abi_store", None, &[Value::I64(0), Value::I64(7)], &[0, 1]).unwrap(), None);

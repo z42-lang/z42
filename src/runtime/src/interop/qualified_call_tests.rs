@@ -1,5 +1,5 @@
 //! Qualified dispatch across independent modules and real interpreter/JIT frames.
-use crate::{context::VmContext, metadata::{Function, Module}, object::Value};
+use crate::{vm::VmContext, metadata::{Function, Module}, object::Value};
 use crate::exec::call::{builtins::invoke_module, builtin_abi::BuiltinError};
 use z42_abi::module as abi;
 use z42_rs::module::{self as sdk, Value as NativeValue};

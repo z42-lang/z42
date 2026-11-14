@@ -1,5 +1,5 @@
 use super::{program_args, set_program_args};
-use crate::context::VmContext;
+use crate::vm::VmContext;
 
 #[test]
 fn application_arguments_share_with_workers_and_isolate_other_vms() {

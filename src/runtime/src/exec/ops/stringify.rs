@@ -2,7 +2,7 @@
 
 use crate::metadata::Module;
 use crate::object::Value;
-use crate::context::VmContext;
+use crate::vm::VmContext;
 use anyhow::Result;
 
 // ── ToString protocol ────────────────────────────────────────────────────────

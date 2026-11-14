@@ -14,7 +14,7 @@
 use crate::zpkg::index::type_param_markers::{self, Marker};
 use crate::object::TypeArgs;
 use crate::object::Value;
-use crate::context::VmContext;
+use crate::vm::VmContext;
 
 /// Read a method parameter as a reflection Type. Missing arguments retain the
 /// synthetic T used by older bytecode.
@@ -186,7 +186,7 @@ fn inherited_type_arg(
             let targs = crate::object::type_args_from_name(&cur);
             return targs.get(idx).cloned();
         }
-        let td = ctx.try_lookup_type(&cur)?;
+        let td = ctx.loader().try_lookup_type(&cur)?;
         cur = td.base_name.clone()?;
     }
     None

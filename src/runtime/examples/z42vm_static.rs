@@ -1,4 +1,4 @@
-#[path = "../src/main.rs"]
+#[path = "../src/main_startup.rs"]
 mod executable;
 // Static embedding reference using the same executable host implementation.
 #[cfg(all(feature = "mimalloc-alloc", not(feature = "dhat-heap")))]

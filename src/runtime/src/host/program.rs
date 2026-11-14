@@ -3,7 +3,7 @@ use crate::{
     zpkg::ExecMode,
     object::Value,
     pal::fs::Vfs,
-    context::VmContext, exec::call::outcome::ExecOutcome, metadata::Module,
+    vm::VmContext, exec::call::outcome::ExecOutcome, metadata::Module,
 };
 use anyhow::{anyhow, bail, Result};
 use std::{
@@ -138,9 +138,9 @@ impl LoadedProgram {
             args.iter().map(|v| ctx.heap().pin_root(*v)).collect(),
         );
         let initialized = self.initialized.get_or_init(|| {
-            ctx.static_fields_clear();
-            ctx.drain_pending_type_loads();
-            match ctx.take_static_init_error() {
+            ctx.statics().clear_for_rerun();
+            ctx.loader().drain_pending_type_loads();
+            match ctx.loader().take_static_init_error() {
                 Some(e) => Err(e),
                 None => Ok(()),
             }
@@ -159,7 +159,7 @@ impl LoadedProgram {
             );
         }
         let outcome = outcome?;
-        if let Some(error) = ctx.take_static_init_error() {
+        if let Some(error) = ctx.loader().take_static_init_error() {
             bail!("uncaught exception during static initialization: {error}");
         }
         match outcome {

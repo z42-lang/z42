@@ -85,7 +85,7 @@ pub mod typed {
     use crate::exec::call::builtin_abi::{Blocking, BuiltinError};
     use crate::object::NativeData;
     use crate::object::Value;
-    use crate::context::VmContext;
+    use crate::vm::VmContext;
     use std::sync::Arc;
 
     /// `MonitorNative.New() -> object` —— 不透明句柄，原生状态在 `NativeData::Monitor`。

@@ -1,7 +1,7 @@
 //! Shared Rust host services and C embedding adapters.
 use crate::components::abi::*;
 pub use crate::components::api::{ComponentOptions, ComponentLease, component_interface, component_ids};
-pub use crate::{object::Value, pal::fs::Vfs, context::{VmContext, VmCore}, metadata::Module};
+pub use crate::{object::Value, pal::fs::Vfs, vm::{VmContext, VmCore}, metadata::Module};
 pub mod config;
 pub mod resolver;
 pub(crate) mod program;
@@ -33,7 +33,7 @@ pub(crate) use app::report_on_exit;
 pub use artifact::{load_artifact, load_artifact_from_bytes, build_block_indices, fold_availability};
 pub use crate::components::api::{BackendOptions, BackendSource};
 
-pub use crate::context::extensions::VmExtensions;
+pub use crate::vm::VmExtensions;
 
 pub use z42_abi::{Z42Value, Z42_VALUE_TAG_I64};
 

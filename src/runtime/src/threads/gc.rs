@@ -1,7 +1,7 @@
 //! Pause adaptation for the collecting mutator. The guard borrows its context.
 use super::safepoint::{request_gc_pause, GcPauseGuard};
 use crate::gc::to_vm::{GcPause, GcToVm};
-use crate::context::VmContext;
+use crate::vm::VmContext;
 
 impl GcPause for GcPauseGuard<'_> {}
 // SAFETY: the existing pause guard coordinates every registered mutator.

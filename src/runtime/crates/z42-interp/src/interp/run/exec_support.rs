@@ -8,7 +8,7 @@ use crate::{
     zpkg::{BranchTargets, Terminator},
     object::Value,
 };
-use crate::context::VmContext;
+use crate::vm::VmContext;
 use anyhow::{bail, Context, Result};
 use std::collections::HashMap;
 
@@ -24,7 +24,7 @@ pub(super) struct FrameGuard<'a> {
 }
 impl Drop for FrameGuard<'_> {
     fn drop(&mut self) {
-        self.ctx.pop_frame();
+        self.ctx.exec().pop_frame();
         // SAFETY: `regs` points into the live `Frame` (see the field); nothing
         // else borrows it while the guard drops. The frame keeps an empty Vec.
         let regs = std::mem::take(unsafe { &mut *self.regs });
@@ -48,7 +48,7 @@ impl Drop for FrameGuard<'_> {
 /// the Rust call stack, and `func` is borrowed by the caller for the whole
 /// activation — both outlive the guard.
 pub(super) fn enter_frame<'a>(ctx: &'a VmContext, func: &Function, frame: &mut Frame) -> Result<FrameGuard<'a>> {
-    ctx.push_frame(crate::exec::call::frames::VmFrame::new(
+    ctx.exec().push_frame(&ctx, crate::exec::call::frames::VmFrame::new(
         func as *const Function,
         &frame.regs as *const Vec<Value>,
     ));
@@ -138,7 +138,7 @@ pub(crate) fn exec_function_with_type_args(
 /// `ExecOutcome`, mirroring `try_native_static_call`.
 #[cfg(feature = "jit")]
 pub(super) fn try_native_exec(ctx: &VmContext, func: &Function, args: &[Value], method_type_args: &[String]) -> Option<Result<ExecOutcome>> {
-    let tier = ctx.tier()?;
+    let tier = ctx.exec().tier(&ctx.core().exec().engines)?;
     if args.iter().any(|a| matches!(a, Value::Ref { .. })) { return None; }
     tier.invoke(ctx, crate::exec::engine::TierTarget::Existing(func),
         crate::exec::call::args::CallArgs::Values(args), method_type_args)
@@ -169,7 +169,7 @@ pub(super) fn try_native_exec(_ctx: &VmContext, _func: &Function, _args: &[Value
 pub(super) fn try_osr(ctx: &VmContext, frame: &mut Frame, func: &Function, loop_header: usize)
     -> Option<Result<ExecOutcome>>
 {
-    let tier = ctx.tier()?;
+    let tier = ctx.exec().tier(&ctx.core().exec().engines)?;
     frame.back_edge_count = frame.back_edge_count.wrapping_add(1);
     if frame.back_edge_count != tier.osr_threshold { return None; }
     tier.osr(ctx, func, loop_header, crate::exec::engine::OsrState {
@@ -231,13 +231,13 @@ pub(crate) fn exec_function_from_receiver_regs(
 pub(super) fn fire_exception_thrown(ctx: &VmContext, module: &crate::metadata::Module, val: &crate::object::Value) {
     use std::sync::atomic::Ordering;
     ctx.counters().exceptions_thrown.fetch_add(1, Ordering::Relaxed);
-    if !ctx.has_runtime_observers() { return; }
+    if !ctx.core().diagnostics().runtime_observers.has_observers() { return; }
     let (class, mut message) = exception_class_and_message(ctx, val, module);
     if message.len() > 256 {
         message.truncate(256);
         message.push_str("…");
     }
-    ctx.fire_runtime_event(&crate::diagnostics::observer::RuntimeEvent::ExceptionThrown { class, message });
+    ctx.core().diagnostics().runtime_observers.fire(&crate::diagnostics::observer::RuntimeEvent::ExceptionThrown { class, message });
 }
 
 /// Phase 2 D3+D6 sibling: increment `exceptions_caught` + fire
@@ -249,9 +249,9 @@ pub(super) fn fire_exception_caught(
 ) {
     use std::sync::atomic::Ordering;
     ctx.counters().exceptions_caught.fetch_add(1, Ordering::Relaxed);
-    if !ctx.has_runtime_observers() { return; }
+    if !ctx.core().diagnostics().runtime_observers.has_observers() { return; }
     let (class, _) = exception_class_and_message(ctx, val, module);
-    ctx.fire_runtime_event(&crate::diagnostics::observer::RuntimeEvent::ExceptionCaught { class, frames_unwound });
+    ctx.core().diagnostics().runtime_observers.fire(&crate::diagnostics::observer::RuntimeEvent::ExceptionCaught { class, frames_unwound });
 }
 
 pub(super) fn exception_class_and_message(

@@ -1,7 +1,6 @@
 // Desktop runtime component build and installation, shared by SDK and runtime packages.
 namespace Z42Xtask;
 using Std.IO;
-using Std.Toml;
 using Std.Cli;
 
 string _componentBuildDir(string root) { return Path.Join(_buildMirror(root, Path.Join(root, "src/runtime")), "components"); }
@@ -144,18 +143,10 @@ void _componentInstallLibraries(string cargo, string pkg, bool importLibs = fals
     _componentCopyStagedStd(cargo, Path.Join(pkg, "native"));
 }
 
-// Current Rust main links the dynamic Core directly. Only Windows needs a
-// separate process entry beside bin/: the actual main stays with the DLL closure.
-// Older trees keep their original C-entry launcher recipe for baseline builds.
-// Keep its static-std graph separate so flags cannot overwrite the dynamic Core.
-bool _componentDirectHostMain(string root) {
-    TomlValue manifest = TomlValue.Parse(File.ReadAllText(Path.Join(root, "src/runtime/Cargo.toml")));
-    return manifest.ContainsKey("features") && manifest.Get("features").ContainsKey("windows-launcher");
-}
+// Build the single process entry with static std; Core remains dynamically loaded.
 string _componentLauncherDir(string root) { return Path.Join(_componentBuildDir(root), "launcher"); }
 string _componentLauncherOut(string root, string profile) { return Path.Join(_componentLauncherDir(root), profile); }
 int _componentBuildLauncher(string root, string profile) {
-    if (_componentDirectHostMain(root) && !Platform.IsWindows()) { return 0; }
     if (_componentAliasTree(root)) {
         Process a = _componentAliasProc(root, "z42-launcher")
             .Arg("--target-dir").Arg(_componentLauncherDir(root));
@@ -165,8 +156,8 @@ int _componentBuildLauncher(string root, string profile) {
     Process p = _cargoCmd("build", _runtimeCargoConfig()).WorkingDirectory(root).Arg("--locked")
         .Arg("--manifest-path").Arg(_runtimeManifest())
         .Arg("--target-dir").Arg(_componentLauncherDir(root))
-        .Arg("-p").Arg("z42").Arg("--bin").Arg(_componentDirectHostMain(root) ? "z42vm-windows-launcher" : "z42vm")
-        .Arg("--no-default-features").Arg("--features").Arg(_componentDirectHostMain(root) ? "z42/windows-launcher" : "z42/cli,z42/component-loading")
+        .Arg("-p").Arg("z42").Arg("--bin").Arg("z42vm")
+        .Arg("--no-default-features").Arg("--features").Arg("z42/component-loading")
         .EnvRemove("CARGO_ENCODED_RUSTFLAGS");
     // 静态 std 启动器；macOS 预留 load-command 余量，否则打包期 install_name_tool
     // -add_rpath 报 "larger updated load commands do not fit"。

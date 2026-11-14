@@ -1,7 +1,7 @@
 //! Engine-neutral struct allocation, copying and checked symbolic field access.
 use crate::object as ty;
 use crate::object::{Value, StructTypeLayout};
-use crate::context::VmContext;
+use crate::vm::VmContext;
 use crate::objops::struct_leaf::as_struct_ref;
 use anyhow::Result;
 use std::sync::Arc;
@@ -11,14 +11,14 @@ pub fn struct_alloc_val(
     ctx: &VmContext, frame_id: u32, type_name: &str, size: u32,
 ) -> Value {
     let layout = resolve_layout(ctx, type_name, size);
-    let idx = ctx.struct_alloc(frame_id, Arc::from(type_name), layout);
+    let idx = ctx.exec().struct_alloc(frame_id, Arc::from(type_name), layout);
     Value::StructRef { idx, frame_id }
 }
 
 
 /// Use the loaded struct layout, or the existing size-only native fallback.
 pub(crate) fn resolve_layout(ctx: &VmContext, type_name: &str, size: u32) -> Arc<StructTypeLayout> {
-    if let Some(td) = ctx.try_lookup_type(type_name) {
+    if let Some(td) = ctx.loader().try_lookup_type(type_name) {
         if let Some(layout) = td.struct_layout() {
             return layout;
         }
@@ -43,7 +43,7 @@ pub fn unbox_struct(
     // independent of the box).
     let (type_name, bytes, refs) = crate::objops::struct_leaf::snapshot_box(gc);
     let layout = resolve_layout(ctx, &type_name, bytes.len() as u32);
-    let idx = ctx.struct_alloc(frame_id, type_name, layout);
+    let idx = ctx.exec().struct_alloc(frame_id, type_name, layout);
     ctx.exec.struct_arena.lock().with_mut(idx, frame_id, |s| {
         let n = bytes.len().min(s.bytes.len());
         s.bytes[..n].copy_from_slice(&bytes[..n]);
@@ -57,7 +57,7 @@ pub fn unbox_struct(
 /// Snapshot a struct array element into current-frame storage by value.
 pub fn copy_array_elem_out(ctx: &VmContext, frame_id: u32, e: &ty::StructArrayElem) -> Result<Value> {
     let (src_bytes, src_refs, layout, tname) = crate::objops::struct_leaf::snapshot_elem(e)?;
-    let idx = ctx.struct_alloc(frame_id, tname, layout);
+    let idx = ctx.exec().struct_alloc(frame_id, tname, layout);
     ctx.exec.struct_arena.lock().with_mut(idx, frame_id, |s| {
         let n = src_bytes.len().min(s.bytes.len());
         s.bytes[..n].copy_from_slice(&src_bytes[..n]);
@@ -81,7 +81,7 @@ pub fn struct_copy_val(
 /// Resolve a declared field spelling as-is, then under the owner namespace.
 fn qualify_field_type(ctx: &VmContext, tag: &str, owner_fq: &str) -> Option<std::sync::Arc<str>> {
     // 已经能直接查到（本来就是 FQ、或是基元）⇒ 原样。
-    if ctx.try_lookup_type(tag).is_some() {
+    if ctx.loader().try_lookup_type(tag).is_some() {
         return Some(tag.into());
     }
     // ⚠️ 声明拼写里的**空白**：`Loc<P2, long>`（逗号后有空格）对应的注册表键是
@@ -93,7 +93,7 @@ fn qualify_field_type(ctx: &VmContext, tag: &str, owner_fq: &str) -> Option<std:
         std::borrow::Cow::Borrowed(tag)
     };
     let tag: &str = &tag;
-    if ctx.try_lookup_type(tag).is_some() {
+    if ctx.loader().try_lookup_type(tag).is_some() {
         return Some(tag.into());
     }
     // owner 的命名空间 = 其**基名**（去掉泛型实参）里最后一个 `.` 之前的部分。
@@ -103,7 +103,7 @@ fn qualify_field_type(ctx: &VmContext, tag: &str, owner_fq: &str) -> Option<std:
     // 只限定基名：`Pair<int,long>` → `Demo.Pair<int,long>`。
     let tag_base_end = tag.find('<').unwrap_or(tag.len());
     let candidate = format!("{ns}.{}{}", &tag[..tag_base_end], &tag[tag_base_end..]);
-    ctx.try_lookup_type(&candidate).map(|_| candidate.as_str().into())
+    ctx.loader().try_lookup_type(&candidate).map(|_| candidate.as_str().into())
 }
 
 
@@ -113,7 +113,7 @@ pub fn resolve_field_path(ctx: &VmContext, root_type: &str, path: &[u16]) -> Res
     let mut off: u32 = 0;
     let mut cur: std::sync::Arc<str> = root_type.into();
     for (level, &idx) in path.iter().enumerate() {
-        let td = ctx.try_lookup_type(&cur).ok_or_else(|| {
+        let td = ctx.loader().try_lookup_type(&cur).ok_or_else(|| {
             anyhow::anyhow!(
                 "struct field path: type `{cur}` (level {level} of `{root_type}`) is not loaded"
             )
@@ -168,7 +168,7 @@ pub fn resolve_field_path(ctx: &VmContext, root_type: &str, path: &[u16]) -> Res
 
 /// Reject a class/blob offset-space mismatch before calculating an offset.
 pub(crate) fn check_base_space(ctx: &VmContext, root_type: &str, base_val: &Value, who: &str) -> Result<()> {
-    let root_is_struct = match ctx.try_lookup_type(root_type) {
+    let root_is_struct = match ctx.loader().try_lookup_type(root_type) {
         Some(td) => td.is_struct(),
         // 类型还没加载：路径解析那一步会给出更准确的诊断，这里不抢着报。
         None => return Ok(()),

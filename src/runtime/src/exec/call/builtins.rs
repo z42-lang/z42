@@ -1,6 +1,6 @@
 //! Builtin invocation owns argument views, counters, typed faults and void handling.
 use super::builtin_abi as abi;
-use crate::{object::Value, context::VmContext};
+use crate::{object::Value, vm::VmContext};
 use anyhow::Result;
 
 /// Native module calls supplied by interop, independent of any concrete provider.
@@ -18,8 +18,8 @@ pub fn invoke_module(
     ctx: &VmContext, provider: &str, name: &str, regs: &[Value], args: &[u32],
 ) -> abi::CallResult {
     ctx.counters().native_calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    if ctx.has_runtime_observers() {
-        ctx.fire_runtime_event(&crate::diagnostics::observer::RuntimeEvent::NativeCallEntered {
+    if ctx.core().diagnostics().runtime_observers.has_observers() {
+        ctx.core().diagnostics().runtime_observers.fire(&crate::diagnostics::observer::RuntimeEvent::NativeCallEntered {
             module: provider.to_owned(), symbol: name.to_owned(),
         });
     }

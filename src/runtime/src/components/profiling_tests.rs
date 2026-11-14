@@ -1,5 +1,5 @@
 use crate::components::abi;
-use crate::{components::api::BackendSource, context::VmContext, host};
+use crate::{components::api::BackendSource, vm::VmContext, host};
 
 #[test]
 fn unused_profiler_has_no_backend_and_disabled_source_fails_on_demand() {

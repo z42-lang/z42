@@ -9,7 +9,7 @@ use crate::metadata::ids::tokens::FnId;
 use crate::zpkg::ir::ExecMode;
 use crate::object::string::vstr::Str;
 use crate::object::Value;
-use crate::context::VmContext;
+use crate::vm::VmContext;
 
 /// `string F() { return <pool[idx]>; }`
 fn const_str_fn(name: &str, idx: u32) -> Function {
@@ -87,7 +87,7 @@ fn same(a: Str, b: Str) -> bool {
 /// Entry module with pool `["e0", "e1"]` and `Entry.F$0` returning `"e1"`, loader installed.
 fn entry_ctx() -> std::pin::Pin<Box<VmContext>> {
     let ctx = VmContext::with_module(module("Entry", &["e0", "e1"], vec![const_str_fn("Entry.F$0", 1)]));
-    ctx.install_lazy_loader(None, 2);
+    ctx.loader().install_lazy_loader(None, 2);
     ctx
 }
 
@@ -98,8 +98,8 @@ fn package_pools_are_appended_and_operands_shifted_into_the_vm_id_space() {
     register(&ctx, package("P2", &["c"], vec![const_str_fn("P2.F$0", 0)]));
     let strings = &ctx.core.runtime.strings;
     assert_eq!(strings.len(), 5, "entry 2 + P1 2 + P2 1");
-    let p1 = ctx.try_lookup_function("P1.F$0").expect("registered");
-    let p2 = ctx.try_lookup_function("P2.F$0").expect("registered");
+    let p1 = ctx.loader().try_lookup_function("P1.F$0").expect("registered");
+    let p2 = ctx.loader().try_lookup_function("P2.F$0").expect("registered");
     assert_eq!(const_operand(&p1), 3);
     assert_eq!(const_operand(&p2), 4);
     assert_eq!(strings.text(3), Some("b"));
@@ -110,7 +110,7 @@ fn package_pools_are_appended_and_operands_shifted_into_the_vm_id_space() {
 fn lazy_and_entry_literals_are_interned_once_and_then_hit() {
     let ctx = entry_ctx();
     register(&ctx, package("P1", &["a", "b"], vec![const_str_fn("P1.F$0", 1)]));
-    let lazy = ctx.try_lookup_function("P1.F$0").expect("registered");
+    let lazy = ctx.loader().try_lookup_function("P1.F$0").expect("registered");
     let entry_fn = &ctx.module().expect("entry").functions[0];
 
     let l1 = run(&ctx, &lazy);
@@ -129,12 +129,12 @@ fn lazy_and_entry_literals_are_interned_once_and_then_hit() {
 fn reinstalling_the_loader_never_reuses_string_ids() {
     let ctx = entry_ctx();
     register(&ctx, package("P1", &["a", "b"], vec![const_str_fn("P1.F$0", 1)]));
-    let old = ctx.try_lookup_function("P1.F$0").expect("registered");
+    let old = ctx.loader().try_lookup_function("P1.F$0").expect("registered");
     assert_eq!(old.id.get(), Some(FnId(1)));
 
-    ctx.install_lazy_loader(None, 2);
+    ctx.loader().install_lazy_loader(None, 2);
     register(&ctx, package("P2", &["x", "y"], vec![const_str_fn("P2.F$0", 1)]));
-    let new = ctx.try_lookup_function("P2.F$0").expect("registered");
+    let new = ctx.loader().try_lookup_function("P2.F$0").expect("registered");
     assert_eq!(const_operand(&new), 5, "the new loader numbers after the old one's ids");
     assert_eq!(run(&ctx, &old).as_str(), "b", "an old function still reads its own literal");
     assert_eq!(run(&ctx, &new).as_str(), "y");
@@ -146,13 +146,13 @@ fn interned_literals_survive_a_collection() {
     let entry = Arc::clone(ctx.module().expect("entry"));
     let heap = ctx.heap();
     heap.set_mode(crate::gc::GcMode::StwMarkSweep);
-    let kept = ctx.const_str(&entry, 0).expect("in range");
+    let kept = crate::exec::ops::const_string::load(&ctx, &entry, 0).expect("in range");
     let dropped = heap.alloc_str("dropped"); // control: held by nothing the GC sees
     heap.force_collect();
     assert!(!dropped.var_ref().is_live(), "control: an unrooted string is swept");
     assert!(kept.var_ref().is_live(), "the string table roots its interned strings");
     assert_eq!(kept.as_str(), "kept");
-    assert!(same(ctx.const_str(&entry, 0).expect("in range"), kept));
+    assert!(same(crate::exec::ops::const_string::load(&ctx, &entry, 0).expect("in range"), kept));
 }
 
 #[test]
@@ -162,10 +162,10 @@ fn threads_of_one_vm_share_a_literal_and_two_vms_do_not() {
     let b = VmContext::with_module(module("Entry", &["lit"], vec![]));
     let (ma, mb) = (Arc::clone(a.module().expect("entry")), Arc::clone(b.module().expect("entry")));
 
-    let sa = a.const_str(&ma, 0).expect("in range");
-    let sa2 = a2.const_str(&ma, 0).expect("in range");
+    let sa = crate::exec::ops::const_string::load(&a, &ma, 0).expect("in range");
+    let sa2 = crate::exec::ops::const_string::load(&a2, &ma, 0).expect("in range");
     assert!(same(sa, sa2), "one interned string per VM");
-    let sb = b.const_str(&mb, 0).expect("in range");
+    let sb = crate::exec::ops::const_string::load(&b, &mb, 0).expect("in range");
     assert!(!same(sa, sb), "a VM interns into its own heap");
     assert_eq!(sb.as_str(), "lit");
     assert_eq!(a.core.runtime.strings.interned_count(), 1);
@@ -177,18 +177,18 @@ fn threads_of_one_vm_share_a_literal_and_two_vms_do_not() {
 #[test]
 fn a_module_other_than_the_entry_reads_its_own_pool_uncached() {
     let ctx = VmContext::new();
-    ctx.install_lazy_loader(None, 1);
+    ctx.loader().install_lazy_loader(None, 1);
     let foreign = module("Foreign", &["own"], vec![]);
-    let s1 = ctx.const_str(&foreign, 0).expect("in its pool");
-    let s2 = ctx.const_str(&foreign, 0).expect("in its pool");
+    let s1 = crate::exec::ops::const_string::load(&ctx, &foreign, 0).expect("in its pool");
+    let s2 = crate::exec::ops::const_string::load(&ctx, &foreign, 0).expect("in its pool");
     assert_eq!(s1.as_str(), "own");
     assert!(!same(s1, s2), "no cache key for a foreign module's own pool");
     assert_eq!(ctx.core.runtime.strings.interned_count(), 0);
 
     // Past its pool: a lazily loaded package's id, interned in the table.
     register(&ctx, package("P1", &["pkg"], vec![]));
-    let p1 = ctx.const_str(&foreign, 1).expect("package id");
+    let p1 = crate::exec::ops::const_string::load(&ctx, &foreign, 1).expect("package id");
     assert_eq!(p1.as_str(), "pkg");
-    assert!(same(p1, ctx.const_str(&foreign, 1).expect("package id")));
-    assert!(ctx.const_str(&foreign, 2).is_none());
+    assert!(same(p1, crate::exec::ops::const_string::load(&ctx, &foreign, 1).expect("package id")));
+    assert!(crate::exec::ops::const_string::load(&ctx, &foreign, 2).is_none());
 }

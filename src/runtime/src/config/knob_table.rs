@@ -24,7 +24,7 @@ const GC_MODES: &[&str] = &[
 ];
 
 /// `Z42_MODE` 的合法取值。jit / aot 的**逐值** feature 门控由
-/// `main.rs::resolve_config_mode` 负责（interp 在任何 build 都可用），
+/// `main_command.rs::resolve_config_mode` 负责（interp 在任何 build 都可用），
 /// 故本旋钮的 `requires` 为空——见 design.md Decision 2 的例外说明。
 const EXEC_MODES: &[&str] = &["interp", "jit", "aot"];
 
@@ -64,7 +64,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         value: ValueKind::Path,
         description: "directory for panic + signal crash report files",
         default_hint: "unset; reports go to stderr only",
-        consumed_by: "main.rs (panic hook) + host/signal.rs",
+        consumed_by: "main_startup.rs (panic hook) + host/signal.rs",
         ..PUBLIC
     },
     KnobSpec {
@@ -101,7 +101,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         value: ValueKind::Str,
         description: "block-footprint threshold above which a variable-length GC block gets its own exactly-sized chunk (whose memory goes straight back to the allocator when the block dies). Capped at the 64 KB bump-chunk size",
         default_hint: "unset; defaults to 64K (the bump-chunk size, which is also the ceiling)",
-        consumed_by: "gc/var_region/chunk.rs (class_for), applied once in context/core_builder.rs",
+        consumed_by: "gc/var_region/chunk.rs (class_for), applied once in vm.rs",
         ..TUNING
     },
     KnobSpec {
@@ -111,7 +111,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         value: ValueKind::Str,
         description: "soft heap cap: squeezes the collection allowance and adds a near-limit trip. NOT the arming switch since arm-gc-by-default — the collector's thresholds are relative and it runs without one. Accepts a byte count or a K/KB/M/MB/G/GB suffix (512MB, 2G)",
         default_hint: "unset; no cap (the collector still runs, on relative-growth thresholds)",
-        consumed_by: "context/core_builder.rs (set_max_heap_bytes) → gc/heap/alloc.rs",
+        consumed_by: "vm.rs (set_max_heap_bytes) → gc/heap/alloc.rs",
         ..PUBLIC
     },
     KnobSpec {
@@ -229,7 +229,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         value: ValueKind::Bool,
         description: "print one stderr line per collection (kind, heap used before/after, bytes reclaimed, pause ms) plus near-limit / over-budget edges",
         default_hint: "unset; off. No observer installed when off (zero cost)",
-        consumed_by: "gc/trace.rs, installed by context/core_builder.rs",
+        consumed_by: "gc/trace.rs, installed by vm.rs",
         ..PUBLIC
     },
     KnobSpec {
@@ -399,6 +399,15 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         ..DEBUG_KNOB
     },
     KnobSpec {
+        name: "Z42_RUNTIME_LIBRARY",
+        value: ValueKind::Path,
+        sources: LayerMask::ENV_ONLY,
+        description: "explicit Core image loaded by the process entry before runtime configuration; missing or incompatible images fail without fallback",
+        default_hint: "unset; executable-relative native/ or colocated Core",
+        consumed_by: "main.rs (before Core is loaded)",
+        ..META
+    },
+    KnobSpec {
         name: "Z42_SAFEPOINT_THROTTLE",
         toml_key: "safepoint-throttle",
         value: ValueKind::Int { min: 1, max: u32::MAX as i64 },
@@ -414,7 +423,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         platforms: NOT_WASM,
         description: "safepoint sampling-profiler frequency (Hz); any value ≥1 turns z42-level CPU sampling on",
         default_hint: "unset; sampling off (zero-cost — no background thread, hot path unchanged)",
-        consumed_by: "profiler/cpu.rs (via context/mod.rs)",
+        consumed_by: "profiler/cpu.rs (via vm.rs)",
         ..PUBLIC
     },
     KnobSpec {

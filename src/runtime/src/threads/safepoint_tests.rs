@@ -3,7 +3,7 @@
 //! `runtime/tests/cross_thread_smoke.rs::gc_collect_with_concurrent_mutators_no_race`.
 
 use super::*;
-use crate::context::VmContext;
+use crate::vm::VmContext;
 use std::sync::atomic::Ordering;
 
 #[test]
@@ -580,7 +580,7 @@ fn an_auto_collect_request_survives_a_lost_collector_race() {
 
     // Another collector holds the role (phase stays Idle, so the loser's park returns at once).
     ctx.core.threads.collector_active.store(true, Ordering::Release);
-    ctx.force_safepoint();
+    ctx.threads().force_safepoint();
     check_safepoint(&ctx);
     assert!(ctx.core.threads.needs_auto_collect.load(Ordering::Acquire),
         "the request must survive a safepoint that could not act on it");
@@ -588,7 +588,7 @@ fn an_auto_collect_request_survives_a_lost_collector_race() {
 
     // The role is free again: the next slow path collects, and only then is the request cleared.
     ctx.core.threads.collector_active.store(false, Ordering::Release);
-    ctx.force_safepoint();
+    ctx.threads().force_safepoint();
     check_safepoint(&ctx);
     assert!(!ctx.core.threads.needs_auto_collect.load(Ordering::Acquire));
     assert_eq!(ctx.heap().stats().gc_cycles, cycles_before + 1);
@@ -625,7 +625,7 @@ fn a_pause_request_sends_every_mutator_to_the_slow_path_at_its_next_check() {
     };
     // Park regardless, so the collector is released even when the assertion below fails.
     if !poked {
-        mutator.force_safepoint();
+        mutator.threads().force_safepoint();
     }
     check_safepoint(&mutator);
     collector.join().expect("collector panicked");

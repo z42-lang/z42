@@ -10,7 +10,7 @@ use crate::metadata::dispatch::ic::ObjNewSite;
 use crate::object::Value;
 
 use crate::jit::runtime::frame::JitFrame;
-use crate::context::VmContext;
+use crate::vm::VmContext;
 use crate::jit::runtime::invoke::{call_entry, NativeOutcome};
 use super::{set_exception, vm_ctx_ref};
 
@@ -54,11 +54,11 @@ pub unsafe extern "C" fn jit_obj_new(
     };
     // add-static-constructors：创建实例是 C# 的类型初始化触发点之一。TypeDesc 已在手 →
     // 一次 `Option` 判断即可。add-module-init-hook：包级初始化先于类型初始化。与 interp 对称。
-    if let Err(msg) = vm.ensure_module_inits(Some(type_desc.name.as_str())) {
+    if let Err(msg) = vm.initialization().ensure_module_inits(Some(type_desc.name.as_str())) {
         set_exception(vm, crate::exec::init::make_type_init_exception(vm, module, &msg));
         return 1;
     }
-    if let Err(msg) = vm.ensure_type_init(&type_desc) {
+    if let Err(msg) = vm.initialization().ensure_type_init(&type_desc) {
         set_exception(vm, crate::exec::init::make_type_init_exception(vm, module, &msg));
         return 1;
     }

@@ -21,7 +21,7 @@ use crate::object::{
     STRUCT_REF_GCREF, TAG_OBJECT,
 };
 use crate::object::Value;
-use crate::context::VmContext;
+use crate::vm::VmContext;
 use std::pin::Pin;
 use std::sync::Arc;
 

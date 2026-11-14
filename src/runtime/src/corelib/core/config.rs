@@ -20,7 +20,7 @@
 
 use crate::config::{is_available, knob_by_key, runtime_config, BuildCtx, KNOWN_KNOBS};
 use crate::object::Value;
-use crate::context::VmContext;
+use crate::vm::VmContext;
 
 /// 旋钮的对外 key：普通旋钮是 `toml_key`，元旋钮没有 key 形式，用 env 名。
 fn public_key(spec: &crate::config::KnobSpec) -> &'static str {

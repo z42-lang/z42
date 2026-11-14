@@ -1,7 +1,7 @@
 //! VM-owned root enumeration; caller holds a GC pause.
 use crate::gc::{to_vm::GcRoots, walk::RootKind};
 use crate::object::Value;
-use crate::context::{VmContext, VmCore};
+use crate::vm::{VmContext, VmCore};
 use std::sync::Weak;
 
 pub struct CoreRoots(pub Weak<VmCore>);
@@ -63,7 +63,7 @@ fn scan_roots(c: &VmCore, visit: &mut (impl FnMut(&Value, RootKind) + ?Sized)) {
         // lifetime of the owning Rust frame (FrameGuard RAII for
         // interp; `enter_compiled` for JIT), which outlives the park.
         unsafe {
-            ctx.scan_frames_parked(|frames| {
+            ctx.exec().scan_frames_parked(ctx.core().threads().collector_active.load(std::sync::atomic::Ordering::Acquire), |frames| {
                 crate::exec::stack::visit_roots(frames, &mut visit_stack);
             });
         }

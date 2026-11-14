@@ -80,7 +80,7 @@ static EXIT_REPORT: std::sync::OnceLock<ExitReport> = std::sync::OnceLock::new()
 /// dies, by `Environment.Exit`. Safe to call with no `EXIT_REPORT` recorded
 /// (pure-embedder VMs): stats are then skipped and only the env-driven sampler
 /// flush applies.
-pub(crate) fn report_on_exit(ctx: &crate::context::VmContext) {
+pub(crate) fn report_on_exit(ctx: &crate::vm::VmContext) {
     static DONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
     // A z42 `Environment.Exit` inside a program that also returns normally can
     // only happen once (process::exit never returns), but an embedder may call
@@ -97,7 +97,7 @@ pub(crate) fn report_on_exit(ctx: &crate::context::VmContext) {
 // GC minor/major/reclaimed) into one ProfileSnapshot so the profile picture
 // is complete in a single line/block.
 if report.print_stats {
-    let counters = ctx.counters_snapshot();
+    let counters = ctx.core().diagnostics().snapshot(ctx.core().threads());
     let h = ctx.heap().stats();
     // add-concurrency-probes (P1b): safepoint-park distribution (always-on)
     // + user-lock contention counters (0 unless the `profile-contention`

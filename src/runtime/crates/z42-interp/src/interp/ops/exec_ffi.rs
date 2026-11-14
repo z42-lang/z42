@@ -15,7 +15,7 @@
 use crate::exec::exception::make_stdlib_exception;
 use crate::metadata::Module;
 use crate::object::Value;
-use crate::context::VmContext;
+use crate::vm::VmContext;
 use anyhow::{bail, Result};
 
 use super::Frame;
@@ -38,8 +38,8 @@ pub(super) fn ffi_call(
     // Increment fires BEFORE dispatch so even failing calls (unknown type /
     // marshal error) are counted — they still represent FFI traffic.
     ctx.counters().native_calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    if ctx.has_runtime_observers() {
-        ctx.fire_runtime_event(&crate::diagnostics::observer::RuntimeEvent::NativeCallEntered {
+    if ctx.core().diagnostics().runtime_observers.has_observers() {
+        ctx.core().diagnostics().runtime_observers.fire(&crate::diagnostics::observer::RuntimeEvent::NativeCallEntered {
             module: module_name.to_string(),
             symbol: format!("{type_name}::{symbol}"),
         });

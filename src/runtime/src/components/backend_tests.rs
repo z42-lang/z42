@@ -14,18 +14,18 @@ fn failure(mode: ExecMode, options: BackendOptions) -> String {
 fn interpreter_mode_installs_only_the_baseline_and_workers_share_it() {
     let program = load(ExecMode::Interp, BackendOptions::default()).unwrap();
     assert_eq!(component_ids(program.context()), [INTERP_COMPONENT]);
-    assert!(program.context().tier().is_none());
+    assert!(program.context().exec().tier(&program.context().core().exec().engines).is_none());
     let worker = VmContext::new_with_core(program.context().core_arc());
     assert_eq!(component_ids(&worker), [INTERP_COMPONENT]);
-    assert!(worker.tier().is_none());
+    assert!(worker.exec().tier(&worker.core().exec().engines).is_none());
 }
 #[cfg(all(feature = "jit", z42_jit_supported))]
 #[test]
 fn jit_mode_registers_both_engines_without_eager_compilation() {
     let program = load(ExecMode::Jit, BackendOptions::default()).unwrap();
     assert_eq!(component_ids(program.context()), [INTERP_COMPONENT, JIT_COMPONENT]);
-    assert!(program.context().tier().is_none());
-    assert_eq!(program.context().counters_snapshot().jit_methods_compiled, 0);
+    assert!(program.context().exec().tier(&program.context().core().exec().engines).is_none());
+    assert_eq!(program.context().core().diagnostics().snapshot(program.context().core().threads()).jit_methods_compiled, 0);
 }
 #[test]
 fn explicit_disable_and_missing_dynamic_library_fail() {

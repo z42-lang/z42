@@ -36,13 +36,13 @@ pub(crate) struct State {
     slots: crate::corelib::resource_registry::ResourceRegistry<ProcessSlot>,
 }
 
-pub(super) fn state(ctx: &crate::context::VmContext) -> Result<&State, crate::exec::call::builtin_abi::BuiltinError> {
+pub(super) fn state(ctx: &crate::vm::VmContext) -> Result<&State, crate::exec::call::builtin_abi::BuiltinError> {
     crate::corelib::resource_registry::state(ctx)
 }
 
 use crate::exec::call::builtin_abi::{BuiltinError, CallResult, FieldInit, IntoRet, PlainRet, RetKind};
 use crate::object::Value;
-use crate::context::VmContext;
+use crate::vm::VmContext;
 use std::io::{Read, Write};
 use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, ExitStatus, Stdio};
 
@@ -399,7 +399,7 @@ pub mod typed {
     use super::{handle_invalid, start_error, timeout_error, CommandSpec, MaybeExited, ProcessSlot, RunFail, RunOutput};
     use crate::exec::call::builtin_abi::{Blocking, BuiltinError, Then};
     use crate::object::Value;
-    use crate::context::VmContext;
+    use crate::vm::VmContext;
     use std::io::Write;
 
     /// `Process.Run()`: spawn, feed, wait, collect — the whole call parked. Returns

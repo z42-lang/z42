@@ -5,7 +5,7 @@
 use super::error::code;
 use crate::exec::call::builtin_abi::BuiltinError;
 use crate::object::Value;
-use crate::context::VmContext;
+use crate::vm::VmContext;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 

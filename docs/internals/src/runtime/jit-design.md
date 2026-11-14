@@ -40,7 +40,7 @@ VM 的每条线程都跑 JIT：`__thread_spawn` 的 worker 用自己的 `VmConte
 | `jit_head.cctors` | `VM_CONTEXT_CCTORS_OFFSET` | VM 的 `CctorRegistry`；内联字符串原语读它的包初始化门计数 |
 | `safepoint_skip` | `VM_CONTEXT_SAFEPOINT_SKIP_OFFSET` | safepoint 节流计数，内联快路 load/store |
 
-`jit_head` 是 `#[repr(C)]` 的 `JitHead`（`context/types.rs`），另缓存一份 `&TierApi`（后端自己的 `VmContext::jit()` 通过中立 header 识别并借用本 VM 的 JIT
+`jit_head` 是 `#[repr(C)]` 的 `JitHead`（`vm.rs`），另缓存一份 `&TierApi`（后端自己的 `VmContext::jit()` 通过中立 header 识别并借用本 VM 的 JIT
 运行时；早于安装的 ctx 在下一次栈底帧 push 时补上）。
 
 **`JitRuntime`**（`VmCore.exec.engines` 的 `TierApi` 所拥有的后端）：每 VM 一份、所有线程共享，随 VmCore 释放，helper 经

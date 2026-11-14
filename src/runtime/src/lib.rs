@@ -1,7 +1,6 @@
 //! Unified runtime library. Optional execution backends live in independent crates.
 //!
-//! Command-line implementations and their former private process protocol are
-//! executable-owned, not library APIs:
+//! The executable uses a process C entry; CLI Rust implementation stays private:
 //! ```compile_fail
 //! use z42::host::cli::run_from;
 //! ```
@@ -13,7 +12,7 @@
 //! ```
 extern crate self as z42;
 pub use z42_zpkg as zpkg;
-pub mod context;
+pub mod vm;
 pub mod exec;
 pub mod loader;
 pub mod metadata;
@@ -51,3 +50,18 @@ pub(crate) const LINKED_NATIVE_MODULES: &[(&str, z42_abi::module::ModuleEntry)] 
     #[cfg(feature = "bundled-compression")]
     ("z42_compression", z42_compression::z42_compression_module_v1),
 ];
+
+#[cfg(feature = "cli")]
+mod main_startup;
+
+/// Process entry used by the dynamically loaded executable. Reads the original
+/// OS argument vector; no Rust values or allocations cross this C boundary.
+#[cfg(feature = "cli")]
+#[no_mangle]
+extern "C" fn z42_main_v1() -> i32 {
+    match std::panic::catch_unwind(|| main_startup::run_from(std::env::args_os())) {
+        Ok(Ok(())) => 0,
+        Ok(Err(error)) => { eprintln!("z42vm: {error:#}"); 1 }
+        Err(_) => { eprintln!("z42vm: runtime panicked"); 1 }
+    }
+}

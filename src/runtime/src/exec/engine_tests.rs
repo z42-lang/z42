@@ -87,23 +87,23 @@ fn tier_registry_race_publishes_one_owner_and_reclaims_losers() {
 fn worker_contexts_share_their_vm_tier_and_refresh_only_at_entry() {
     let a = VmContext::new(); let b = VmContext::new();
     let worker = VmContext::new_with_core(a.core.clone());
-    assert!(a.tier().is_none() && b.tier().is_none() && worker.tier().is_none());
+    assert!(a.exec().tier(&a.core().exec().engines).is_none() && b.exec().tier(&b.core().exec().engines).is_none() && worker.exec().tier(&worker.core().exec().engines).is_none());
     assert!(a.core.exec.engines.install_tier(TierApi::new(ProbeTier { id: 5,
         dropped: Arc::new(AtomicUsize::new(0)) })).is_ok());
-    a.publish_tier();
+    a.exec().publish_tier(&a.core().exec().engines);
     #[cfg(feature = "jit")]
-    assert!(worker.tier().is_none(), "pre-existing context refreshes at its bottom frame push");
+    assert!(worker.exec().tier(&worker.core().exec().engines).is_none(), "pre-existing context refreshes at its bottom frame push");
     let core = a.core.clone();
     let id = std::thread::spawn(move || {
         let ctx = VmContext::new_with_core(core);
-        ctx.tier().unwrap().backend::<ProbeTier>().unwrap().id
+        ctx.exec().tier(&ctx.core().exec().engines).unwrap().backend::<ProbeTier>().unwrap().id
     }).join().unwrap();
     assert_eq!(id, 5);
-    worker.push_frame(VmFrame::new(std::ptr::null(), std::ptr::null()));
-    assert!(std::ptr::eq(a.tier().unwrap(), worker.tier().unwrap()));
-    assert_eq!(worker.tier().unwrap().osr_threshold, 77);
-    worker.pop_frame(); assert!(b.tier().is_none());
-    drop(a); assert_eq!(worker.tier().unwrap().backend::<ProbeTier>().unwrap().id, 5);
+    worker.exec().push_frame(&worker, VmFrame::new(std::ptr::null(), std::ptr::null()));
+    assert!(std::ptr::eq(a.exec().tier(&a.core().exec().engines).unwrap(), worker.exec().tier(&worker.core().exec().engines).unwrap()));
+    assert_eq!(worker.exec().tier(&worker.core().exec().engines).unwrap().osr_threshold, 77);
+    worker.exec().pop_frame(); assert!(b.exec().tier(&b.core().exec().engines).is_none());
+    drop(a); assert_eq!(worker.exec().tier(&worker.core().exec().engines).unwrap().backend::<ProbeTier>().unwrap().id, 5);
 }
 
 #[test]

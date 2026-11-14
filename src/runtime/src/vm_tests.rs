@@ -1,38 +1,39 @@
 use super::*;
+use crate::object::Value;
 
 // ── static fields ──────────────────────────────────────────────────────────────
 
 #[test]
 fn static_get_unset_returns_null() {
     let ctx = VmContext::new();
-    assert!(matches!(ctx.static_get("Foo.Bar"), Value::Null));
+    assert!(matches!(ctx.statics().get_named("Foo.Bar"), Value::Null));
 }
 
 #[test]
 fn static_set_then_get_roundtrip() {
     let ctx = VmContext::new();
-    ctx.static_set("Foo.Bar", Value::I64(42)).unwrap();
-    assert!(matches!(ctx.static_get("Foo.Bar"), Value::I64(42)));
+    ctx.statics().set_named("Foo.Bar", Value::I64(42)).unwrap();
+    assert!(matches!(ctx.statics().get_named("Foo.Bar"), Value::I64(42)));
 }
 
 #[test]
 fn static_fields_clear_drops_all() {
     let ctx = VmContext::new();
-    ctx.static_set("A", Value::I64(1)).unwrap();
-    ctx.static_set("B", Value::I64(2)).unwrap();
-    ctx.static_fields_clear();
-    assert!(matches!(ctx.static_get("A"), Value::Null));
-    assert!(matches!(ctx.static_get("B"), Value::Null));
+    ctx.statics().set_named("A", Value::I64(1)).unwrap();
+    ctx.statics().set_named("B", Value::I64(2)).unwrap();
+    ctx.statics().clear_for_rerun();
+    assert!(matches!(ctx.statics().get_named("A"), Value::Null));
+    assert!(matches!(ctx.statics().get_named("B"), Value::Null));
 }
 
 #[test]
 fn two_contexts_static_fields_isolated() {
     let ctx1 = VmContext::new();
     let ctx2 = VmContext::new();
-    ctx1.static_set("Foo", Value::I64(1)).unwrap();
-    ctx2.static_set("Foo", Value::I64(2)).unwrap();
-    assert!(matches!(ctx1.static_get("Foo"), Value::I64(1)));
-    assert!(matches!(ctx2.static_get("Foo"), Value::I64(2)));
+    ctx1.statics().set_named("Foo", Value::I64(1)).unwrap();
+    ctx2.statics().set_named("Foo", Value::I64(2)).unwrap();
+    assert!(matches!(ctx1.statics().get_named("Foo"), Value::I64(1)));
+    assert!(matches!(ctx2.statics().get_named("Foo"), Value::I64(2)));
 }
 
 // ── pending_exception ─────────────────────────────────────────────────────────
@@ -101,9 +102,9 @@ fn counters_snapshot_sums_live_and_dropped_contexts() {
     ctx1.counters().builtin_calls.fetch_add(3, Ordering::Relaxed);
     ctx2.counters().builtin_calls.fetch_add(4, Ordering::Relaxed);
     assert_eq!(ctx1.counters().builtin_calls.load(Ordering::Relaxed), 3, "each thread counts on its own");
-    assert_eq!(ctx1.counters_snapshot().builtin_calls, 7);
+    assert_eq!(ctx1.core().diagnostics().snapshot(ctx1.core().threads()).builtin_calls, 7);
     drop(ctx2);
-    assert_eq!(ctx1.counters_snapshot().builtin_calls, 7, "a dropped context's counts are kept");
+    assert_eq!(ctx1.core().diagnostics().snapshot(ctx1.core().threads()).builtin_calls, 7, "a dropped context's counts are kept");
 }
 
 // ── GC heap ───────────────────────────────────────────────────────────────────
@@ -138,20 +139,20 @@ fn two_contexts_heap_isolated() {
 #[test]
 fn lazy_loader_install_then_uninstall_is_clean() {
     let ctx = VmContext::new();
-    ctx.install_lazy_loader(None, 0);
-    assert!(ctx.try_lookup_function("Std.IO.Console.WriteLine").is_none());
-    ctx.uninstall_lazy_loader();
-    assert!(ctx.try_lookup_function("Anything.Foo").is_none());
+    ctx.loader().install_lazy_loader(None, 0);
+    assert!(ctx.loader().try_lookup_function("Std.IO.Console.WriteLine").is_none());
+    ctx.loader().uninstall_lazy_loader();
+    assert!(ctx.loader().try_lookup_function("Anything.Foo").is_none());
 }
 
 #[test]
 fn lazy_loader_two_contexts_independent() {
     let ctx1 = VmContext::new();
     let ctx2 = VmContext::new();
-    ctx1.install_lazy_loader(None, 0);
+    ctx1.loader().install_lazy_loader(None, 0);
     // ctx2 has no loader installed.
-    assert_eq!(ctx1.declared_namespaces(), Vec::<String>::new());
-    assert_eq!(ctx2.declared_namespaces(), Vec::<String>::new());
+    assert_eq!(ctx1.loader().declared_namespaces(), Vec::<String>::new());
+    assert_eq!(ctx2.loader().declared_namespaces(), Vec::<String>::new());
 }
 
 // ── per-VM file system ───────────────────────────────────
@@ -212,8 +213,8 @@ fn lazy_loader_reads_packages_through_its_vms_file_system() {
     let (fs_a, a) = memory_vm();
     let (_fs_b, b) = memory_vm();
     fs_a.mount("/pkgs/m.zpkg", std::fs::read(&fixture).expect("fixture zpkg"));
-    a.install_lazy_loader(None, 0);
-    b.install_lazy_loader(None, 0);
+    a.loader().install_lazy_loader(None, 0);
+    b.loader().install_lazy_loader(None, 0);
     let load = |ctx: &VmContext| ctx.core.loader.lazy_loader.write().as_mut().map(|l| l.load_module_from_path("/pkgs/m.zpkg"));
     assert!(matches!(load(&a), Some(Ok(()))), "VM a loads the package mounted in its file system");
     assert!(matches!(load(&b), Some(Err(_))), "VM b's file system has no such package");
@@ -308,6 +309,6 @@ fn vm_context_new_with_core_shares_static_fields() {
     // values when one writes.
     let ctx1 = VmContext::new();
     let ctx2 = VmContext::new_with_core(std::sync::Arc::clone(&ctx1.core));
-    ctx1.static_set("Shared", Value::I64(7)).unwrap();
-    assert!(matches!(ctx2.static_get("Shared"), Value::I64(7)));
+    ctx1.statics().set_named("Shared", Value::I64(7)).unwrap();
+    assert!(matches!(ctx2.statics().get_named("Shared"), Value::I64(7)));
 }

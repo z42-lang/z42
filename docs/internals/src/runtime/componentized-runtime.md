@@ -34,10 +34,7 @@ loader/native.rs 与 interop/module.rs 的双向装入/注册编排仍需收口�
 VM 主实现属于 z42 这一个 Cargo 包，runtime/src 内的目录是它的模块；工作区另有上述独立 crate。
 主库提供 rlib/dylib，后端各自提供 rlib/cdylib 和 init 入口。生产运行时不依赖具体后端；测试和最终静态嵌入示例通过 dev-dependency 链接独立后端的 rlib，不形成生产依赖环。
 
-main.rs 是同构建 Rust 宿主，直接动态链接 libz42，通过 host 接口加载和执行 zpkg；
-不再 dlopen Core、查找 CLI 符号或传递私有 C 入口表。参数和启动辅助只编入可执行文件，
-不新增 CLI 目录或库公开模块。环境/相对路径由 main 解析，host 消费明确的 LoadOptions。
-组件与独立原生库仍可按各自契约运行时装入；main 对 Core 的链接方式不限制这些使用形态。
+main.rs 是轻量 dlopen/LoadLibrary 入口，加载 Core 后调用 z42_main_v1；Core 中 cli feature 的私有命令行实现通过 host 加载和执行 zpkg。静态示例 z42vm_static 复用命令行实现。非 cli 平台不编译参数解析或日志策略。组件和独立库仍支持三种接入形态。
 
 普通嵌入功能从 z42::host 提供，CLI 也调用相同宿主服务。VM 消费者通过内部 components::api 请求准备、执行角色及分析服务，跨库协议另列 components::abi 契约。
 当前 host 仍具名转出组件管理，公开签名和静态装配头也有内部类型泄露；普通宿主面的完整收口尚未完成。
@@ -150,9 +147,7 @@ ComponentOptions 将启用根与提供方来源分别保存。现有 with_static
 共享 std 的动态构建使用 System 分配器。自定义分配器和 dhat 位于最终静态宿主 z42vm_static，通过独立 target-dir 构建，不覆盖动态运行时。C 的 libz42.a 保留默认解释器初始化入口 z42_linked_components_init；自定义组合可通过 z42_host_register_static_component 登记实际链接的后端，Rust 宿主使用 host::register_static_component。静态组合须使用同一次构建图产生的库，不能混用不同 feature/profile 的核心。静态登记仅保留进程寿命工厂，不保留 VM 实例。
 
 SDK 的 native/ 包含统一 libz42、interp/JIT 组件、compression 和匹配的 Rust std。runtime 包另外提供 C 头文件和最终静态嵌入归档；Windows 另含导入库。macOS 使用 @rpath 标识和 @loader_path，ELF 使用 $ORIGIN；库与头文件、stdlib 一起搬移后可使用。
-Linux/macOS 的 bin/z42vm 直接链接这份共享 Core/std；macOS 落包时把内部依赖改成包内相对位置。
-Windows 在进入 main 前解析 DLL 依赖，因此实际 main 与唯一 DLL 闭包同在 native/，bin/z42vm.exe 仅转发进程参数和退出码，
-不装库或调用 C 入口，不往 bin 复制第二份 Core/std。Windows runtime 的导入库供嵌入者直接动态链接使用。
+桌面 SDK 只安装 bin/z42vm[.exe]，它使用静态 std，native/ 不包含另一个 z42vm。显式 Z42_RUNTIME_LIBRARY 优先，否则定位可执行文件相对 native/ 或同目录 Core；不查 cwd/artifacts。Windows 以 DLL_LOAD_DIR 和 DEFAULT_DIRS 解析库旁依赖。Core 保活至进程退出，不创建转发子进程。Windows runtime 导入库仍供嵌入者动态链接使用。
 
 ### 按需压缩与 WASM 组合
 

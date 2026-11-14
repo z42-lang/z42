@@ -56,8 +56,8 @@ pub fn type_methods(ctx: &VmContext, ty: &Value) -> Result<Value, BuiltinError> 
     if td.class_flags & crate::zpkg::ir::CLASS_FLAG_INTERFACE != 0 {
         let resolve = |name: &str| {
             ctx.module()
-                .and_then(|m| m.type_registry.get(name).cloned().map(|td| ctx.current_type_desc(td)))
-                .or_else(|| ctx.try_lookup_type(name))
+                .and_then(|m| m.type_registry.get(name).cloned().map(|td| ctx.core().runtime().current_type_desc(td)))
+                .or_else(|| ctx.loader().try_lookup_type(name))
         };
         let mut queue: VecDeque<String> =
             td.interfaces().iter().map(|s| s.to_string()).collect();
@@ -369,7 +369,7 @@ pub(super) fn resolve_reflected_function<'a>(
             }
         }
     }
-    ctx.try_lookup_function(qualified).map(ReflectedFunction::Loaded)
+    ctx.loader().try_lookup_function(qualified).map(ReflectedFunction::Loaded)
 }
 
 /// With no authoritative SIGS names, use the last DBUG name at each argument register.

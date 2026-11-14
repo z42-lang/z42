@@ -54,3 +54,13 @@ impl ThreadRuntimeState {
         }
     }
 }
+
+impl RuntimeState {
+    pub fn current_type_desc(&self, declaration: Arc<crate::object::TypeDesc>) -> Arc<crate::object::TypeDesc> {
+        self.types.get_arc(declaration.id).unwrap_or(declaration)
+    }
+    pub fn callable_fn(&self, id: super::ids::tokens::FnId) -> Option<&super::Function> {
+        self.module.as_ref()?;
+        self.funcs.get(id)
+    }
+}

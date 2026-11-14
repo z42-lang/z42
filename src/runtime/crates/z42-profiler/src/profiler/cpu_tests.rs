@@ -64,8 +64,8 @@ fn maybe_sample_snapshots_call_stack() {
     main.frame_meta = Some((Arc::from("Main"), Arc::from("t.z42")));
     let mut foo = test_function("foo");
     foo.frame_meta = Some((Arc::from("foo"), Arc::from("t.z42")));
-    ctx.push_frame(VmFrame::new(&main, std::ptr::null()));
-    ctx.push_frame(VmFrame::new(&foo, std::ptr::null()));
+    ctx.exec().push_frame(&ctx, VmFrame::new(&main, std::ptr::null()));
+    ctx.exec().push_frame(&ctx, VmFrame::new(&foo, std::ptr::null()));
     let s = Sampler::for_test(false);
     // No pending flag yet → no sample.
     s.maybe_sample(&ctx);
@@ -83,8 +83,8 @@ fn maybe_sample_snapshots_call_stack() {
     let body = std::fs::read_to_string(&path).unwrap();
     assert_eq!(body.trim(), "Main;foo 1", "stack bottom-on-left folded key");
     let _ = std::fs::remove_file(&path);
-    ctx.pop_frame();
-    ctx.pop_frame();
+    ctx.exec().pop_frame();
+    ctx.exec().pop_frame();
 }
 
 /// fix-wasm-std-time：每个 VmContext 都建一个 disabled Sampler，它**不得取时钟** ——

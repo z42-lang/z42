@@ -39,9 +39,7 @@ VM 程序准备、执行角色查询和分析请求通过内部 `components::api
 默认 native 路径归 loader/native_paths，host 为独立库提供路径时不再经过 components。
 PAL 保留底层开库与符号原语；组件层只持有 loader 代码句柄和组件契约/实例依赖。
 
-CLI 的参数和启动环境归 main.rs 及其私有 main_startup.rs，直接动态链接 libz42 并消费 host 的 VM 接口，
-不新增 CLI 目录/库模块，也不导出私有 C 入口表。非 CLI 平台库不编译 main 或其解析/日志实现。
-Cargo 仅在 cli 与 component-loading 同时启用时选择动态 z42vm binary；静态示例复用同一可执行宿主实现。
+main.rs 只依赖 std/libloading，加载 libz42 的 z42_main_v1。命令行参数和环境由 Core 中 cli feature 下的私有 main_command/main_startup 处理，通过 host 的 VM 接口运行程序；不新增 CLI 目录或公开 Rust CLI API。入口无 Rust 参数，由库读取本进程 OS 参数并返回退出码。SDK 只有 bin/z42vm，native 不安装额外 exe。
 一次性 run_app 接收模式、VFS、搜索目录和 resolver 等功能输入，在 host 内部构造 LoadedProgram 的加载请求，
 不把历史 LoadOptions 中的组件管理状态扩散到该接口。环境、相对路径、搜索默认值由来源适配解析，
 加载服务不读取 CLI probing 设置或隐式补目录。
@@ -147,7 +145,7 @@ C initialize 当前建立进程单例宿主会话，不等于创建一个承载�
 | host/profiling.rs、components/profiling.rs | 宿主诊断请求；profiler 装配 | diagnostic_requests.rs、profiler_attachment.rs |
 | object/protocol.rs、exec/ops/stringify.rs | 对象能力契约；托管调用/默认文本物化 | 定义与执行桥已按所有者分开；继续检查 exec/ops 中布局/存储事实与执行编排的混合 |
 | host/load.rs、program_builder.rs、vm_defaults.rs | 包准备、程序/VM 装配和默认策略 | 职责先迁到 VM 装配层，再按 program_preparation、vm_assembly、default_services 命名 |
-| context/types.rs | Core、线程视图和布局偏移 | 按 vm_core、vm_context、context_layout 拆分，保持布局约束 |
+| vm.rs | Core、线程视图和布局偏移 | 按 vm_core、vm_context、context_layout 拆分，保持布局约束 |
 
 `*_config`、`*_policy`、`*_registry` 等后缀表达不同职责。目录本身已足够限定的局部文件不为全仓唯一名机械改名；
 对外引用面收口后，具体实现文件重命名只影响其模块声明、适配器和同目录测试。
@@ -176,3 +174,5 @@ C initialize 当前建立进程单例宿主会话，不等于创建一个承载�
 GC/对象、线程/执行及元数据共享的数据契约需要单独建模，不能通过把全部目录改为私有或抽一个万能 trait 修复。
 
 核心 builtin/provider 描述归 corelib，通用不可变目录归 interop，host 不再拥有 builtins 登记表。独立模块在首次限定调用时才经 loader 解析自描述入口，interop 校验并登记；lib.rs 的已链接入口清单仅表达链接事实，不在初始化时执行。动态 Core 不依赖 compression 的声明 crate，loader 的静态登记接受任意有效逻辑名，不写死库名单。
+
+VM 组合为单文件 vm.rs，context 目录已删除。帧/arena/异常使用 ThreadExecState，包加载查找使用不持有 VmContext 的 RuntimeLoader，静态存储使用 StaticFields，初始化执行使用 Initialization。计数汇总归 DiagnosticsState，注册与注销归 ThreadState；vm.rs 只提供组合、生命周期和借用。

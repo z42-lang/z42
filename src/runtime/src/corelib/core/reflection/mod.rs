@@ -30,7 +30,7 @@ use crate::exec::{engine, call::args::CallArgs};
 use crate::exec::call::outcome::ExecOutcome;
 use crate::object::{NativeData, TypeDesc, Value};
 use crate::zpkg::index::well_known_names;
-use crate::context::VmContext;
+use crate::vm::VmContext;
 use anyhow::{bail, Result};
 use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;

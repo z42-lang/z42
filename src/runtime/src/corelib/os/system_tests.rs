@@ -1,7 +1,7 @@
 //! `Std.OperatingSystem` builtin unit tests.
 
 use super::*;
-use crate::context::VmContext;
+use crate::vm::VmContext;
 
 #[test]
 fn pid_is_positive() {

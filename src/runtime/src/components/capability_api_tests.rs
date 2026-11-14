@@ -1,5 +1,5 @@
 use super::{api, api::ComponentOptions, execution_roles::ExecutionBindings};
-use crate::{components::abi::*, context::VmContext};
+use crate::{components::abi::*, vm::VmContext};
 use std::sync::{Mutex, atomic::{AtomicUsize, Ordering}};
 
 static LOCK: Mutex<()> = Mutex::new(());

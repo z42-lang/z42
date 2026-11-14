@@ -11,7 +11,7 @@ use crate::exec::call::builtin_abi::BuiltinError;
 use crate::gc::walk::RootKind;
 use crate::object::NativeData;
 use crate::object::Value;
-use crate::context::VmContext;
+use crate::vm::VmContext;
 
 const STD_RETAINER: &str = "Std.Diagnostics.Retainer";
 const STD_ROOTREF: &str = "Std.Diagnostics.RootRef";
@@ -46,7 +46,7 @@ fn with_world_stopped<R>(ctx: &VmContext, query: impl FnOnce() -> R) -> R {
 /// caller's own package declares not being loaded is a loader / VM bug.
 fn alloc_named(ctx: &VmContext, type_name: &str, named: &[(&str, Value)]) -> Result<Value, BuiltinError> {
     let td = ctx
-        .try_lookup_type(type_name)
+        .loader().try_lookup_type(type_name)
         .ok_or_else(|| BuiltinError::Internal(format!(
             "diagnostics: {type_name} not loaded (z42.core missing?)")))?;
     let mut slots = vec![Value::Null; td.fields.len()];
@@ -111,7 +111,7 @@ pub fn heap_retaining_roots(ctx: &VmContext, target: &Value) -> Result<Value, Bu
 /// skew). `allocations` reuses `HeapStats.allocations` (the SoT) — never
 /// re-counted on the hot path.
 pub fn diag_counters(ctx: &VmContext) -> Result<Value, BuiltinError> {
-    let c = ctx.counters_snapshot();
+    let c = ctx.core().diagnostics().snapshot(ctx.core().threads());
     let h = ctx.heap().stats();
     alloc_named(
         ctx,

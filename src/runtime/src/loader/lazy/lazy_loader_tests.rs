@@ -208,20 +208,20 @@ fn candidates_excludes_subsequently_loaded() {
 
 #[test]
 fn vm_context_install_then_uninstall_is_clean() {
-    let ctx = crate::context::VmContext::new();
-    ctx.install_lazy_loader(None, 0);
-    assert!(ctx.try_lookup_function("Std.IO.Console.WriteLine").is_none());
-    ctx.uninstall_lazy_loader();
-    assert!(ctx.try_lookup_function("Anything.Foo").is_none());
+    let ctx = crate::vm::VmContext::new();
+    ctx.loader().install_lazy_loader(None, 0);
+    assert!(ctx.loader().try_lookup_function("Std.IO.Console.WriteLine").is_none());
+    ctx.loader().uninstall_lazy_loader();
+    assert!(ctx.loader().try_lookup_function("Anything.Foo").is_none());
 }
 
 #[test]
 fn vm_context_install_with_deps_no_libs_no_declared_returns_none() {
-    let ctx = crate::context::VmContext::new();
-    ctx.install_lazy_loader_with_deps(Vec::new(), 0, Vec::new(), Vec::new());
-    assert!(ctx.try_lookup_function("Std.Anything.F").is_none());
-    assert!(ctx.try_lookup_type("Std.Anything").is_none());
-    ctx.uninstall_lazy_loader();
+    let ctx = crate::vm::VmContext::new();
+    ctx.loader().install_lazy_loader_with_deps(Vec::new(), 0, Vec::new(), Vec::new());
+    assert!(ctx.loader().try_lookup_function("Std.Anything.F").is_none());
+    assert!(ctx.loader().try_lookup_type("Std.Anything").is_none());
+    ctx.loader().uninstall_lazy_loader();
 }
 
 // ── build_in_dirs: colocated dep search (support-colocated-zpkg-deps) ─────────
@@ -746,13 +746,13 @@ fn vm_core_registers_entry_functions_and_the_loader_appends() {
         module.functions.push(ll_stub_function(n));
         module.func_index.insert(n.to_string(), i);
     }
-    let ctx = crate::context::VmContext::with_module(module);
+    let ctx = crate::vm::VmContext::with_module(module);
     let funcs = Arc::clone(&ctx.core.runtime.funcs);
     assert_eq!(funcs.entry_len(), 2);
     assert_eq!(funcs.id_of("Entry.Helper$0"), Some(FnId(1)));
     assert_eq!(ctx.module().unwrap().functions[1].id.get(), Some(FnId(1)));
 
-    ctx.install_lazy_loader(None, 0);
+    ctx.loader().install_lazy_loader(None, 0);
     ctx.core.loader.lazy_loader.write().as_mut().unwrap()
         .register_loaded_artifact(ll_artifact_with_functions("Lazy", "lazy", &["Lazy.F$0"]))
         .expect("register lazy pkg");

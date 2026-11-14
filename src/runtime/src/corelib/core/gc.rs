@@ -10,7 +10,7 @@
 use crate::exec::call::builtin_abi::BuiltinError;
 use crate::gc::GcHandleKind;
 use crate::object::{FieldSlot, NativeData, TypeDesc, Value};
-use crate::context::VmContext;
+use crate::vm::VmContext;
 use anyhow::Result;
 use std::sync::{Arc, OnceLock};
 

@@ -29,7 +29,7 @@ use std::cell::UnsafeCell;
 
 use crate::exec::ambient::HeapGuard;
 
-use crate::context::VmContext;
+use crate::vm::VmContext;
 
 struct Installed {
     // Field order = drop order: restore `CURRENT_VM`, then the heap.
@@ -59,7 +59,7 @@ impl EngineGuards {
         ctx.exec.jit_head.stack_limit.store(crate::exec::stack_guard::limit(), std::sync::atomic::Ordering::Relaxed);
         #[cfg(feature = "jit")]
         if ctx.exec.jit_head.jit.load(std::sync::atomic::Ordering::Relaxed).is_null() {
-            ctx.publish_tier();
+            ctx.exec().publish_tier(&ctx.core().exec().engines);
         }
         // SAFETY: the context outlives its guards — they are dropped at the
         // last pop or, at the latest, with the context itself.

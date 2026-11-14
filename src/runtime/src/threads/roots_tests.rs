@@ -1,6 +1,6 @@
 //! Root-provider parity and managed-value liveness under the VM pause protocol.
 use super::*;
-use crate::context::VmContext;
+use crate::vm::VmContext;
 use std::sync::Arc;
 
 #[test]

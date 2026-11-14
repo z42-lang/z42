@@ -60,14 +60,6 @@ void _plRuntimeDynamic(_PkgLayout L, string rid) {
 }
 
 int _componentRelocateLauncher(string pkg) {
-    string bin = Path.Join(pkg, "bin");
-    string native = Path.Join(pkg, "native");
-    // Windows 的实际 main 与唯一 Core/std 在 native；bin 只转发进程，不加载 DLL。
-    if (Platform.IsWindows()) { return 0; }
     if (!Platform.IsMacOS()) { return 0; }
-    string exe = Path.Join(bin, "z42vm");
-    int c = _componentRelocateImports(exe, native, "@loader_path/../native/"); if (c != 0) { return c; }
-    c = _exec(new Process("install_name_tool").Arg("-add_rpath").Arg("@loader_path/../native").Arg(exe));
-    if (c != 0) { return c; }
-    return _exec(new Process("codesign").Arg("--force").Arg("--sign").Arg("-").Arg(exe));
+    return _exec(new Process("codesign").Arg("--force").Arg("--sign").Arg("-").Arg(Path.Join(pkg, "bin/z42vm")));
 }

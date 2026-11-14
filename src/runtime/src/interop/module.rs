@@ -141,7 +141,7 @@ impl NativeModule {
 /// # Safety
 /// The descriptor must satisfy NativeModule::parse, including process-lifetime code/data.
 pub unsafe fn register_native_module(
-    ctx: &crate::context::VmContext,
+    ctx: &crate::vm::VmContext,
     descriptor: *const abi::Module,
 ) -> Result<()> {
     let module = unsafe { NativeModule::parse(descriptor)? };
@@ -182,7 +182,7 @@ pub unsafe fn register_native_module(
 /// Resolve a declaration through the host's linked/dynamic library policy. Only a
 /// fully validated implementation is published; failures leave the declaration intact.
 pub(crate) fn materialize(
-    ctx: &crate::context::VmContext,
+    ctx: &crate::vm::VmContext,
     module: Arc<NativeModule>,
 ) -> Result<Arc<NativeModule>> {
     if !module.deferred {
@@ -209,7 +209,7 @@ pub(crate) fn materialize(
 }
 
 pub fn resolve_native_module(
-    ctx: &crate::context::VmContext,
+    ctx: &crate::vm::VmContext,
     name: &str,
 ) -> Result<Option<Arc<NativeModule>>> {
     let state = super::state::state(ctx)?;
@@ -281,7 +281,7 @@ impl std::error::Error for ModuleLookupFailure {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> { Some(self.0.as_ref()) }
 }
 
-pub(crate) fn load_named(ctx: &crate::context::VmContext, name: &str) -> Result<Arc<NativeModule>> {
+pub(crate) fn load_named(ctx: &crate::vm::VmContext, name: &str) -> Result<Arc<NativeModule>> {
     crate::loader::linked::validate_name(name)?;
     if let Some(module) = resolve_native_module(ctx, name)? { return Ok(module); }
     let symbol = format!("{name}_module_v1");

@@ -4,7 +4,7 @@
 use super::*;
 use crate::metadata::Module;
 use crate::object::Value;
-use crate::context::VmContext;
+use crate::vm::VmContext;
 
 fn empty_module() -> Module {
     Module::new(crate::zpkg::image::ModuleData {

@@ -5,7 +5,7 @@ use anyhow::{bail, Result};
 use crate::zpkg::ExecMode;
 use crate::object::Value;
 use crate::metadata::{Function, Module};
-use crate::context::VmContext;
+use crate::vm::VmContext;
 use super::call::{args::CallArgs, outcome::ExecOutcome};
 
 pub trait Engine: Send + Sync {
@@ -120,26 +120,6 @@ pub fn invoke_args(ctx: &VmContext, module: &Module, func: &Function,
     ctx.core.exec.engines.invoke(ctx, module, func, args, type_args)
 }
 
-impl VmContext {
-    #[inline]
-    pub fn tier(&self) -> Option<&TierApi> {
-        #[cfg(feature = "jit")]
-        {
-            let p = self.exec.jit_head.jit.load(std::sync::atomic::Ordering::Relaxed);
-            // Only the owner thread refreshes this pointer. Publication came through
-            // OnceLock, and this context keeps the owning core (and tier) alive.
-            unsafe { p.as_ref() }
-        }
-        #[cfg(not(feature = "jit"))]
-        { self.core.exec.engines.tier() }
-    }
-    pub fn publish_tier(&self) {
-        #[cfg(feature = "jit")]
-        if let Some(tier) = self.core.exec.engines.tier() {
-            self.exec.jit_head.jit.store(tier as *const TierApi as *mut TierApi, std::sync::atomic::Ordering::Relaxed);
-        }
-    }
-}
 
 #[cfg(all(test, z42_test_facade))]
 #[path = "engine_tests.rs"]

@@ -49,7 +49,7 @@ use crate::metadata::Function;
 use crate::metadata::ids::tokens::UNRESOLVED;
 use crate::metadata::Module;
 use crate::object::Value;
-use crate::context::VmContext;
+use crate::vm::VmContext;
 
 /// Try the field-reader shape for a direct call carrying the receiver as its only argument.
 #[inline]
@@ -188,7 +188,7 @@ fn probe<R>(ctx: &VmContext, module: &Module, name: &str, f: impl FnOnce(&Functi
     if let Some(func) = module.func_index.get(name).and_then(|&i| module.functions.get(i)) {
         return Some(f(func));
     }
-    let func = ctx.probe_loaded_function(name)?;
+    let func = ctx.loader().probe_loaded_function(name)?;
     Some(f(&func))
 }
 
@@ -229,7 +229,7 @@ static NO_REGS: Vec<Value> = Vec::new();
 struct LightFrame<'a>(&'a VmContext);
 
 impl Drop for LightFrame<'_> {
-    fn drop(&mut self) { self.0.pop_frame(); }
+    fn drop(&mut self) { self.0.exec().pop_frame(); }
 }
 
 /// The stack-trace rows a folded call of `f` skipped, outermost first: `f` itself and,
@@ -283,7 +283,7 @@ fn run_framed<'m>(
     this: Option<Value>, regs: &[Value], args: &[u32],
     module: impl FnOnce() -> &'m Module,
 ) -> Result<Option<Value>, FoldFault> {
-    ctx.push_frame(VmFrame::new(wrapper, &NO_REGS));
+    ctx.exec().push_frame(&ctx, VmFrame::new(wrapper, &NO_REGS));
     let _frame = LightFrame(ctx);
     match crate::exec::call::builtins::invoke_builtin_id(ctx, id, this, regs, args) {
         Ok(v) => Ok(v),

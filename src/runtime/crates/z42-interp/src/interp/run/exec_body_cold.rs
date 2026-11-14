@@ -6,7 +6,7 @@
 
 use crate::metadata::{Function, Module};
 use crate::object::Value;
-use crate::context::VmContext;
+use crate::vm::VmContext;
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 
@@ -67,7 +67,7 @@ pub(super) fn throw_here(
     ctx: &VmContext, module: &Module, func: &Function, frame: &mut Frame, block_idx: usize, val: Value,
 ) -> Result<Unwind> {
     let end = func.blocks.get(block_idx).map_or(0, |b| b.instructions.len());
-    ctx.set_top_frame_pc(func.linear_offset(block_idx as u32, end as u32));
+    ctx.exec().set_top_frame_pc(func.linear_offset(block_idx as u32, end as u32));
     crate::exec::exception::populate_stack_trace(&val, ctx, module);
     fire_exception_thrown(ctx, module, &val);
     catch_or_propagate(ctx, module, func, frame, block_idx, val, 0)

@@ -4,7 +4,7 @@
 
 crate 类型：VM 模块的组合根。内部模块直接编译引用；独立执行组件通过 components 门面接入，独立运行时库通过自身或 native/interop 接口接入。
 
-`src/lib.rs` 编译运行时库 `z42`。`src/main.rs` 是直接动态链接 libz42 的命令行宿主：读取环境/配置和相对路径，再通过 host 的加载与执行接口运行程序；CLI 不编入库的公开模块。Cargo 命令用 `-p z42` 选择运行时。
+`src/lib.rs` 编译运行时库 `z42`。`src/main.rs` 是轻量进程入口，加载 native/ 下的 libz42。库内 cli feature 的私有实现读取参数、环境/配置和相对路径，通过 host 的接口运行程序。Cargo 命令用 `-p z42` 选择运行时。
 
 执行 z42 编译产物（`.zbc` / `.zpkg`）。后端：解释器（interp）+ Cranelift JIT（desktop 默认，惰性逐函数编译）；AOT 为桩。
 不含编译器（在 `src/compiler/`）与标准库（在 `src/libraries/`）。
@@ -19,7 +19,7 @@ crate 类型：VM 模块的组合根。内部模块直接编译引用；独立�
 | 文件 | 职责 |
 |------|------|
 | `main.rs` | 命令行宿主实现；解析参数并直接调用动态链接的 host 接口 |
-| `main_startup.rs` | main 的私有启动辅助；也按独立构建 feature 提供 Windows 的少量进程转发逻辑，不装库或提供 VM 接口 |
+| `main_startup.rs` | 命令行宿主的私有启动策略；main_command.rs 解析参数并消费 host 接口 |
 | `corelib/builtins.rs` / `host/builtins.rs` | 核心库导出自身描述符，host 经 interop 注册独立提供方并生成查询目录与执行表 |
 | `corelib/mod.rs` | 核心库提供 GetType 和默认 ToString 的对象协议绑定；宿主将其注入 VM |
 | `host/artifact.rs` | 门面在函数融合准备时读取进程配置，为公开加载入口与每 VM loader 提供同一惰性输入 |
@@ -34,7 +34,7 @@ crate 类型：VM 模块的组合根。内部模块直接编译引用；独立�
 | `exec/thread_state.rs` | `ThreadExecState` 组合每线程帧、arena、异常槽和中立 JIT 头 |
 | `exec/state.rs` | `ExecState` 组合每 VM 的引擎注册与代码寿命 |
 | `config/vm_config.rs` | `VmConfig`：门面捕获的构造输入，包含 heap 与采样设置；LOH 覆盖仍应用到进程策略 |
-| `context/extensions.rs` | `VmExtensions` 创建前登记与冻结的每 VM Rust 扩展状态，`VmContext::ext` 借用查询 |
+| `vm_extensions.rs` | `VmExtensions` 创建前登记与冻结的每 VM Rust 扩展状态，`VmContext::ext` 借用查询 |
 | `host/app.rs` | `host::run_app`：加载 `.zbc`/`.zpkg` + 合并依赖 + 执行入口（z42vm / `z42_run_app` / wasm `runTestApp` 共用）|
 | `host/program_builder.rs` | 合并后的启动步骤（`build`），`host::run_app` 与宿主 API（`host/ops.rs`）共用，防两条路径分叉 |
 | `lib.rs` | 库入口，re-export 公开 API |
@@ -61,7 +61,7 @@ crate 类型：VM 模块的组合根。内部模块直接编译引用；独立�
 | `src/corelib/` | 内置函数（builtin）实现，统一入口 `invoke_builtin` 供 interp / JIT 调用（builtin ABI v2：`exec/call/builtin_abi/`），见 [`src/corelib/README.md`](src/corelib/README.md) |
 | `src/gc/` | 具体 Heap 与分代 / STW / 增量 major 回收，见 [`src/gc/README.md`](src/gc/README.md) |
 | `crates/z42-profiler/src/profiler/` | CPU 采样、堆摘要、V8 快照与保留链，见 [`crates/z42-profiler/README.md`](crates/z42-profiler/README.md) |
-| `src/context/` | `VmContext`（通过 host 提供嵌入入口）：固定地址的每线程视图，组合 exec/runtime/diagnostics/threads 状态并共享 Arc<VmCore> |
+| `src/vm.rs` | `VmContext`（通过 host 提供嵌入入口）：固定地址的每线程视图，组合 exec/runtime/diagnostics/threads 状态并共享 Arc<VmCore> |
 | `src/interop/` | 原生提供方注册/查询与 Tier 1 C ABI 编组，见 [`src/interop/README.md`](src/interop/README.md) |
 | `src/components/abi.rs` / `src/components/bridge.rs` | 独立组件共享的同构建协议及核心身份/布局桥，不经 host 转出 |
 | `src/components/` | 内部能力门面、角色绑定、工厂加载、后端选择与每 VM 生命周期，见 [`src/components/README.md`](src/components/README.md) |

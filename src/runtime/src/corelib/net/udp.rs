@@ -10,14 +10,14 @@ pub(crate) struct State {
     slots: crate::corelib::resource_registry::ResourceRegistry<Arc<UdpSocket>>,
 }
 
-pub(super) fn state(ctx: &crate::context::VmContext) -> Result<&State, crate::exec::call::builtin_abi::BuiltinError> {
+pub(super) fn state(ctx: &crate::vm::VmContext) -> Result<&State, crate::exec::call::builtin_abi::BuiltinError> {
     crate::corelib::resource_registry::state(ctx)
 }
 
 use super::error::{check_port, check_ttl, closed, resolve, slot_id, socket_error, socket_exception, timeout};
 use super::error::code;
 use crate::exec::call::builtin_abi::BuiltinError;
-use crate::context::VmContext;
+use crate::vm::VmContext;
 use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
 use std::sync::Arc;
 

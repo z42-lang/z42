@@ -40,7 +40,7 @@ fn worker_retains_facade_resources_until_last_context_drop() {
     let fs = Arc::new(crate::pal::vfs::MemoryFs::new());
     fs.mount("/owned", b"shared".to_vec());
     let vfs: Arc<dyn Vfs> = fs;
-    let mut extensions = crate::context::extensions::VmExtensions::new();
+    let mut extensions = crate::vm::VmExtensions::new();
     extensions.register(Service(drops.clone())).unwrap();
     let primary = VmContext::with_extensions(None, vfs.clone(), extensions);
     let core = Arc::downgrade(&primary.core_arc());
@@ -184,7 +184,7 @@ fn object_protocol_default_services_are_shared_with_workers_without_retaining_th
     let protocol = *worker.core().object_protocol();
     assert_eq!((protocol.default_to_string)(&Value::Null).unwrap(), "null");
     // Reflection needs the Std.Type shell; a bare VM deliberately returns null.
-    worker.install_lazy_loader(None, 0);
+    worker.loader().install_lazy_loader(None, 0);
     worker.core.loader.lazy_loader.write().as_mut().unwrap()
         .insert_type("Std.Type".into(), protocol_type("Std.Type"));
     let receiver = protocol_box(&worker, "Std.Int64");
@@ -284,7 +284,7 @@ fn safepoint_policy_is_per_vm_and_shared_by_worker_resets() {
 
 
 fn configured_context(module: Option<std::sync::Arc<crate::metadata::Module>>, vfs: std::sync::Arc<dyn crate::pal::fs::Vfs>,
-    extensions: crate::context::extensions::ExtensionState, config: crate::config::VmConfig,
+    extensions: crate::vm::ExtensionState, config: crate::config::VmConfig,
     protocol: ObjectProtocol<VmContext, BuiltinError>) -> std::pin::Pin<Box<VmContext>> {
     super::with_config(module, vfs, extensions, config, protocol, crate::components::api::engine_registry())
 }

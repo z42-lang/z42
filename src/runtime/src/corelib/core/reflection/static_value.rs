@@ -9,7 +9,7 @@ use super::*;
 /// side-effect-free (no expression re-evaluation), which is why session-variable
 /// `obj.` completion is safe here (D2). Null / primitive / unloaded → empty.
 pub fn member_names_of_static_value(ctx: &VmContext, fqn: &str) -> anyhow::Result<Value> {
-    let v = ctx.static_get(fqn);
+    let v = ctx.statics().get_named(fqn);
     let tname = match &v {
         Value::Object(rc) => rc.type_desc().name.clone(),
         // add-repl-completion-iter2: primitive-typed session vars → the **same** canonical
@@ -57,7 +57,7 @@ fn member_name_of(v: &Value) -> Option<String> {
 
 #[z42_macros::builtins]
 pub mod typed {
-    use crate::{context::VmContext, exec::call::builtin_abi::BuiltinError, object::Value};
+    use crate::{vm::VmContext, exec::call::builtin_abi::BuiltinError, object::Value};
     // The script declaration remains a core ModuleLoader operation.
     #[builtin(name = "__repl_member_names", reenters)]
     pub fn member_names(ctx: &VmContext, fqn: &str) -> Result<Value, BuiltinError> {

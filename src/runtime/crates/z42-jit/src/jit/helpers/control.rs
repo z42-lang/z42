@@ -4,7 +4,7 @@
 
 use crate::object::Value;
 use crate::jit::runtime::frame::JitFrame;
-use crate::context::VmContext;
+use crate::vm::VmContext;
 use super::{set_exception, take_exception, vm_ctx_ref};
 
 /// `jit_throw`: `throw_offset` is the throw site's packed code offset (baked by
@@ -20,7 +20,7 @@ pub unsafe extern "C" fn jit_throw(
     let v = (*frame).regs[reg as usize].clone();
     let vm_ctx = vm_ctx_ref(ctx);
     let module = super::jit_module(ctx);
-    vm_ctx.set_top_frame_pc(throw_offset);
+    vm_ctx.exec().set_top_frame_pc(throw_offset);
     crate::exec::exception::populate_stack_trace(&v, vm_ctx, module);
     set_exception(vm_ctx, v);
 }

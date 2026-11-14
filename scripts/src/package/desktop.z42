@@ -60,7 +60,6 @@ int _packageDesktop(string root, string pkgDir, string rid, string version, stri
     bool isWin = rid.StartsWith("windows-");
     _PkgInstallCtx ictx = new _PkgInstallCtx();
     ictx.CargoOut    = cargoOut;
-    ictx.DirectHostMain = _componentDirectHostMain(root);
     ictx.LauncherOut = _componentLauncherOut(root, profile);
     ictx.HostVm      = _builtVm(root, "release");
     ictx.Z42bZpkg    = _toolchainZpkg(root, _z42bToml());   // z42b publishes itself deploy-only (`--no-build`)

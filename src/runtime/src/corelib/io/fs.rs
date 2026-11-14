@@ -43,13 +43,13 @@ impl State {
     }
 }
 
-pub(super) fn state(ctx: &crate::context::VmContext) -> Result<&State, crate::exec::call::builtin_abi::BuiltinError> {
+pub(super) fn state(ctx: &crate::vm::VmContext) -> Result<&State, crate::exec::call::builtin_abi::BuiltinError> {
     crate::corelib::resource_registry::state(ctx)
 }
 
 use crate::exec::call::builtin_abi::{Blocking, BuiltinError};
 use crate::pal::fs::Vfs;
-use crate::context::VmContext;
+use crate::vm::VmContext;
 use std::io::ErrorKind;
 use std::sync::Arc;
 
@@ -213,7 +213,7 @@ pub(crate) struct FileHandleSlot {
 /// The open file behind `slot` (a clone of its `Arc`; the table lock is released on return).
 /// An unknown or closed slot is .NET's `ObjectDisposedException` ("Cannot access a closed
 /// file.", `ObjectName` null).
-fn open_file(ctx: &crate::context::VmContext, slot: i64) -> Result<Arc<std::fs::File>, BuiltinError> {
+fn open_file(ctx: &crate::vm::VmContext, slot: i64) -> Result<Arc<std::fs::File>, BuiltinError> {
     state(ctx)?.slots.with_mut(slot as u64, |s| s.file.clone()).flatten()
         .ok_or_else(|| BuiltinError::object_disposed(None, "Cannot access a closed file."))
 }
@@ -224,7 +224,7 @@ pub mod typed {
     use super::{check_path, fs_error, on_vfs, open_file, two_path_error, vfs_error, FileHandleSlot, PathRole};
     use crate::exec::call::builtin_abi::{Blocking, BuiltinError, Then};
     use crate::object::Value;
-    use crate::context::VmContext;
+    use crate::vm::VmContext;
     use std::io::{Read, Seek, SeekFrom, Write};
 
     // ── File (path-based) ─────────────────────────────────────────────────────

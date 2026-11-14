@@ -21,3 +21,6 @@ pub mod linked;
 #[cfg(any(feature = "native-interop", feature = "component-loading"))]
 pub(crate) mod code;
 pub(crate) mod native_paths;
+
+mod runtime;
+pub use runtime::RuntimeLoader;

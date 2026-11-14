@@ -65,11 +65,11 @@ fn walk_prints_frames_only_for_the_calling_thread() {
     use crate::exec::call::frames::VmFrame;
     let mut main = crate::exec::stack::stack_tests::test_function("Main", &[], Vec::new());
     main.frame_meta = Some(("Main".into(), "t.z42".into()));
-    let ctx = crate::context::VmContext::new();
-    ctx.push_frame(VmFrame::new(&main, std::ptr::null()));
+    let ctx = crate::vm::VmContext::new();
+    ctx.exec().push_frame(&ctx, VmFrame::new(&main, std::ptr::null()));
     let mine = walk();
     assert!(mine.contains("#0  Main at t.z42:0:0"), "own frames printed; got:\n{mine}");
-    let ctx_ref: &crate::context::VmContext = &ctx;
+    let ctx_ref: &crate::vm::VmContext = &ctx;
     let theirs = std::thread::scope(|sc| {
         sc.spawn(|| {
             let _ = ctx_ref; // the context stays registered while this thread walks
@@ -80,5 +80,5 @@ fn walk_prints_frames_only_for_the_calling_thread() {
     });
     assert!(theirs.contains("(1 frame(s), other thread: frames not read)"), "got:\n{theirs}");
     assert!(!theirs.contains("Main at"), "another thread's frames are not read; got:\n{theirs}");
-    ctx.pop_frame();
+    ctx.exec().pop_frame();
 }

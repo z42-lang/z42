@@ -1,6 +1,6 @@
 use super::*;
 use crate::exec::call::frames::VmFrame;
-use crate::context::VmContext;
+use crate::vm::VmContext;
 
 fn frame() -> VmFrame {
     VmFrame::new(std::ptr::null(), std::ptr::null())
@@ -70,32 +70,32 @@ fn a_new_activation_chain_takes_ownership() {
 fn push_inside_a_native_park_panics_in_debug() {
     let ctx = VmContext::new();
     let _park = crate::threads::safepoint::NativeParkGuard::enter(&ctx);
-    ctx.push_frame(frame());
+    ctx.exec().push_frame(&ctx, frame());
 }
 
 #[cfg(debug_assertions)]
 #[test]
 fn scanning_a_running_thread_outside_a_pause_panics_in_debug() {
     let ctx = VmContext::new();
-    ctx.push_frame(frame());
+    ctx.exec().push_frame(&ctx, frame());
     let ctx_ref: &VmContext = &ctx;
     let r = std::thread::scope(|sc| {
         sc.spawn(|| {
             // SAFETY: deliberately violates the contract; the debug assertion
             // fires before any frame is read.
-            unsafe { ctx_ref.scan_frames_parked(|f| f.len()) }
+            unsafe { ctx_ref.exec().scan_frames_parked(ctx_ref.core().threads().collector_active.load(std::sync::atomic::Ordering::Acquire), |f| f.len()) }
         })
         .join()
     });
     assert!(r.is_err(), "non-owner scan outside a GC pause must trip the assertion");
-    ctx.pop_frame();
+    ctx.exec().pop_frame();
 }
 
 #[test]
 fn owner_scan_is_allowed() {
     let ctx = VmContext::new();
-    ctx.push_frame(frame());
+    ctx.exec().push_frame(&ctx, frame());
     // SAFETY: owner thread.
-    assert_eq!(unsafe { ctx.scan_frames_parked(|f| f.len()) }, 1);
-    ctx.pop_frame();
+    assert_eq!(unsafe { ctx.exec().scan_frames_parked(ctx.core().threads().collector_active.load(std::sync::atomic::Ordering::Acquire), |f| f.len()) }, 1);
+    ctx.exec().pop_frame();
 }

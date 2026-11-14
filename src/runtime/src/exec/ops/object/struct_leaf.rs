@@ -19,7 +19,7 @@ use crate::object::{
     decode_prim, encode_prim, is_ref_tag, prim_width, NativeData, ScriptObject, StructArrayElem,
     StructTypeLayout, Value,
 };
-use crate::context::VmContext;
+use crate::vm::VmContext;
 use anyhow::{bail, Result};
 use std::sync::Arc;
 
@@ -28,7 +28,7 @@ use std::sync::Arc;
 pub fn box_struct_blob(
     ctx: &VmContext, type_name: &str, bytes: &[u8], refs: &[Value],
 ) -> Result<Value> {
-    let td = ctx.try_lookup_type(type_name).ok_or_else(|| {
+    let td = ctx.loader().try_lookup_type(type_name).ok_or_else(|| {
         anyhow::anyhow!("__box_struct: unknown struct type `{type_name}`")
     })?;
     let obj_val = ctx.heap().alloc_object(td, Vec::new(), NativeData::None);
@@ -55,7 +55,7 @@ fn snapshot_struct_leaf(
     parent: &named_struct_layout::ComputedLayout,
     leaf: &named_struct_layout::FieldLeaf,
 ) -> Result<Value> {
-    let resolve = |n: &str| ctx.try_lookup_type(n);
+    let resolve = |n: &str| ctx.loader().try_lookup_type(n);
     let nested = named_struct_layout::compute(&resolve, &leaf.type_name)?;
     if nested.ref_offsets.iter().any(|&nro| parent.ref_index(leaf.byte_off + nro).is_none()) {
         bail!("struct field reflection: nested ref leaf offset not in parent bitmap");
@@ -71,7 +71,7 @@ pub fn boxed_struct_field_get(
 ) -> Result<Value> {
     use crate::object::prim_width;
     let type_name = gc.type_desc().name.to_string();
-    let resolve = |n: &str| ctx.try_lookup_type(n);
+    let resolve = |n: &str| ctx.loader().try_lookup_type(n);
     let comp = named_struct_layout::compute(&resolve, &type_name)?;
     if let Some(sl) = gc.type_desc().struct_layout() {
         comp.validate_against(&sl, &type_name)?;

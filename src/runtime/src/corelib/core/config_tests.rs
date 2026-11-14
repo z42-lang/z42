@@ -1,6 +1,6 @@
 use super::search_dirs;
 use crate::{
-    context::VmContext,
+    vm::VmContext,
     host::{ExecMode, LoadOptions, LoadedProgram},
     object::Value,
 };
@@ -85,8 +85,8 @@ fn module_search_reflects_directories_added_by_later_loads() {
         crate::host::program_tests::empty_zbc(),
     );
     let ctx = VmContext::with_vfs(fs);
-    ctx.install_lazy_loader_with_deps(vec!["/app".into()], 0, Vec::new(), Vec::new());
+    ctx.loader().install_lazy_loader_with_deps(vec!["/app".into()], 0, Vec::new(), Vec::new());
     assert_eq!(strings(search_dirs(&ctx)), ["/app"]);
-    ctx.load_module_into_vm("/plugins/extra.zbc").unwrap();
+    ctx.loader().load_module_into_vm("/plugins/extra.zbc").unwrap();
     assert_eq!(strings(search_dirs(&ctx)), ["/app", "/plugins"]);
 }

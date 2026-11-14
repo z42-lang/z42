@@ -17,7 +17,7 @@ use crate::metadata::ids::tokens::FnId;
 use crate::object::Value;
 
 use crate::jit::runtime::frame::{FnEntry, JitFrame};
-use crate::context::VmContext;
+use crate::vm::VmContext;
 use crate::jit::runtime::invoke::call_entry;
 use super::{set_exception, vm_ctx_ref};
 
@@ -161,7 +161,7 @@ pub unsafe extern "C" fn jit_call_indirect(
             let mut values = Vec::with_capacity(count);
             values.extend(env_val_opt);
             values.extend(user_regs.iter().map(|&register| frame_ref.regs[register as usize].clone()));
-            vm_ctx.set_top_frame_pc(caller_offset);
+            vm_ctx.exec().set_top_frame_pc(caller_offset);
             return match crate::exec::call::indirect_return::invoke(
                 vm_ctx, super::jit_module(ctx), function, id.0 as usize, frame_ref.frame_id, values,
             ) {
@@ -192,7 +192,7 @@ pub unsafe extern "C" fn jit_call_indirect(
             let mut args: Vec<Value> = Vec::with_capacity(args_len + env_val_opt.is_some() as usize);
             args.extend(env_val_opt);
             args.extend(user_regs.iter().map(|&r| frame_ref.regs[r as usize].clone()));
-            vm_ctx.set_top_frame_pc(caller_offset);
+            vm_ctx.exec().set_top_frame_pc(caller_offset);
             return match crate::exec::engine::invoke(vm_ctx, module, callee, &args) {
                 Ok(crate::exec::call::outcome::ExecOutcome::Returned(ret)) => {
                     frame_ref.regs[dst as usize] = ret.unwrap_or(Value::Null); 0
@@ -210,7 +210,7 @@ pub unsafe extern "C" fn jit_call_indirect(
         Some(env) => JitFrame::new_method_args_from(vm_ctx, entry.max_reg, env, &frame_ref.regs, user_regs),
         None => JitFrame::new_args_from(vm_ctx, entry.max_reg, &frame_ref.regs, user_regs),
     };
-    vm_ctx.set_top_frame_pc(caller_offset);
+    vm_ctx.exec().set_top_frame_pc(caller_offset);
     call_entry(vm_ctx, entry, callee_frame).store_into(&mut frame_ref.regs, dst)
 }
 

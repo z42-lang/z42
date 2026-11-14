@@ -3,7 +3,7 @@
 
 use super::{BuiltinError, ParamKind};
 use crate::object::Value;
-use crate::context::VmContext;
+use crate::vm::VmContext;
 
 /// The arguments of one builtin call.
 pub trait ArgSource {

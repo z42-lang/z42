@@ -116,8 +116,8 @@ pub fn type_interfaces(ctx: &VmContext, ty: &Value) -> Value {
     };
     let resolve = |name: &str| {
         ctx.module()
-            .and_then(|m| m.type_registry.get(name).cloned().map(|td| ctx.current_type_desc(td)))
-            .or_else(|| ctx.try_lookup_type(name))
+            .and_then(|m| m.type_registry.get(name).cloned().map(|td| ctx.core().runtime().current_type_desc(td)))
+            .or_else(|| ctx.loader().try_lookup_type(name))
     };
     // Seed the queue with the interfaces declared along the class base chain
     // (most-derived first), then BFS-expand each interface's own base interfaces
@@ -132,7 +132,7 @@ pub fn type_interfaces(ctx: &VmContext, ty: &Value) -> Value {
         // add-crosspkg-impl-reflection (unify P1-e): traits added to this class
         // via cross-package `impl Trait for Type` (IMPL section of loaded
         // packages). Same queue → transitive closure + dedup apply uniformly.
-        for tr in ctx.impl_traits_for(crate::zpkg::index::type_names::erased(&c.name)) {
+        for tr in ctx.loader().impl_traits_for(crate::zpkg::index::type_names::erased(&c.name)) {
             queue.push_back(tr);
         }
         cur = c.base_name.as_ref().and_then(|b| resolve(b));
@@ -214,7 +214,7 @@ pub fn type_nested_types(ctx: &VmContext, ty: &Value) -> Value {
     };
     let prefix = format!("{}+", td.name);
     let mut names: Vec<String> = ctx
-        .loaded_type_names()
+        .loader().loaded_type_names()
         .into_iter()
         .filter(|n| n.starts_with(&prefix) && !n[prefix.len()..].contains('+'))
         .collect();

@@ -20,7 +20,7 @@
 
 use crate::config::runtime_config;
 use crate::object::Value;
-use crate::context::VmContext;
+use crate::vm::VmContext;
 
 fn table() -> Option<&'static toml::Table> {
     runtime_config().app_properties.as_ref()

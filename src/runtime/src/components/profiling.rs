@@ -1,7 +1,7 @@
 //! Lazy attachment of the optional same-build profiler using the shared catalog.
 use crate::components::abi::*;
 use super::{backends::{select, BackendSource}, options::ComponentOptions};
-use crate::context::VmContext;
+use crate::vm::VmContext;
 use anyhow::{ensure, Result};
 
 pub(crate) fn attach(ctx: &VmContext, source: &BackendSource, hz: u32, trace: bool) -> Result<()> {

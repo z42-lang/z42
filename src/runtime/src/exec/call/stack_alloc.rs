@@ -206,13 +206,13 @@ pub enum StackAllocPolicy { On, Off, Stats }
 
 /// Whether this VM permits interpreter stack-allocation hints.
 #[inline]
-pub fn stack_alloc_enabled(ctx: &crate::context::VmContext) -> bool {
+pub fn stack_alloc_enabled(ctx: &crate::vm::VmContext) -> bool {
     ctx.core.exec.stack_alloc != StackAllocPolicy::Off
 }
 
 /// Whether this VM requests the existing stack-allocation statistics.
 #[inline]
-pub fn stats_enabled(ctx: &crate::context::VmContext) -> bool {
+pub fn stats_enabled(ctx: &crate::vm::VmContext) -> bool {
     ctx.core.exec.stack_alloc == StackAllocPolicy::Stats
 }
 

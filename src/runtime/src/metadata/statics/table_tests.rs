@@ -4,7 +4,7 @@
 use super::*;
 use crate::gc::GcMode;
 use crate::object::NativeData;
-use crate::context::VmContext;
+use crate::vm::VmContext;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -48,29 +48,29 @@ fn every_value_kind_round_trips_and_a_kind_change_is_boxed() {
     ];
     for (i, v) in values.iter().enumerate() {
         let name = format!("K.{i}");
-        ctx.static_set(&name, *v).unwrap();
-        assert_eq!(ctx.static_get(&name), *v, "{v:?}");
+        ctx.statics().set_named(&name, *v).unwrap();
+        assert_eq!(ctx.statics().get_named(&name), *v, "{v:?}");
     }
     // One field taking every kind in turn (`static object o`): each read is the last write.
     for v in values.iter().chain(values.iter().rev()) {
-        ctx.static_set("K.any", *v).unwrap();
-        assert_eq!(ctx.static_get("K.any"), *v, "{v:?}");
+        ctx.statics().set_named("K.any", *v).unwrap();
+        assert_eq!(ctx.statics().get_named("K.any"), *v, "{v:?}");
     }
 }
 
 #[test]
 fn clear_resets_every_value_and_keeps_the_ids() {
     let ctx = VmContext::new();
-    ctx.static_set("C.a", Value::I64(1)).unwrap();
-    ctx.static_set("C.b", Value::Str("x".into())).unwrap();
-    let id = ctx.resolve_static_field_id("C.a");
-    ctx.static_fields_clear();
-    assert_eq!(ctx.static_get("C.a"), Value::Null);
-    assert_eq!(ctx.static_get("C.b"), Value::Null);
-    assert_eq!(ctx.resolve_static_field_id("C.a"), id);
+    ctx.statics().set_named("C.a", Value::I64(1)).unwrap();
+    ctx.statics().set_named("C.b", Value::Str("x".into())).unwrap();
+    let id = ctx.statics().resolve("C.a");
+    ctx.statics().clear_for_rerun();
+    assert_eq!(ctx.statics().get_named("C.a"), Value::Null);
+    assert_eq!(ctx.statics().get_named("C.b"), Value::Null);
+    assert_eq!(ctx.statics().resolve("C.a"), id);
     // A reset cell is claimable again by any kind.
-    ctx.static_set("C.a", Value::F64(0.5)).unwrap();
-    assert_eq!(ctx.static_get("C.a"), Value::F64(0.5));
+    ctx.statics().set_named("C.a", Value::F64(0.5)).unwrap();
+    assert_eq!(ctx.statics().get_named("C.a"), Value::F64(0.5));
 }
 
 fn live(v: &Value) -> bool {
@@ -86,11 +86,11 @@ fn statics_are_roots_and_an_overwritten_value_is_collected() {
     ctx.heap().set_mode(GcMode::StwMarkSweep);
     let td = td("R");
     let first = ctx.heap().alloc_object(Arc::clone(&td), vec![Value::Null], NativeData::None);
-    ctx.static_set("R.keep", first).unwrap();
+    ctx.statics().set_named("R.keep", first).unwrap();
     ctx.heap().force_collect();
     assert!(live(&first), "reachable only from a static field");
     let second = ctx.heap().alloc_object(td, vec![Value::Null], NativeData::None);
-    ctx.static_set("R.keep", second).unwrap();
+    ctx.statics().set_named("R.keep", second).unwrap();
     ctx.heap().force_collect();
     assert!(live(&second));
     assert!(!live(&first), "the overwritten value is garbage");
@@ -108,7 +108,7 @@ fn concurrent_writers_never_tear_and_stay_rooted_across_collections() {
     let core = ctx.core_arc();
     let td = td("Shared");
     // Name → id once, like the resolver; the cells are shared by all threads.
-    let (ints, refs) = (ctx.resolve_static_field_id("S.int"), ctx.resolve_static_field_id("S.ref"));
+    let (ints, refs) = (ctx.statics().resolve("S.int"), ctx.statics().resolve("S.ref"));
     drop(ctx); // the main thread must not count as a running mutator while the workers collect
     let stop = Arc::new(AtomicBool::new(false));
     let workers: Vec<_> = (0..THREADS).map(|t| {
@@ -118,19 +118,19 @@ fn concurrent_writers_never_tear_and_stay_rooted_across_collections() {
             for i in 0..ROUNDS {
                 // A value whose halves agree: a torn read cannot.
                 let n = ((t * ROUNDS + i) as i64) * 0x1_0000_0001;
-                w.static_set_by_id(ints, Value::I64(n)).unwrap();
+                w.statics().set(ints, Value::I64(n)).unwrap();
                 let obj = w.heap().alloc_object(Arc::clone(&td), vec![Value::I64(n)], NativeData::None);
-                w.static_set_by_id(refs, obj).unwrap(); // rooted before the next safepoint
+                w.statics().set(refs, obj).unwrap(); // rooted before the next safepoint
                 if i % 97 == t {
                     w.core.threads.needs_auto_collect.store(true, Ordering::Release);
                 }
                 w.threads.safepoint_skip.store(1, Ordering::Relaxed);
                 crate::threads::safepoint::check_safepoint(&w);
-                match w.static_get_by_id(ints) {
+                match w.statics().get(ints) {
                     Value::I64(v) => assert_eq!(v as u64 >> 32, v as u64 & 0xFFFF_FFFF, "torn int {v:#x}"),
                     other => panic!("int static read {other:?}"),
                 }
-                match w.static_get_by_id(refs) {
+                match w.statics().get(refs) {
                     // `borrow` panics on a stale handle: the object must still be alive.
                     Value::Object(r) => assert_eq!(r.borrow().type_desc.name, "Shared"),
                     other => panic!("ref static read {other:?}"),
@@ -209,13 +209,13 @@ fn init_default_installs_only_into_a_never_written_field() {
 #[test]
 fn init_default_after_clear_installs_again() {
     let ctx = VmContext::new();
-    let id = ctx.resolve_static_field_id("D.c");
-    assert_eq!(ctx.static_init_default("D.c", Some(id), &Value::F64(0.0)).unwrap(), Value::F64(0.0));
-    ctx.static_set_by_id(id, Value::F64(1.5)).unwrap();
-    ctx.static_fields_clear();
+    let id = ctx.statics().resolve("D.c");
+    assert_eq!(ctx.statics().init_default("D.c", Some(id), &Value::F64(0.0)).unwrap(), Value::F64(0.0));
+    ctx.statics().set(id, Value::F64(1.5)).unwrap();
+    ctx.statics().clear_for_rerun();
     // Re-initialisation puts the cell back to never-written: the zero is installable again.
-    assert_eq!(ctx.static_init_default("D.c", None, &Value::F64(0.0)).unwrap(), Value::F64(0.0));
-    assert_eq!(ctx.static_get_by_id(id), Value::F64(0.0));
+    assert_eq!(ctx.statics().init_default("D.c", None, &Value::F64(0.0)).unwrap(), Value::F64(0.0));
+    assert_eq!(ctx.statics().get(id), Value::F64(0.0));
 }
 
 /// Racing first reads of a never-written value-type static each bring their own zero (for a struct

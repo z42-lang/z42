@@ -1,5 +1,5 @@
 //! Host-owned defaults and low-level context construction inputs.
-use crate::context::VmContext;
+use crate::vm::VmContext;
 use std::sync::Arc;
 
 impl VmContext {
@@ -37,7 +37,7 @@ impl VmContext {
     pub fn with_extensions(
         module: Option<crate::metadata::Module>,
         vfs: Arc<dyn crate::pal::fs::Vfs>,
-        extensions: crate::context::extensions::VmExtensions,
+        extensions: crate::vm::VmExtensions,
     ) -> std::pin::Pin<Box<Self>> {
         construct(
             module,
@@ -76,7 +76,7 @@ mod tests;
 pub(crate) fn construct(
     module: Option<crate::metadata::Module>,
     vfs: Arc<dyn crate::pal::fs::Vfs>,
-    extensions: crate::context::extensions::VmExtensions,
+    extensions: crate::vm::VmExtensions,
     engines: crate::exec::engine::EngineRegistry,
 ) -> std::pin::Pin<Box<VmContext>> {
     let module = module.map(|mut module| {
@@ -97,7 +97,7 @@ pub(crate) fn construct(
 pub(crate) fn with_config(
     module: Option<Arc<crate::metadata::Module>>,
     vfs: Arc<dyn crate::pal::fs::Vfs>,
-    extensions: crate::context::extensions::ExtensionState,
+    extensions: crate::vm::ExtensionState,
     config: crate::config::VmConfig,
     protocol: crate::object::protocol::ObjectProtocol<VmContext, crate::exec::call::builtin_abi::BuiltinError>,
     engines: crate::exec::engine::EngineRegistry,
@@ -108,7 +108,7 @@ pub(crate) fn with_config(
     VmContext::with_runtime(
         module,
         vfs,
-        crate::context::RuntimeInputs {
+        crate::vm::RuntimeInputs {
             extensions,
             config,
             object_protocol: protocol,

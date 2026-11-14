@@ -1,7 +1,7 @@
 //! Shared mutator coordination state for one VM.
 use parking_lot::{Condvar, Mutex};
 use std::sync::{Arc, atomic::{AtomicBool, AtomicUsize}};
-use crate::context::VmContextPtr;
+use crate::vm::VmContext;
 use super::safepoint::GcPhase;
 
 pub struct ThreadState {
@@ -26,7 +26,7 @@ impl ThreadState {
     /// Visit registered addresses while holding the registry lock, without blocking.
     /// Addresses are valid only during the callback; inspecting thread-local data
     /// still requires the owner/parked protocol. The registry cannot be mutated.
-    pub fn try_visit_contexts(&self, mut visit: impl FnMut(usize, *const super::super::context::VmContext)) -> Option<usize> {
+    pub fn try_visit_contexts(&self, mut visit: impl FnMut(usize, *const super::super::vm::VmContext)) -> Option<usize> {
         let contexts = self.vm_contexts.try_lock()?;
         for (index, context) in contexts.iter().enumerate() { visit(index, context.0); }
         Some(contexts.len())
@@ -58,5 +58,81 @@ impl ThreadLocalState {
             parked_tlab: Default::default(),
             safepoint_skip: std::sync::atomic::AtomicU32::new(safepoint_throttle),
         }
+    }
+}
+
+/// Type-erased pointer to a registered [`VmContext`].
+///
+/// Stored in `VmCore.threads.vm_contexts` so the GC scanner can walk every thread's
+/// per-thread state (call stack / pending exception / func-ref slots) during
+/// mark phase. Without this registry, the scanner could only see the first
+/// VmContext it was given a clone of — multi-threading would silently miss
+/// roots and free live cross-thread objects.
+///
+/// # Safety
+///
+/// - The pointer is registered by [`VmContext::new`] AFTER `Pin<Box<...>>`
+///   wrapping guarantees address stability for the entire lifetime of the
+///   VmContext (the Box's heap allocation address is stable, and Pin prevents
+///   `mem::swap` / move-out).
+/// - It is deregistered by [`VmContext::drop`] BEFORE the Box is freed
+///   (`retain` runs in Drop, prior to memory deallocation), so any
+///   dereference performed while the entry is in `vm_contexts` is on a live
+///   VmContext.
+/// - Cross-thread access: the per-thread fields on VmContext are
+///   `Arc<Mutex<...>>` / atomics (Send + Sync), so reading them from another
+///   thread under registry-lock-then-deref discipline is sound. The one
+///   exception is `call_stack`, readable cross-thread only while its owner is
+///   parked (`crate::exec::ThreadExecState::scan_frames_parked`).
+pub struct VmContextPtr(pub(crate) *const VmContext);
+
+// SAFETY: see SAFETY block on `VmContextPtr` above — the raw pointer is
+// kept alive by the Box/Pin ownership of the registering thread, registry
+// updates happen under `vm_contexts: Mutex<...>`, and dereferenced fields
+// are themselves Send + Sync.
+unsafe impl Send for VmContextPtr {}
+unsafe impl Sync for VmContextPtr {}
+
+
+impl ThreadState {
+    /// Join under phase -> registry lock order; an unregistered mutator cannot
+    /// enter an active scan. Requested still admits it into the next park count.
+    pub(crate) fn register_context(&self, ptr: VmContextPtr) {
+        let mut phase = self.gc_phase.lock();
+        while matches!(*phase, GcPhase::Marking) { self.gc_phase_cv.wait(&mut phase); }
+        self.vm_contexts.lock().push(ptr);
+    }
+
+    pub(crate) fn deregister_context(
+        &self, ptr: *const VmContext,
+        retained: &crate::diagnostics::counters::RuntimeCounters,
+        departing: &crate::diagnostics::counters::RuntimeCounters,
+    ) {
+        {
+            let mut registry = self.vm_contexts.lock();
+            retained.absorb(departing);
+            registry.retain(|p| p.0 != ptr);
+        }
+        // Avoid missed wakeups when removal lowers the required parked count.
+        let _phase = self.gc_phase.lock();
+        self.gc_phase_cv.notify_all();
+    }
+
+    /// Keep every shard alive during the callback. References cannot escape.
+    pub(crate) fn with_counter_shards<R>(
+        &self,
+        inspect: impl for<'a> FnOnce(&mut dyn Iterator<Item = &'a crate::diagnostics::counters::RuntimeCounters>) -> R,
+    ) -> R {
+        let registry = self.vm_contexts.lock();
+        // SAFETY: deregistration and deallocation wait for this registry lock.
+        let mut shards = registry.iter().map(|p| &unsafe { &*p.0 }.diagnostics.counters);
+        inspect(&mut shards)
+    }
+}
+
+impl ThreadLocalState {
+    /// Force the next safepoint check through its slow path.
+    pub fn force_safepoint(&self) {
+        self.safepoint_skip.store(1, std::sync::atomic::Ordering::Relaxed);
     }
 }

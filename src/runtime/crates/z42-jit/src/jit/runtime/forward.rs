@@ -1,7 +1,7 @@
 //! Execute native-wrapper short circuits from compiled callers.
 use crate::metadata::Function;
 use crate::object::Value;
-use crate::context::VmContext;
+use crate::vm::VmContext;
 use super::frame::JitFrame;
 use crate::jit::helpers::vm_ctx_ref;
 

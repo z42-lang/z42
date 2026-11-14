@@ -10,7 +10,7 @@
 //!  add-platform-os-stdlib.
 
 use crate::object::Value;
-use crate::context::VmContext;
+use crate::vm::VmContext;
 
 /// 宿主 OS 名。wasm32 报 `"wasm"` 而不是 `consts::OS`（见 [`crate::pal::system::os_name`]），
 /// 否则 `OSKind.Wasm`、`IsWasm()`、`[Skip(platform: "wasm")]` 在 wasm 上都不生效。
