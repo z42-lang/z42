@@ -103,6 +103,7 @@
 - [AOT](runtime/aot.md)
 - [分层执行](runtime/tiered-execution.md)
 - [组件化运行时](runtime/componentized-runtime.md)
+  - [模块边界与内部组件门面](runtime/module-boundaries.md)
 - [并发与 async](runtime/concurrency.md)
 - [hot-reload](runtime/hot-reload.md)
 - [safepoint 泛化](runtime/safepoint-design.md)

@@ -78,7 +78,7 @@
 | [code-organization.md](rules/code-organization.md) | README 层级、文件 / 函数规模门禁与类型职责拆分（style.* lint + 历史源内豁免） |
 | [common-pitfalls.md](rules/common-pitfalls.md) | 跨语言共同陷阱：加载顺序非确定性、id 作用域 |
 | [compiler-z42c.md](rules/compiler-z42c.md) | z42c 代码约定：只用当前语言子集、Parser 错误处理 |
-| [runtime-rust.md](rules/runtime-rust.md) | Rust VM 代码约定：错误处理、测试组织、原生代码与 GC 的四条规则、执行模式、依赖引入 |
+| [runtime-rust.md](rules/runtime-rust.md) | Rust VM 约定：模块/组件边界、公开面与文件命名、错误处理、测试组织、原生代码与 GC、执行模式、依赖引入 |
 
 ### 碰自举链 / 改格式时
 

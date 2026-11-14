@@ -17,11 +17,43 @@
 
 main.rs 不调用 Rust VM 接口，只查找 libz42 并取得版本化 C 入口。先验证头版本、大小、构建身份和回调，再把参数交给 host::cli。已打开的库保留到进程结束，避免运行时或依赖的 TLS 析构跳入已卸载代码。
 
-嵌入接口与类型统一从 z42::host 提供。CLI 只处理参数、启动和进程策略，也调用 host。组件内部 Rust API 不自动成为嵌入 API。
+普通嵌入功能从 z42::host 提供，CLI 也调用相同宿主服务。当前 host 仍转出组件管理与协议，公开签名和静态装配头也有内部类型泄露；
+收口目标是 VM 消费者通过内部 components::api 请求能力，跨库协议另列契约，普通宿主不接触组件管理。
+当前缺口与目标关系见[运行时模块边界](module-boundaries.md)，这项收口尚未完成。
 
-组件框架集中在 `runtime/src/components/`：api 定义协议，catalog 加载和校验工厂，options 接收配置，instance 管理每 VM 实例和租约，backends 选择并装配执行接口，identity 检查核心映像与布局，linked 管理静态工厂。host 再导出嵌入入口；VM 只持有实例集合，不另设组件管理模块。
+组件框架集中在 `runtime/src/components/`：当前 api 定义跨库协议，catalog 加载和校验工厂，options 接收配置，instance 管理每 VM 实例和租约，backends 选择并装配执行接口，identity 检查核心映像与布局，linked 管理静态工厂。当前部分消费者直接引用管理子模块；VM 内部统一访问门面尚未独立出来。
 
 GC 与值/对象布局仍属于 core，不能运行中切换；它们位于分配、屏障和 safepoint 热路径，机器码使用固定布局。解析符号和崩溃栈定位是基础能力，不依赖可选调试器。
+
+### 组件三种使用形态（目标契约）
+
+三种形态使用同一能力、版本、依赖和每 VM 生命周期契约，差别由来源适配器吸收，普通能力消费者不选择具体库或入口。
+本节是统一来源模型的目标；当前 `Registration::Static/Dynamic` 与 `BackendSource::Linked/Dynamic` 尚未完整区分这些来源，
+不能据名称断言三种形态已经分别通过运行时策略检查。现有直接入口可以由链接胶水提供，但还缺显式来源分类与检查矩阵。
+
+| 形态 | 代码/入口来源 | 准备与检查 |
+|---|---|---|
+| 静态链接 | 实现归档链接进最终宿主/运行时；装配胶水保持工厂入口可达 | 核对构建清单、显式登记与运行时启用策略；不依赖全局构造器隐式登记 |
+| 动态链接 | 组件共享库是宿主/运行时的链接依赖，由系统链接/装载机制提供入口 | 核对链接清单、已绑定实现映像与运行时策略；保留依赖映像及回调寿命；不再按库名当作运行时加载来源搜索 |
+| 运行时装入 | 明确请求后由 PAL 使用 dlopen/LoadLibrary 等装库、解析描述符入口 | 装库前检查允许策略、可信组件平台能力及路径；取得入口后校验协议、核心身份和依赖，再创建实例与发布 |
+
+“动态链接”不是运行时 `open_library` 的别名，构建 profile 的 release/debug 也不表示使用形态。
+实际来源由构建/部署清单与装配适配器声明并核对，不能仅凭一个函数指针、文件存在或 Dynamic 名称推断。
+运行时设置表达允许的来源形态、所需能力/角色及禁用项；这些是功能策略，不是向普通宿主暴露组件工厂、描述符或租约。
+
+准备流程是：捕获运行时策略 → 核对构建/部署与平台能力 → 选择被允许的提供方/来源 → 获取入口 →
+校验 ABI、构建/核心映像身份与接口版本 → 展开依赖闭包 → 按依赖创建实例 → 绑定能力并发布。
+缺失、歧义、被禁用、不支持的形态及协议/依赖不匹配均显式失败，不回落到被禁止的来源或静默换执行模式。
+同一 VM 可组合不同来源的组件，但共享核心身份与依赖契约保持一致；每个工厂的来源和代码保活信息随登记保存。
+
+静态和链接动态代码可能先于 VM 配置解析进入进程，运行时禁用只能控制登记使用、实例化与能力启用；
+要保证实现不被链接/装入，依靠构建与分发裁剪。链接动态库缺失时也可能由系统在 VM 启动前报告部署错误。
+运行时装入可在调用 OS 装载前拒绝策略不允许的来源；原生库初始代码可能在装库时执行，仍要求来源可信。
+iOS/WASM 等平台按可信运行时组件的实际装载能力判定，不能套用脚本 native 扩展的权限开关，也不能承诺所有平台三种形态均可用。
+
+验证使用真实产物区分三种路径：静态宿主实际引用所选工厂；链接动态宿主具有真实共享库依赖；运行时装入宿主不预链接目标组件，
+仅在显式准备后通过 PAL 打开库。每种形态覆盖允许/禁用、缺库/缺入口、身份/版本拒绝、依赖失败/回滚、重复/歧义、
+多 VM/worker 与释放，平台不支持的组合验证明确拒绝。能力查询验证不装库、不创建实例；热调用不增加逐次注册表查找。
 
 ## 2. 引擎注册与选择
 
@@ -154,4 +186,6 @@ profiler 的算法与线程位于 z42-profiler，diagnostics 只持有中立契�
 - [运行时/包分发](../toolchain/workload-distribution.md)
 - [诊断与跟踪](diagnostics.md)
 
-Component protocol ownership: z42::components::api defines descriptors, C-layout interfaces and execution registration. Core build.rs generates the shared build identity. Host re-exports the public embedding types; execution libraries depend on the core, preserving an acyclic Cargo graph. Generic ABI fixtures use only protocol values and callbacks; actual execution components still link the single shared core.
+当前跨库组件协议由 z42::components::api 定义，包含描述符、C 布局接口和执行注册；core build.rs 生成共享构建身份。
+这份协议与目标中的 VM 内部访问门面同名，仍需拆分；host 的现有再导出属于待收口缺口。生产执行库单向依赖 core，
+通用 ABI 夹具只使用协议值和回调，实际执行组件仍链接同一份共享核心。
