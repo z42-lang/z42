@@ -42,6 +42,19 @@ string _selectUnitProject(string[] projects, string name) {
     throw new CliException("no library project matches '" + name + "'");
 }
 
+string[] _ownerUnitProjects(string root, string kind, string owners) {
+    string[] all = _allUnitProjects(root, kind);
+    var requested = new List<string>();
+    foreach (var name in owners.Split(",")) {
+        if (name.Trim().Length == 0) { throw new CliException("empty package owner"); }
+        string project = _selectUnitProject(all, name.Trim());
+        if (!requested.Contains(project)) { requested.Add(project); }
+    }
+    var selected = new List<string>();
+    foreach (var project in all) { if (requested.Contains(project)) { selected.Add(project); } }
+    return selected.ToArray();
+}
+
 // 当前 kind 的源单元数，只用于分片负载估算，目标发现仍由 z42b 负责。
 int _projectUnitCount(string toml, string kind) {
     string td = Path.Join(Path.GetDirectoryName(toml), kind == "bench" ? "benches" : "tests");

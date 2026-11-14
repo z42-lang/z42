@@ -396,7 +396,7 @@ jobs:
         if: ${{ success() && steps.scope.outputs.bench_stdlib == 'true' && steps.fmtgap.outputs.gap == '0' && steps.base.outcome == 'success' && steps.head.outcome == 'success' }}
         shell: bash
         run: |
-          xtask bench --micro-ab --threshold-time 0.15 \
+          xtask bench --micro-ab --plan artifacts/bench-plan.json --threshold-time 0.15 \
               --base-vm "${{ steps.base.outputs.base_vm }}" \
               --base-libs "${{ steps.base.outputs.base_libs }}" \
               --pr-vm "${{ steps.head.outputs.head_vm }}" \

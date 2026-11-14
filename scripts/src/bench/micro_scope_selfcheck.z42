@@ -1,0 +1,36 @@
+namespace Z42Xtask;
+
+using Std.IO;
+
+void _microScopeChecks() {
+    string root = _root(); FlowConfig cfg = _flowConfigFor(root);
+    foreach (var file in new string[]{ "src/libraries/z42.json/benches/reader.z42", "src/compiler/z42c.pipeline/benches/read.z42" }) {
+        string owner = file.Contains("z42.json") ? "z42.json" : "z42c.pipeline";
+        _gateAssert(_microPlanOwners(cfg, _flowSelect(cfg, new string[]{ file }, root)) == owner, "private benchmark changes retain their exact package owner");
+    }
+    FlowPlan mixed = _flowSelect(cfg, new string[]{ "src/libraries/z42.json/benches/read.z42", "src/libraries/z42.io/benches/write.z42",
+        "src/libraries/z42.json/benches/other.z42" }, root);
+    _gateAssert(_microPlanOwners(cfg, mixed) == "z42.io,z42.json", "multiple and renamed benchmark owners form a stable deduplicated union");
+    mixed = _flowSelect(cfg, new string[]{ "src/libraries/z42.json/benches/read.z42", "src/libraries/z42.io/tests/write.z42" }, root);
+    _gateAssert(_microPlanOwners(cfg, mixed) == "z42.json", "correctness owners do not widen performance measurements");
+    foreach (var file in new string[]{ "src/libraries/z42.core/src/String.z42", "src/libraries/z42.json/src/Reader.z42",
+        "src/compiler/z42c.pipeline/src/BuildSession.z42", "src/runtime/src/lib.rs", "unknown.input" }) {
+        mixed = _flowSelect(cfg, new string[]{ "src/libraries/z42.json/benches/read.z42", file }, root);
+        _gateAssert(_microPlanOwners(cfg, mixed).Length == 0, "production and unknown inputs retain complete consumer measurements");
+    }
+    bool rejected = false;
+    try { _microPlanOwners(cfg, _flowSelect(cfg, new string[]{ "README.md" }, root)); } catch (Exception e) { rejected = true; }
+    _gateAssert(rejected, "a plan with no measurements never widens to all packages");
+    _gateAssert(_ownerUnitProjects(root, "bench", "z42.json,z42.io,z42.json").Length == 2, "explicit owner lists deduplicate exact manifest names");
+    foreach (var owners in new string[]{ "not-a-package", "z42.json,,z42.io" }) {
+        rejected = false;
+        try { _ownerUnitProjects(root, "bench", owners); } catch (Exception e) { rejected = true; }
+        _gateAssert(rejected, "unknown or empty owners fail before tool preparation");
+    }
+    var options = new BenchCommand(); options.Plan = "plan.json"; options.Owners = "z42.json";
+    rejected = false;
+    try { _microBenchOwners(options); } catch (Exception e) { rejected = true; }
+    _gateAssert(rejected, "explicit scope cannot override a validated plan");
+    string workflow = File.ReadAllText(Path.Join(root, ".github/workflows/bench-pr.yml"));
+    _gateAssert(workflow.Contains("--micro-ab --plan artifacts/bench-plan.json"), "CI passes the immutable benchmark plan into native capture");
+}

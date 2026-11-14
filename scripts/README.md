@@ -57,6 +57,8 @@ dry-run 跑真实脚本，不联网）；真实 SDK 的离线安装由 CI packag
 > 所有版本号的唯一真相源是 `scripts/versions.toml`（读它的几乎全是 xtask，故放这里；入口 `_versionsPath`）（xtask 经 `Std.Toml` 原生解析，
 > 见共享模块 `src/common/versions.z42`）。
 
+micro A/B 可用 `bench --micro-ab --plan <plan.json>` 消费已验证 owner 范围；手动选包用 `bench stdlib --owners z42.json,z42.io`。边界见[性能门禁](../docs/internals/src/devinfra/benchmarking.md)。
+
 ## 全局选项
 
 子命令前后皆可（根命令 `XtaskCommand` 的全局 option，见 `src/main.z42`）：

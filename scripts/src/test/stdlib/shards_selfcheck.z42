@@ -31,6 +31,10 @@ int _selfcheckShards() {
         foreach (var args in new string[]{
             "test e2e --shard 0/2", "test stdlib --shard 3/2", "bench stdlib --shard nope",
             "test stdlib unknown-project", "bench stdlib unknown-project",
+            "bench --owners only-lib", "bench --plan plan.json --micro-diff",
+            "bench stdlib --owners unknown-project", "bench stdlib --owners only-lib,",
+            "bench stdlib only-lib --owners only-lib", "bench stdlib --owners only-lib --shard 1/2",
+            "bench stdlib --owners only-lib --plan plan.json",
             "test app desktop --shard 1/0", "test stdlib only-lib --shard 1/2",
             "test app desktop --zbc missing.zbc --shard 1/2",
             "test e2e --dir cross-zpkg --shard 1/2", "test e2e --dir multi-exe --shard 1/2"
