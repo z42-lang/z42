@@ -41,8 +41,8 @@ void _generateIosProject(string outputDir, string name, string bundleId,
     else { Console.WriteLine("  z42.framework missing: install the iOS runtime pack before building this project"); }
     string native = Directory.Exists(Path.Join(sdkDir, "native")) ? Path.Join(sdkDir, "native") : sdkDir;
     string[] components = Directory.Exists(Path.Join(native, "z42_jit.framework"))
-        ? new string[]{ "z42_interp", "z42_jit", "z42_compression", "z42_std" }
-        : new string[]{ "z42_interp", "z42_compression", "z42_std" };
+        ? new string[]{ "z42_interp", "z42_jit", "z42_profiler", "z42_compression", "z42_std" }
+        : new string[]{ "z42_interp", "z42_profiler", "z42_compression", "z42_std" };
     foreach (var component in components) {
         string source = Path.Join(native, component + ".framework");
         if (!Directory.Exists(source)) { throw new Exception("runtime framework is missing: " + source); }

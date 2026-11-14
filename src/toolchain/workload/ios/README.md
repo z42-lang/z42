@@ -43,6 +43,8 @@ rustup target add aarch64-apple-ios aarch64-apple-ios-sim aarch64-apple-darwin
 
 模拟器选择 JIT：`Z42VM(..., execMode: .jit)`；运行时提供独立 `libz42_jit.a` / `z42_jit.framework`。真机请求 JIT 明确报错。
 
+导出工程嵌入同批 interp/JIT、profiler、compression 与共享 std Framework。应用只链接 `z42.framework`；profiler 由核心在首次分析请求时加载。
+
 限制：单实例；同步 invoke；marshal 仅 null + `i64` / `f64` / `bool`。
 
 ## 如何测试验证

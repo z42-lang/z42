@@ -88,7 +88,6 @@ Process _componentCRunner(string exe, string rid) {
     return p.WorkingDirectory(Path.GetDirectoryName(exe))
         .EnvRemove("Z42_NATIVE_PATH").EnvRemove("Z42_CONFIG").EnvRemove("Z42_APP_CONFIG")
         .EnvRemove("Z42_HOME").EnvRemove("Z42_LIBS").EnvRemove("Z42_PORTABLE_VM")
-        .EnvRemove("Z42_SAMPLE_HZ").EnvRemove("SIMCTL_CHILD_Z42_SAMPLE_HZ")
         .EnvRemove("LD_LIBRARY_PATH").EnvRemove("DYLD_LIBRARY_PATH").EnvRemove("DYLD_FALLBACK_LIBRARY_PATH");
 }
 int _componentCRun(string exe, string pkg, string rid, string zbc, string mode, string action) {
@@ -100,6 +99,9 @@ int _componentCRun(string exe, string pkg, string rid, string zbc, string mode, 
         // simctl forwards SIMCTL_CHILD_* to the spawned simulator process.
         string key = rid == "iossim-arm64" ? "SIMCTL_CHILD_Z42_SAMPLE_HZ" : "Z42_SAMPLE_HZ";
         p = p.Env(key, "1000");
+    } else {
+        // Process applies removals after overrides; sampling runs must not remove their key.
+        p = p.EnvRemove("Z42_SAMPLE_HZ").EnvRemove("SIMCTL_CHILD_Z42_SAMPLE_HZ");
     }
     return _exec(p);
 }
