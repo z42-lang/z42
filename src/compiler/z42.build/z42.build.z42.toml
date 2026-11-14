@@ -1,4 +1,4 @@
-# z42.build — 构建管线、Hooks/Workload 与隔离进程调度；编译契约在 z42.compiler.contracts。
+# z42.build — 构建管线、Hooks/Workload 与隔离进程调度；编译契约在 z42c.pipeline。
 [project]
 name    = "z42.build"
 version = "0.1.0"
@@ -10,7 +10,7 @@ kind    = "lib"
 "style.fnLinesHard" = "error"
 
 [dependencies]
-"z42.compiler.contracts" = { path = "../z42.compiler.contracts", version = "0.1.0" }
+"z42c.pipeline" = { path = "../z42c.pipeline", version = "0.1.0" }
 # 🔴 **path 依赖，不是名字依赖**（relocate-compiler-domain-libs，2026-09-27）：
 # 名字依赖对 `PathDepPlan` 的图**不可见** ⇒ 仓库外/仓库内的 path-闭包消费者（如 xtask）拓扑序会
 # 把 `z42.build` 排在 `z42.project` **前面**，于是 z42.build 自建时报

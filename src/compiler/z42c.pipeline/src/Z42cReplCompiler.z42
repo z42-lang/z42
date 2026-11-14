@@ -1,11 +1,6 @@
-// z42c 的 IReplCompiler 实现（sink-repl-compile-facade）。REPL（Z42.Scripting）经 z42.compiler.contracts 的
-// `IReplCompiler` 接口**在进程内**调本类，复用 PackageCompile / DepScan / IrDump 核心——与
-// `Z42cCompiler : ICompiler`（wire-z42b）同构。依赖方向：z42c.pipeline → z42.compiler.contracts（仅接口，无环）。
-//
-// 「有状态增量编译世界」封在 opaque 句柄 `ReplWorld`（bundle DepScanResult + 编译配置），scripting
-// 只当 `object` 持有、从不具名 pipeline/semantics 类型。本类把原先散在 `Script.z42`（编译编排：
-// E0401 惰性 per-type / 整包 reconcile 重试）与 `Completer.z42`（导入世界遍历）的逻辑收进门面实现侧。
-// 私有 helper 全 static（无实例态；接口方法为实例方法，经 ClassName._x 调 static helper——同 Z42cCompiler）。
+// 编译服务实现与 Z42.Build 编译契约同包，供宿主静态绑定。
+// 增量世界封装为 opaque ReplWorld，脚本层经接口查询与扩展。
+// 私有 helper 无实例态；跨轮状态由显式 world 句柄拥有。
 namespace Z42.Pipeline;
 
 using Std.Collections;

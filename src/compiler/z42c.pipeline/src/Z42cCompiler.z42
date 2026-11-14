@@ -1,10 +1,6 @@
-// z42c 编译器的 ICompiler 实现（wire-z42b D2）。z42b 构建编排器经 z42.compiler.contracts 的 ICompiler 接口
-// **在进程内**调本类（不 fork z42c 子进程、不依赖 z42vm 在 PATH、诊断以结构返回）。
-//
-// drop-legacy-compile-request：本类只是 BuildSession 的薄封装（Role = HostTarget）——编译决策全部来自
-// `req.Manifest`（[optimize] / [syntax] / [lints] / [plugins] / entry / version / 依赖核验），与 `z42c build`
-// 同一判据。`req.Manifest` 为 null 直接判失败：此前那条「只看平铺字段」的旧路径与 BuildSession 各自一份编译流程，
-// 已经分叉过（BuildSession 首版漏调 `HandlerRegistry.RunAst`）。依赖从磁盘解析：req.Deps 各 zpkg 的父目录集 → 解析域。
+// 编译服务实现与 Z42.Build 编译契约同包，供宿主静态绑定。
+// BuildSession 的 HostTarget 薄封装：Manifest 必填，编译选项与 CLI 共用决议；
+// req.Deps 的包目录组成依赖解析域，诊断经结构化结果返回。
 namespace Z42.Pipeline;
 
 using Std.IO;

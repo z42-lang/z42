@@ -4,7 +4,7 @@
 > `src/compiler/z42.scripting/src/`（eval-core）、
 > `src/toolchain/interactive/core/interactive_main.z42`（宿主主循环）、
 > `src/toolchain/interactive/repl/src/`（tty 行编辑绑定 + 键位策略）、
-> `src/compiler/z42.compiler.contracts/src/IReplCompiler.z42`（编译门面）、
+> `src/compiler/z42c.pipeline/src/Contracts/IReplCompiler.z42`（编译门面）、
 > `src/compiler/z42c.pipeline/src/Z42cReplCompiler.z42`（门面实现）、
 > `src/runtime/crates/z42-repl/`（行编辑 cdylib）、
 > `src/runtime/crates/z42-repl/src/registration.rs`（脚本描述符、每 VM 会话和通用 C 回调）、
@@ -13,7 +13,7 @@
 > 要查**怎么用** `z42 repl`（旗标、元指令）→ 敲 `z42 repl -h`，或语言与库参考的工具链部分。
 
 本页写 REPL 是**怎么实现的**：一行输入从按键到结果值要穿过哪几层、会话状态凭什么跨轮存活、
-「写完了没」由谁判定、编译器为什么是运行期注入进来的、首轮延迟是靠哪几层惰性压下去的。
+「写完了没」由谁判定、编译器如何静态绑定、首轮延迟是靠哪几层惰性压下去的。
 改 REPL 行为、加元指令、动补全或多行编辑时读它。
 
 ## 1. 分层：四个包 + 一个 cdylib
@@ -25,8 +25,7 @@ z42 repl                                  launcher（特判命令，不走生成
        ├─ z42.repl        (Std.Repl)         tty 交互层：native 绑定 + 键位策略        ← toolchain
        │    └─ libz42_repl.{dylib,so,dll}    rustyline 行编辑器（host-only cdylib）    ← runtime
        └─ z42.scripting   (Z42.Scripting)    跨平台 eval-core：分类/改写/完整性/编译编排/补全 ← stdlib
-            └─ z42.compiler.contracts  (Z42.Build)        IReplCompiler 门面（只有接口）
-                 └─ z42c.pipeline            Z42cReplCompiler（运行期反射注入）
+            └─ z42c.pipeline            IReplCompiler 门面 + Z42cReplCompiler（静态依赖）
 ```
 
 切法只有一条准则：**平台绑定重的留 toolchain，跨平台的下沉 stdlib**。
@@ -149,16 +148,14 @@ E0401，见 §8）。成功后三件事：`IReplCompiler.ExtendWorld` 把刚编�
 丢掉内部文件名和列号（`Rewriter` 改写会移列，列号不可靠）。用户行 ≤ 1（单行输入）→ 只留 `E0401: undefined: x`；
 多行块 → `第 N 行: <msg>`。格式不符就原样返回。
 
-## 3. 编译门面 + 运行期注入
+## 3. 编译门面与静态绑定
 
-REPL 把编译器当**有状态的增量服务**用：依赖世界跨轮缓存、逐轮增量并入、按类型惰性 reconcile、
-E0401 回退重编，补全还要遍历导入世界。这些逻辑天然属于编译器，但如果让 `z42.scripting`
-直接静态依赖 `z42c.semantics`/`z42c.pipeline`，一个 stdlib 包就把整个编译器后端焊死在编译期依赖里了。
+`z42.scripting` 静态依赖 `z42c.pipeline`，经 `IReplCompiler` 操作有状态增量世界。
+契约与实现同包；`ReplCompilerHost.Get()` 首次调用时直接创建 `Z42cReplCompiler` 并缓存，
+不再手工探测组件路径或反射创建。SDK 装配须包含完整编译器后端；缺失组件按依赖加载错误处理。
+编译世界跨轮缓存、逐轮并入、按类型惰性 reconcile 和 E0401 回退由后端负责。
 
-解法是 DIP：**`z42.compiler.contracts` 只放接口，`z42c.pipeline` 实现它，`z42.scripting` 运行期反射注入拿实现**。
-
-`Z42.Build.IReplCompiler` 六个 coarse 方法，参数与返回**只有 `string[]` / `byte[]` / `int`**，
-「有状态增量编译世界」封成 opaque `object` 句柄——`z42.compiler.contracts` 的依赖面因此零增长：
+`Z42.Build.IReplCompiler` 把增量世界封装成 opaque `object` 句柄，脚本层不接触后端内部世界结构。
 
 | 方法 | 职责 |
 |---|---|
@@ -172,21 +169,6 @@ E0401 回退重编，补全还要遍历导入世界。这些逻辑天然属于�
 实现侧 `Z42.Pipeline.Z42cReplCompiler` 的 opaque 句柄是 `ReplWorld`（bundle `DepScanResult` + 编译配置），
 复用 `PackageCompile` / `DepScan` / `IrDump` 核心。私有 helper 全 static（无实例态）。
 
-`ReplCompilerHost.Get()` 负责注入，惰性单例：`ModuleLoader.Load(z42c.pipeline.zpkg + 依赖闭包)` →
-`Type.GetType("Z42.Pipeline.Z42cReplCompiler")` → `Activator.CreateInstance` → `as IReplCompiler`。
-组件定位序（`_findCompilerZpkg`）：
-
-1. `Z42_HOME/programs/z42c/`（SDK 安装态；launcher 转发时已设）
-2. `Z42_PORTABLE_VM` 反推 SDK 根
-3. 开发树 `artifacts/build/compiler/z42c.driver/release/dist/`
-4. `Z42_LIBS` 目录——比 z42b 多这一兜底，覆盖 dev 回路与「编译器组件与 stdlib 同置一处」的场景
-
-任何一步失败都不抛，退化成 `NoReplCompiler`（编译恒失败、补全恒空）——runtime-only SDK 装不上编译器组件时，
-REPL 仍能启动并给出明确的 stderr 提示，而不是崩。
-
-> `Z42_LIBS` 在 `Script.Create()` 里当**单个目录**读，**不按 `:` 拆**。拆了会让第二段目录里的包编得过、
-> 运行期却加载不到（`MissingSymbolException`），且 Windows 的 `C:\…` 会被盘符冒号截断。
-> wasm/playground 无环境变量，走 `Script.CreateWithLibs("/libs")` 显式传 VFS 目录。
 
 ## 4. 输入完整性：判定权威是 parser
 
@@ -484,7 +466,7 @@ park 期间它的 z42 根是冻结的，收集器可以安全扫描。Tab 补全
 | 输入怎么分类（新的声明形态） | `z42.scripting/src/Classifier.z42`（`Classify` / `_typeRefEnd`） |
 | 续读判定 | `z42.scripting/src/Completeness.z42` + parser 的置位点（`Parser.z42` 的 `_expect` / `_expectSemi` / `_errorOrIncomplete`） |
 | 每轮生成源的形状（prelude / wrapper / carry-forward） | `z42.scripting/src/Script.z42` |
-| 编译器侧的增量世界 / 回退重试 / 补全遍历 | `z42c.pipeline/src/Z42cReplCompiler.z42`（改门面签名要同步 `z42.compiler.contracts/src/IReplCompiler.z42`） |
+| 编译器侧的增量世界 / 回退重试 / 补全遍历 | `z42c.pipeline/src/Z42cReplCompiler.z42`（改门面签名要同步 `z42c.pipeline/src/Contracts/IReplCompiler.z42`） |
 | 键位行为 | `interactive/repl/src/ReplEditing.z42`（策略）+ `crates/z42-repl/src/editing.rs`（`parse_action` 译码）+ `lib.rs`（键绑定） |
 | 补全候选来源 | `z42.scripting/src/Completer.z42`（过滤/上下文）+ 门面三个查询方法（世界遍历） |
 | `z42 repl` 的旗标 | `launcher/core/launcher_cli.z42` 的 `_forwardRepl` / `_printReplHelp` |

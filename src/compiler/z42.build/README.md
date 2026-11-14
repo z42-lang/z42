@@ -1,7 +1,7 @@
 # z42.build
 
 ## 职责
-z42 项目「编译 → 发布」管线的**框架库**（全 z42 实现）。编译/REPL 契约由 [`z42.compiler.contracts`](../z42.compiler.contracts) 提供。本库提供：固定的相位流程引擎、
+z42 项目「编译 → 发布」管线的**框架库**（全 z42 实现）。编译/REPL 契约由 [`z42c.pipeline`](../z42c.pipeline) 提供。本库提供：固定的相位流程引擎、
 传给各相位的 `IPipelineContext` 契约、以及 workload 与项目 `build/` 脚本继承扩展的
 基类（`WorkloadBase` / `BuildHooks`）。
 
@@ -10,7 +10,7 @@ z42 项目「编译 → 发布」管线的**框架库**（全 z42 实现）。�
 
 ## 功能索引
 - `Pipeline.Run(ctx)` —— 由编排器（`z42b`）/ driver 构造（注入 Compiler/Hooks/Workload）后调用
-- `ICompiler` —— 编译抽象；编排器注入编译器库实现（接口在 `z42.compiler.contracts`），Compile 相位 in-process 调用
+- `ICompiler` —— 编译抽象；默认直接构造编译器实现，也可显式替换（接口在 `z42c.pipeline`），Compile 相位 in-process 调用
 - `WorkloadBase` / `BuildHooks` —— workload 与项目的继承扩展点
 - `IPipelineContext` —— 相位与外界交互的唯一契约
 - `DeploymentCopies.Validate()` —— 只读检查计划源文件内容及其他项目归属冲突；不创建输出目录，不替代 Apply 写入时的复检。
@@ -25,8 +25,7 @@ class iOSBuild         class iOSWorkload            class WorkloadBase
   override + base.X()     override 平台逻辑            扩展点契约
 ```
 - 继承 / 重载 / hook 全归一到 `override` + `base.M(ctx)`（z42 原生 OOP，**不需反射**）。
-- 绑定不靠运行时动态加载：publish 时生成一次性 driver 程序，把
-  `z42.build` + workload + 项目 `build/` 静态链接编译后运行（类似 `build.rs`）。
+- 编译器默认静态绑定；项目 hook 则由 builder 从声明的插件中加载并组合，见 [z42b](../../../docs/internals/src/toolchain/z42b.md)。
 - **编译走 in-process 共享实现**（`ICompiler`）：Compile 头相位不 fork `z42c` 子进程，
   而是经注入的 `ICompiler` 在进程内调编译器库——与独立 `z42c.driver` CLI **同一份实现**。
   依赖倒置：z42.build 定接口，编译器库（z42c）`: ICompiler` 实现它（z42c → z42.build，无环）。
@@ -64,6 +63,6 @@ class iOSBuild         class iOSWorkload            class WorkloadBase
 - 依赖 `z42.project`（项目清单模型 ProjectInfo / ProjectManifest / PlatformSet + typed 平台配置，path 依赖）、`z42.core`、`z42.io`、`z42.crypto`、`z42.encoding`、`z42.threading`
 - **被依赖**：编排器 `z42b`（`src/toolchain/builder/`）与各 workload appbuilder。
 
-契约依赖为 `z42.compiler.contracts`；编译核心与 scripting 通过它使用接口，不依赖本库的编排实现。
+本库静态依赖 `z42c.pipeline`，`Pipeline.Compiler` 默认构造 `Z42cCompiler`；属性仍接受自定义 `ICompiler`。契约与编译实现同包，pipeline 不依赖本库的编排实现。使用 build 框架的 hook / workload 也须装配编译器后端闭包。
 
 `src/RuntimeDeployment.z42` records complete per-application managed runtime selection separately from copy ownership, including empty and in-place sets.
