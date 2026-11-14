@@ -1,15 +1,8 @@
 //! Smoke benchmark — proves the criterion harness compiles and runs.
 //!
-//! These two benchmarks intentionally avoid touching VM internals, so this file
-//! stays a pure-Rust criterion sanity check. It is deliberately NOT part of the
-//! CI regression gate: `bench-pr.yml`'s criterion A/B step
-//! (extend-ab-bench-micro-criterion) gates `gc_cycle_bench` (a real VM benchmark),
-//! not this file. See `docs/book/src/dev/benchmarking.md` for the gate semantics.
-//!
-//! Bench files that landed since / are still planned:
-//! - `gc_cycle_bench.rs` — cycle-collect / mark / sweep costs (LANDED; A/B-gated)
-//! - `interp_bench.rs`   — interp dispatch loop, call overhead (planned)
-//! - `decoder_bench.rs`  — .zbc decoding throughput (planned)
+//! These benchmarks avoid VM internals and provide a pure-Rust Criterion sanity check.
+//! `xtask bench vm` discovers the declared harness=false Cargo targets, so both this
+//! harness and the GC benchmarks participate in the selected VM measurement family.
 
 use std::hint::black_box;
 

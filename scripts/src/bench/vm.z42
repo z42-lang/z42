@@ -1,0 +1,46 @@
+// Native Criterion measurements use Rust trees directly, without a z42 toolchain build.
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Toml;
+using Std.Collections;
+
+string[] _benchVmTargets(string root) {
+    TomlValue manifest = TomlValue.Parse(File.ReadAllText(Path.Join(root, _runtimeManifest())));
+    var targets = new List<string>();
+    if (manifest.ContainsKey("bench")) {
+        TomlValue benches = manifest.Get("bench");
+        for (int i = 0; i < benches.Count(); i = i + 1) {
+            TomlValue bench = benches.At(i);
+            if (bench.ContainsKey("harness") && !bench.Get("harness").AsBool()) {
+                targets.Add(bench.Get("name").AsString());
+            }
+        }
+    }
+    if (targets.Count == 0) { throw new Exception("no harness=false VM benchmarks declared in Cargo.toml"); }
+    return targets.ToArray();
+}
+
+int _benchVmAt(string root, string baseRoot, bool quick) {
+    string[] targets = _benchVmTargets(root);
+    string[] baseline = baseRoot.Length > 0 ? _benchVmTargets(baseRoot) : new string[0];
+    string results = Path.Join(_benchDir(root), "criterion");
+    _resetDir(results);
+    if (baseRoot.Length > 0) {
+        int rc = _benchVmTree(baseRoot, baseline, results, "--save-baseline", quick);
+        if (rc != 0) { return rc; }
+    }
+    int code = _benchVmTree(root, targets, results, baseRoot.Length > 0 ? "--baseline-lenient" : "", quick);
+    return code != 0 ? code : _benchCriterionReport(results);
+}
+
+int _benchVmTree(string root, string[] targets, string results, string comparison, bool quick) {
+    foreach (var target in targets) {
+        Process cargo = new Process("cargo").Arg("bench").Arg("--locked").Arg("--bench").Arg(target)
+            .WorkingDirectory(Path.Join(root, "src/runtime")).Env("CRITERION_HOME", results).Arg("--");
+        if (comparison.Length > 0) { cargo = cargo.Arg(comparison).Arg("ab-base"); }
+        if (quick) { cargo = cargo.Arg("--quick"); }
+        int rc = _execIn(cargo, Path.Join(root, "src/runtime")); if (rc != 0) { return rc; }
+    }
+    return 0;
+}

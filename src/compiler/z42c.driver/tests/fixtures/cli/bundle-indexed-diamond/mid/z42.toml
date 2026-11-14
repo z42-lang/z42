@@ -1,0 +1,5 @@
+[project]
+name="dedup.mid"
+kind="lib"
+[sources]
+include=["*.z42"]

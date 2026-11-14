@@ -1,0 +1,22 @@
+// Shared preparation for stdlib units, explicit targets and project examples.
+namespace Z42Xtask;
+
+using Std.IO;
+
+TargetTooling _prepFixtureTooling(string root, bool noBuild, string vm = "", string driver = "", string libs = "") {
+    TargetTooling t = new TargetTooling();
+    bool provided = vm.Length > 0 && driver.Length > 0 && libs.Length > 0;
+    if (!noBuild && !provided) {
+        Console.WriteLine("→ Preparing tooling (z42vm + stdlib; release)...");
+        t.ExitCode = _buildRuntime(); if (t.ExitCode != 0) { return t; }
+        t.ExitCode = _buildStdlib(); if (t.ExitCode != 0) { return t; }
+    }
+    t.Vm = provided ? vm : _builtVm(root, "release");
+    t.DriverZpkg = provided ? driver : _driverZpkg(root, "release");
+    t.Libs = provided ? libs : _libsDir(root);
+    t.BuilderZpkg = _toolchainZpkg(root, _z42bToml());
+    Console.WriteLine("→ Building z42b (z42.builder.zpkg; reflective test runner)...");
+    t.ExitCode = _buildZ42bWith(root, t.Vm, t.DriverZpkg, t.Libs);
+    t.Ok = t.ExitCode == 0;
+    return t;
+}
