@@ -1,6 +1,6 @@
 name: Bench PR Regression
 
-# 同-runner A/B 性能门：在本 runner 上同时建 PR 与其 merge-base（base.sha）两套工具链，
+# 同-runner A/B 性能门：在本 runner 上同时建 PR 与其 实际合并基线两套工具链，
 # 两侧相邻测量 ⇒ runner 速度因子在 ratio=pr/base 里抵消。
 #   · e2e（`bench --ab --tier gate`）与 micro（`bench --micro-diff`）是硬门禁：阈值 0.15，
 #     初判可疑的条目整轮复测、用跑间离散度判红；
@@ -89,7 +89,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           # Fetch enough history that `git rev-parse --abbrev-ref HEAD` works
-          # for the bench JSON metadata, and that the base.sha diff below resolves.
+          # for the bench JSON metadata and local base builds.
           fetch-depth: 0
 
       - name: Bootstrap planner (seed SDK only)
@@ -102,18 +102,16 @@ jobs:
       - name: Select benchmark validation
         id: scope
         shell: bash
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: xtask ci bench-scope --base "$BASE_SHA"
+        run: xtask ci bench-scope --event-file "$GITHUB_EVENT_PATH"
 
-      # A/B: the PR's merge-base toolchain, built on THIS same runner. Its build
+      # A/B: the tested merge's base toolchain, built on THIS same runner. Its build
       # location is irrelevant to the measurement — both base.zbc and pr.zbc are
       # compiled AND run on this runner, so the same-runner cancellation holds.
-      - name: Checkout base (merge-base) for A/B
+      - name: Checkout tested merge base for A/B
         if: steps.scope.outputs.verdict_only == 'false'
         uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ steps.scope.outputs.base_sha }}
           path: base-src
           fetch-depth: 0
 
@@ -231,7 +229,7 @@ jobs:
         run: |
           set -euo pipefail
           ROOT="$PWD"
-          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          BASE_SHA="${{ steps.scope.outputs.base_sha }}"
           # 动态图产物目录名因树而异（R0 后 release-dynamic，旧树 release）。A/B 等长不变量靠
           # 各树内固定名软链 ab → 实际目录；两侧都经 <树>/artifacts/build/runtime/ab/z42vm 取 VM。
           abdir() { local rt="$1/artifacts/build/runtime"; local d=release; [ -d "$rt/release-dynamic" ] && d=release-dynamic; ln -sfn "$d" "$rt/ab"; }
@@ -368,7 +366,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          BASE_SHA="${{ steps.scope.outputs.base_sha }}"
           # --mode 按改动面收窄：interp 与 jit 的相对性能只会被 VM 改动挪动，src/runtime 没变只测 jit。
           # 排除 *.md：README 改动不算「VM 变了」（benchmarking.md §8）。
           if git diff --quiet "$BASE_SHA"..HEAD -- src/runtime ':(exclude,glob)src/runtime/**/*.md'; then

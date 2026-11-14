@@ -109,8 +109,8 @@ xtask flow plan --event-file "$GITHUB_EVENT_PATH" \
 
 `test stdlib --plan <文件>` 和 `bench stdlib --plan <文件>` 在计划绑定的工作树中保留 `{owner}`，并与分片取交集；不会把单包选择扩大成全库。A/B 的 base、head 是不同工作树，各自在本树捕获完整的已选性能类别，不向另一棵树套用提交绑定的计划。
 
-事件名与待验证提交来自 GitHub 环境。PR 使用事件的 base SHA，push 使用 before SHA；浅克隆先获取基线。
-首次 push、无法获取或验证基线时回退全量并打印原因；schedule / workflow_dispatch 使用全量策略。
+事件名与待验证提交来自 GitHub 环境。PR 从实际测试的合并提交读取两个 parent，验证第二个 parent 等于事件的 PR head SHA，再以第一个 parent 为基线。事件中的 base SHA 可能落后于合并提交，不能据此计算 PR 改动。浅克隆直接读取 commit 的 parent 头，再获取对应的不可变基线；push 使用 before SHA。
+首次 push、无法获取或验证基线时回退全量并打印原因；schedule / workflow_dispatch 使用全量策略。Bench 通过 `ci bench-scope --event-file` 复用同一规划器，输出 `base_sha` 供 A/B checkout、工具链构建与改动判断统一使用；无法建立比较基线时直接报错，避免比较错误的两棵树。
 JSON 计划通过 `ci-plan` artifact 共享；消费 job 独立获取浅克隆中缺失的 base commit，再重新计算并核对计划。host 测试用 `xtask ci test-host --plan` 消费 stage 选择，编译器 job 用：
 
 ```bash

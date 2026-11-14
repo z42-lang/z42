@@ -27,20 +27,36 @@ string _flowSnapshot(string root) {
 
 string _flowDigestBytes(string path) { return Hex.Encode(Sha256.Hash(File.ReadAllBytes(path))); }
 
+string _flowPrBase(string root, string head, JsonValue ev) {
+    // Parent headers remain available in depth-one checkouts, unlike HEAD^1.
+    var parents = new Std.Collections.List<string>();
+    foreach (var line in _gitOutput(new string[]{ "-C", root, "cat-file", "-p", head }).Split("\n")) {
+        if (line.Length == 0) { break; }
+        if (line.StartsWith("parent ")) { parents.Add(line.Substring(7)); }
+    }
+    string prHead = ev.Get("pull_request").Get("head").Get("sha").AsString();
+    if (prHead.Length == 0 || parents.Count != 2 || parents[1] != prHead) {
+        throw new Exception("tested merge must have the event PR head as its second parent");
+    }
+    return parents[0];
+}
+
 FlowPlan _flowCreate(FlowConfig cfg, FlowPlanCommand options, string root) {
     string base_ = options.Base; string head = options.Head;
     string policy = head.Length == 0 ? "local" : "commits";
     bool full = options.Full;
     string fallback = "";
+    JsonValue ev = JsonValue.OfObject();
+    string name = "";
     if (options.EventFile.Length > 0) {
-        JsonValue ev = JsonValue.Parse(File.ReadAllText(options.EventFile));
-        string name = Environment.GetEnvironmentVariable("GITHUB_EVENT_NAME", "");
+        ev = JsonValue.Parse(File.ReadAllText(options.EventFile));
+        name = Environment.GetEnvironmentVariable("GITHUB_EVENT_NAME", "");
         head = Environment.GetEnvironmentVariable("GITHUB_SHA", "HEAD");
         policy = "ci";
-        if (name == "pull_request") { base_ = ev.Get("pull_request").Get("base").Get("sha").AsString(); }
-        else if (name == "push") { base_ = ev.Get("before").AsString(); }
+        if (name == "push") { base_ = ev.Get("before").AsString(); }
+        else if (name == "pull_request") { base_ = ""; }
         else { full = true; fallback = "event requires full validation: " + name; }
-        if (base_.Length == 0 || base_ == "0000000000000000000000000000000000000000") {
+        if (name == "push" && (base_.Length == 0 || base_ == "0000000000000000000000000000000000000000")) {
             full = true; fallback = "missing event base";
         }
     }
@@ -50,6 +66,7 @@ FlowPlan _flowCreate(FlowConfig cfg, FlowPlanCommand options, string root) {
     string resolvedHead = _flowCommit(root, head.Length == 0 ? "HEAD" : head);
     try {
         if (!full) {
+            if (name == "pull_request") { base_ = _flowPrBase(root, resolvedHead, ev); }
             // Shallow CI checkouts may not contain the event's base commit.
             if (policy == "ci") {
                 ProcessResult fetch = new Process("git").Arg("-C").Arg(root).Arg("fetch").Arg("--no-tags").Arg("--depth=1").Arg("origin").Arg(base_).Run();

@@ -76,8 +76,12 @@ class CiInstallerCheckCommand : Command {
 
 class CiBenchScopeCommand : Command {
     [Option(help: "benchmark comparison base")] public string Base = "";
+    [Option(help: "GitHub event JSON; resolve the tested PR merge base")] public string EventFile = "";
     public CiBenchScopeCommand() : base("bench-scope", "select benchmark checks from flow ownership") {}
-    public override int Run() { return _ciBenchScope(this.Base); }
+    public override int Run() {
+        try { return _ciBenchScope(this.Base, this.EventFile); }
+        catch (Exception e) { ConsoleError.WriteLine("benchmark scope: " + e.Message); return 2; }
+    }
 }
 
 class CiHostTestCommand : Command {

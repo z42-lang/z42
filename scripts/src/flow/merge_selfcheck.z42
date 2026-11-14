@@ -1,0 +1,87 @@
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Json;
+
+void _flowPrGitChecks(FlowConfig cfg) {
+    string dir = _xtaskWork(_root(), "flow merge base"); _resetDir(dir);
+    string eventName = Environment.GetEnvironmentVariable("GITHUB_EVENT_NAME", "");
+    string eventSha = Environment.GetEnvironmentVariable("GITHUB_SHA", "");
+    string release = Environment.GetEnvironmentVariable("XTASK_RELEASE_REQUIRED", "");
+    try {
+        _ciGit(dir, new string[]{ "init", "-q" });
+        _ciWrite(dir, ".gitignore", "artifacts/\n");
+        _ciWrite(dir, "scripts/flows.toml", File.ReadAllText(Path.Join(_root(), "scripts/flows.toml")));
+        _ciWrite(dir, "README.md", "base\n");
+        _ciGit(dir, new string[]{ "add", "." }); _ciGit(dir, new string[]{ "commit", "-qm", "base" });
+        string oldBase = _flowCommit(dir, "HEAD");
+        _ciWrite(dir, "src/runtime/src/upstream.rs", "main production change\n");
+        _ciGit(dir, new string[]{ "add", "." }); _ciGit(dir, new string[]{ "commit", "-qm", "new main" });
+        string main = _flowCommit(dir, "HEAD");
+        Environment.SetEnvironmentVariable("GITHUB_EVENT_NAME", "pull_request");
+        Environment.SetEnvironmentVariable("XTASK_RELEASE_REQUIRED", "false");
+        foreach (var kind in new string[]{ "control", "empty", "runtime" }) {
+            _ciGit(dir, new string[]{ "checkout", "-qB", "pr", oldBase });
+            string file = kind == "control" ? "scripts/src/ci/queue.z42" : "src/runtime/src/pr.rs";
+            if (kind != "empty") { _ciWrite(dir, file, "PR change\n"); }
+            _ciGit(dir, new string[]{ "add", "." }); _ciGit(dir, new string[]{ "commit", "--allow-empty", "-qm", "PR" });
+            string pr = _flowCommit(dir, "HEAD");
+            _ciGit(dir, new string[]{ "checkout", "-qB", "tested", main });
+            _ciGit(dir, new string[]{ "merge", "--no-ff", "-qm", "tested merge", pr });
+            string head = _flowCommit(dir, "HEAD");
+            string client = Path.Join(dir, "artifacts/" + kind); Directory.Create(client);
+            _ciGit(client, new string[]{ "init", "-q" });
+            _ciGit(client, new string[]{ "remote", "add", "origin", dir });
+            _ciGit(client, new string[]{ "fetch", "--quiet", "--depth=1", "origin", head });
+            _ciGit(client, new string[]{ "checkout", "--quiet", "--detach", "FETCH_HEAD" });
+            bool parentMissing = false;
+            try { _flowCommit(client, "HEAD^1"); } catch (Exception e) { parentMissing = true; }
+            _gateAssert(parentMissing, "PR fixture has a genuine depth-one merge checkout");
+            Environment.SetEnvironmentVariable("GITHUB_SHA", head);
+            string path = Path.Join(client, "artifacts/event.json");
+            string ev = "{\"pull_request\":{\"base\":{\"sha\":\"" + oldBase + "\"},\"head\":{\"sha\":\"" + pr + "\"}}}";
+            _ciWrite(client, "artifacts/event.json", ev);
+            var options = new FlowPlanCommand("plan"); options.EventFile = path;
+            FlowPlan plan = _flowCreate(cfg, options, client);
+            _gateAssert(!plan.Full && plan.Base == main && plan.Head == head, "CI uses the tested merge's actual base");
+            _gateAssert(plan.Files.Length == (kind == "empty" ? 0 : 1), "new main changes are absent from the PR diff");
+            if (kind != "empty") { _gateAssert(plan.Files[0] == file, "PR change remains selected"); }
+            _gateAssert(_strIn(_flowOutputs(cfg, plan), "bench_vm") == (kind == "runtime"), "real runtime changes retain performance coverage");
+            if (kind != "runtime") {
+                foreach (var key in new string[]{ "host_checks", "toolchain_build", "compiler_checks", "stdlib", "platform", "bench_stdlib", "bench_integration" }) {
+                    _gateAssert(!_strIn(_flowOutputs(cfg, plan), key), "upstream production cannot select " + key + " for a control-only or empty PR");
+                }
+            }
+            FlowPlan bench = _ciBenchPlan(cfg, client, "", path);
+            _gateAssert(bench.Base == plan.Base && String.Join(",", bench.Files) == String.Join(",", plan.Files), "CI and benchmark use identical comparison commits");
+            string saved = Path.Join(client, "artifacts/plan.json");
+            File.WriteAllText(saved, JsonValue.StringifyPretty(_flowJson(cfg, plan)));
+            _gateAssert(_flowReadPlan(cfg, saved, client).Base == main, "shared shallow PR plan roundtrip");
+            foreach (var invalid in new string[]{ ev.Replace(pr, oldBase), "{\"pull_request\":{}}" }) {
+                File.WriteAllText(path, invalid);
+                _gateAssert(_flowCreate(cfg, options, client).Full, "unverified merge identity keeps all CI checks");
+                _flowBenchRejects(cfg, client, path);
+            }
+            File.WriteAllText(path, ev);
+            Environment.SetEnvironmentVariable("GITHUB_SHA", main);
+            _gateAssert(_flowCreate(cfg, options, client).Full, "a non-merge checkout cannot narrow PR validation");
+            _flowBenchRejects(cfg, client, path);
+            Environment.SetEnvironmentVariable("GITHUB_SHA", head);
+            _ciGit(client, new string[]{ "remote", "remove", "origin" });
+            _gateAssert(_flowCreate(cfg, options, client).Full, "unavailable merge base cannot suppress CI");
+            _flowBenchRejects(cfg, client, path);
+        }
+    } finally {
+        Environment.SetEnvironmentVariable("GITHUB_EVENT_NAME", eventName);
+        Environment.SetEnvironmentVariable("GITHUB_SHA", eventSha);
+        Environment.SetEnvironmentVariable("XTASK_RELEASE_REQUIRED", release);
+        Directory.Delete(dir, true);
+    }
+    Console.WriteLine("  ✓ PR merges: stale event base, shallow checkout, empty/control/runtime scope and benchmark identity");
+}
+
+void _flowBenchRejects(FlowConfig cfg, string root, string eventFile) {
+    bool rejected = false;
+    try { _ciBenchPlan(cfg, root, "", eventFile); } catch (Exception e) { rejected = true; }
+    _gateAssert(rejected, "unverified benchmark baseline fails instead of comparing the wrong trees");
+}

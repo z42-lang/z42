@@ -11,24 +11,32 @@ bool _ciBenchOnly(FlowConfig cfg, string[] files, string root) {
     return true;
 }
 
-int _ciBenchScope(string base_) {
-    string root = _root(); FlowConfig cfg = _flowConfigFor(root);
-    FlowPlan plan;
-    try {
-        _gitOutput(new string[]{ "merge-base", "--is-ancestor", base_, "HEAD" });
-        base_ = _flowCommit(root, base_);
-        plan = _flowSelect(cfg, _flowDiff(root, base_, "HEAD"), root);
-    } catch (Exception e) {
-        ConsoleError.WriteLine("benchmark diff unknown; measure all families: " + e.Message);
-        plan = _flowSelect(cfg, new string[0], root, true); plan.Full = true; base_ = "";
+FlowPlan _ciBenchPlan(FlowConfig cfg, string root, string base_, string eventFile) {
+    if ((base_.Length == 0) == (eventFile.Length == 0)) {
+        throw new Exception("choose exactly one of --base or --event-file");
     }
-    plan.Base = base_; plan.Head = _flowCommit(root, "HEAD"); plan.Policy = "commits";
+    var options = new FlowPlanCommand("plan");
+    options.Base = base_; options.EventFile = eventFile;
+    if (eventFile.Length == 0) {
+        options.Head = "HEAD";
+        _gitOutput(new string[]{ "-C", root, "merge-base", "--is-ancestor", base_, "HEAD" });
+    }
+    FlowPlan plan = _flowCreate(cfg, options, root);
+    if (plan.Base.Length == 0) { throw new Exception("cannot establish benchmark comparison base: " + plan.Fallback); }
+    if (plan.Head != _flowCommit(root, "HEAD")) { throw new Exception("benchmark checkout differs from the tested commit"); }
     plan.Event = "pull_request"; plan.ReleaseRequired = "false";
+    return plan;
+}
+
+int _ciBenchScope(string base_, string eventFile) {
+    string root = _root(); FlowConfig cfg = _flowConfigFor(root);
+    FlowPlan plan = _ciBenchPlan(cfg, root, base_, eventFile);
     string path = Path.Join(_artifactsDir(root), "bench-plan.json");
     Directory.Create(Path.GetDirectoryName(path)); File.WriteAllText(path, JsonValue.StringifyPretty(_flowJson(cfg, plan)) + "\n");
     string[] flags = _flowOutputs(cfg, plan);
     bool language = _strIn(flags, "bench_stdlib") || _strIn(flags, "bench_integration");
-    string text = "bench_toolchain=" + (language ? "true" : "false") + "\n"
+    string text = "base_sha=" + plan.Base + "\n"
+        + "bench_toolchain=" + (language ? "true" : "false") + "\n"
         + "verdict_only=" + (!language && !_strIn(flags, "bench_vm") ? "true" : "false") + "\n";
     foreach (var key in _ciBenchKinds()) { text = text + key + "=" + (_strIn(flags, key) ? "true" : "false") + "\n"; }
     string output = Environment.GetEnvironmentVariable("GITHUB_OUTPUT", "");
