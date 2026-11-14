@@ -55,7 +55,7 @@ void _ciSelectionChecks(FlowConfig cfg) {
                 p.Event = kind; p.ReleaseRequired = "false";
                 File.WriteAllText(output, ""); _flowWriteOutputs(cfg, p, output);
                 string text = File.ReadAllText(output);
-                _gateAssert(text.Contains("toolchain_build=true") == (role != "docs"), "only product obligations prepare tools " + kind + "/" + role);
+                _gateAssert(text.Contains("toolchain_build=true") == (role == "sdk" || role == "platform"), "only shared-toolchain consumers request artifact build " + kind + "/" + role);
                 _gateAssert(text.Contains("platform_package=true") == (role == "platform"), "platform package selection " + kind + "/" + role);
                 _gateAssert(text.Contains("host_package=true") == (role != "docs"), "host SDK selection " + kind + "/" + role);
                 p.ReleaseRequired = "";

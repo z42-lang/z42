@@ -67,39 +67,8 @@ int _testPkgsCore(string kind, string suite, string[] dirs, bool noBuild, string
     string label  = (kind == "bench") ? "bench" : "test";
     if (jobs.Length == 0) { jobs = "1"; }   // forwarded to z42b
     string root = _root();
-    bool useOverride = ovVm.Length > 0 && ovDriver.Length > 0 && ovLibs.Length > 0;
-    if (!noBuild && !useOverride) {
-        Console.WriteLine("→ Preparing tooling (z42vm + stdlib; release)...");
-        // ⚠ z42vm FIRST — stdlib is self-built BY z42vm, so a VM older than
-        // src/runtime/ blows up the very first stage with an error that points
-        // nowhere near the cause (a builtin added in this tree but missing from
-        // the stale VM surfaces as `unknown builtin __x` →
-        // `z42c --workspace self-build failed`). _buildStdlib's own VM guard is
-        // build-if-MISSING, so it cannot catch staleness; cargo is the only thing
-        // that knows whether the runtime sources changed, and it is a ~0.2s no-op
-        // when they did not.
-        int c = _buildRuntime(); if (c != 0) { return c; }
-        c = _buildStdlib(); if (c != 0) { return c; }
-        // _buildStdlib already self-builds z42c (_buildCompilerViaZ42c); test units
-        // compile through that z42c. A trailing _buildCompiler would be a redundant
-        // byte-identical gen2 self-build.
-    }
-    // compile toolchain: z42vm + z42c.driver.zpkg + Z42_LIBS = 纯 stdlib flat。driver 的 dist
-    // 自包含；编译器域的测试库（_allUnitProjects）按名声明的编译器包由 driver 从编译器目录解析；z42b 运行期
-    // 加载编译器包经 `_z42bProc`（z42b 启动点统一挂）。override（--vm/--driver/--libs，bench A/B 的
-    // base 侧）照旧用调用方给的目录。
-    string vm = useOverride ? ovVm : _builtVm(root, "release");
-    string driverZpkg = useOverride ? ovDriver : _driverZpkg(root, "release");
-    string libs = useOverride ? ovLibs : _libsDir(root);
-    // The reflective runner is z42b (z42.builder.zpkg) on z42vm: it discovers [Test]/[Benchmark]
-    // functions by runtime reflection and exits 0 (all passed) / 1 (any failure). Its deps resolve
-    // from `libs`, the same flat dir the test units compile against.
-    // Build z42b unconditionally (even under --no-build): an incremental compile, near-no-op when
-    // current, and it guarantees the runner exists AND its zpkg format matches the current z42c.
-    string builderZpkg = _toolchainZpkg(root, _z42bToml());
-    Console.WriteLine("→ Building z42b (z42.builder.zpkg; reflective test runner)...");
-    int bcRC = _buildZ42bWith(root, vm, driverZpkg, libs);
-    if (bcRC != 0) { return bcRC; }
+    TargetTooling tooling = _prepFixtureTooling(root, noBuild, ovVm, ovDriver, ovLibs);
+    if (!tooling.Ok) { return tooling.ExitCode; }
     int totalFailed = 0;
     int totalFiles = 0;
     int libsTested = 0;
@@ -115,8 +84,7 @@ int _testPkgsCore(string kind, string suite, string[] dirs, bool noBuild, string
     // forwards to z42b (discovery: [tests]/[benches] section + explicit [[test]]/[[bench]]).
     int pi = 0;
     while (pi < dirs.Length) {
-        int f = _runLibKind(root, dirs[pi], kind, label, filter,
-                            builderZpkg, jobsN, mode, vm, driverZpkg, libs, agg,
+        int f = _runLibKind(root, dirs[pi], kind, filter, jobsN, mode, tooling, agg,
                             ref totalFiles, ref libsTested);
         if (f < 0) { return 2; }
         totalFailed = totalFailed + f;

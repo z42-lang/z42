@@ -50,6 +50,7 @@ class CiFakeGitHub : CiGitHub {
 }
 
 void _ciRetryChecks() {
+    _ciPrSupersedeChecks();
     var api = new CiFakeGitHub();
     _gateAssert(_ciRetry(api, "owner/repo", "42", 1L, false).Contains("2/3") && api.Posts == 1, "runner acquisition retry");
     api = new CiFakeGitHub(); api.RunData.Set("run_attempt", JsonValue.OfLong(2L));

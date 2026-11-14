@@ -157,7 +157,6 @@ outputs = ["platform", "compiler", "compiler_checks", "vm", "runtime_checks", "s
 outputs = ["toolchain_build"]
 
 [flows.host-validation]
-requires = ["product-tools"]
 outputs = ["host_checks"]
 
 [flows.test-assets]
@@ -478,6 +477,18 @@ publish = false
 id = "xtask-control"
 include = ["scripts/src/main.z42", "scripts/xtask.z42.toml", "scripts/src/**/command.z42", "scripts/src/common/git.z42", "scripts/src/common/text.z42", "scripts/src/common/versions.z42", "scripts/src/test/changed*.z42", "scripts/src/test/gate*.z42", "scripts/src/test/check/**", "scripts/src/test/docs/examples_selfcheck.z42"]
 select = ["xtask"]
+publish = false
+
+[[inputs]]
+id = "unit-harness-executor"
+include = ["scripts/src/common/harness/tooling.z42", "scripts/src/common/harness/manifest_targets.z42", "scripts/src/common/harness/package_units.z42", "scripts/src/test/tooling.z42"]
+select = ["toolchain", "stdlib", "compiler", "bench-stdlib"]
+publish = false
+
+[[inputs]]
+id = "toolchain-executor"
+include = ["scripts/src/test/toolchain/**"]
+select = ["toolchain"]
 publish = false
 
 [[inputs]]

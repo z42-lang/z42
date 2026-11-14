@@ -1,0 +1,23 @@
+// Shared resolved tools and runner argv for test/bench harnesses.
+namespace Z42Xtask;
+
+using Std.IO;
+
+// Resolved toolchain for a manifest-target run (release build-tree paths).
+class TargetTooling {
+    public string Vm { get; set; }
+    public string DriverZpkg { get; set; }
+    public string Libs { get; set; }         // stdlib flat（Z42_LIBS）
+    public string BuilderZpkg { get; set; }  // z42b reflective runner
+    // 夹具在 build/ 镜像的**拷贝**上跑（z42b 把目标 / 父包产物写在
+    // 清单目录旁，直接跑源码树里的夹具就会在 src/tests 下留产物）。两棵树各拷一次，整个 run 共用
+    // —— 不能每个 smoke 各自重置：reuse-parent 等用例要看前面用例留下的父包产物。
+    public string FixturesRoot { get; set; }      // src/toolchain/builder/tests/fixtures/manifest-targets 的拷贝
+    public string Z42bFixturesRoot { get; set; }  // src/toolchain/builder/tests/fixtures/z42b 的拷贝
+    public int ExitCode { get; set; }
+    public bool   Ok { get; set; }
+    public Process UnitProcess(string root, string project, string kind, string mode) {
+        return _z42bProc(this.Vm, this.Libs).Arg("--mode").Arg(mode).Arg(this.BuilderZpkg)
+            .Arg("--").Arg(kind).Arg(project).WorkingDirectory(root);
+    }
+}

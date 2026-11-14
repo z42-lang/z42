@@ -11,7 +11,7 @@
 | 文件 | 触发条件 | 职责 |
 |------|---------|------|
 | `ci.yml` | `pull_request` / `push` 到 main；`workflow_dispatch`；每日 16:00 UTC `schedule` | 主门禁 + nightly 发布，job 见下表 |
-| `retry-ci-runner.yml` | PR 的 CI 失败后；`workflow_dispatch` 指定 run ID | 只对未分配到 hosted runner、没有执行步骤的故障重试，最多两次；重跑失败 job 与 `ci-ok`，不放宽合并门禁 |
+| `retry-ci-runner.yml` | PR CI 请求 / 失败后；`workflow_dispatch` 指定 run ID | 请求时清理同 PR 的过期运行；失败时只对未分配到 hosted runner、没有执行步骤的故障重试，最多两次；保留 `ci-ok` 门禁 |
 | `bench-pr.yml` | `pull_request` 到 main（仅 runtime / libraries / compiler / bench / xtask 脚本路径，纯 `.md` 不触发）；`push` main 与每周一 `schedule` 仅预热缓存；`workflow_dispatch` | `bench-regression(linux-x64)`：同 runner A/B，`xtask bench --ab --tier gate --threshold-time 0.15`（初判回归的条目再测 2 轮、用跑间离散度重算区间），>15% 时间回归且区间分离即 fail；micro 层同为硬门禁（base / pr 各出 `xtask bench stdlib --json`，`xtask bench --micro-diff --threshold-time 0.15` 判红）；criterion 层只打印。`bench-cache-warm`：main 上预热 Rust 依赖缓存。判红语义与阈值依据见 internals「性能基准与回归门禁」 |
 | `release.yml` | 推 tag `v*.*.*`；`workflow_dispatch`（输入 version） | `verify-version`（tag ↔ `scripts/versions.toml`）→ `package-<rid>` × 9 个 RID → `publish-release`（含 SHA256SUMS） |
 | `deploy-book.yml` | `push` main 且改动书 / examples / 安装脚本 / stdlib 源码 / doc 渲染器；`pull_request`（只构建，`[ERROR]` 判红）；`workflow_dispatch` | `xtask build docs` 现生成 reference 的 stdlib 包页，构建 mdBook 并发布到 GitHub Pages（含 `install-z42.sh` / `install-z42.ps1`） |
@@ -48,7 +48,8 @@
 - **自举**：CI 从上一个 nightly（取不到则回退 main 上最近成功 CI 的产物）的 SDK 起步，自己编当前源码；机制见 [CI 拓扑 · 自举种子从哪来](../../docs/internals/src/devinfra/ci.md)。
 - **缓存**：Rust 依赖用 Swatinem `rust-cache`，bench 缓存由 main 上的 `bench-cache-warm` 预热。
 - **VM 准备**：共享工具链 action 默认构建 release VM，可复用同轮 Linux x64 产物，也可交给测试命令构建所需 profile。JIT golden 分片使用第三种方式构建 debug VM。[CI 拓扑](../../docs/internals/src/devinfra/ci.md)
-- **并发控制**：PR 上同一 ref 的旧 run 自动取消（`concurrency` 段）；main 的 push 运行不自动取消，由 `xtask ci supersede` 只取消不影响 SDK 的旧运行。job 由 GitHub 原生队列按可用 runner 调度。
+- **矩阵失败**：PR 上同矩阵的一项失败会取消其余项；main / 定期 / 手动运行保留完整结果。独立 job 与不同 workflow 不由矩阵 fail-fast 联动。
+- **并发控制**：PR 上同一 ref 的旧 run 自动取消（`concurrency` 段）；main 的 push 运行不自动取消，由 `xtask ci supersede` 只取消不影响 SDK 的旧运行。可信 main 的控制 workflow 正常取消同 PR 的旧 head 后，等待并重新校验，再强制结束仍滞留的旧运行。job 由 GitHub 原生队列按可用 runner 调度。
 - **macOS 容量与恢复**：主 CI 通过 `xtask ci queue` 为 macOS 分配 PR 两槽、后台一槽的独立有界资源池；runner 未取得时的有限重试由 `xtask ci retry-runner` 判定，规则见 [CI 拓扑](../../docs/internals/src/devinfra/ci.md#macos-资源队列与-runner-获取失败恢复)。
 
 ## 如何测试验证

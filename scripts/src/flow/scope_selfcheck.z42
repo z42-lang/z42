@@ -15,6 +15,18 @@ void _flowScopeChecks(FlowConfig cfg) {
         _gateAssert(_strIn(_flowLocalCommands(cfg, p), "xtask check xtask") && _ciBenchOnly(cfg, new string[]{ file }, root),
             "control keeps its own contracts without A/B: " + file);
     }
+    foreach (var file in new string[]{ "scripts/src/common/harness/tooling.z42", "scripts/src/common/harness/package_units.z42", "scripts/src/test/tooling.z42", "scripts/src/test/toolchain/example_build.z42" }) {
+        string[] flags = _flowOutputs(cfg, _flowSelect(cfg, new string[]{ file }, root));
+        bool shared = !file.Contains("/toolchain/");
+        _gateAssert(_strIn(flags, "host_checks") && _strIn(flags, "bench_stdlib") == shared
+            && !_strIn(flags, "platform") && !_strIn(flags, "sdk_checks") && !_strIn(flags, "bench_vm") && !_strIn(flags, "bench_integration"),
+            "known host harness changes retain consumers without unrelated platforms or performance: " + file);
+    }
+    foreach (var file in new string[]{ "src/runtime/tests/private.rs", "scripts/src/test/toolchain/example_build.z42", "src/toolchain/builder/tests/fixtures/private/expect.toml" }) {
+        string[] flags = _flowOutputs(cfg, _flowSelect(cfg, new string[]{ file }, root));
+        _gateAssert(_strIn(flags, "host_checks") && !_strIn(flags, "toolchain_build"),
+            "self-preparing host validation does not build an unused shared toolchain: " + file);
+    }
     foreach (var kind in new string[]{ "stdlib", "compiler" }) {
         FlowPlan p = _flowSelect(cfg, new string[]{ "scripts/src/build/" + kind + ".z42" }, root);
         string[] flags = _flowOutputs(cfg, p);
@@ -66,6 +78,13 @@ void _flowScopeChecks(FlowConfig cfg) {
     _gateAssert(_flowUnitProjects(cfg, bench, "bench", "").Length == 1, "script benchmark plans preserve the affected package");
     _gateAssert(_strIn(_flowOutputs(cfg, bench), "bench_stdlib") && !_strIn(_flowOutputs(cfg, bench), "toolchain_build")
         && !_strIn(_flowStages(cfg, bench), "stdlib"), "benchmark corpus selects measurements, not unit-test builds");
+    FlowPlan mixedUnits = _flowSelect(cfg, new string[]{ test, "src/libraries/z42.core/benches/micro.z42" }, root);
+    foreach (var kind in new string[]{ "test", "bench" }) {
+        string owner = kind == "test" ? "z42.io" : "z42.core";
+        string[] selected = _flowUnitProjects(cfg, mixedUnits, kind, "");
+        _gateAssert(selected.Length == 1 && selected[0] == _selectUnitProject(_allUnitProjects(root, kind), owner),
+            "mixed plans keep correctness and benchmark owners independent: " + kind);
+    }
     _gateAssert(!_ciBenchOnly(cfg, new string[]{ test, "src/runtime/src/threads/roots.rs" }, root)
         && !_ciBenchOnly(cfg, new string[]{ "unknown.production" }, root), "mixed production and unknown inputs keep measurements");
     foreach (var key in _ciBenchKinds()) {

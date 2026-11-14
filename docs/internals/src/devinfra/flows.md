@@ -96,11 +96,15 @@ xtask flow plan --event-file "$GITHUB_EVENT_PATH" \
 | xtask 规划、命令路由、CI workflow | 种子 SDK 编译 xtask，`check xtask` 自身契约；VM benchmark runner 另用小型 Rust 夹具 |
 | 标准库 / 编译器构建脚本 | 自身契约与对应 `build stdlib` / `build compiler`，CI 仅准备共享工具链 |
 | VM 构建脚本 | VM harness、解释器 / JIT 验证和性能观测；不扩大为编译器或标准库单测 |
+| 共享 unit harness | 宿主目标、stdlib / compiler 消费者与脚本 benchmark；不扩大为 VM、集成性能或设备打包 |
+| toolchain 私有执行器 | 宿主 toolchain / manifest target 验证 |
 | 私有标准库测试 | 准备工具链，仅执行所属包；不测性能 |
 | 私有 benchmark | 仅所属性能类别；不自动选择正确性 job |
 | Android / iOS / wasm 执行器 | 仅对应平台编译与 smoke；共享设备实现仍保留全部平台契约 |
 | VM / 编译器 / 标准库生产源 | 正确性消费者与对应性能类别；VM 生产源保留完整运行时和平台契约 |
 | 无法识别的输入 | 完整策略，不以“脚本文件”作为自动免测依据 |
+
+宿主 job 在本机准备工具链；`host-validation` 不额外申请供分片 / 编译器消费者下载的共享工具链产物。仅宿主验证的计划不会启动无消费者的 `compile-toolchain`，发布所需的准备仍由累计发布策略保留。
 
 `test stdlib --plan <文件>` 和 `bench stdlib --plan <文件>` 在计划绑定的工作树中保留 `{owner}`，并与分片取交集；不会把单包选择扩大成全库。A/B 的 base、head 是不同工作树，各自在本树捕获完整的已选性能类别，不向另一棵树套用提交绑定的计划。
 
@@ -116,7 +120,7 @@ xtask flow run --plan artifacts/ci-plan.json --job compiler-checks
 产物下载上传与 job 级依赖仍由 GitHub Actions 负责，YAML 不重复维护目录归属。
 
 发布另用 nightly 到 HEAD 的累计差异，通过相同输入规则的 `publish` 字段判断；不能拿单次 push 差异替代。
-`xtask ci supersede` 只取消没有未发布 SDK 输入的较早 main 运行。缺失 nightly、API 失败或 compare 达到 300 文件上限时
+main push 中的 `xtask ci supersede` 只取消没有未发布 SDK 输入的较早 main 运行。PR 旧 head 的清理入口与隔离规则见 [CI 调度](ci.md#pr-调度)。缺失 nightly、API 失败或 compare 达到 300 文件上限时
 保留发布。它的 `sdk` 输出作为 `XTASK_RELEASE_REQUIRED` 传入计划，决定发布所需的打包范围。
 
 ## 验证与限制

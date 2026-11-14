@@ -61,7 +61,7 @@ class CiUploadCommand : Command {
 
 class CiSupersedeCommand : Command {
     [Option(help: "inspect without cancelling older runs")] public bool DryRun;
-    public CiSupersedeCommand() : base("supersede", "retain unpublished SDK runs; supersede unrelated runs") {}
+    public CiSupersedeCommand() : base("supersede", "retain unpublished SDK runs; release superseded PR runs") {}
     public override int Run() {
         try { return _ciSupersede(new CiGitHub(), this.DryRun); }
         catch (Exception e) { ConsoleError.WriteLine("ci supersede: " + e.Message); return 1; }
