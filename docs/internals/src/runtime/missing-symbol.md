@@ -54,7 +54,7 @@ interp / JIT 语义漂移（这是本仓最易出错的一维）。
 
 `Default` 这一支是静态存储的**默认初始化**：静态字段的单元按名字惰性登记、登记时不知道声明类型，
 从未写过就是 `Null`；值类型静态字段没有初始化器时，第一次读走到这里，由 VM 按声明类型补上
-C# 的 `default(T)`（`symres::static_zero_value`）：
+C# 的 `default(T)`（`exec/ops/object/static_defaults.rs::static_zero_value`）：
 
 | 声明类型 | 零值 |
 |---|---|
