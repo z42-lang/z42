@@ -19,7 +19,7 @@ pub fn invoke_module(
 ) -> abi::CallResult {
     ctx.counters().native_calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     if ctx.core().diagnostics().runtime_observers.has_observers() {
-        ctx.core().diagnostics().runtime_observers.fire(&crate::diagnostics::observer::RuntimeEvent::NativeCallEntered {
+        ctx.core().diagnostics().runtime_observers.fire(&crate::diagnostics::RuntimeEvent::NativeCallEntered {
             module: provider.to_owned(), symbol: name.to_owned(),
         });
     }

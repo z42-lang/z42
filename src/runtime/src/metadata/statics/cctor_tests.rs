@@ -1,7 +1,7 @@
 //! Unit tests for `vm::cctor`.
 
 use super::*;
-use crate::exec::init::{claim, claim_with};
+use crate::exec::{claim_initialization as claim, claim_initialization_with as claim_with};
 
 // add-module-init-hook：失败语义（失败是终态、不重试、每次重抛）已由既有的
 // `failed_type_reports_error_on_every_later_access` 覆盖 —— 包初始化器复用同一套

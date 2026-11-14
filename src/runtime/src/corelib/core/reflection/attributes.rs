@@ -186,9 +186,9 @@ pub(super) fn call_attribute_factories(
             continue;
         }
         let outcome = if let Some(&idx) = module.func_index.get(a.factory_func.as_str()) {
-            Some(crate::exec::engine::invoke(ctx, &module, &module.functions[idx], &[])?)
+            Some(crate::exec::invoke(ctx, &module, &module.functions[idx], &[])?)
         } else if let Some(func) = ctx.loader().try_lookup_function(&a.factory_func) {
-            Some(crate::exec::engine::invoke(ctx, &module, func.as_ref(), &[])?)
+            Some(crate::exec::invoke(ctx, &module, func.as_ref(), &[])?)
         } else {
             None
         };

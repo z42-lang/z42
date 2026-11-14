@@ -140,7 +140,7 @@ pub(crate) fn exec_function_with_type_args(
 pub(super) fn try_native_exec(ctx: &VmContext, func: &Function, args: &[Value], method_type_args: &[String]) -> Option<Result<ExecOutcome>> {
     let tier = ctx.exec().tier(&ctx.core().exec().engines)?;
     if args.iter().any(|a| matches!(a, Value::Ref { .. })) { return None; }
-    tier.invoke(ctx, crate::exec::engine::TierTarget::Existing(func),
+    tier.invoke(ctx, crate::exec::TierTarget::Existing(func),
         crate::exec::call::args::CallArgs::Values(args), method_type_args)
 }
 
@@ -172,7 +172,7 @@ pub(super) fn try_osr(ctx: &VmContext, frame: &mut Frame, func: &Function, loop_
     let tier = ctx.exec().tier(&ctx.core().exec().engines)?;
     frame.back_edge_count = frame.back_edge_count.wrapping_add(1);
     if frame.back_edge_count != tier.osr_threshold { return None; }
-    tier.osr(ctx, func, loop_header, crate::exec::engine::OsrState {
+    tier.osr(ctx, func, loop_header, crate::exec::OsrState {
         regs: &frame.regs, frame_id: frame.frame_id_if_taken(),
         method_type_args: &frame.method_type_args,
         has_ref_writebacks: !frame.ref_writebacks.is_empty(),
@@ -237,7 +237,7 @@ pub(super) fn fire_exception_thrown(ctx: &VmContext, module: &crate::metadata::M
         message.truncate(256);
         message.push_str("…");
     }
-    ctx.core().diagnostics().runtime_observers.fire(&crate::diagnostics::observer::RuntimeEvent::ExceptionThrown { class, message });
+    ctx.core().diagnostics().runtime_observers.fire(&crate::diagnostics::RuntimeEvent::ExceptionThrown { class, message });
 }
 
 /// Phase 2 D3+D6 sibling: increment `exceptions_caught` + fire
@@ -251,7 +251,7 @@ pub(super) fn fire_exception_caught(
     ctx.counters().exceptions_caught.fetch_add(1, Ordering::Relaxed);
     if !ctx.core().diagnostics().runtime_observers.has_observers() { return; }
     let (class, _) = exception_class_and_message(ctx, val, module);
-    ctx.core().diagnostics().runtime_observers.fire(&crate::diagnostics::observer::RuntimeEvent::ExceptionCaught { class, frames_unwound });
+    ctx.core().diagnostics().runtime_observers.fire(&crate::diagnostics::RuntimeEvent::ExceptionCaught { class, frames_unwound });
 }
 
 pub(super) fn exception_class_and_message(

@@ -334,7 +334,7 @@ fn declaration_loads_once_on_first_call_and_rejects_mismatched_implementations_a
         extensions.freeze(),
         crate::config::runtime_config().vm_config(),
         crate::corelib::object_protocol(),
-        crate::exec::engine::EngineRegistry::new(None),
+        crate::exec::EngineRegistry::new(None),
     );
     assert!(
         crate::interop::resolve_native_module(&ctx, "native.lazy.test")

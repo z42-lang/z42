@@ -374,7 +374,7 @@ scripts/
     │   ├── dispatch.z42          sdk / runtime / workload 入口、cargo 助手、native/stdlib 拷贝与 source-identity 门
     │   ├── {desktop,ios,ios_dynamic,android,wasm}.z42  各 RID 类别的管道
     │   ├── dev.z42               `package dev-sdk` / `package ci`（只组装已编好的产物）
-    │   ├── install.z42           组件安装：按 packages.toml include + kind 直接装进包目录（无暂存）
+    │   ├── install.z42           组件安装：按 packages.toml 安装产物，将所有者 C 声明聚合为 native 统一头
     │   ├── layout.z42            包结构门（`_pkgLayoutCheck`）
     │   ├── components.z42        桌面 runtime 组件的构建与安装（SDK 与 runtime 包共用）
     │   ├── component_{platform,static,link}.z42  按目标的组件图 / 静态归档组装 / 同构建共享库闭包的重定位与签名

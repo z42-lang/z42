@@ -106,7 +106,7 @@ pub fn fire(&self, event: &RuntimeEvent) -> usize {
 - **扩覆盖**：`gc_cycles`/`gc_reclaimed_bytes`/`gc_pause_us`(hist)、`types_loaded`、`deopts`、`osr_count`、`allocations`/`alloc_bytes`、`zpkg_loaded`/`zpkg_unloaded`、`contexts_active`(gauge)。
   - **已 surface 到 profile 快照**：`HeapStats` 新增
     `minor_collections`/`major_collections`/`reclaimed_bytes`（generational 分代拆分；`gc_cycles` 合计语义不变）；
-    `--print-stats-on-exit` 输出点用 `diagnostics::counters::ProfileSnapshot` 合并 `RuntimeCounters` 快照 + 上述堆派生字段
+    `--print-stats-on-exit` 输出点用 `diagnostics::ProfileSnapshot` 合并 `RuntimeCounters` 快照 + 上述堆派生字段
     （`allocations` + 分代）成**一行** JSON（`z42vm_counters` sentinel 超集，仅加键→scraper 后向兼容），
     `xtask profile` 展示。
   - **并发探针**：ProfileSnapshot 再加两组并发字段。

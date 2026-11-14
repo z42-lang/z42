@@ -77,7 +77,7 @@ unsafe extern "C" fn foreign_init() -> *const ComponentDescriptor { &FOREIGN_DES
 fn another_core_is_rejected_before_any_vm_address_is_passed_to_it() {
     ATTACH_CALLS.store(0, Ordering::Relaxed);
     let ctx = crate::host::vm_defaults::construct(None, crate::pal::fs::default_vfs(), Default::default(),
-        crate::exec::engine::EngineRegistry::new(None));
+        crate::exec::EngineRegistry::new(None));
     let components = unsafe { ComponentOptions::default().with_static(INTERP_COMPONENT, foreign_init) };
     components.install_bound(&ctx, super::execution_roles::ExecutionBindings::new([(super::api::ExecutionRole::Baseline, INTERP_COMPONENT)]).unwrap()).unwrap();
     let error = super::api::attach_execution(&ctx, ExecMode::Interp).unwrap_err();
@@ -105,7 +105,7 @@ unsafe extern "C" fn wrong_abi_init() -> *const ComponentDescriptor { &WRONG_ABI
 #[test]
 fn same_image_with_incompatible_compiled_layout_is_rejected() {
     let ctx = crate::host::vm_defaults::construct(None, crate::pal::fs::default_vfs(), Default::default(),
-        crate::exec::engine::EngineRegistry::new(None));
+        crate::exec::EngineRegistry::new(None));
     let components = unsafe { ComponentOptions::default().with_static(INTERP_COMPONENT, wrong_abi_init) };
     components.install_bound(&ctx, super::execution_roles::ExecutionBindings::new([(super::api::ExecutionRole::Baseline, INTERP_COMPONENT)]).unwrap()).unwrap();
     assert!(super::api::attach_execution(&ctx, ExecMode::Interp).unwrap_err().to_string().contains("core image or ABI mismatch"));

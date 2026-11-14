@@ -210,7 +210,7 @@ unsafe fn call_interp(
             return 0;
         }
     }
-    match crate::exec::engine::invoke_args(vm, module, callee, crate::exec::call::args::CallArgs::Registers { regs: &frame_ref.regs, indices: arg_regs }, mta) {
+    match crate::exec::invoke_args(vm, module, callee, crate::exec::call::args::CallArgs::Registers { regs: &frame_ref.regs, indices: arg_regs }, mta) {
         Ok(crate::exec::call::outcome::ExecOutcome::Returned(ret)) => {
             frame_ref.regs[dst as usize] = ret.unwrap_or(Value::Null);
             0
@@ -228,10 +228,10 @@ unsafe fn call_barriers(
 ) -> Option<Value> {
     let module = super::jit_module(ctx);
     if let Err(msg) = vm.initialization().ensure_module_inits(Some(&callee.name)) {
-        return Some(crate::exec::init::make_type_init_exception(vm, module, &msg));
+        return Some(crate::exec::make_type_init_exception(vm, module, &msg));
     }
     if let Err(msg) = vm.initialization().ensure_callee_owner_init(&callee.name, owner) {
-        return Some(crate::exec::init::make_type_init_exception(vm, module, &msg));
+        return Some(crate::exec::make_type_init_exception(vm, module, &msg));
     }
     None
 }

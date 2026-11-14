@@ -145,7 +145,7 @@ VM 用 push-based 事件流通知**非 GC** 的运行时活动；GC 事件留在
 
 ```rust
 use std::sync::Arc;
-use z42::diagnostics::observer::{RuntimeObserver, RuntimeEvent};
+use z42::diagnostics::{RuntimeObserver, RuntimeEvent};
 
 #[derive(Debug)]
 struct JsonLineExporter;

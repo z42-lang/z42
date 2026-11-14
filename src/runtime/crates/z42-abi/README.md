@@ -4,7 +4,7 @@
 
 crate 类型：直接编译引用的配套协议模块。它提供 VM/native 边界的共享词汇，不拥有组件实例或代码装载行为。
 
-z42 Tier 1 native interop ABI 的 Rust 镜像。是 [`include/z42_abi.h`](../../include/z42_abi.h) 在 Rust 侧的权威等价定义；任何 Rust 代码（VM、Tier 2 高层 API、用户 native 库）都从这里引用 ABI 类型与函数签名。
+z42 Tier 1 native interop ABI 的 Rust 镜像。是 [`z42_abi.h`](z42_abi.h) 在 Rust 侧的权威等价定义；任何 Rust 代码（VM、Tier 2 高层 API、用户 native 库）都从这里引用 ABI 类型与函数签名。
 
 `no_std`，无依赖；可在任意 Rust 上下文使用。
 
@@ -15,6 +15,8 @@ z42 Tier 1 native interop ABI 的 Rust 镜像。是 [`include/z42_abi.h`](../../
 - 函数：`z42_register_type` / `z42_resolve_type` / `z42_invoke` / `z42_invoke_method` / `z42_last_error`
 
 ## 实现位置
+
+C 协议头 `z42_abi.h`、`z42_native.h` 与 Rust 镜像由本 crate 一起维护；runtime/include 只提供稳定分发入口，发布时展开为平铺头文件。
 
 本 crate 只声明 `extern "C"` 签名；函数实现在 VM 主 crate `z42` 的 `src/interop/`（`exports.rs` 等，见 [`src/interop/README.md`](../../src/interop/README.md)）。
 

@@ -1,7 +1,7 @@
 //! Optimized-tier registration. Only this backend constructs native activations.
 use anyhow::Result;
 use crate::exec::call::{args::CallArgs, outcome::ExecOutcome};
-use crate::exec::engine::{OsrState, TierBackend, TierTarget};
+use crate::exec::{OsrState, TierBackend, TierTarget};
 use crate::metadata::Function;
 use crate::components::bridge::VmContext;
 use crate::jit::{runtime::frame::JitFrame, compile::state::JitRuntime};
@@ -51,7 +51,7 @@ impl TierBackend for JitRuntime {
 
 pub static ENGINE: JitEngine = JitEngine;
 pub struct JitEngine;
-impl crate::exec::engine::Engine for JitEngine {
+impl crate::exec::Engine for JitEngine {
     fn invoke(&self, ctx: &VmContext, module: &crate::metadata::Module, func: &Function,
         args: CallArgs<'_>, type_args: &[String]) -> Result<ExecOutcome> {
         let CallArgs::Values(values) = args else { anyhow::bail!("JIT mode entry requires value arguments"); };

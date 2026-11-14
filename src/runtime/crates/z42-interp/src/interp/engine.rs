@@ -1,7 +1,7 @@
 //! Baseline engine registration; frame construction remains interpreter-owned.
 use anyhow::Result;
 use crate::exec::call::{args::CallArgs, outcome::ExecOutcome};
-use crate::exec::engine::Engine;
+use crate::exec::Engine;
 use crate::metadata::{Function, Module};
 use crate::components::bridge::VmContext;
 

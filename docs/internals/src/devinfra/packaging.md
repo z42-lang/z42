@@ -27,7 +27,9 @@
 
 ### SDK 动态运行时与 runtime 静态嵌入
 
-z42vm 是薄启动器，通过版本化 C 函数表动态加载统一 libz42。参数处理、配置、panic hook、tracing 与宿主实现都在库内，启动器不调用 Rust VM 接口。入口先验证 ABI 版本、大小和构建身份。
+z42vm 是薄启动器，通过 dlopen/LoadLibrary 加载统一 libz42，并解析版本化进程入口 `z42_main_v1`。参数处理、配置、panic hook、tracing 与宿主实现位于库内的 cli feature，启动器不调用 Rust VM 接口。
+
+启动器优先使用 `Z42_RUNTIME_LIBRARY`，否则按可执行文件位置解析部署目录；开发构建路径由 xtask 注入。各桌面平台共用一个 z42vm bin，Windows 的 DLL 搜索方式在同一入口内适配，native/ 只承载库，不包含另一份 z42vm.exe。该进程入口由启动器按符号解析，不随嵌入 SDK 发布单独的进程入口头文件。
 
 interp/JIT/profiler 是独立组件。SDK、dev-sdk 与 CI 构建树必须携带同构建的完整动态闭包，不能只复制 z42vm。共享 Rust 核心、执行后端和 profiler 在同一个 Cargo 图中编译，使用同一 libz42 和共享 Rust std；纯 C ABI 模块使用独立图，避免实现特性合并回核心。共享构建使用 System 分配器。
 
@@ -40,6 +42,21 @@ macOS 采用 @rpath 和 @loader_path，Linux 采用 $ORIGIN 与 $ORIGIN/../nativ
 静态封装从同一 Cargo 图的 JSON `compiler-artifact` 与 `build-script-executed` 记录读取依赖目录、宿主 proc-macro 目录和原生库搜索目录；不依赖 Cargo 内部的 `deps/` 布局。构建记录保留在构建目录，不随运行时包分发。 Android 的 cargo-ndk 会消费这些消息，因此静态构建通过透明的 Cargo 可执行文件转发器同时记录原始 stdout；元数据预检、编译参数、NDK 环境及退出码仍由原工具处理。转发器是宿主构建工具，不属于运行时包。
 
 共享 Rust std 在生产图构建成功后按该工具链暂存到产物目录。SDK、开发 SDK 和预编译 CI 产物的消费方从该目录复制匹配的 std，不查询接收机器的 rustup。缺失或有歧义时拒绝组包；刷新构建目录的 std 时清除旧版本。
+
+### Native 统一头与模块所有权
+
+C 声明的源码归能力所有者：宿主声明位于 `src/runtime/src/host/z42_host.h`，组件链接声明位于
+`src/runtime/src/components/z42_components.h`。`src/runtime/include/z42_host.h` 是统一发布入口，
+只包含公共 ABI 和所有者头的 include，不保存这些领域的实现或重复声明。共享原生协议的 `z42_abi.h`、`z42_native.h` 由 `crates/z42-abi/` 维护，runtime/include 下的同名文件只提供分发入口；三份发布头都经同一个展开过程输出。
+
+`_copyAbiHeaders` 调用 `_runtimeHeaderText` 展开所有者的相对 include，形成平铺、自包含的
+`native/include/z42_host.h`；普通公共 include（例如 `z42_abi.h`）保持原样。
+workload、Swift modulemap、JNI 与 C 调用方继续使用原有统一头，无需为每个内部模块增加 include 或转发文件。
+内部头文件移动只影响其聚合声明；原有 SDK 头名、分发位置和 workload 引用不受影响。
+
+设备测试宿主暂存也调用同一个 `_runtimeHeaderText`，比较展开后的内容再决定是否重写，保持 CMake/Xcode 增量构建。
+安装器自检覆盖 Android/iOS 的实际转发头，确认暂存结果与发布头一致、没有源码相对 include，重复暂存不重写；真实 C 部署使用同一个统一头编译与链接。
+source-identity 检查比较发布头与同一展开过程的结果，其余源文件继续逐字节比较。
 
 ## 2. 构建 → 安装
 
@@ -121,7 +138,7 @@ graph LR
 ## 5. source-identity 门：逐字节，且失联即红
 
 每个包组装完（`_pkgFinish`）都跑 `_pkgSourceIdentityCheck`：**比对包内每一份从仓库拷进去的副本 vs
-仓库源，逐字节**。
+仓库源，逐字节**。C 聚合头以所有者 include 展开后的内容为源，使用与发布相同的展开过程。
 
 **不是哈希**——直接读两个文件比字节，比 hash 更强（无碰撞面、不依赖外部工具）。
 函数名不含 sha。仓里、CI 日志里出现的 "SHA invariant" 字样指的就是这道门。
@@ -131,7 +148,7 @@ graph LR
 | 规则 | 包内路径 | 仓库源 |
 |---|---|---|
 | stdlib libs | `libs/`（`.zpkg` + `.zsym`）| 扁平 stdlib dist |
-| C ABI headers | `native/include/*.h` | `src/runtime/include/` |
+| C ABI headers | `native/include/*.h` | `src/runtime/include/`；所有者相对 include 展开后的内容 |
 | C ABI headers (ios) | `Sources/Z42VMC/include/*.h` | 同上 |
 | C ABI headers (android) | `z42vm/src/main/cpp/include/*.h` | 同上 |
 | iOS Swift | `Sources/Z42VM/*.swift` | `src/toolchain/workload/ios/platform/Sources/Z42VM/` |

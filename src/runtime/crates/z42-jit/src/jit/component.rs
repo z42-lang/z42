@@ -10,7 +10,7 @@ unsafe extern "C" fn attach(vm: *const c_void, config: *const ExecutionConfig) -
     let ctx = unsafe { &*vm.cast::<crate::components::bridge::VmContext>() };
     let config = unsafe { &*config };
     let _ = config;
-    match ctx.core().exec().engines.register_jit(&super::engine::ENGINE, crate::exec::engine::JitConfig {
+    match ctx.core().exec().engines.register_jit(&super::engine::ENGINE, crate::exec::JitConfig {
         threshold: config.threshold, osr_threshold: config.osr_threshold, interp_tierup: config.interp_tierup,
         profile: config.profile != 0, debug_promote: config.debug_promote != 0,
     }) { Ok(()) => ComponentStatus::OK, Err(_) => ComponentStatus::ERROR }

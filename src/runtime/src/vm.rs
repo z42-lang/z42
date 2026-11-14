@@ -26,7 +26,7 @@ pub struct VmCore {
     pub(crate) threads: crate::threads::ThreadState,
     /// Shared execution state, including engine registrations and backend code lifetime.
     pub(crate) exec: crate::exec::ExecState,
-    pub(crate) object_protocol: crate::object::protocol::ObjectProtocol<VmContext, crate::exec::call::builtin_abi::BuiltinError>,
+    pub(crate) object_protocol: crate::object::ObjectProtocol<VmContext, crate::exec::call::builtin_abi::BuiltinError>,
     /// Owned heap. Its root providers keep Weak<VmCore> to avoid ownership cycles.
     /// Metadata and interop providers remain alive until after heap teardown.
     pub(crate) heap:               Box<Heap>,
@@ -73,7 +73,7 @@ impl VmContext {
     #[inline] pub fn threads(&self) -> &crate::threads::ThreadLocalState { &self.threads }
 }
 impl VmCore {
-    #[inline] pub(crate) fn object_protocol(&self) -> &crate::object::protocol::ObjectProtocol<VmContext, crate::exec::call::builtin_abi::BuiltinError> { &self.object_protocol }
+    #[inline] pub(crate) fn object_protocol(&self) -> &crate::object::ObjectProtocol<VmContext, crate::exec::call::builtin_abi::BuiltinError> { &self.object_protocol }
     #[inline] pub(crate) fn components(&self) -> &std::sync::OnceLock<crate::components::api::VmComponents> { &self.components }
     #[inline] pub fn exec(&self) -> &crate::exec::ExecState { &self.exec }
     #[inline] pub fn heap(&self) -> &Heap { &self.heap }
@@ -163,8 +163,8 @@ impl VmContext {
 pub struct RuntimeInputs {
     pub extensions: crate::vm::ExtensionState,
     pub config: crate::config::VmConfig,
-    pub object_protocol: crate::object::protocol::ObjectProtocol<VmContext, crate::exec::call::builtin_abi::BuiltinError>,
-    pub engines: crate::exec::engine::EngineRegistry,
+    pub object_protocol: crate::object::ObjectProtocol<VmContext, crate::exec::call::builtin_abi::BuiltinError>,
+    pub engines: crate::exec::EngineRegistry,
     pub builtins: &'static [crate::exec::call::builtin_abi::BuiltinDesc],
     pub catalog: &'static crate::metadata::builtins::BuiltinCatalog,
     pub fusion: crate::loader::fusion_inputs::FusionInputSource,
@@ -190,8 +190,8 @@ impl VmContext {
             runtime: crate::metadata::RuntimeState::new(module, catalog),
 
             diagnostics: crate::diagnostics::DiagnosticsState {
-                counters: Arc::new(crate::diagnostics::counters::RuntimeCounters::new()),
-                runtime_observers: crate::diagnostics::observer::RuntimeObserverRegistry::new(),
+                counters: Arc::new(crate::diagnostics::RuntimeCounters::new()),
+                runtime_observers: crate::diagnostics::RuntimeObserverRegistry::new(),
                 park_histogram: Mutex::new(crate::gc::types::PauseHistogram::new(config.gc.pause_window)),
                 lock_contentions: std::sync::atomic::AtomicU64::new(0),
                 lock_wait_us:     std::sync::atomic::AtomicU64::new(0),
@@ -366,11 +366,11 @@ impl VmContext {
         crate::metadata::statics::StaticFields::new(&self.core.runtime.statics, &self.core.runtime.cctors)
     }
     #[inline]
-    pub fn initialization(&self) -> crate::exec::init::Initialization<'_> {
-        crate::exec::init::Initialization::new(self)
+    pub fn initialization(&self) -> crate::exec::Initialization<'_> {
+        crate::exec::Initialization::new(self)
     }
     #[inline]
-    pub fn counters(&self) -> &crate::diagnostics::counters::RuntimeCounters { &self.diagnostics.counters }
+    pub fn counters(&self) -> &crate::diagnostics::RuntimeCounters { &self.diagnostics.counters }
 }
 
 #[cfg(all(test, z42_test_facade))]

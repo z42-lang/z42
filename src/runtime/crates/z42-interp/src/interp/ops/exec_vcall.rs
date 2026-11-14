@@ -30,7 +30,7 @@ fn try_native_method_call(
     let tier = ctx.exec().tier(&ctx.core().exec().engines)?;
     if matches!(receiver, Value::Ref { .. })
         || args.iter().any(|&r| matches!(frame.regs.get(r as usize), Some(Value::Ref { .. }))) { return None; }
-    tier.invoke(ctx, crate::exec::engine::TierTarget::Site(id),
+    tier.invoke(ctx, crate::exec::TierTarget::Site(id),
         crate::exec::call::args::CallArgs::Receiver { receiver: receiver.clone(), regs: &frame.regs, indices: args }, method_type_args)
         .map(|result| result.map(|outcome| super::exec_call::native_result_to_dst(frame, dst, outcome)))
 }

@@ -60,7 +60,7 @@ fn worker_retains_facade_resources_until_last_context_drop() {
 
 use crate::object::{NativeData, TypeDesc, Value};
 use crate::exec::call::builtin_abi::BuiltinError;
-use crate::object::protocol::ObjectProtocol;
+use crate::object::ObjectProtocol;
 use crate::exec::ops::{stringify::with_obj_str, vcall::{resolve_vcall, VCallTarget}};
 use std::{cell::Cell, sync::Arc};
 

@@ -56,7 +56,7 @@ pub fn run_fn(ctx: &VmContext, entry_name: &str) -> Result<()> {
                 holder.as_ref()
             }
         };
-        return match crate::exec::engine::invoke(ctx, module, func, &[])? {
+        return match crate::exec::invoke(ctx, module, func, &[])? {
             crate::exec::call::outcome::ExecOutcome::Returned(_) => Ok(()),
             crate::exec::call::outcome::ExecOutcome::Thrown(val) =>
                 Err(anyhow::anyhow!("{}", crate::exec::exception::format_uncaught(&val, ctx, module))),
@@ -112,7 +112,7 @@ pub fn run(ctx: &VmContext, module: &Module, entry_name: &str, config: config::J
     compile::state::install(ctx, module, config)?;
 
     let setup_us = start.elapsed().as_micros() as u64;
-    ctx.core().diagnostics().runtime_observers.fire(&crate::diagnostics::observer::RuntimeEvent::JitModuleCompiled {
+    ctx.core().diagnostics().runtime_observers.fire(&crate::diagnostics::RuntimeEvent::JitModuleCompiled {
         module_name:    module.module_name().to_string(),
         function_count,
         duration_us:    setup_us,
@@ -130,7 +130,7 @@ pub fn invoke_host(ctx: &VmContext, module: &Module, func: &crate::metadata::Fun
     let start = std::time::Instant::now();
     compile::state::install(ctx, module, config)?;
     if first_install {
-        ctx.core().diagnostics().runtime_observers.fire(&crate::diagnostics::observer::RuntimeEvent::JitModuleCompiled {
+        ctx.core().diagnostics().runtime_observers.fire(&crate::diagnostics::RuntimeEvent::JitModuleCompiled {
             module_name: module.module_name().to_owned(), function_count: module.functions().len() as u32,
             duration_us: start.elapsed().as_micros() as u64,
         });
@@ -140,11 +140,11 @@ pub fn invoke_host(ctx: &VmContext, module: &Module, func: &crate::metadata::Fun
         let frame = JitFrame::new(ctx, entry.max_reg, args);
         Ok(unsafe { invoke::call_entry(ctx, entry, frame) }.into_exec(ctx))
     } else {
-        crate::exec::engine::invoke(ctx, module, func, args)
+        crate::exec::invoke(ctx, module, func, args)
     }
 }
 
 pub mod component;
 
 /// Internal mode-entry contract used by static host assembly.
-pub fn execution_engine() -> &'static dyn crate::exec::engine::Engine { &engine::ENGINE }
+pub fn execution_engine() -> &'static dyn crate::exec::Engine { &engine::ENGINE }

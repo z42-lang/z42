@@ -1,6 +1,15 @@
 //! Values, object storage, layouts and managed handles.
+//!
+//! ```
+//! use z42::object::ObjectProtocol;
+//! let _: Option<ObjectProtocol<(), ()>> = None;
+//! ```
+//! ```compile_fail
+//! use z42::object::protocol::ObjectProtocol;
+//! ```
 
-pub mod protocol;
+mod protocol;
+pub use protocol::ObjectProtocol;
 pub mod value;
 pub mod types;
 pub mod header;

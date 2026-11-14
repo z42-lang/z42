@@ -105,8 +105,8 @@ impl ThreadState {
 
     pub(crate) fn deregister_context(
         &self, ptr: *const VmContext,
-        retained: &crate::diagnostics::counters::RuntimeCounters,
-        departing: &crate::diagnostics::counters::RuntimeCounters,
+        retained: &crate::diagnostics::RuntimeCounters,
+        departing: &crate::diagnostics::RuntimeCounters,
     ) {
         {
             let mut registry = self.vm_contexts.lock();
@@ -121,7 +121,7 @@ impl ThreadState {
     /// Keep every shard alive during the callback. References cannot escape.
     pub(crate) fn with_counter_shards<R>(
         &self,
-        inspect: impl for<'a> FnOnce(&mut dyn Iterator<Item = &'a crate::diagnostics::counters::RuntimeCounters>) -> R,
+        inspect: impl for<'a> FnOnce(&mut dyn Iterator<Item = &'a crate::diagnostics::RuntimeCounters>) -> R,
     ) -> R {
         let registry = self.vm_contexts.lock();
         // SAFETY: deregistration and deallocation wait for this registry lock.

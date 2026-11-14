@@ -1,4 +1,16 @@
 //! Shared instruction execution semantics.
+//!
+//! Consumers name the execution contract, not its implementation files:
+//! ```
+//! use z42::exec::{EngineRegistry, Initialization, TierBackend};
+//! let _ = EngineRegistry::new(None);
+//! ```
+//! ```compile_fail
+//! use z42::exec::engine::EngineRegistry;
+//! ```
+//! ```compile_fail
+//! use z42::exec::init::Initialization;
+//! ```
 pub mod exception;
 pub mod symbol_resolution;
 pub mod stack_guard;
@@ -10,9 +22,14 @@ pub mod native;
 pub mod active_vm;
 pub mod call;
 pub mod stack;
-pub mod engine;
+mod engine;
+pub use engine::{Engine, EngineRegistry, JitConfig, OsrState, TierApi, TierBackend, TierTarget,
+    invoke, invoke_args};
 
-pub mod init;
+mod init;
+pub use init::{Initialization, make_type_init_exception};
+#[cfg(test)]
+pub(crate) use init::{claim as claim_initialization, claim_with as claim_initialization_with};
 
 mod state;
 pub use state::ExecState;

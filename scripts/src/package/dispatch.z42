@@ -274,7 +274,8 @@ void _pkgIdentityWalk(string pkgDir, string srcDir, string suffix, string rel, _
 void _pkgIdentityOne(string pkgFile, string srcFile, string rel, _PkgIdentityTally t) {
     if (!File.Exists(srcFile)) { return; }   // 源侧没有对应物 → 不在本门管辖内
     t.Compared = t.Compared + 1;
-    if (!_filesEqual(pkgFile, srcFile)) {
+    bool equal = srcFile.EndsWith(".h") ? File.ReadAllText(pkgFile) == _runtimeHeaderText(srcFile) : _filesEqual(pkgFile, srcFile);
+    if (!equal) {
         ConsoleError.WriteLine("  ✗ " + rel + " differs from " + srcFile);
         t.Mismatch = t.Mismatch + 1;
     }

@@ -18,6 +18,8 @@
 
 ## 基础用法
 
+计数与观察契约通过 `diagnostics::{RuntimeCounters, CounterSnapshot, ProfileSnapshot, RuntimeEvent, RuntimeObserver}` 消费；`counters.rs`、`observer.rs` 是私有实现。
+
 通过 `VmContext` 的观察 API 获取计数和注册观察者。线程销毁时先在注册表锁下转移计数，再移除注册，
 快照不会重复或遗漏这份计数。采样接口由 `sampling.rs` 定义，门面在开启采样时或首次堆分析请求时装配独立组件；默认不创建分析实现，关闭时只检查不可变布尔值，不进入动态派发。具体分析状态随 VM 释放，组件代码保留到进程退出。输出路径与错误直接透传。实现位于独立 `z42-profiler`，GC 观察者仍由堆持有。
 

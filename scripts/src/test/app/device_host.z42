@@ -64,11 +64,7 @@ string _stageDeviceHost(string root, string platform) {
         string s = _dhContentSource(root, platform, rel, Path.Join(src, rel));
         string d = Path.Join(host, rel);
         if (!File.Exists(s)) { continue; }   // 工作树里删了但还没提交
-        if (!_filesEqual(s, d)) {
-            Directory.Create(Path.GetDirectoryName(d));
-            File.Copy(s, d);
-            copied = copied + 1;
-        }
+        if (_dhCopyContent(s, d)) { copied = copied + 1; }
         if (mode == "100755") { File.MakeExecutable(d); }
     }
     int removed = 0;
@@ -95,4 +91,20 @@ string _dhContentSource(string root, string platform, string rel, string srcPath
     if (k < 0 || !text.Contains("/runtime/include/")) { return srcPath; }
     string real = Path.Join(Path.Join(root, "src/runtime/include"), Path.GetFileName(rel));
     return File.Exists(real) ? real : srcPath;
+}
+
+// Header copies use the same native export as packaged SDKs. Comparing emitted
+// contents preserves incremental CMake/Xcode builds when only paths change.
+bool _dhCopyContent(string source, string destination) {
+    if (source.EndsWith(".h")) {
+        string text = _runtimeHeaderText(source);
+        if (File.Exists(destination) && File.ReadAllText(destination) == text) { return false; }
+        Directory.Create(Path.GetDirectoryName(destination));
+        File.WriteAllText(destination, text);
+        return true;
+    }
+    if (_filesEqual(source, destination)) { return false; }
+    Directory.Create(Path.GetDirectoryName(destination));
+    File.Copy(source, destination);
+    return true;
 }

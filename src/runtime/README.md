@@ -11,6 +11,11 @@ crate 类型：VM 模块的组合根。内部模块直接编译引用；独立�
 
 解释器与 JIT 分别属于独立的 z42-interp、z42-jit 库，单向依赖运行时；生产运行时不链接具体后端。host 将准备请求交给内部 `components::api`，组件层选择来源并注册引擎，每 VM 的 TierApi 归执行层，后端拥有编译器和代码页。
 
+跨模块引用使用所属领域的稳定导出；实现文件移动不改变消费路径。C 声明由各模块维护，
+native 安装器将其聚合成既有统一头，workload 不增加逐模块 include。
+具体边界与公开面见[运行时模块边界](../../docs/internals/src/runtime/module-boundaries.md)，
+分发过程见[打包机制](../../docs/internals/src/devinfra/packaging.md)。
+
 ## 目录结构与核心文件
 
 顶层职责边界见 [`src/README.md`](src/README.md)。
@@ -23,7 +28,7 @@ crate 类型：VM 模块的组合根。内部模块直接编译引用；独立�
 | `corelib/builtins.rs` / `host/builtins.rs` | 核心库导出自身描述符，host 经 interop 注册独立提供方并生成查询目录与执行表 |
 | `corelib/mod.rs` | 核心库提供 GetType 和默认 ToString 的对象协议绑定；宿主将其注入 VM |
 | `host/artifact.rs` | 门面在函数融合准备时读取进程配置，为公开加载入口与每 VM loader 提供同一惰性输入 |
-| `host/vm_defaults.rs` | 默认配置、内置服务与扩展输入；Core 构造、线程加入和 Drop 机制由 context 负责 |
+| `host/vm_defaults.rs` | 默认配置、内置服务与扩展输入；Core 构造、线程加入和 Drop 机制由 vm.rs 负责 |
 | `host/extensions.rs` | 门面装配 interop 与核心库每 VM 资源状态，保留库句柄到最后释放，所有构造入口共用 |
 | `threads/state.rs` | `ThreadState` 拥有每 VM 线程注册、暂停握手与 fatal 状态，VmCore 组合持有 |
 | `metadata/state.rs` | `RuntimeState` 组合入口 module 与运行时身份表，保留每 VM 链接隔离 |
@@ -168,4 +173,4 @@ xtask test e2e                                # VM golden 端到端（interp + j
 - 用法与规则（参考手册）：[嵌入](../../docs/reference/src/embedding/README.md)
 - 设计 / 机制（实现内幕）：[运行时](../../docs/internals/src/runtime/README.md) · [VM 总体架构](../../docs/internals/src/runtime/vm-architecture.md) · [产物格式](../../docs/internals/src/formats/README.md)
 
-`xtask build runtime` 在同一 Cargo 图中构建动态运行时及独立后端。SDK 使用动态库；所有 runtime 包提供目标适用的独立静态组件归档，原生平台另提供动态库（iOS 为 Framework）；WASM 默认最终模块之外保留按需重链能力。`examples/z42.rs` 是本包的最终链接 target，启用 `static-embedding` 后生成统一命名的 C 静态库和动态库；iOS/Android 不再需要包装 Cargo 包。静态 Rust 宿主链接所需后端 rlib，并先调用 `host::register_static_component`；最终 C 嵌入库先调用 `z42_linked_components_init`。不支持 JIT 的 target 不编译 Cranelift，请求不可用后端明确报错。详见[组件化运行时](../../docs/internals/src/runtime/componentized-runtime.md)。
+`xtask build runtime` 在同一 Cargo 图中构建动态运行时及独立后端。SDK 使用动态库；所有 runtime 包提供目标适用的独立静态组件归档，原生平台另提供动态库（iOS 为 Framework）；WASM 默认最终模块之外保留按需重链能力。`examples/z42.rs` 是本包的最终链接 target，启用 `static-embedding` 后生成统一命名的 C 静态库和动态库；iOS/Android 不再需要包装 Cargo 包。静态 Rust 宿主链接所需后端 rlib，并先调用 `components::abi::register_static_component`；最终 C 嵌入库先调用 `z42_linked_components_init`。不支持 JIT 的 target 不编译 Cranelift，请求不可用后端明确报错。详见[组件化运行时](../../docs/internals/src/runtime/componentized-runtime.md)。

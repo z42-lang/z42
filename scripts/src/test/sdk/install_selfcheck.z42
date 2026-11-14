@@ -104,6 +104,29 @@ int _testPackagesInstall() {
     }
     _stgAssert("native/include/z42_abi.h exists", File.Exists(Path.Join(pkgDir, "native/include/z42_abi.h")));
     _stgAssert("native/include/z42_host.h exists", File.Exists(Path.Join(pkgDir, "native/include/z42_host.h")));
+    string hostHeader = File.ReadAllText(Path.Join(pkgDir, "native/include/z42_host.h"));
+    _stgAssert("native umbrella includes component linkage", hostHeader.Contains("z42_component_register_static"));
+    _stgAssert("native umbrella is standalone", !hostHeader.Contains("#include \"../"));
+    _stgAssert("no extra component header for consumers", !File.Exists(Path.Join(pkgDir, "native/include/z42_components.h")));
+    string deviceHeaders = _xtaskWork(root, "device-header-selfcheck");
+    _resetDir(deviceHeaders);
+    foreach (var header in new string[]{ "z42_host.h", "z42_abi.h", "z42_native.h" }) {
+        string published = File.ReadAllText(Path.Join(pkgDir, "native/include/" + header));
+        _stgAssert("published header is standalone " + header, !published.Contains("#include \"../"));
+        _stgAssert("published header matches owner " + header,
+            published == _runtimeHeaderText(Path.Join(root, "src/runtime/include/" + header)));
+        if (header == "z42_native.h") { continue; }
+        foreach (var platform in new string[]{ "ios", "android" }) {
+            string rel = platform == "ios" ? "Sources/Z42VMC/include/" + header : "z42vm/src/main/cpp/include/" + header;
+            string source = _dhContentSource(root, platform, rel, Path.Join(_deviceHostSrc(root, platform), rel));
+            string destination = Path.Join(deviceHeaders, platform + "/" + header);
+            _stgAssert("device host emits header " + platform + header, _dhCopyContent(source, destination));
+            _stgAssert("device host shares native export " + platform + header, File.ReadAllText(destination) == published);
+            _stgAssert("device host copy stays incremental " + platform + header, !_dhCopyContent(source, destination));
+        }
+    }
+
+
     _stgAssert("mobile facade excluded", !File.Exists(Path.Join(pkgDir, "native/libunrelated_platform.a")));
     _stgAssert("REPL excluded", !File.Exists(Path.Join(pkgDir, "native/libz42_repl.dylib")));
 

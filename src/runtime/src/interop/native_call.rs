@@ -355,7 +355,7 @@ unsafe extern "C" fn invoke_script(
                     values.len(),
                 ));
             }
-            match crate::exec::engine::invoke(frame.ctx, module, function, &values)
+            match crate::exec::invoke(frame.ctx, module, function, &values)
                 .map_err(BuiltinError::Legacy)?
             {
                 crate::exec::call::outcome::ExecOutcome::Returned(value) => {
