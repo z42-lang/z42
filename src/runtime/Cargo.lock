@@ -2239,6 +2239,7 @@ dependencies = [
  "z42-interp",
  "z42-jit",
  "z42-macros",
+ "z42-profiler",
  "z42-repl",
  "z42-rs",
  "z42-zpkg",
@@ -2299,6 +2300,16 @@ dependencies = [
  "quote",
  "syn 3.0.5",
  "trybuild",
+]
+
+[[package]]
+name = "z42-profiler"
+version = "0.7.0"
+dependencies = [
+ "anyhow",
+ "parking_lot",
+ "serde_json",
+ "z42",
 ]
 
 [[package]]

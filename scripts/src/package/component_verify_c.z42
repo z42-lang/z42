@@ -27,10 +27,11 @@ Process _componentCCompiler(string root, string rid) {
     }
     return new Process("cc");
 }
-string _componentCBuild(string root, string pkg, string rid, string work, bool dynamic, bool jit, bool compression) {
+string _componentCBuild(string root, string pkg, string rid, string work, bool dynamic, bool jit, bool compression, bool profiler = false) {
     string native = Path.Join(pkg, "native");
     string name = dynamic ? "dynamic" : (jit ? "static-jit" : "static-interp");
     if (compression) { name = name + "-compression"; }
+    if (profiler) { name = name + "-profiler"; }
     string exe = Path.Join(work, name + (Platform.IsWindows() ? ".exe" : ""));
     Process p = _componentCCompiler(root, rid).Arg("-std=c11")
         .Arg("-I").Arg(Path.Join(native, "include"))
@@ -41,8 +42,9 @@ string _componentCBuild(string root, string pkg, string rid, string work, bool d
     } else {
         if (jit) { p = p.Arg("-DZ42_COMPONENT_HAS_JIT"); }
         if (compression) { p = p.Arg("-DZ42_COMPONENT_HAS_COMPRESSION"); }
-        foreach (var stem in new string[]{ "z42_interp", "z42_jit", "z42_compression" }) {
-            if ((stem == "z42_jit" && !jit) || (stem == "z42_compression" && !compression)) { continue; }
+        if (profiler) { p = p.Arg("-DZ42_COMPONENT_HAS_PROFILER"); }
+        foreach (var stem in new string[]{ "z42_interp", "z42_jit", "z42_profiler", "z42_compression" }) {
+            if ((stem == "z42_jit" && !jit) || (stem == "z42_profiler" && !profiler) || (stem == "z42_compression" && !compression)) { continue; }
             p = p.Arg(Path.Join(native, _componentStaticName(stem, rid)));
         }
         p = p.Arg(Path.Join(native, _componentStaticName("z42", rid)));
@@ -51,8 +53,8 @@ string _componentCBuild(string root, string pkg, string rid, string work, bool d
             p = p.Arg("-Wl,/LIBPATH:" + native);
         }
         TomlValue rtManifest = TomlValue.Parse(File.ReadAllText(Path.Join(pkg, "manifest.toml")));
-        foreach (var stem in new string[]{ "z42_interp", "z42_jit", "z42_compression" }) {
-            if ((stem == "z42_jit" && !jit) || (stem == "z42_compression" && !compression)) { continue; }
+        foreach (var stem in new string[]{ "z42_interp", "z42_jit", "z42_profiler", "z42_compression" }) {
+            if ((stem == "z42_jit" && !jit) || (stem == "z42_profiler" && !profiler) || (stem == "z42_compression" && !compression)) { continue; }
             string flags = rtManifest.Get("components").Get(stem).Get("link_flags").AsString();
             foreach (var flag in flags.Split(" ")) {
                 if (flag.Length == 0) { continue; }
@@ -91,7 +93,16 @@ Process _componentCRunner(string exe, string rid) {
 int _componentCRun(string exe, string pkg, string rid, string zbc, string mode, string action) {
     Process p = _componentCRunner(exe, rid)
         .Arg(_componentNativeBinary(pkg, "z42", rid)).Arg(zbc).Arg(Path.Join(pkg, "libs"))
-        .Arg(mode).Arg(action).Arg(_componentNativeBinary(pkg, "z42_compression", rid));
+        .Arg(mode).Arg(action).Arg(_componentNativeBinary(pkg, "z42_compression", rid))
+        .Arg(_componentNativeBinary(pkg, "z42_profiler", rid));
+    if (action.StartsWith("sampling")) {
+        // simctl forwards SIMCTL_CHILD_* to the spawned simulator process.
+        string key = rid == "iossim-arm64" ? "SIMCTL_CHILD_Z42_SAMPLE_HZ" : "Z42_SAMPLE_HZ";
+        p = p.Env(key, "1000");
+    } else {
+        // Process applies removals after overrides; sampling runs must not remove their key.
+        p = p.EnvRemove("Z42_SAMPLE_HZ").EnvRemove("SIMCTL_CHILD_Z42_SAMPLE_HZ");
+    }
     return _exec(p);
 }
 int _componentCVerifyDynamic(string root, string pkg, string rid, string zbc, string work) {
@@ -100,6 +111,17 @@ int _componentCVerifyDynamic(string root, string pkg, string rid, string zbc, st
     int c = _componentCRun(exe, pkg, rid, zbc, "interp", "no-compression"); if (c != 0) { return c; }
     c = _componentCRun(exe, pkg, rid, zbc, "interp", "compression"); if (c != 0) { return c; }
     if (_componentTargetHasJit(rid)) { c = _componentCRun(exe, pkg, rid, zbc, "jit", "no-compression"); if (c != 0) { return c; } }
+    c = _componentCRun(exe, pkg, rid, zbc, "interp", "profiler"); if (c != 0) { return c; }
+    c = _componentCRun(exe, pkg, rid, zbc, "interp", "sampling"); if (c != 0) { return c; }
+    string profilerLibrary = _componentNativeBinary(pkg, "z42_profiler", rid);
+    string profilerHidden = profilerLibrary + ".unavailable";
+    File.Move(profilerLibrary, profilerHidden);
+    try {
+        c = _componentCRun(exe, pkg, rid, zbc, "interp", "profiler-missing");
+        if (c == 0) { c = _componentCRun(exe, pkg, rid, zbc, "interp", "sampling-missing"); }
+    }
+    finally { File.Move(profilerHidden, profilerLibrary); }
+    if (c != 0) { return c; }
     string library = _componentNativeBinary(pkg, "z42_compression", rid);
     string hidden = library + ".unavailable";
     File.Move(library, hidden);
@@ -112,10 +134,12 @@ int _componentCVerifyStatic(string root, string pkg, string rid, string zbc, str
     int c = _componentCRun(exe, pkg, rid, zbc, "interp", "no-compression"); if (c != 0) { return c; }
     c = _componentCRun(exe, pkg, rid, zbc, "jit", "expect-missing"); if (c != 0) { return c; }
     c = _componentCRun(exe, pkg, rid, zbc, "interp", "compression-missing"); if (c != 0) { return c; }
+    c = _componentCRun(exe, pkg, rid, zbc, "interp", "profiler-missing"); if (c != 0) { return c; }
     bool jit = _componentTargetHasJit(rid);
-    exe = _componentCBuild(root, pkg, rid, work, false, jit, true);
+    exe = _componentCBuild(root, pkg, rid, work, false, jit, true, true);
     if (exe.Length == 0) { return 1; }
     c = _componentCRun(exe, pkg, rid, zbc, "interp", "compression"); if (c != 0) { return c; }
+    c = _componentCRun(exe, pkg, rid, zbc, "interp", "profiler"); if (c != 0) { return c; }
     if (jit) { return _componentCRun(exe, pkg, rid, zbc, "jit", "compression"); }
     return 0;
 }

@@ -193,6 +193,7 @@ impl Instance {
     }
 }
 
+#[derive(Clone)]
 pub struct VmComponents {
     instances: Vec<Arc<Instance>>,
 }

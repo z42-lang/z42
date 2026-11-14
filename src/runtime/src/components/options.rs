@@ -57,8 +57,15 @@ impl ComponentOptions {
         if ctx.core().components().get().is_some() {
             bail!("VM component registrations are already frozen");
         }
-        let components = match &self.catalog {
-            None => VmComponents::create(&[], ctx.heap().heap_epoch())?,
+        let components = self.create(ctx.heap().heap_epoch())?;
+        ctx.core()
+            .components()
+            .set(components)
+            .map_err(|_| anyhow::anyhow!("VM component registrations are already frozen"))
+    }
+    pub(super) fn create(&self, vm_id: u64) -> Result<VmComponents> {
+        match &self.catalog {
+            None => VmComponents::create(&[], vm_id),
             Some(cell) => {
                 let catalog = cell.get_or_init(|| {
                     Catalog::load(&self.registrations)
@@ -66,13 +73,9 @@ impl ComponentOptions {
                         .map_err(|e| format!("{e:#}"))
                 });
                 let catalog = catalog.as_ref().map_err(|e| anyhow::anyhow!("{e}"))?;
-                VmComponents::create(&catalog.factories, ctx.heap().heap_epoch())?
+                VmComponents::create(&catalog.factories, vm_id)
             }
-        };
-        ctx.core()
-            .components()
-            .set(components)
-            .map_err(|_| anyhow::anyhow!("VM component registrations are already frozen"))
+        }
     }
     #[cfg(test)]
     pub(super) fn catalog_for_test(&self) -> Arc<Catalog> {
@@ -92,15 +95,20 @@ pub fn component_interface<T: ComponentInterface>(
     ctx: &VmContext,
     id: ComponentId,
 ) -> Result<Option<super::ComponentLease<T>>> {
-    match ctx.core().components().get() {
+    if let Some(components) = ctx.core().components().get() {
+        let interface = components.lease(id, ctx.core_arc())?;
+        if interface.is_some() { return Ok(interface); }
+    }
+    match ctx.core().diagnostics().sampler.components() {
         Some(components) => components.lease(id, ctx.core_arc()),
         None => Ok(None),
     }
 }
 /// Registered components in deterministic dependency order. Disabled components are absent.
 pub fn component_ids(ctx: &VmContext) -> Vec<ComponentId> {
-    ctx.core()
-        .components()
-        .get()
-        .map_or_else(Vec::new, VmComponents::ids)
+    let mut ids = ctx.core().components().get().map_or_else(Vec::new, VmComponents::ids);
+    if let Some(components) = ctx.core().diagnostics().sampler.components() {
+        for id in components.ids() { if !ids.contains(&id) { ids.push(id); } }
+    }
+    ids
 }

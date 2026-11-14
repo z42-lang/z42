@@ -417,7 +417,7 @@ int main(void) {
 
 另有可选的组件化动态 runtime 包：C 宿主链接其中的 z42（macOS/Linux 为 libz42，Windows 导入库为 z42.dll.lib）。部署时保留 native/ 内同包的共享核心、Rust std 和 interp/JIT 组件；这些库必须来自同一构建，不能混用版本。用 Z42_NATIVE_PATH 指向组件目录，或将 native/ 放在宿主可执行文件旁。显式请求 JIT 时，库缺失或不兼容会报错，不自动改成解释模式。
 
-组件也可以**直接链接**而非 dlopen：Windows 动态包随发每个组件的导入库（`z42.dll.lib`、`z42_interp.dll.lib`、`z42_jit.dll.lib`、`z42_compression.dll.lib`，由包内 manifest.toml 的 `[assets].import_libs` 点名）；链接后调 `z42_host_register_static_component(Z42_COMPONENT_INTERP, z42_interp_init)`（JIT 同理）与 `z42_host_register_static_native_library("z42_compression", z42_compression_get_symbol)` 登记工厂——与静态归档同一套登记协议，运行期仍走同构建身份校验。macOS/Linux 直接链 `libz42_interp.dylib` / `libz42_interp.so` 等库文件。
+组件也可以**直接链接**而非 dlopen：Windows 动态包随发每个组件的导入库（`z42.dll.lib`、`z42_interp.dll.lib`、`z42_jit.dll.lib`、`z42_profiler.dll.lib`、`z42_compression.dll.lib`，由包内 manifest.toml 的 `[assets].import_libs` 点名）；链接后调 `z42_host_register_static_component(Z42_COMPONENT_INTERP, z42_interp_init)`（JIT 同理）与 `z42_host_register_static_native_library("z42_compression", z42_compression_get_symbol)` 登记工厂——与静态归档同一套登记协议，运行期仍走同构建身份校验。macOS/Linux 直接链 `libz42_interp.dylib` / `libz42_interp.so` 等库文件。
 
 Windows 宿主若按运行期装载（dlopen）而非直接链接：请用 `LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS` 标志加载（或先 `AddDllDirectory` 指向 native/），z42.dll 依赖的共享 Rust std（`std-*.dll`，随包在 native/）才能按 dll 自身目录解析——z42vm 启动器正是这么做的。包内 manifest.toml 描述了全部内容物与链接配方（组件文件、归档顺序、link_flags、init 调用）。
 
@@ -441,7 +441,16 @@ Z42HostStatus status = z42_host_register_static_native_library(
 
 Android arm64/x64 runtime 同时发布核心、解释器、JIT 和压缩的独立 `.a` / `.so`，动态应用须保留匹配的共享 Rust std。默认解释执行；显式选择 `Z42_EXEC_MODE_JIT` 时装配 JIT，缺库报错。Kotlin 门面使用 `Z42VM.ExecMode.JIT` 选择同一模式。iOS 保留 `.a`，动态版本提供核心、解释器、compression 和 Rust std 的 Framework；模拟器另外提供独立 JIT，Swift 门面以 `execMode: .jit` 选择，真机请求 JIT 报错；使用动态运行时的应用须嵌入并签名相应依赖。
 
-browser-wasm 默认最终 `.wasm` 包含解释器和压缩能力；随包提供的独立静态库供项目按需重新链接另一份最终模块。WASM 不支持原生 dlopen；运行时只能选择已链接的组件。开发时额外链接 profiler/debugger 的组合方式沿用此契约，具体组件库待后续交付。
+CPU 采样与堆分析由可选 profiler 提供。原生动态部署使用同包的 `libz42_profiler.dylib` / `libz42_profiler.so` / `z42_profiler.dll`；未使用分析功能时不会装载它。静态宿主按需链接 `libz42_profiler.a`（Windows 为 `z42_profiler.lib`），在创建宿主前登记：
+
+```c
+Z42HostStatus status = z42_host_register_static_component(
+    Z42_COMPONENT_PROFILER, z42_profiler_init);
+```
+
+开启 CPU 采样时会在执行前检查组件；堆快照和保留查询首次使用时检查。缺失或不兼容时返回错误，不能把未装配组件当作空分析结果。普通执行、GC 控制和运行时计数不依赖 profiler。
+
+browser-wasm 默认最终 `.wasm` 包含解释器和压缩能力；随包提供的独立静态库供项目按需重新链接另一份最终模块。WASM 不支持原生 dlopen；运行时只能选择已链接的组件。额外链接并登记 `libz42_profiler.a` 可以启用堆分析；浏览器不支持本组件的后台线程 CPU 采样。debugger 组件尚未提供。
 
 Linux 包要求 glibc ≥ 2.34（x64）、≥ 2.39（arm64）。
 

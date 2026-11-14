@@ -46,7 +46,7 @@ void _rtEmitRuntimeManifest(string pkgDir, string rid, string profile, string ve
     List<string> archives = new List<string>();
     // 每个 stem 一张表（TOML 表不可重复）：static / dynamic 子键按包内实际文件有无。
     List<string> compStems = new List<string>();
-    foreach (var stem in new string[]{ "z42_interp", "z42_jit", "z42_compression", "z42" }) {
+    foreach (var stem in new string[]{ "z42_interp", "z42_jit", "z42_profiler", "z42_compression", "z42" }) {
         if (stem == "z42_jit" && !_componentTargetHasJit(rid)) { continue; }
         string sname = _componentStaticName(stem, rid);
         string dname = _componentLibrary(stem, rid);
@@ -85,7 +85,7 @@ void _rtEmitRuntimeManifest(string pkgDir, string rid, string profile, string ve
     if (std.Length == 1) { l.Add("std = \"native/" + Path.GetFileName(std[0]) + "\""); }
     List<string> importLibs = new List<string>();
     if (rid.StartsWith("windows-")) {
-        foreach (var stem in new string[]{ "z42", "z42_interp", "z42_jit", "z42_compression" }) {
+        foreach (var stem in new string[]{ "z42", "z42_interp", "z42_jit", "z42_profiler", "z42_compression" }) {
             if (stem == "z42_jit" && !_componentTargetHasJit(rid)) { continue; }
             if (File.Exists(Path.Join(native, stem + ".dll.lib"))) { importLibs.Add("native/" + stem + ".dll.lib"); }
         }
@@ -96,7 +96,7 @@ void _rtEmitRuntimeManifest(string pkgDir, string rid, string profile, string ve
     foreach (var f in Path.Glob(native, "*.lib")) {
         string n = Path.GetFileName(f);
         if (n != "z42.lib" && n != "z42.dll.lib" && n != "z42_interp.dll.lib"
-            && n != "z42_jit.dll.lib" && n != "z42_compression.dll.lib") {
+            && n != "z42_profiler.dll.lib" && n != "z42_profiler.lib" && n != "z42_jit.dll.lib" && n != "z42_compression.dll.lib") {
             thirdParty.Add("native/" + n);
         }
     }

@@ -6,6 +6,7 @@ mod options;
 mod identity;
 mod linked;
 pub(crate) mod backends;
+pub(crate) mod profiling;
 
 pub use catalog::Factory;
 pub use instance::{ComponentLease, VmComponents};
@@ -19,3 +20,5 @@ pub(crate) use backends::native_paths;
 #[cfg(test)] mod api_tests;
 #[cfg(test)] mod component_tests;
 #[cfg(test)] mod backend_tests;
+
+#[cfg(test)] mod profiling_tests;

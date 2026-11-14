@@ -56,19 +56,20 @@
 <output>/
   <Name>.xcodeproj/project.pbxproj     ← 完整 Xcode 工程（固定确定性对象 ID）
   <Name>/
-    main.swift                         ← AppDelegate，进程内起 VM 跑 app.zpkg
+    AppDelegate.swift                         ← AppDelegate，进程内起 VM 跑 app.zpkg
     Info.plist                         ← bundle id / display name / 最低版本
     Assets.xcassets/Contents.json
     app.zpkg                           ← 从 dist 拷（已构建时）
-  z42vm.xcframework/                   ← 需手动从平台 SDK 拷入
+  z42.framework/                      ← 从对应 RID 的 runtime pack 自动复制
+  z42_*.framework/                    ← interp/JIT、profiler、compression、共享 std
 ```
 
 `project.pbxproj` 用**固定的 24 字符十六进制对象 ID**（按对象语义写死，不随机），
 于是重复生成字节相同、可 diff、也不需要实现 RNG。Xcode 只要求 ID 在同一工程内唯一。
-单 target，引用 `main.swift`（Sources）、`app.zpkg`（Resources）、`z42vm.xcframework`（Frameworks）。
+单 target，引用 `AppDelegate.swift`（Sources）与 `app.zpkg`、`libs/`（Resources）。应用只链接 `z42.framework`；组件与共享 std 通过 Embed Frameworks 复制和签名，profiler 不进入应用的启动链接依赖。
 
-`main.swift` 生成的是可运行的 AppDelegate：从 bundle 里取 `app.zpkg` 路径，
-后台队列上调 `Z42TestHost.runApp` → `z42_host_run_app`，**进程内**跑（和 desktop 的
+`AppDelegate.swift` 生成的是可运行的 AppDelegate：从 bundle 里取 `app.zpkg` 路径，
+后台队列上先注册同构建组件，再调用 `z42_host_run_app`，**进程内**跑（和 desktop 的
 self-contained 同一个嵌入核）。iOS 的 bundle 资源是真实文件系统路径，所以 zpkg 与 `libs/` 直接引用、
 无需解压。app 的 stdout 进设备 console。
 
@@ -117,21 +118,18 @@ wasm 是唯一消费 **`.zbc`**（单模块字节码）而不是 `.zpkg` 的导�
 
 ## 设计取舍
 
-**SDK 不在也照样生成。** 缺 xcframework / `.so` / wasm 包时打 ⚠ 提示与安装命令，继续生成骨架。
-理由见上——骨架有独立价值。
+**iOS 复制同批组件。** 从 runtime pack 复制组件 Framework，缺失的组件直接报错；核心 Framework 不存在时提示安装对应运行时包。
 
 **pbxproj 用固定 ID。** 换来重复生成字节相同，代价是同一工程里的 ID 必须手工保证不撞。
 
-**xcframework 目前仍靠手工 `cp -r`。** 生成器打印命令提示而不是自动拷贝。
-这条限制的理由（stdlib 没有 `Directory.Copy`）**已经不成立**——
-`Std.IO.Directory.Copy(src, dst, recursive)` 可用，生成器还没改成用它。
+发布包验证会编译实际导出的 arm64 模拟器应用，检查所有 Framework 已进入应用包，并从 Mach-O 依赖中确认 profiler 没有被启动链接。
 
 ## 代码地图
 
 | 组件 | 位置 |
 |---|---|
 | `export` 入口、RID 类别路由、配置解析、SDK/产物定位 | `src/toolchain/launcher/core/launcher_export.z42` |
-| iOS 工程渲染（pbxproj / main.swift / Info.plist） | `src/toolchain/workload/ios/appbuilder/export.z42` |
+| iOS 工程渲染（pbxproj / AppDelegate.swift / Info.plist） | `src/toolchain/workload/ios/appbuilder/export.z42` |
 | Android 工程渲染（gradle / manifest / MainActivity） | `src/toolchain/workload/android/appbuilder/export.z42` |
 | WASM 页面渲染 + stdlib 铺设 | `src/toolchain/workload/wasm/appbuilder/export.z42` |
 | 平台模板与原生绑定 | `src/toolchain/workload/<plat>/{template,platform}/` |
@@ -142,6 +140,6 @@ wasm 是唯一消费 **`.zbc`**（单模块字节码）而不是 `.zpkg` 的导�
   `<projDir>/.cache/<name>.zbc`、`<projDir>/<name>.zbc` 三处，而编译器实际按源文件树逐文件写
   `dist/<源相对路径>.zbc`（如 `dist/src/main.zbc`）。默认布局的工程**必然**命中不了，
   导出的 wasm 工程总是缺字节码。
-- **xcframework / `.so` 仍需手工拷贝**，见上。
+- **iOS 导出需要对应 RID 的运行时包**；模拟器与真机 Framework 不能混用。
 - **导出是单向的**：生成器每次整份重写目标目录里它负责的文件，不做合并。
   工程里要塞平台专属改动，目前只能在导出之后手改，改完再 export 会被盖掉。

@@ -12,7 +12,7 @@
 | P1a | `ProfileSnapshot`：counter 快照 + 堆派生 allocations + GC 分代 | `diagnostics/counters.rs`、`gc/types.rs` |
 | P1b | 并发探针：safepoint park 直方图（常开）+ 用户锁争用（feature-gated）| `threads/safepoint.rs`、`corelib/core/sync_contention.rs` |
 | P1c | `Std.Diagnostics.RuntimeStats.Counters()` 暴露给 z42 脚本 | `corelib/core/diagnostics.rs`、`z42.diagnostics` |
-| **P2** | **safepoint 采样 profiler：z42 火焰图 + perfetto 采样 trace** | **`profiler/cpu.rs`** |
+| **P2** | **safepoint 采样 profiler：z42 火焰图 + perfetto 采样 trace** | **`crates/z42-profiler/src/profiler/cpu.rs`** |
 
 ---
 
@@ -35,6 +35,8 @@ z42 的观测遵循**两层成本**原则（design §6）：
 `--stats-format=json` 输出单行 JSON（sentinel key `z42vm_counters`）供 `xtask profile` 抓取。
 
 ---
+
+分析实现由可选 z42-profiler 提供。核心 diagnostics 只保留契约和关闭快路；host 在采样请求时提前装配，在堆分析请求时惰性装配。缺库、禁用或身份不匹配明确报错；静态宿主需要登记实际链接的工厂。
 
 ## 2. Safepoint 采样 profiler（P2）—— 核心
 
