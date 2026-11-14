@@ -7,6 +7,8 @@ using Std.IO;
 using Std.Time;   // Stopwatch — bench 进程计时标记
 
 class BenchCommand : Command {
+    [Option(help: "micro A/B: select owners from a validated flow plan")] public string Plan = "";
+    [Option(help: "micro A/B: comma-separated exact package owners")] public string Owners = "";
     [Option(help: "fewer runs/warmup")] public bool Quick;
     // `both` runs each scenario under interp AND jit (two profile-tagged results).
     [Option(help: "measured-run mode (default: jit)", choices: new string[]{ "interp", "jit", "both" })]
@@ -56,6 +58,7 @@ class BenchCommand : Command {
     }
 
     public override int Run() {
+        if (!this.MicroAb && (this.Plan.Length > 0 || this.Owners.Length > 0)) { throw new CliException("--plan and --owners require --micro-ab"); }
         if (this.AbSelftest) { return _abSelfTest(); }
         if (this.MicroAb) { return _benchMicroAbAt(_root(), this, new MicroCapture()); }
         if (this.MicroDiff) { return _benchMicroDiff(this); }
