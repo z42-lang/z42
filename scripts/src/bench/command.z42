@@ -27,6 +27,9 @@ class BenchCommand : Command {
     [Option(help: "same-runner A/B gate (needs --base-vm/--base-libs/--base-driver)")] public bool Ab;
     [Option(help: "unit-check the _abVerdict pure function and exit")] public bool AbSelftest;
     [Option(help: "micro A/B: diff two bench-stdlib --json baselines (--current/--baseline)")] public bool MicroDiff;
+    [Option(help: "capture micro A/B and resample suspicious results (default threshold: 0.15)")] public bool MicroAb;
+    [Option(help: "micro A/B base source tree")] public string BaseTree = "base-src";
+    [Option(help: "micro A/B PR source tree")] public string PrTree = "head-src";
     // ab-resample-on-suspicion: round 1 判退化的条目再测这么多轮，按轮间比值离散度重判；0 = 关（回滚开关）。
     [Option(help: "A/B: extra rounds for a round-1 regression (0 = off)")] public int ResampleRounds = 2;
     // GC 停顿子门禁（bench/gc_pause.z42 头注）：p99 超 cap 且 > base×(1+threshold-pause) ⇒ 红；
@@ -54,6 +57,7 @@ class BenchCommand : Command {
 
     public override int Run() {
         if (this.AbSelftest) { return _abSelfTest(); }
+        if (this.MicroAb) { return _benchMicroAbAt(_root(), this, new MicroCapture()); }
         if (this.MicroDiff) { return _benchMicroDiff(this); }
         Stopwatch sw = _procStart("bench");
         int rc = this.Ab ? _benchAb(this) : (this.Diff ? _benchDiff(this) : _bench(this));
