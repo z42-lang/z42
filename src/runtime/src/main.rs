@@ -27,7 +27,8 @@ fn run() -> Result<i32, Box<dyn std::error::Error>> {
     // callbacks, TLS destructors and registered signal handlers may retain code.
     let library = unsafe { open_runtime(&path) }.map_err(|e| format!("cannot load runtime {}: {e}", path.display()))?;
     let library = std::mem::ManuallyDrop::new(library);
-    let entry = unsafe { library.get::<unsafe extern "C" fn() -> i32>(b"z42_main_v1\0") }?;
+    let entry = unsafe { library.get::<unsafe extern "C" fn() -> i32>(b"z42_main_v1\0") }
+        .map_err(|error| format!("runtime {} has no z42_main_v1 entry: {error}", path.display()))?;
     Ok(unsafe { entry() })
 }
 
