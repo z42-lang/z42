@@ -3,7 +3,7 @@ use std::{
     ffi::c_void,
     sync::atomic::{AtomicU64, AtomicUsize, Ordering},
 };
-use z42::components::api::*;
+use z42::component_abi::*;
 
 pub const A: ComponentId = ComponentId::new(0x100);
 pub const B: ComponentId = ComponentId::new(0x200);

@@ -18,7 +18,7 @@ runtime 其余模块**零 cfg 调用** OS 服务。每个 concern 提供平台�
 | `vfs/` | `Vfs` 的实现：`LocalFs`（标准库 fs）、`MemoryFs`（实例自有的 `path → bytes`，`mount()` 挂文件）|
 | `process.rs` | `exit_code()`、`own_process_group()`、`ProcessTree`（超时杀整棵进程树）、`find_executable()` |
 | `random.rs` | `fill()` —— OS CSPRNG |
-| `dynlib.rs` | `is_supported()` / `require_supported()` 查询和限制脚本扩展装载、`file_name()`、`resolve_native_beside()` 定向探测同目录原生依赖、`Library::open()` / `open_component()`（进程寿命代码映像）/ `symbol()` —— 运行时唯一的 dlopen 入口 |
+| `dynlib.rs` | `is_supported()` / `require_supported()` 查询和限制脚本扩展装载、`file_name()`、`resolve_native_beside()` 定向探测同目录原生依赖、`Library::open()` / `open_component()`（进程寿命代码映像）/ `component_is_loaded()`（只读已装入缓存）/ `symbol()` —— 运行时唯一的 dlopen 入口 |
 | `console.rs` | 区分有效 console 输入与交互终端；移动端、浏览器及无输入句柄的宿主不访问 stdin |
 | `mem.rs` | 页大小、GC chunk 页的 `decommit` / `recommit` |
 | `thread.rs` | 栈边界、`current_token()`、`run_with_stack()` |

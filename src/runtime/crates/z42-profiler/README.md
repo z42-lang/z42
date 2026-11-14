@@ -12,6 +12,8 @@
 | `src/profiler/cpu.rs` | CPU 采样器和分析服务实现 |
 | `src/profiler/heap/` | 堆摘要、V8 快照和保留图算法 |
 
+独立实现通过 `z42::component_abi` 使用描述符和 C 布局接口，通过 `z42::component_bridge` 校验共享核心身份/布局。核心模块仅私有导入，不由本库再导出。
+
 ## 基础用法
 
 宿主仅依赖 `z42::host`。动态包按需发现本组件；静态宿主链接本库并登记 `PROFILER_COMPONENT` 与 `z42_profiler_init`。未使用分析功能时不创建实现状态；开启 CPU 采样时执行前装配，堆分析首次调用时装配。缺库、禁用或身份不匹配均报错。

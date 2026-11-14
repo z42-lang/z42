@@ -5,7 +5,7 @@ use std::{
     path::PathBuf,
     sync::{Arc, OnceLock},
 };
-use crate::components::api::*;
+use crate::component_abi::*;
 
 pub struct Factory {
     pub(crate) id: ComponentId,
@@ -35,7 +35,7 @@ impl Factory {
     }
     pub fn id(&self) -> ComponentId { self.id }
     pub fn dependencies(&self) -> &[ComponentId] { &self.dependencies }
-    #[cfg(feature = "component-loading")]
+    #[cfg(all(test, feature = "component-loading"))]
     pub fn library(&self) -> Option<&Arc<crate::pal::dynlib::Library>> { self.library.as_ref() }
     /// # Safety
     /// This library owns every callback and table retained by the factory.

@@ -256,7 +256,7 @@ fn classify_invoke_error(msg: &str) -> Z42HostStatus {
 ### 被接受但被忽略的配置字段
 
 - `heap_initial_bytes` / `heap_max_bytes` 只进 `ResolvedConfig` 和 Debug 输出，**没有消费点**。
-- `exec_mode` 经合法性和 feature 校验后存入 `LoadedProgram`，调用时选择对应引擎。Default 使用构建默认后端；JIT 支持参数和返回值，AOT 尚未实现，会在执行时明确报错。一次性 `z42_host_run_app` 使用构建默认模式。
+- `exec_mode` 在宿主初始化时仅经合法性和构建/目标支持校验，来源装入与 ABI 校验在程序准备时完成；模式存入 `LoadedProgram`，调用时选择对应引擎。Default 使用构建默认后端；JIT 支持参数和返回值，AOT 尚未实现，会在执行时明确报错。一次性 `z42_host_run_app` 使用构建默认模式。
 
 堆容量字段的限制见契约页「当前不支持」；执行模式由统一宿主服务处理。
 
@@ -373,7 +373,8 @@ wasm 是单线程、且经 `z42_wasm` 而不是这个 C 符号进来，所以那
 
 ## 可选原生组件
 
-Rust 宿主通过 `LoadOptions.components` 选择同构建组件，所有类型从 `z42::host` 获取。
+当前 Rust 宿主仍通过 `LoadOptions.components` 选择同构建组件；管理类型从 `z42::host` 获取，协议类型单独从 `z42::component_abi` 获取。
+这是尚待收口的管理公开面；VM 内部消费者使用 `components::api` 的能力请求。
 `ComponentOptions::with_static` 接收已链接的工厂函数，`with_dynamic` 接收预期组件 ID、库路径和 C 初始化入口；
 调用方通过 unsafe 承诺原生代码及 ABI 的有效性。两种方法同时登记来源并启用组件。
 

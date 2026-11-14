@@ -7,7 +7,8 @@ use std::{
     path::PathBuf,
     sync::{Arc, OnceLock},
 };
-use crate::components::api::*;
+use crate::component_abi::*;
+use super::execution_roles::ExecutionBindings;
 
 /// Immutable component selection. Clones share the factory load result; each VM
 /// receives new instances. Rebuild these options to retry a failed library load.
@@ -81,19 +82,26 @@ impl ComponentOptions {
         roots.extend(extra.roots.iter().copied());
         Self { registrations, roots, catalog: Some(Arc::new(OnceLock::new())) }
     }
-    pub(crate) fn install(&self, ctx: &VmContext) -> Result<()> {
+    #[cfg(test)]
+    pub(super) fn install(&self, ctx: &VmContext) -> Result<()> {
+        self.install_bound(ctx, ExecutionBindings::default())
+    }
+    pub(super) fn install_bound(&self, ctx: &VmContext, execution: ExecutionBindings) -> Result<()> {
         if ctx.core().components().get().is_some() {
             bail!("VM component registrations are already frozen");
         }
-        let components = self.create(ctx.heap().heap_epoch())?;
+        let components = self.create_bound(ctx.heap().heap_epoch(), execution)?;
         ctx.core()
             .components()
             .set(components)
             .map_err(|_| anyhow::anyhow!("VM component registrations are already frozen"))
     }
     pub(super) fn create(&self, vm_id: u64) -> Result<VmComponents> {
+        self.create_bound(vm_id, ExecutionBindings::default())
+    }
+    fn create_bound(&self, vm_id: u64, execution: ExecutionBindings) -> Result<VmComponents> {
         match &self.catalog {
-            None => VmComponents::create(&[], vm_id),
+            None => VmComponents::create_bound(&[], vm_id, execution),
             Some(cell) => {
                 let catalog = cell.get_or_init(|| {
                     Catalog::load(&self.registrations, &self.roots)
@@ -101,7 +109,7 @@ impl ComponentOptions {
                         .map_err(|e| format!("{e:#}"))
                 });
                 let catalog = catalog.as_ref().map_err(|e| anyhow::anyhow!("{e}"))?;
-                VmComponents::create(&catalog.factories, vm_id)
+                VmComponents::create_bound(&catalog.factories, vm_id, execution)
             }
         }
     }

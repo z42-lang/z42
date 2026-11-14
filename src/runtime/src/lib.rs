@@ -18,7 +18,12 @@ pub mod interop;
 pub mod host;
 pub mod config;
 pub use exec::ops::object as objops;
-pub mod components;
+pub(crate) mod components;
+/// Same-build wire contracts for trusted component implementations.
+pub mod component_abi;
+/// Minimal Rust identity bridge used by same-build execution components.
+#[doc(hidden)]
+pub mod component_bridge;
 #[cfg(test)]
 #[path = "../crates/z42-interp/src/interp/mod.rs"]
 pub mod interp;

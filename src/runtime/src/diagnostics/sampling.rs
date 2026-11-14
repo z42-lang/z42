@@ -1,5 +1,5 @@
 //! Light profiling contracts and a lazy per-VM provider; no analysis implementation.
-use crate::{components::{BackendSource, VmComponents}, context::VmContext, gc::Heap};
+use crate::{components::api::{BackendSource, VmComponents}, context::VmContext, gc::Heap};
 use std::sync::OnceLock;
 
 pub trait SampleBackend: Send + Sync {
@@ -46,7 +46,7 @@ impl Sampling {
     pub fn provider(&self, ctx: &VmContext) -> anyhow::Result<&dyn ProfilerBackend> {
         let result = self.initialized.get_or_init(|| {
             if self.backend.get().is_some() { return Ok(()); }
-            crate::components::profiling::attach(ctx, self.source.get_or_init(BackendSource::default), self.hz.unwrap_or(0), self.trace)
+            crate::components::api::attach_profiler(ctx, self.source.get_or_init(BackendSource::default), self.hz.unwrap_or(0), self.trace)
                 .map_err(|e| format!("{e:#}"))
         });
         result.as_ref().map_err(|e| anyhow::anyhow!("{e}"))?;

@@ -192,7 +192,7 @@ pub(crate) unsafe fn validate(cfg: *const Z42HostConfig) -> Result<ResolvedConfi
 fn check_feature_available(mode: Z42ExecMode) -> Result<(), ConfigError> {
     match mode {
         Z42ExecMode::Default | Z42ExecMode::Interp => Ok(()),
-        Z42ExecMode::Jit => if super::jit_available() { Ok(()) } else { Err(ConfigError::FeatureOff { mode }) },
+        Z42ExecMode::Jit => if cfg!(feature = "jit") && crate::components::api::execution_supported(crate::components::api::ExecutionRole::Optimizing) { Ok(()) } else { Err(ConfigError::FeatureOff { mode }) },
         Z42ExecMode::Aot => {
             #[cfg(feature = "aot")]
             {

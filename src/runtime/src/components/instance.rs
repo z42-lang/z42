@@ -7,7 +7,8 @@ use parking_lot::Mutex;
 use std::{
     collections::BTreeMap, ffi::c_void, marker::PhantomData, ops::Deref, ptr::NonNull, sync::Arc,
 };
-use super::api::*;
+use crate::component_abi::*;
+use super::execution_roles::{ExecutionBindings, ExecutionRole};
 
 #[derive(Clone, Copy)]
 struct CheckedInterface {
@@ -196,6 +197,7 @@ impl Instance {
 #[derive(Clone)]
 pub struct VmComponents {
     instances: Vec<Arc<Instance>>,
+    execution: ExecutionBindings,
 }
 impl Drop for VmComponents {
     fn drop(&mut self) {
@@ -206,9 +208,11 @@ impl Drop for VmComponents {
     }
 }
 impl VmComponents {
-    pub fn create(factories: &[Arc<Factory>], vm_id: u64) -> Result<Self> {
+    pub(super) fn create_bound(factories: &[Arc<Factory>], vm_id: u64, execution: ExecutionBindings) -> Result<Self> {
+        execution.validate(factories)?;
         let mut result = Self {
             instances: Vec::new(),
+            execution,
         };
         if factories.is_empty() {
             return Ok(result);
@@ -223,6 +227,15 @@ impl VmComponents {
                 .push(Instance::create(Arc::clone(factory), Arc::clone(&shared))?);
         }
         Ok(result)
+    }
+    pub(super) fn execution(&self, role: ExecutionRole, core: Arc<VmCore>) -> Result<Option<ComponentLease<ExecutionApi>>> {
+        match self.execution.provider(role) {
+            Some(id) => self.lease(id, core),
+            None => Ok(None),
+        }
+    }
+    pub(super) fn execution_code(&self, role: ExecutionRole) -> Option<Arc<dyn Send + Sync>> {
+        self.execution.provider(role).and_then(|id| self.code_lease(id))
     }
     /// Borrow only code ownership, without retaining the VM or instance state.
     pub fn code_lease(&self, id: ComponentId) -> Option<Arc<dyn Send + Sync>> {

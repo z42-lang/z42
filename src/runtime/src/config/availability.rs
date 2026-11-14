@@ -47,7 +47,7 @@ pub fn feature_enabled(name: &str) -> bool {
         "dhat-heap" => cfg!(feature = "dhat-heap"),
         "interp-only" => cfg!(feature = "interp-only"),
         "ios" => cfg!(feature = "ios"),
-        "jit" => crate::components::jit_supported() && cfg!(any(feature = "jit", feature = "shared-core")),
+        "jit" => crate::components::api::execution_supported(crate::components::api::ExecutionRole::Optimizing) && cfg!(any(feature = "jit", feature = "shared-core")),
         "mimalloc-alloc" => cfg!(feature = "mimalloc-alloc"),
         "native-interop" => cfg!(feature = "native-interop"),
         "profile-contention" => cfg!(feature = "profile-contention"),

@@ -2,7 +2,7 @@
 
 ## 职责
 
-A real cdylib using only z42::components::api. It owns fixture state and uses runtime service callbacks; it never creates a VM or accesses heap/thread state. The same source also supplies static registration tests.
+A real cdylib using only z42::component_abi. It owns fixture state and uses runtime service callbacks; it never creates a VM or accesses heap/thread state. The same source also supplies static registration tests.
 
 ## 功能索引
 

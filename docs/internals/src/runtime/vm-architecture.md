@@ -10,7 +10,7 @@
 
 ## 引擎注册与调用边界
 
-共享运行时位于统一 z42 包，解释器和 JIT 分别位于 z42-interp/z42-jit，互不依赖实现。host 按执行模式选择静态或动态组件，经 ExecutionApi 装配基线 Engine 和 JIT Engine；低层构造的测试默认引擎由 `components/backends.rs` 提供，生产宿主显式装配所选组件。`VmCore.exec.engines` 持有每 VM 注册表与一次发布的 TierApi。Engine 接收连续值、寄存器索引或带接收者的借用视图，并返回共享 ExecOutcome。JIT 冷回落经此接口进入解释器原有帧构造；VM 与两个后端不需要彼此的具体帧类型。
+共享运行时位于统一 z42 包，解释器和 JIT 分别位于 z42-interp/z42-jit，互不依赖实现。host 经内部 components::api 请求程序准备，组件层按执行模式选择来源并绑定 Baseline/Optimizing 角色，经同构建 component_abi::ExecutionApi 装配基线 Engine 和 JIT Engine；低层构造的测试默认引擎由 `components/backends.rs` 提供，生产宿主显式装配所选组件。`VmCore.exec.engines` 持有每 VM 注册表与一次发布的 TierApi。Engine 接收连续值、寄存器索引或带接收者的借用视图，并返回共享 ExecOutcome。JIT 冷回落经此接口进入解释器原有帧构造；VM 与两个后端不需要彼此的具体帧类型。
 
 TierApi 拥有后端实现并缓存 OSR 阈值。编译槽、编译器、OSR 入口和代码页由 JIT 自己持有；所有 worker 共享所属 core 的注册结果，其他 VM 独立。竞争安装保留首个发布实例，失败候选安全释放；所属模块校验仍由后端执行。
 

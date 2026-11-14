@@ -1,5 +1,6 @@
 //! Static and dynamic registration of the same profiling backend.
-use z42::components::{api::*, core_identity, CORE_ABI};
+use z42::component_abi::*;
+use z42::component_bridge::{core_identity, CORE_ABI};
 use core::ffi::c_void;
 unsafe extern "C" fn identity() -> ExecutionIdentity {
     ExecutionIdentity { image: core_identity(), abi: CORE_ABI }

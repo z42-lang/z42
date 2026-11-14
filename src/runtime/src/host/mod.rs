@@ -1,5 +1,5 @@
 //! Shared Rust host services and C embedding adapters.
-pub use crate::components::api::*;
+use crate::component_abi::*;
 pub use crate::components::{ComponentOptions, ComponentLease, component_interface, component_ids};
 pub use crate::{object::Value, pal::fs::Vfs, context::{VmContext, VmCore}, metadata::Module};
 pub mod config;
@@ -31,7 +31,7 @@ pub(crate) use app::report_on_exit;
 #[cfg(test)] pub(crate) mod program_tests;
 
 pub use artifact::{load_artifact, load_artifact_from_bytes, build_block_indices, fold_availability};
-pub use crate::components::{BackendOptions, BackendSource, jit_supported, jit_available, interp_available};
+pub use crate::components::{BackendOptions, BackendSource};
 
 pub use crate::context::extensions::VmExtensions;
 

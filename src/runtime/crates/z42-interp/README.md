@@ -10,6 +10,8 @@
 
 src/interp 为解释实现，src/interp/component.rs 提供静态工厂和 ExecutionApi，src/lib.rs 为边界。
 
+独立实现通过 `z42::component_abi` 使用描述符和 C 布局接口，通过 `z42::component_bridge` 校验共享核心身份/布局。核心模块仅私有导入，不由本库再导出。
+
 ## 基础用法
 
 静态通过 z42 的 interp feature 链接；动态由本库直接提供 cdylib，启用 shared-core 后导出组件 C 入口，JIT 回退只经注册表调用。 嵌入调用方统一使用 z42::host，不直接依赖组件内部模块。

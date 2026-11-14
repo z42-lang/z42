@@ -1,5 +1,5 @@
 //! Physical image identity and the compile-time ABI expected by its consumers.
-use crate::components::api::ExecutionCoreAbi;
+use crate::component_abi::ExecutionCoreAbi;
 static CORE_IDENTITY: u8 = 0;
 pub fn core_identity() -> *const core::ffi::c_void { core::ptr::addr_of!(CORE_IDENTITY).cast() }
 pub const CORE_ABI: ExecutionCoreAbi = ExecutionCoreAbi {
@@ -23,7 +23,7 @@ pub const CORE_ABI: ExecutionCoreAbi = ExecutionCoreAbi {
 };
 
 /// Every same-core component must pass this check before borrowing VM addresses.
-pub(super) fn validate_core(identity: crate::components::api::ExecutionIdentity, name: &str) -> anyhow::Result<()> {
+pub(super) fn validate_core(identity: crate::component_abi::ExecutionIdentity, name: &str) -> anyhow::Result<()> {
     anyhow::ensure!(identity.image == core_identity() && identity.abi == CORE_ABI,
         "{name} component core image or ABI mismatch; use components from the same shared-core runtime pack");
     Ok(())

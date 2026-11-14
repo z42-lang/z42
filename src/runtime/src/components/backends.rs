@@ -1,8 +1,9 @@
 //! Backend source selection and registration before any managed execution.
-use super::{ComponentOptions, component_interface};
+use super::ComponentOptions;
+use super::api::ExecutionRole;
 use anyhow::{bail, Result};
 use std::path::PathBuf;
-use crate::components::api::*;
+use crate::component_abi::*;
 use crate::{zpkg::ExecMode, context::VmContext, exec::engine::EngineRegistry};
 
 #[derive(Clone, Debug, Default)]
@@ -70,7 +71,7 @@ pub(crate) fn native_paths() -> Vec<PathBuf> {
 
     // Embedded libraries need not live beside the application's executable.
     // Keep explicit and executable-relative overrides ahead of the core image.
-    if let Some(image) = crate::pal::dynlib::image_path(super::core_identity()) {
+    if let Some(image) = crate::pal::dynlib::image_path(crate::component_bridge::core_identity()) {
         if let Some(directory) = image.parent() {
             let directory = directory.to_path_buf();
             if !paths.contains(&directory) { paths.push(directory.clone()); }
@@ -94,16 +95,13 @@ fn dynamic_paths(id: ComponentId) -> Vec<PathBuf> {
 }
 fn auto_available(id: ComponentId) -> bool {
     if linked(id).is_some() { return true; }
-    cfg!(feature = "component-loading") && dynamic_paths(id).iter().any(|path| {
-        if path.is_file() { return true; }
-        #[cfg(all(target_os = "android", feature = "component-loading"))]
-        if crate::pal::dynlib::is_loader_name(path) {
-            // Only built-in component names reach this fallback. Retain loaded
-            // code even during capability queries, just as during VM assembly.
-            return unsafe { crate::pal::dynlib::Library::open_component(path) }.is_ok();
-        }
-        false
-    })
+    cfg!(feature = "component-loading") && dynamic_paths(id).iter().any(|path| known_source(path))
+}
+pub(super) fn known_source(path: &std::path::Path) -> bool {
+    if path.is_file() { return true; }
+    #[cfg(any(feature = "native-interop", feature = "component-loading"))]
+    if crate::pal::dynlib::component_is_loaded(path) { return true; }
+    false
 }
 /// Default sources present in this runtime pack; actual loading still validates ABI and identity.
 pub fn jit_available() -> bool { cfg!(feature = "jit") && jit_supported() && auto_available(INTERP_COMPONENT) && auto_available(JIT_COMPONENT) }
@@ -148,14 +146,16 @@ impl BackendOptions {
     }
 }
 pub(crate) fn attach(ctx: &VmContext, mode: ExecMode) -> Result<()> {
-    for id in [INTERP_COMPONENT, JIT_COMPONENT] {
-        if id == JIT_COMPONENT && mode != ExecMode::Jit { continue; }
-        let name = if id == INTERP_COMPONENT { "interpreter" } else { "JIT" };
-        let interface = component_interface::<ExecutionApi>(ctx, id)?
+    for role in [ExecutionRole::Baseline, ExecutionRole::Optimizing] {
+        if role == ExecutionRole::Optimizing && mode != ExecMode::Jit { continue; }
+        let name = if role == ExecutionRole::Baseline { "interpreter" } else { "JIT" };
+        let components = ctx.core().components().get()
+            .ok_or_else(|| anyhow::anyhow!("execution components are not prepared"))?;
+        let interface = super::api::execution(ctx, role)?
             .ok_or_else(|| anyhow::anyhow!("{name} component does not provide its execution interface"))?;
         let identity = unsafe { (interface.core_identity)() };
-        super::identity::validate_core(identity, name)?;
-        let code = ctx.core().components().get().and_then(|x| x.code_lease(id))
+        crate::component_bridge::validate_core(identity, name)?;
+        let code = components.execution_code(role)
             .ok_or_else(|| anyhow::anyhow!("{name} component has no code lease"))?;
         // Acquire code lifetime before installing any backend-owned trait objects.
         ctx.core().exec().engines.retain_code(code);
@@ -164,6 +164,10 @@ pub(crate) fn attach(ctx: &VmContext, mode: ExecMode) -> Result<()> {
             interp_tierup: cfg.interp_tierup, profile: cfg.profile as u32, debug_promote: cfg.debug_promote as u32 };
         let status = unsafe { (interface.attach)((ctx as *const VmContext).cast(), &config) };
         anyhow::ensure!(status == ComponentStatus::OK, "{name} registration failed: status {}", status.0);
+    }
+    anyhow::ensure!(ctx.core().exec().engines.has_baseline(), "interpreter component did not register its execution engine");
+    if mode == ExecMode::Jit {
+        anyhow::ensure!(ctx.core().exec().engines.has_jit(), "JIT component did not register its execution engine");
     }
     Ok(())
 }

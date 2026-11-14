@@ -2,7 +2,7 @@
 
 > 代码：`src/runtime/src/`、`src/runtime/crates/`
 > 相关：[组件化运行时](componentized-runtime.md)、[VM 总体架构](vm-architecture.md)、[嵌入机制](embedding.md)
-> 待办：组件公开面与内部门面尚未收口，默认 VM 装配仍位于 host；目标结构未全部实施。
+> 待办：组件管理公开面与来源模型尚未收口，默认 VM 装配仍位于 host；目标结构未全部实施。
 
 ## 概述
 
@@ -13,7 +13,8 @@
 ## 设计目标与约束
 
 区分三种接口：普通宿主契约、VM 内部访问门面、同构建组件间协议。它们的受众、版本约束与可见性不同。
-`components::api` 的目标是 crate 内部能力门面；当前同名文件实际保存跨库 C 协议，仍需拆分，不能把目标当成已实现。
+`components::api` 是 crate 内部能力门面；同构建 C 协议位于根 `component_abi`，核心身份/布局桥位于 `component_bridge`。
+组件根及管理子模块不对 crate 外开放，host 不转出协议符号。
 独立 interp/JIT/profiler crate 所需的最小协议仍需跨 crate 可见，但不通过 host 提供，也不包含通用组件管理实现。
 
 当前实际状态与目标分开描述；实施顺序在仓库 roadmap 中维护。收口保持 GC 根、写屏障、暂停协议、
@@ -21,25 +22,30 @@
 
 ## 方案与决策
 
+### 已封闭的访问边界
+
+VM 程序准备、执行角色查询和分析请求通过内部 `components::api`。基线/优化角色绑定由每 VM 的组件注册表保存，
+先验证提供方存在、角色唯一及接口版本/大小/对齐，再创建实例；消费者不传 interp/JIT 的组件 ID。
+附着返回成功但未登记所需引擎仍失败。执行循环继续使用准备时注册的引擎，不逐指令查询组件表。
+
+支持性查询只核对目标能力，候选查询只读路径与已装入映像缓存；Android 未知的裸库名不会因查询触发装入。
+显式准备仍可交给系统加载器按名称装入并校验。独立后端对核心模块使用私有导入，不再通过自身批量再导出。
+
 ### 当前可核对的缺口
 
 | 缺口 | 代码证据 | 影响与目标 |
 |---|---|---|
-| host 转出内部组件协议 | `host/mod.rs` 的 `pub use crate::components::api::*`、具名管理类型/查询再导出 | 普通宿主可感知描述符、ID、工厂与租约；从普通宿主面移除 |
-| 公开签名传递管理状态 | `host/program.rs::LoadOptions` 的 components/backends/profiler 字段；`context/types.rs::VmCore::components` 返回 OnceLock；`LoadedProgram::context` 可访问 Core | 仅删除再导出无法封闭可达面；将功能请求与 VM 装配输入分开，注册槽由组件所有者维护 |
+| host 仍转出组件管理 | `host/mod.rs` 的具名管理类型/按 ID 查询再导出 | 普通宿主可感知管理选项、ID 与租约；从普通宿主面移除 |
+| 公开签名传递管理状态 | `host/program.rs::LoadOptions` 的 components/backends/profiler 字段；`LoadedProgram::context` 可访问 Core（组件槽 getter 仅 crate 可见） | 仅删除再导出无法封闭可达面；将功能请求与 VM 装配输入分开，注册槽由组件所有者维护 |
 | C 静态装配混入普通宿主头 | `include/z42_host.h` 的 Z42ComponentId、ComponentInit 与 `z42_host_register_static_component`；`host/ffi.rs` | 静态链接胶水必须同轮迁移到明确的内部部署/装配契约，不能只隐藏 Rust 名字 |
-| VM 消费者穿透组件子模块 | `host/program_builder.rs` 调 backends::attach；`diagnostics/sampling.rs` 调 profiling::attach | 通过内部 components::api 准备/查询能力；具体组件路径只留在实现与适配器中 |
-| 查询仍要求知道实现身份 | `components/options.rs::component_interface(ctx, ComponentId)`；`components/api.rs::RuntimeApi` 按组件 ID 查询 | VM 消费者按稳定能力/版本/角色请求服务；组件 ID 仅由管理层用于来源、实例与依赖绑定 |
+| 通用管理查询仍泄露实现身份 | host 转出的 `component_interface(ctx, ComponentId)`；`component_abi::RuntimeApi` 的跨组件依赖查询 | VM 执行消费者已按语义角色请求服务；普通 host 的按 ID 管理查询仍需移除，协议内依赖 ID 由管理层拥有 |
 | 使用形态分类不完整 | `components/catalog.rs::Registration` 只有 Static/Dynamic，`components/backends.rs::BackendSource` 的 Linked 只查询已登记入口，Dynamic 走显式开库 | 分开静态链接、链接动态库和运行时装入；记录实际来源，按运行时策略核对，不能只改枚举名字 |
-| 名为 api 的文件混合两种接口 | `components/api.rs` 定义 ComponentDescriptor、RuntimeApi、ExecutionApi、ProfilerApi 等跨库表 | VM 访问门面与同构建协议分开命名和拥有，不把跨库表直接作为业务调用面 |
 | 组件管理与配置相互依赖 | `config/availability.rs` 查询 components；`components/backends.rs::native_paths/attach` 读取 runtime_config | 在装配入口捕获路径/JIT 配置及平台能力，组件管理消费显式输入 |
-| 能力查询可能有装载副作用 | `components/backends.rs::auto_available` 在 Android 库名回落时调用 Library::open_component | 分开支持性、已知候选与已装配能力；只在显式准备时装库，保留实际装配校验 |
 | 诊断契约反向拥有装配机制 | `diagnostics/sampling.rs` 保存 BackendSource、VmComponents 并触发 attach；`components/profiling.rs` 回到 sampler 注册实现 | 诊断保留观察/采样接口，组件管理拥有来源和代码保活；经窄接口绑定，避免新增 Core 自持有环 |
 | 默认 VM 装配由 host 承担 | `host/program_builder.rs`、`vm_defaults.rs`、`extensions.rs`；`host/artifact.rs` 为 LazyLoader 实现构造方法 | host 解析请求，VM 装配层负责配置快照、Core/loader、组件和发布；loader 的构造实现回归其所有者 |
 | loader 与 interop 混合机制和编排 | `loader/native.rs` 调 interop 注册/解析，`interop/module.rs` 反向调用 loader::native::resolve_symbol | loader 提供代码/符号来源，interop 负责描述符与编组；由装配协调器连接 |
 | 元数据解析直接驱动 VM 加载 | `metadata/resolve/mod.rs` 接收 VmContext，enqueue_type_load/drain_pending_type_loads | 将解析事实与加载编排分开，用最小解析视图和待加载请求连接 |
 | 对象表示反向依赖执行和加载域 | `object/value/ref_word.rs::alloc_box_ambient` 访问 exec::ambient；`object/object/object.rs::NativeData` 引用 loader 身份；`object/types/type_desc.rs` 引用 metadata TypeId | 抽出身份/布局词汇，分离编码与需堆的装箱操作；保留屏障协议，不把 object/GC 的必要协作当成可直接删除的依赖 |
-| 后端再导出整个 VM 子系统 | interp/JIT/profiler 的 `src/lib.rs` 批量 pub use z42 模块 | 先改为实现内私有导入，再逐步列出确需跨库的最小执行/诊断契约 |
 
 这些是源码中的具体依赖，不是 Cargo 生产依赖环的证明。生产 core 不依赖具体后端，测试 dev-dependency 和
 测试门面的内联路径另行统计。Rust import 的简单文本扫描还会漏掉分组导入、别名和宏，并误收测试/注释；
@@ -92,7 +98,7 @@ flowchart TD
 | host/state.rs、interop/state.rs | 宿主会话；原生模块/类型/buffer 状态 | host_session.rs、native_resources.rs |
 | threads/state.rs、loader/state.rs、exec/state.rs、metadata/state.rs | mutator、加载、执行、链接状态 | mutator_state.rs、loader_state.rs、execution_state.rs、link_state.rs |
 | 四处 builtins.rs | 组装提供方、声明导出、名称目录、执行派发 | builtin_registry_builder.rs、core_builtin_descriptors.rs、builtin_symbol_catalog.rs、builtin_dispatch.rs |
-| components/api.rs、backends.rs | 跨库协议；来源选择/平台发现/装配 | 内部 api 门面与 component_abi 分开；source/discovery/attachment 按职责拆分 |
+| components/backends.rs | 来源选择、平台发现、执行装配 | source/discovery/attachment 按职责拆分；内部 api 与根 component_abi 已分别命名 |
 | loader/native.rs、exec/native.rs | 原生库装入/注册；native 调用服务 | native_library_loader.rs、native_module_registration.rs、native_call_services.rs |
 | host/profiling.rs、components/profiling.rs | 宿主诊断请求；profiler 装配 | diagnostic_requests.rs、profiler_attachment.rs |
 | host/load.rs、program_builder.rs、vm_defaults.rs | 包准备、程序/VM 装配和默认策略 | 职责先迁到 VM 装配层，再按 program_preparation、vm_assembly、default_services 命名 |
