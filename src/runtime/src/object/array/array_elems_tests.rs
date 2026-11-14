@@ -311,6 +311,31 @@ fn primitive_cell_clear_supports_every_atomic_width() {
 }
 
 #[test]
+fn primitive_copy_dispatch_preserves_memmove_at_every_width_and_small_count() {
+    let h = heap();
+    let _g = HeapGuard::enter(&h);
+    let initial: Vec<u8> = (0..256).map(|i| (i % 251) as u8).collect();
+    for width in [1, 2, 4, 8] {
+        for (source, destination) in [(0, 0), (0, 1), (1, 0), (1, 4), (4, 1)] {
+            for count in [0, 1, 3, 4, 5, 16, 17] {
+                let a = arr(&h, ArrayObj::alloc_filled(&h, ElemType::intern("byte"), ElemKind::Bytes, 256, Value::I64(0)));
+                let _root = h.pin_root(Value::Array(a));
+                let array = a.borrow();
+                assert!(array.write_byte_range(0, &initial));
+                let cells = array.cells();
+                assert!(cells.copy_prims(destination, &cells, source, count, width));
+                let mut expected = initial.clone();
+                expected.copy_within(source * width..(source + count) * width, destination * width);
+                assert_eq!(array.byte_snapshot().unwrap(), expected);
+                assert!(!cells.copy_prims(usize::MAX, &cells, 0, 1, width));
+                assert!(!cells.copy_prims(0, &cells, 0, usize::MAX, width));
+                assert_eq!(array.byte_snapshot().unwrap(), expected);
+            }
+        }
+    }
+}
+
+#[test]
 fn struct_bulk_clear_zeros_only_the_requested_blobs_and_all_reference_leaves() {
     let h = heap(); let _g = HeapGuard::enter(&h);
     let value = obj(&h); let _value_root = h.pin_root(value);
