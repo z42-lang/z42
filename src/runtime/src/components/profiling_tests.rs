@@ -43,10 +43,26 @@ fn linked_profiler_is_lazy_per_core_and_does_not_retain_the_vm() {
 fn explicitly_selected_profiler_uses_the_existing_component_registry() {
     let components = unsafe { host::ComponentOptions::default().with_static(
         host::PROFILER_COMPONENT, crate::profiler::component::z42_profiler_init) };
-    let program = host::LoadedProgram::load_bytes(&crate::host::runtime_tests::empty_zbc(), host::LoadOptions {
+    let program = host::LoadedProgram::load_bytes(&crate::host::program_tests::empty_zbc(), host::LoadOptions {
         components, mode: host::ExecMode::Interp, ..Default::default()
     }).unwrap();
     assert!(!host::profiler_loaded(program.context()));
     host::prepare_profiler(program.context()).unwrap();
     assert_eq!(host::component_ids(program.context()).iter().filter(|&&id| id == host::PROFILER_COMPONENT).count(), 1);
+}
+
+#[test]
+fn loaded_program_applies_profiler_source_without_eager_attachment() {
+    let program = host::LoadedProgram::load_bytes(
+        &crate::host::program_tests::empty_zbc(),
+        host::LoadOptions {
+            profiler: BackendSource::Disabled,
+            mode: host::ExecMode::Interp,
+            ..Default::default()
+        },
+    ).unwrap();
+    assert!(!host::profiler_loaded(program.context()));
+    let error = host::prepare_profiler(program.context()).unwrap_err().to_string();
+    assert!(error.contains("profiler") && error.contains("disabled"), "{error}");
+    assert!(!host::profiler_loaded(program.context()));
 }

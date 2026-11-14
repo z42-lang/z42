@@ -111,7 +111,7 @@ worker 加入同一 Core，不重建组件或扩展。ComponentLease 保留 Core
 
 ## 6. 配置与装配
 
-host/boot、host/extensions 与 host/artifact 统一主 VM 装配，将 RuntimeConfig 转为 VM 使用的配置和惰性 FusionInputs；VM 的基础机制接收明确的构造输入。corelib 提供自身 builtin 描述符和对象协议绑定，host 经 interop 装配默认集合；后端登记归 components。LazyLoader 的宿主默认构造使用 inherent 方法，加载机制仍可显式接收 FusionInputSource。主上下文通过 RuntimeInputs 接收引擎、builtin 目录/表、对象协议、采样和扩展；worker 仅共享已有 Core 并建立线程视图。
+host/program_builder 统一程序发布顺序，host/vm_defaults、host/extensions 与 host/artifact 提供主 VM 装配输入，将 RuntimeConfig 转为 VM 使用的配置和惰性 FusionInputs；VM 的基础机制接收明确的构造输入。corelib 提供自身 builtin 描述符和对象协议绑定，host 经 interop 装配默认集合；后端登记归 components。LazyLoader 的宿主默认构造使用 inherent 方法，加载机制仍可显式接收 FusionInputSource。主上下文通过 RuntimeInputs 接收引擎、builtin 目录/表、对象协议、采样和扩展；worker 仅共享已有 Core 并建立线程视图。
 
 BuiltinCatalog 只含名称/ID 与折叠属性，callable 表属于 exec，provider 由门面装配。纯派发缓存归 runtime/dispatch，加载、初始化、等待与异常物化编排归 exec/ops。监视器机制与争用探针属于 core，标准库适配属于 corelib。
 

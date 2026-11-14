@@ -15,7 +15,7 @@
 ## 入口
 
 ```
-host/runtime.rs: ExecMode::Jit → 已注册优化入口 → jit::run(ctx, module, entry)
+host/program.rs: ExecMode::Jit → 已注册优化入口 → jit::run(ctx, module, entry)
     │
     ▼ compile::state::install(ctx, module)  VmCore.exec.engines 发布拥有 JitRuntime 的 TierApi（LazyCompiler 持 cranelift JITModule），
     │                                 不编译；已装则复用（每 VM 一个 JIT）

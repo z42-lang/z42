@@ -2,7 +2,7 @@
 use std::{collections::HashSet, path::{Path, PathBuf}, sync::Arc};
 use anyhow::{bail, Context, Result};
 use crate::{zpkg::ExecMode, pal::fs::Vfs, loader::{LoadedArtifact, lazy::ZpkgCandidate}};
-use super::runtime::{LoadOptions, LoadedProgram};
+use super::program::{LoadOptions, LoadedProgram};
 
 fn vfs_exists(fs: &dyn Vfs, p: &Path) -> bool { p.to_str().is_some_and(|s| fs.exists(s)) }
 /// Ordered prelude candidates — `<dir>/z42.core.zpkg` for every search dir that
@@ -222,30 +222,14 @@ pub(super) fn prepare(user_artifact: LoadedArtifact, source_path: Option<&str>, 
         m
     };
 
-    // fix-host-static-init: availability folding → ctx → cctor registration → lazy loader
-    // live in `boot::boot_context`, shared with the embedding host path.
-    let ctx = crate::host::boot::boot_context(final_module, crate::host::boot::BootPlan {
+    super::program_builder::build(final_module, super::program_builder::ProgramInputs {
         vfs: Arc::clone(&vfs),
         search_dirs: search_dirs.clone(),
         declared_candidates,
         initially_loaded: initially_loaded_zpkgs,
         eager_impl_pairs,
         eager_deps,
-    });
-    // Components see prepared dispatch metadata; initial module events are replayed
-    // only after their interfaces have been published.
-    if let Some(module) = ctx.module() { crate::host::boot::prepare_execution(&ctx, module); }
-    let components = options.backends.components(options.mode, &options.components)?;
-    ctx.core().diagnostics().sampler.set_source(options.profiler.clone())?;
-    components.install(&ctx)?;
-    crate::components::backends::attach(&ctx, options.mode)?;
-    if ctx.core().diagnostics().sampler.enabled() {
-        ctx.core().diagnostics().sampler.provider(&ctx)?;
-    }
-    for (name, byte_size) in loaded_for_replay {
-        ctx.fire_runtime_event(&crate::diagnostics::observer::RuntimeEvent::ModuleLoaded { name, byte_size });
-    }
-    LoadedProgram::new(ctx, options.mode, entry_hint)
+    }, options, entry_hint, loaded_for_replay)
 }
 
 fn visited_resolver_namespace(options: &LoadOptions, loaded: &[String], namespace: &str) -> bool {

@@ -21,7 +21,7 @@
 | `ops/call.rs` / `ops/stringify.rs` | 冷 Call/FnRef 绑定及 ToString 协议执行，调用经已注册 Engine |
 | `call/engine_guards.rs` | 栈底激活安装 VM / heap TLS，最后一帧退出恢复；支持嵌套宿主重入 |
 | `call/` | 统一 VmFrame / FrameStack、寄存器池和三种帧作用域 arena |
-| `call/builtins.rs` | 按 ID / 名称派发 builtin，保留计数、类型化错误和 void 返回语义；门面提供 callable 表 |
+| `call/builtins.rs` | 按 ID / 名称派发 builtin，按 `(provider, export)` 派发模块函数；共享计数、异常与 void 语义，门面提供 callable 表 |
 | `call/builtin_abi/` | builtin 参数、返回值、阻塞调用协议及错误映射；corelib 与 interop 只提供实现 |
 | `call/outcome.rs` / `call/forward.rs` / `call/type_param_env.rs` | 共享执行结果、Native 桩折叠和激活类型实参 |
 | `ops/structs.rs` | struct 分配、复制、拆箱和符号化字段检查，两个后端仅保留帧适配 |
