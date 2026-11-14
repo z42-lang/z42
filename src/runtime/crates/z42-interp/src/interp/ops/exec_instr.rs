@@ -344,11 +344,12 @@ pub fn exec_instr(
             }
         }
 
-        // ── Native interop ───────────────────────────────────────────────────
-        // add-platform-wasm Stage 0: feature `native-interop`
-        // gates all four opcodes. wasm builds bail with a clear message
-        // (these opcodes shouldn't appear in a wasm-targeted .zbc anyway,
-        // but malformed input shouldn't UAF the interp either).
+        // Generic module calls are available without typed FFI or dynamic loading.
+        Instruction::CallNative(insn) if insn.type_name.is_empty() => {
+            if let Some(thrown) = exec_call::native_module(ctx, module, frame, insn)? {
+                return Ok(Some(thrown));
+            }
+        }
         #[cfg(feature = "native-interop")]
         Instruction::CallNative(insn) => {
             let CallNativeInsn { dst, module: m, type_name, symbol, args } = &**insn;

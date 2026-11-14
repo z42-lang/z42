@@ -5,7 +5,7 @@
 z42 VM 的**原生 builtin 层**：为 z42 标准库（`Std.*`）里那些无法用纯 z42 表达、
 必须落到 Rust 的能力（IO、文件系统、反射、进程/线程/网络、加密、GC 控制…）提供
 native 实现。builtin 一律写成类型化 Rust 函数（builtin ABI v2，`#[builtin]`，见下「加一个
-builtin」），由 `corelib/builtins.rs` 拼接核心库描述符，再通过 interop 注册为 `z42.core` 提供方，
+builtin」），由 `corelib/builtins.rs` 拼接核心库描述符，再通过 interop 注册为 `z42.core` 提供方；诊断与测试 IO 支持分别注册为 `z42_diagnostics` / `z42_harness`，
 由解释器 `Instruction::Builtin`、JIT `jit_builtin` 和 `[Native]` 包装函数的折叠调用经
 `invoke_builtin` 调用——实参原地从调用方寄存器读。
 
@@ -37,7 +37,7 @@ GC 堆本身（在 `gc`）。终端脚本适配属于 `crates/z42-repl`，压缩
 | **反射**（`Std.Type` / `Std.Reflection.*`：枚举成员、attribute、反射调用、Activator、模块加载） | **`core/reflection/`**（子目录，见下「核心文件」） |
 | 值类型 struct 字段布局复现（反射读写内联/装箱 struct） | `object/types/named_struct_layout.rs` |
 | 程序集加载上下文（`AssemblyLoadContext`） | `core/assemblyloadcontext.rs` |
-| 运行时诊断 / 计数器 / profile | `core/diagnostics.rs` |
+| 运行时诊断 / 计数器 / profile | `core/diagnostics.rs`，host 单独注册为 `z42_diagnostics` |
 | 运行时设置只读查询 / 应用自定义属性 | `core/config.rs`（`Std.Runtime.RuntimeConfig`）/ `core/appprops.rs`（`Std.Runtime.AppProperties`） |
 | `available!(X)` 运行期回落 | `core/symavail.rs` |
 | 数组内建（含基元与字符串区间查找） | `core/array.rs` |
