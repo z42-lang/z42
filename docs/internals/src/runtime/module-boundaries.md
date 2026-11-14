@@ -57,7 +57,7 @@ engine/init、counters/observer、protocol 实现模块私有；实现文件移�
 
 ### 当前可核对的缺口
 
-context 只负责共享 Core 与线程视图的组合、布局、构造和生命周期。缺符号裁决已归 exec/exception，
+vm.rs 只负责共享 Core 与线程视图的组合、布局、构造和生命周期。缺符号裁决已归 exec/exception，
 异常交接直接归 ThreadExecState，静态默认值物化归对象执行层；不能将托管异常/GC 分配搬入纯 metadata。
 剩余 lookup 的加载编排、frames 的执行/GC 暂停协作、observation 的计数聚合依次按所属服务拆分，
 不把带有完整 VmContext 的 impl 块分散到其它目录当作解耦完成。

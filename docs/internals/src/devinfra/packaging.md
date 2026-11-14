@@ -27,7 +27,9 @@
 
 ### SDK 动态运行时与 runtime 静态嵌入
 
-z42vm 是薄启动器，通过版本化 C 函数表动态加载统一 libz42。参数处理、配置、panic hook、tracing 与宿主实现都在库内，启动器不调用 Rust VM 接口。入口先验证 ABI 版本、大小和构建身份。
+z42vm 是薄启动器，通过 dlopen/LoadLibrary 加载统一 libz42，并解析版本化进程入口 `z42_main_v1`。参数处理、配置、panic hook、tracing 与宿主实现位于库内的 cli feature，启动器不调用 Rust VM 接口。
+
+启动器优先使用 `Z42_RUNTIME_LIBRARY`，否则按可执行文件位置解析部署目录；开发构建路径由 xtask 注入。各桌面平台共用一个 z42vm bin，Windows 的 DLL 搜索方式在同一入口内适配，native/ 只承载库，不包含另一份 z42vm.exe。该进程入口由启动器按符号解析，不随嵌入 SDK 发布单独的进程入口头文件。
 
 interp/JIT/profiler 是独立组件。SDK、dev-sdk 与 CI 构建树必须携带同构建的完整动态闭包，不能只复制 z42vm。共享 Rust 核心、执行后端和 profiler 在同一个 Cargo 图中编译，使用同一 libz42 和共享 Rust std；纯 C ABI 模块使用独立图，避免实现特性合并回核心。共享构建使用 System 分配器。
 
