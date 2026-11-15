@@ -35,7 +35,7 @@ void _ciSelectionChecks(FlowConfig cfg) {
     }
     string hostPackage = workflow.Substring(workflow.IndexOf("\n  host-package:"));
     hostPackage = hostPackage.Substring(0, hostPackage.IndexOf("\n  toolchain-bootstrap:")).Replace("\r\n", "\n");
-    _gateAssert(hostPackage.Contains("cache-key: package-host-v3\n          vm: deferred")
+    _gateAssert(hostPackage.Contains("cache-key: package-host-v4\n          vm: deferred")
         && hostPackage.Contains("xtask package sdk --no-build"), "SDK packaging owns its runtime build without a bootstrap VM");
     _ciWasmArtifactChecks(workflow);
     _ciSchedulingChecks();

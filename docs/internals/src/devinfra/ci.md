@@ -398,7 +398,7 @@ Swatinem `rust-cache` 用 `shared-key` 跨 job 共享；**一个 key 命中后�
 | `host-v2` | `compile-toolchain` | release（ci-bootstrap） |
 | `artifact-host-v1` | `xtask-bootstrap-artifact` 默认 | release workspace |
 | `vm-jit-debug-v1` | `test-vm-jit` | debug VM + 压缩库 |
-| `package-host-v2` / `ios-v2` / `android-v2` / `wasm-v2` | 各打包 job | + cdylib / staticlib / 交叉编译 |
+| `package-host-v4` / `ios-v2` / `android-v2` / `wasm-v2` | 各打包 job | + cdylib / staticlib / 交叉编译 |
 
 ⚠️ target 目录由 `src/runtime/.cargo/config.toml` 重定向到 `artifacts/build/runtime`（toolchain 平台 crate
 经 xtask 显式传 `--config` 共用同一个 target-dir）。cargo 只从

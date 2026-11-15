@@ -242,7 +242,7 @@ jobs:
       - uses: ./.github/actions/xtask-bootstrap-artifact
         if: steps.refresh.outputs.needed != 'false'
         with:
-          cache-key: package-host-v3
+          cache-key: package-host-v4
           vm: deferred
 
       - name: Package host SDK + verify
