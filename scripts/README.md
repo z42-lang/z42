@@ -496,3 +496,6 @@ CI 文档工具安装使用 `xtask setup book-tools`，Binaryen 静态构建使�
 `xtask setup book-tools --check` / `xtask setup wasm-opt --check` 仅校验已有安装，不下载或构建，也不创建安装目录；
 不能与 `--force` 同用。CI 在独立任务中准备一次 Binaryen，由 WASM 打包和浏览器分片恢复同一份产物并校验，
 详见 [CI 拓扑](../docs/internals/src/devinfra/ci.md)。
+
+示例会话重放默认按 CPU 数并行领取任务，输出按路径排序；会话内部仍按命令顺序执行。
+`xtask test docs examples --jobs 1` 可串行复现，`--bless` 始终串行改写；完整语义见[学习手册示例](../docs/internals/src/devinfra/learn-examples.md)。

@@ -17,9 +17,11 @@ class ExamplesOptions {
     public bool   Bless    { get; set; }
     public bool   Keep     { get; set; }
     public int    TimeoutS { get; set; }
+    public int    Jobs     { get; set; }
 }
 
 int _testExamples(ExamplesOptions o) {
+    if (o.Jobs < 0) { ConsoleError.WriteLine("error: --jobs must be zero (automatic) or positive"); return 1; }
     string root = _root();
     Stopwatch sw = _procStart("test examples");
     Console.WriteLine("① learn book ↔ examples references");
@@ -45,9 +47,13 @@ int _testExamples(ExamplesOptions o) {
     int failed = 0;
     int steps = 0;
     int blessed = 0;
-    foreach (var c in consoles) {
+    ExampleRunResult[] results = _runExampleSessions(consoles, o.Bless ? 1 : o.Jobs,
+        (string c) => _runTranscript(sdk, c, o.TimeoutS * 1000, o.Bless, o.Keep));
+    for (int i = 0; i < consoles.Length; i = i + 1) {
+        string c = consoles[i];
         string rel = c.Substring(Path.Join(root, "examples").Length + 1);
-        ExampleRunResult r = _runTranscript(sdk, c, o.TimeoutS * 1000, o.Bless, o.Keep);
+        ExampleRunResult r = results[i];
+        ConsoleError.Write(r.Diagnostics);
         steps = steps + r.Steps;
         if (r.Failed) { failed = failed + 1; }
         else if (r.Blessed) { blessed = blessed + 1; Console.WriteLine("  ✎ examples/" + rel + " (rewritten — review the diff, restore [..] wildcards if needed)"); }
