@@ -29,10 +29,10 @@ public final class Z42VM {
         }
         #if !Z42_NO_COMPRESSION
         let status = "z42_compression".withCString {
-            z42_host_register_static_native_library($0, z42_compression_get_symbol)
+            z42_native_register_static($0, z42_compression_get_symbol)
         }
-        guard status == Z42_HOST_OK else {
-            throw Self.lastError(prefix: "register compression provider")
+        guard status == Z42_NATIVE_OK else {
+            throw Z42VMError.internal("register compression provider failed: \(status)")
         }
         #endif
     }
