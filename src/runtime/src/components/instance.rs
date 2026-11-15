@@ -271,6 +271,7 @@ impl VmComponents {
             _instance: Arc::clone(instance),
             _core: core,
             table,
+            #[cfg(test)]
             context: value.value.context,
             marker: PhantomData,
         }))
@@ -279,18 +280,20 @@ impl VmComponents {
 
 /// A borrowed component table with ownership of its VM, instance and loaded code.
 /// Drop this lease after its last callback; copied function pointers alone do not
-/// extend component lifetime. Callbacks use the handle returned by context().
+/// extend component lifetime. Execution callbacks use their bound execution state.
 pub struct ComponentLease<T: ComponentInterface> {
     // Release the extra instance reference before releasing the VM; the VM then
     // destroys the unique instances in dependency order while all services live.
     _instance: Arc<Instance>,
     _core: Arc<VmCore>,
     table: NonNull<T>,
+    #[cfg(test)]
     context: InstanceHandle,
     marker: PhantomData<T>,
 }
 unsafe impl<T: ComponentInterface> Send for ComponentLease<T> {}
 unsafe impl<T: ComponentInterface> Sync for ComponentLease<T> {}
+#[cfg(test)]
 impl<T: ComponentInterface> ComponentLease<T> {
     pub fn context(&self) -> InstanceHandle {
         self.context

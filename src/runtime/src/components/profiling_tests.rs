@@ -1,4 +1,4 @@
-use crate::components::abi;
+use crate::components::{abi, api};
 use crate::{components::api::BackendSource, vm::VmContext, host};
 
 #[test]
@@ -32,8 +32,8 @@ fn linked_profiler_is_lazy_per_core_and_does_not_retain_the_vm() {
     host::prepare_profiler(&a).unwrap();
     assert!(host::profiler_loaded(&a));
     assert!(!host::profiler_loaded(&b));
-    assert!(host::component_ids(&a).contains(&abi::PROFILER_COMPONENT));
-    let lease = host::component_interface::<abi::ProfilerApi>(&a, abi::PROFILER_COMPONENT).unwrap().unwrap();
+    assert!(api::component_ids(&a).contains(&abi::PROFILER_COMPONENT));
+    let lease = api::component_interface::<abi::ProfilerApi>(&a, abi::PROFILER_COMPONENT).unwrap().unwrap();
     drop(a);
     assert!(weak.upgrade().is_some(), "public interface lease keeps the VM alive");
     drop(lease);
@@ -49,7 +49,7 @@ fn explicitly_selected_profiler_uses_the_existing_component_registry() {
     }).unwrap();
     assert!(!host::profiler_loaded(program.context()));
     host::prepare_profiler(program.context()).unwrap();
-    assert_eq!(host::component_ids(program.context()).iter().filter(|&&id| id == abi::PROFILER_COMPONENT).count(), 1);
+    assert_eq!(api::component_ids(program.context()).iter().filter(|&&id| id == abi::PROFILER_COMPONENT).count(), 1);
 }
 
 #[test]

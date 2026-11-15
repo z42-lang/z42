@@ -1,5 +1,16 @@
 //! Shared Rust host services and C embedding adapters.
-pub use crate::components::api::{ComponentOptions, ComponentLease, component_interface, component_ids};
+//! Component management stays private to the VM. Ordinary hosts load and invoke programs.
+//!
+//! ```compile_fail
+//! use z42::host::component_ids;
+//! ```
+//! ```compile_fail
+//! use z42::host::component_interface;
+//! ```
+//! ```compile_fail
+//! use z42::host::ComponentLease;
+//! ```
+pub use crate::components::api::ComponentOptions;
 pub use crate::{object::Value, pal::fs::Vfs, vm::{VmContext, VmCore}, metadata::Module};
 pub mod config;
 pub mod resolver;

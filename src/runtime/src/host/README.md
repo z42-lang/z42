@@ -20,8 +20,7 @@ VM 内部组件门面、跨库协议与普通宿主契约的区别及当前缺�
 | `LoadOptions.profiler` / `prepare_profiler` / `profiler_loaded` / `write_heap_snapshot` | 可选分析来源选择、显式装配、状态查询和快照输出 |
 | `BackendOptions` / `BackendSource` | 当前仍转出的内部后端装配选项，待从普通宿主面收口 |
 | [`../components/`](../components/README.md) | VM 内部能力门面、工厂加载、后端选择和实例管理 |
-| `ComponentOptions` / `ComponentLease` | 当前仍转出的每 VM 管理配置与租约，目标归内部组件门面 |
-| `component_ids` / `component_interface` | 当前仍转出的内部查询，目标归内部组件门面 |
+| `ComponentOptions` | 当前仍转出的每 VM 管理配置，目标归内部组件门面 |
 | `LoadedProgram` / `LoadOptions` | 文件或字节加载、宿主 VFS 与 resolver、入口解析、模式选择、重复调用及初始化状态 |
 | `execution_available` | 按执行模式查询可用性，不暴露组件身份，不装库或创建 VM |
 | `artifact.rs` / `load.rs` | 依赖解析、去重、合并、约束和索引准备 |
@@ -44,7 +43,7 @@ CLI 和 Rust 调用方使用 `host::run_app`，或用 `LoadedProgram::load_file`
 
 静态装配由最终组合根显式完成，不属于普通 host 接口。协议类型从 `z42::components::abi` 获取。Rust 静态宿主先调用 `unsafe components::abi::register_static_component(id, init)` 登记已链接的独立后端工厂；重复相同登记幂等，冲突替换报错。工厂有效期为进程寿命，VM 实例仍独立创建和释放；组件登记返回组件状态，不使用 host 错误槽。C 静态宿主通过统一 native 头 `z42_host.h` 可调用 `z42_component_register_static` 登记所链接的工厂，默认解释器组合仍可调用 `z42_linked_components_init`。压缩库另由 `z42_host_register_static_native_library` / Rust 的 `register_static_native_library` 登记；组件链接与登记均由最终宿主决定。动态 SDK 无须这一步，host 按搜索路径发现组件。
 
-LoadOptions.components 选择可选的同构建组件。ComponentOptions::with_static 保存已链接的 init 引用，with_dynamic 指定库与 C 入口并启用组件；with_static_provider / with_dynamic_provider 仅登记依赖来源，未被启用根依赖时不会加载。以上入口均为 unsafe，调用方保证原生代码和协议可信。加载程序时递归解析启用根的依赖闭包，完成校验、依赖排序和实例创建，失败会回滚，成功后注册表冻结。选项克隆共享工厂结果，每个 VM 仍拥有独立实例。component_interface 返回的租约保留 VM、实例和库，直到最后一次接口调用完成。组件原生代码映像由 core 按路径缓存至进程结束，保证线程退出时的 TLS 析构回调仍有效；VM 和 JIT 实例按正常寿命释放。自定义组件清单默认为空；执行后端由 LoadOptions.backends 按执行模式自动选择并注册，JIT 模式同时要求解释器。Auto 优先静态链接，否则查询动态组件；Linked、Dynamic(path) 和 Disabled 明确限制来源。请求不存在、未链接、被禁用或平台不支持的 JIT 均报错，不静默降级。
+LoadOptions.components 选择可选的同构建组件。ComponentOptions::with_static 保存已链接的 init 引用，with_dynamic 指定库与 C 入口并启用组件；with_static_provider / with_dynamic_provider 仅登记依赖来源，未被启用根依赖时不会加载。以上入口均为 unsafe，调用方保证原生代码和协议可信。加载程序时递归解析启用根的依赖闭包，完成校验、依赖排序和实例创建，失败会回滚，成功后注册表冻结。选项克隆共享工厂结果，每个 VM 仍拥有独立实例。组件身份查询、接口查询与租约只在内部 components::api 可见，不属于 host 接口。组件原生代码映像由 core 按路径缓存至进程结束，保证线程退出时的 TLS 析构回调仍有效；VM 和 JIT 实例按正常寿命释放。自定义组件清单默认为空；执行后端由 LoadOptions.backends 按执行模式自动选择并注册，JIT 模式同时要求解释器。Auto 优先静态链接，否则查询动态组件；Linked、Dynamic(path) 和 Disabled 明确限制来源。请求不存在、未链接、被禁用或平台不支持的 JIT 均报错，不静默降级。
 
 一个程序的初始化状态跨调用保留；驱动同一上下文时遵循单执行线程约束。保留托管返回值跨越后续 VM 调用时，调用方须登记 GC 根。
 

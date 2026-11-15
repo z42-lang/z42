@@ -1,6 +1,8 @@
 //! Component selection and automatic attachment of same-build runtime components.
 use super::catalog::{Catalog, Registration};
-use super::instance::{ComponentLease, VmComponents};
+use super::instance::VmComponents;
+#[cfg(test)]
+use super::instance::ComponentLease;
 use crate::vm::VmContext;
 use anyhow::{bail, Result};
 use std::{
@@ -127,6 +129,7 @@ impl ComponentOptions {
 
 /// Query a registered component without transferring its state or library ownership.
 /// The returned lease keeps the VM alive until all calls through the table finish.
+#[cfg(test)]
 pub fn component_interface<T: ComponentInterface>(
     ctx: &VmContext,
     id: ComponentId,
@@ -141,6 +144,7 @@ pub fn component_interface<T: ComponentInterface>(
     }
 }
 /// Registered components in deterministic dependency order. Disabled components are absent.
+#[cfg(test)]
 pub fn component_ids(ctx: &VmContext) -> Vec<ComponentId> {
     let mut ids = ctx.core().components().get().map_or_else(Vec::new, VmComponents::ids);
     if let Some(components) = ctx.core().diagnostics().sampler.components() {
