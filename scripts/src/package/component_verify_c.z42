@@ -119,7 +119,8 @@ int _componentCRun(string exe, string pkg, string rid, string zbc, string mode, 
         // Process applies removals after overrides; sampling runs must not remove their key.
         p = p.EnvRemove("Z42_SAMPLE_HZ").EnvRemove("SIMCTL_CHILD_Z42_SAMPLE_HZ");
     }
-    return _exec(p);
+    // _exec resets cwd to the repository; preserve the initial DLL search directory.
+    return _execIn(p, shared ? Path.Join(pkg, "native") : Path.GetDirectoryName(exe));
 }
 int _componentCVerifyDynamic(string root, string pkg, string rid, string zbc, string work) {
     string exe = _componentCBuild(root, pkg, rid, work, true, false, false);
