@@ -519,6 +519,12 @@ select = ["xtask"]
 publish = false
 
 [[inputs]]
+id = "example-executor"
+include = ["scripts/src/test/docs/examples.z42", "scripts/src/test/docs/examples_parallel.z42", "scripts/src/test/docs/examples_run.z42", "scripts/src/test/docs/examples_transcript.z42"]
+select = ["xtask", "examples"]
+publish = false
+
+[[inputs]]
 id = "unit-harness-executor"
 include = ["scripts/src/common/harness/tooling.z42", "scripts/src/common/harness/manifest_targets.z42", "scripts/src/common/harness/package_units.z42", "scripts/src/test/tooling.z42"]
 select = ["toolchain", "stdlib", "compiler", "bench-stdlib"]

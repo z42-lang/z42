@@ -10,6 +10,7 @@ using Std.IO;
 using Std.Collections;
 
 class ExampleRunResult {
+    public string Diagnostics { get; set; } = "";
     public int  Steps  { get; set; }
     public bool Failed { get; set; }
     public bool Blessed { get; set; }   // --bless 改写了文件
@@ -61,18 +62,18 @@ ExampleRunResult _runTranscript(string sdk, string consolePath, int timeoutMs, b
                     res.Blessed = true;
                 } else {
                     res.Failed = true;
-                    ConsoleError.WriteLine("    ✗ " + consolePath + ":" + st.Line.ToString() + "  $ " + st.Command);
+                    res.Diagnostics = res.Diagnostics + "    ✗ " + consolePath + ":" + st.Line.ToString() + "  $ " + st.Command + "\n";
                     if (rc != st.ExitCode) {
-                        ConsoleError.WriteLine("      exit code: expected " + st.ExitCode.ToString() + ", got " + rc.ToString());
+                        res.Diagnostics = res.Diagnostics + "      exit code: expected " + st.ExitCode.ToString() + ", got " + rc.ToString() + "\n";
                     }
-                    ConsoleError.Write(_diffReport(st.Expected, actual));
+                    res.Diagnostics = res.Diagnostics + _diffReport(st.Expected, actual);
                 }
             }
         }
     }
     if (res.Blessed) { File.WriteAllText(consolePath, _renderTranscript(items)); }
     if (res.Failed || keep) {
-        ConsoleError.WriteLine("      sandbox kept: " + root);
+        res.Diagnostics = res.Diagnostics + "      sandbox kept: " + root + "\n";
     } else {
         Directory.Delete(root, true);
     }
