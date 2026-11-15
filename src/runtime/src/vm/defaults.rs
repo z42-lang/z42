@@ -68,7 +68,7 @@ impl VmContext {
 }
 
 #[cfg(test)]
-#[path = "vm_defaults_tests.rs"]
+#[path = "defaults_tests.rs"]
 mod tests;
 
 /// Construct a context with explicit engine bindings; high-level hosts attach

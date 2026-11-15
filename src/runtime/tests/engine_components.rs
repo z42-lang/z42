@@ -102,7 +102,7 @@ fn packaged_c_embedding_host_loads_components_and_shuts_down() {
     use std::{ffi::{c_char, CString}, ptr};
     use z42::host::{
         config::{Z42HostConfig, Z42ExecMode, Z42_HOST_ABI_VERSION},
-        entry::Z42Entry, module::Z42Module, error::Z42HostStatus,
+        Z42Entry, Z42Module, error::Z42HostStatus,
         Z42Host, Z42Value, Z42_VALUE_TAG_I64,
     };
     type Initialize = unsafe extern "C" fn(*const Z42HostConfig, *mut *mut Z42Host) -> Z42HostStatus;

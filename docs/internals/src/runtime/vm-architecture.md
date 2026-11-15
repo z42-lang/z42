@@ -32,23 +32,23 @@ VM 装配注入 Core；worker 共享所属 Core 的不可变表，不存入 Exec
 | 阶段 | 所有者 | 完成条件 |
 |---|---|---|
 | 产物准备 | `host/load.rs`、`loader/package` | 依赖合并、类型和索引准备完成 |
-| 可用性裁剪 | `vm_assembly.rs` | 在模块进入 Core 和 token 解析前完成裁剪并重建受影响索引 |
-| Core 构造 | `vm.rs` | 创建堆和各子系统状态，连接根扫描、暂停请求与加载上下文回收服务 |
-| 主线程注册 | `vm.rs` | 上下文地址固定、登记根扫描地址、启用 TLAB 并绑定 SATB |
-| 加载与执行准备 | `vm_assembly.rs`、`metadata/resolve` | 登记 cctor、安装并播种惰性加载器、准备 token |
-| 组件装配 | `components`、`vm_assembly.rs` | 创建组件、连接执行后端，之后发布 LoadedProgram |
+| 可用性裁剪 | `vm/assembly.rs` | 在模块进入 Core 和 token 解析前完成裁剪并重建受影响索引 |
+| Core 构造 | `vm/mod.rs` | 创建堆和各子系统状态，连接根扫描、暂停请求与加载上下文回收服务 |
+| 主线程注册 | `vm/mod.rs` | 上下文地址固定、登记根扫描地址、启用 TLAB 并绑定 SATB |
+| 加载与执行准备 | `vm/assembly.rs`、`metadata/resolve` | 登记 cctor、安装并播种惰性加载器、准备 token |
+| 组件装配 | `components`、`vm/assembly.rs` | 创建组件、连接执行后端，之后发布 LoadedProgram |
 | 调用准备 | `host/program.rs` | 参数钉根，首次调用清理静态存储并排空待加载类型队列 |
 | 托管初始化 | `exec/init.rs` | 执行访问屏障保证包和类型初始化的执行、等待与失败传播 |
 
 `drain_pending_type_loads` 和 `enqueue_type_load` 处理的是静态字段属主的类型加载队列，
 不执行托管初始化器。加载会登记初始化事实，真正执行发生在包/类型的访问屏障。
-主线程和 worker 均通过 `vm.rs` 的 `new_with_core` 注册线程上下文。
+主线程和 worker 均通过 `vm/mod.rs` 的 `new_with_core` 注册线程上下文。
 主线程在 Core 服务连接完成后加入；worker 加入已有 Core，不重建堆、服务或组件；
 加入时按 `gc_phase → vm_contexts` 的锁顺序等待 Marking 结束后登记。
 
 ## 每 VM 扩展状态
 
-`vm_extensions.rs` 的 `VmExtensions` 在 VM 创建前按 Rust `TypeId` 登记拥有所有权的状态；重复类型报错并保留原项。
+`vm/extensions.rs` 的 `VmExtensions` 在 VM 创建前按 Rust `TypeId` 登记拥有所有权的状态；重复类型报错并保留原项。
 `VmContext::with_extensions` 消耗登记容器，复用模块链接清理和 VFS 注入，再把冻结的 `ExtensionState` 交给 `VmCore.ext_state`。
 索引使用 `FxHashMap<TypeId, usize>`，值由按登记顺序排列的 `Box<dyn Any + Send + Sync>` 数组持有；创建后不增删或替换类型，
 `ext::<T>() -> Option<&T>` 查询不增加锁。状态内部的同步和可变性由该状态自己管理，冻结不禁止已有资源表的受锁保护更新。
@@ -111,7 +111,7 @@ let program = z42::host::LoadedProgram::load_file(path, options)?;
 program.run_entry(hint)?;
 ```
 
-上述装配（`available!` 折叠 → 显式构造 Core → cctor 登记 → `install_lazy_loader_with_deps` → 种入 lazy loader 的类型/impl）在 `src/runtime/src/vm_assembly.rs::build` 一处完成，`host::run_app` 与嵌入 host（`host/ops.rs`）共用。
+上述装配（`available!` 折叠 → 显式构造 Core → cctor 登记 → `install_lazy_loader_with_deps` → 种入 lazy loader 的类型/impl）在 `src/runtime/src/vm/assembly.rs::build` 一处完成，`host::run_app` 与嵌入 host（`host/ops.rs`）共用。
 
 `Std.Runtime.ModuleSearch.Dirs` 在所属 Core 的加载器读锁下复制当前搜索目录，释放锁后构造托管数组。
 CLI、Rust 和 C 宿主均查询实际加载器状态；worker 共享同一结果，不同 VM 相互隔离。
@@ -153,7 +153,7 @@ VM 装了 JIT（`--mode jit`）时 worker 一样跑原生码：`VmCore.exec.engi
 - 观测：`counters`（`RuntimeCounters`，只累计已销毁 `VmContext` 的计数；各线程在自己的 `VmContext.diagnostics.counters` 上计，`counters_snapshot()` 汇总）/ `runtime_observers` / `park_histogram`（safepoint park 时长分布）/ `lock_contentions` + `lock_wait_us`（仅 `profile-contention` feature 写入）/ `sampler`（`Z42_SAMPLE_HZ` 开启的采样 profiler）
 
 核心库的进程、线程、文件、TCP socket/listener、UDP 和 TLS 七张资源表分别归对应模块的 `State`，
-由门面 `vm_services.rs` 在所有 VM 构造入口创建并登记到扩展状态中；worker 共享同一个 core 的状态。
+由门面 `vm/services.rs` 在所有 VM 构造入口创建并登记到扩展状态中；worker 共享同一个 core 的状态。
 VM 的泛型存储不依赖这些资源类型。网络与 TLS 状态保持各自 `net` / `tls` feature 边界。
 
 `interop/state.rs` 持有 native 类型表、库句柄、已尝试扩展库集合与 owned pin buffer。
@@ -165,12 +165,8 @@ Rust 查询/注册/pin 操作经 interop 模块函数访问冻结扩展状态，
 每个 VM 的每类槽号从 1 开始、永不复用。阻塞 I/O 只在表锁下克隆 `Arc`，释放锁后再做系统调用；
 关闭操作移除槽项并按所属模块协议唤醒等待者。必需状态缺失走 `BuiltinError::Internal`。
 
-> **模块布局**：`vm.rs`：`mod.rs`（hub：VM_CORES / snapshot /
-> `VmContextPtr` / `CoreContextReclaimer`）+ `types.rs`（VmCore/VmContext struct）+
-> `core_builder.rs`（Core 构造）+ `thread_lifecycle.rs`（worker 加入 + Drop）（帧栈归 `exec/call/frame_stack.rs`，见下「帧栈的归属」）+ `frames.rs` / `statics.rs` / `lookup.rs`
-> （各 concern 的 `impl VmContext` 块，inherent impl 可跨文件）（静态状态归 `metadata/statics/`，执行与等待归 `exec/init.rs`）（`is`/`as`/`catch` 前置缓存类型在 `metadata/dispatch/isa_cache.rs`）。
-> 缺符号裁决归 `exec/symbol_resolution.rs`，静态零值物化归 `exec/ops/object/static_defaults.rs`；
-> 异常交接行为归 `exec/thread_state.rs` 的 `ThreadExecState`，调用方通过 `ctx.exec()` 使用，不在 vm 中保留转发。
+VM 组合与装配集中在 `vm/`：`mod.rs` 持有 Core/线程视图、布局偏移、核心注册表和生命周期；`assembly.rs` 负责程序准备，`defaults.rs` 捕获默认输入，`services.rs` 组合服务，`extensions.rs` 冻结扩展状态。消费者仍使用 `crate::vm`，不引用实现文件路径。
+帧栈归 `exec/call/frame_stack.rs`，异常交接归 `exec/thread_state.rs`，缺符号裁决归 `exec/symbol_resolution.rs`；静态状态归 `metadata/statics/`，初始化执行与等待归 `exec/init.rs`，零值物化归 `exec/ops/object/static_defaults.rs`。不在 VM 目录重建已拆除的 frames/statics/lookup 转发层。
 
 `VmCore.loader` 是 `loader/state.rs` 的 `LoaderState`，持有惰性加载器、加载上下文、待初始化类型队列、
 队列长度镜像、批处理 in-flight 计数与注入的 VFS。队列空值判定、批处理窗口和原有锁/内存序保持一致；
@@ -227,7 +223,7 @@ regs，interp `RefKind::Stack` 跨帧 deref 通过 `frame.regs`。
 | GC root scanner（标记用的、retention 诊断用的分类版） | collector | `VmContext::scan_frames_parked`（`unsafe`） | 调用方是所属线程，或所属线程已 park |
 | 崩溃信号处理器 | 崩溃线程 | 自己的栈：`scan_parked`；别的线程：`published_depth` | 只读自己拥有的帧；别的线程只读深度原子 |
 
-**跨线程读为什么安全**（`scan_parked` 的前提，全部在 `threads/safepoint.rs` 与 `vm.rs`）：
+**跨线程读为什么安全**（`scan_parked` 的前提，全部在 `threads/safepoint.rs` 与 `vm/mod.rs`）：
 
 - mutator park 时先 `parked_count.fetch_add(AcqRel)`，再拿 `gc_phase` 锁（`park_until_idle`；阻塞型
   native 调用的 `native_park_incr` 同理）。park 期间不 push / pop：safepoint park 本身阻塞在条件变量上；
@@ -692,7 +688,7 @@ token = UNRESOLVED（bind_callee，冷路径）:
 `field_ic` / `builtin_tokens` / `static_field_tokens` / `obj_new` / `fn_ref_tokens` / `site_index`）
 都挂在 `Function.resolved: OnceLock<ResolvedTokens>`，由
 [`resolve::resolve_module`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/resolve.rs) 一次性填充。
-但 `resolve_module` **只经 `vm_assembly.rs::build` → `resolve_tokens` 对 entry module 跑一次**——而
+但 `resolve_module` **只经 `vm/assembly.rs::build` → `resolve_tokens` 对 entry module 跑一次**——而
 interp/JIT 模式下依赖是**纯惰性加载**（[load.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/host/load.rs)
 `is_eager = matches!(mode, Aot)`，非 AOT 全 false）：除用户 artifact 外，
 **所有依赖 zpkg**（自编译时即 z42c.core / z42c.syntax / z42c.semantics /
@@ -1321,7 +1317,7 @@ jit/helpers/
 `emit_bool_binop` / `emit_bool_not` / `emit_const_*` + `is_*_typed` 谓词。
 依赖：`Function.reg_types: Box<[IrType]>`（来自 zbc REGT section）+
 `Value` enum 锁布局（`#[repr(C, u8)]`，16 B，tag@0、payload@8，pinned by
-`object::types_tests::value_*_payload_at_offset_8` 与 `size_of::<Value>() == 16` 编译期断言）。
+`object::tests::value_*_payload_at_offset_8` 与 `size_of::<Value>() == 16` 编译期断言）。
 
 **问题**: JIT-compiled 代码每条算术 / 比较 / 逻辑 op 都 call 一个
 `extern "C"` helper（`jit_add` / `jit_eq` / ...）。helper 内部走
@@ -1627,4 +1623,4 @@ allocator、分代 GC、记忆集、finalizer 契约、迭代规划等）已抽�
 - `docs/internals/src/stdlib/architecture.md` — stdlib 三层架构（intrinsics / HAL / script BCL）
 
 
-组合入口为单文件 vm.rs。ctx.exec()、ctx.loader()、ctx.statics()、ctx.initialization() 分别提供执行、加载、静态存储和初始化执行服务；DiagnosticsState.snapshot 在注册表锁内汇总所有线程。旧 context 模块和目录不保留。
+组合入口为 vm/mod.rs，默认服务与程序准备由 vm/ 下的所属子模块维护。ctx.exec()、ctx.loader()、ctx.statics()、ctx.initialization() 分别提供执行、加载、静态存储和初始化执行服务；DiagnosticsState.snapshot 在注册表锁内汇总所有线程。旧 context 模块和目录不保留。

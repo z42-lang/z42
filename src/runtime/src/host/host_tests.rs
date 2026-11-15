@@ -20,9 +20,9 @@ use std::sync::{Mutex, OnceLock};
 use super::config::{Z42HostConfig, Z42_HOST_ABI_VERSION};
 use super::error::Z42HostStatus;
 use super::*;
-use super::module::Z42Module;
+use super::Z42Module;
 #[cfg(z42_have_embedding_hello)]
-use super::entry::Z42Entry;
+use super::Z42Entry;
 
 /// Serializes all host-API tests in this binary so they don't trip over
 /// each other's singleton state.
