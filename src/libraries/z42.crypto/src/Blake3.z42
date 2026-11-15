@@ -21,6 +21,16 @@ public static class Blake3 {
     static int FLAG_PARENT      = 4;
     static int FLAG_ROOT        = 8;
 
+    // The continuation block and chaining key occupy disjoint ranges. Both
+    // must remain intact when output extends beyond the initial 64 bytes.
+    private const int OutputMessage = 16;
+    private const int OutputKey = 32;
+    private const int OutputCounterLo = 40;
+    private const int OutputCounterHi = 41;
+    private const int OutputBlockLength = 42;
+    private const int OutputFlags = 43;
+    private const int OutputStateSize = 44;
+
     // ── Public API ───────────────────────────────────────────────────────────
 
     /// 计算 BLAKE3 摘要（默认 32 字节）。
@@ -41,6 +51,7 @@ public static class Blake3 {
     public static string HashStringHex(string s) { return Hex.Encode(Blake3.HashString(s)); }
 
     /// BLAKE3 可扩展输出（XOF）：`outLen` ≥ 0，前 N 字节与更长输出的前 N 字节一致。
+    /// 输出跨越 64 字节边界时，以递增输出计数器继续生成。
     public static byte[] HashLen(byte[] data, int outLen) {
         if (outLen < 0) {
             throw new ArgumentException("Blake3.HashLen: outLen must be ≥ 0, got " + outLen.ToString());
@@ -49,10 +60,8 @@ public static class Blake3 {
         // single root chunk (no PARENT nodes); larger inputs reduce
         // pairwise.
         int[] state = Blake3._hashToOutputState(data);
-        // state[0..15] = output 16 words; state[16..23] = block buffer
-        // (16 words); state[24..31] = compression key (8 words);
-        // state[32..33] = counter lo/hi; state[34] = block length;
-        // state[35] = root flags.
+        // Output words, the complete 16-word message, and the 8-word key
+        // have separate ranges; named offsets also identify counter/length/flags.
         return Blake3._squeezeOutput(state, outLen);
     }
 
@@ -91,7 +100,7 @@ public static class Blake3 {
         if (n == 1) {
             // Defensive: shouldn't reach here (single chunk handled above).
             // Treat the lone CV as the output state directly.
-            int[] state = new int[36];
+            int[] state = new int[Blake3.OutputStateSize];
             int i = 0;
             while (i < 8) { state[i] = cvList[i]; i = i + 1; }
             return state;
@@ -149,7 +158,7 @@ public static class Blake3 {
         int blocks = (length + Blake3.BLOCK_SIZE - 1) / Blake3.BLOCK_SIZE;
         if (length == 0) { blocks = 1; }   // empty input gets one zero block
         int b = 0;
-        int[] outputState = new int[36];
+        int[] outputState = new int[Blake3.OutputStateSize];
         while (b < blocks) {
             int blockOff = offset + b * Blake3.BLOCK_SIZE;
             int blockLen = length - b * Blake3.BLOCK_SIZE;
@@ -174,13 +183,13 @@ public static class Blake3 {
                 while (k < 16) { outputState[k] = state[k]; k = k + 1; }
                 // Block + key portion of state needed only for XOF squeeze:
                 int m = 0;
-                while (m < 16) { outputState[16 + m] = Blake3._readLE32(block, m * 4); m = m + 1; }
+                while (m < 16) { outputState[Blake3.OutputMessage + m] = Blake3._readLE32(block, m * 4); m = m + 1; }
                 int kk = 0;
-                while (kk < 8) { outputState[24 + kk] = cv[kk]; kk = kk + 1; }
-                outputState[32] = (int)(chunkIndex & 0xFFFFFFFFL);
-                outputState[33] = (int)((chunkIndex >> 32) & 0xFFFFFFFFL);
-                outputState[34] = blockLen;
-                outputState[35] = flags;
+                while (kk < 8) { outputState[Blake3.OutputKey + kk] = cv[kk]; kk = kk + 1; }
+                outputState[Blake3.OutputCounterLo] = (int)(chunkIndex & 0xFFFFFFFFL);
+                outputState[Blake3.OutputCounterHi] = (int)((chunkIndex >> 32) & 0xFFFFFFFFL);
+                outputState[Blake3.OutputBlockLength] = blockLen;
+                outputState[Blake3.OutputFlags] = flags;
                 return outputState;
             }
             // Continue: cv = first 8 words of state.
@@ -229,35 +238,35 @@ public static class Blake3 {
         int[] cv = Blake3._iv();
         int[] state = Blake3._compress(cv, block, 0L, Blake3.BLOCK_SIZE, flags);
         // Bundle metadata for XOF.
-        int[] outputState = new int[36];
+        int[] outputState = new int[Blake3.OutputStateSize];
         int k = 0;
         while (k < 16) { outputState[k] = state[k]; k = k + 1; }
         int m = 0;
-        while (m < 16) { outputState[16 + m] = Blake3._readLE32(block, m * 4); m = m + 1; }
+        while (m < 16) { outputState[Blake3.OutputMessage + m] = Blake3._readLE32(block, m * 4); m = m + 1; }
         int kk = 0;
-        while (kk < 8) { outputState[24 + kk] = cv[kk]; kk = kk + 1; }
-        outputState[32] = 0;
-        outputState[33] = 0;
-        outputState[34] = Blake3.BLOCK_SIZE;
-        outputState[35] = flags;
+        while (kk < 8) { outputState[Blake3.OutputKey + kk] = cv[kk]; kk = kk + 1; }
+        outputState[Blake3.OutputCounterLo] = 0;
+        outputState[Blake3.OutputCounterHi] = 0;
+        outputState[Blake3.OutputBlockLength] = Blake3.BLOCK_SIZE;
+        outputState[Blake3.OutputFlags] = flags;
         return outputState;
     }
 
-    // XOF 挤压：递增输出计数器（即 words[32]/[33] 哨兵）并对缓冲块重跑压缩，产出 `outLen` 字节。
+    // XOF 挤压：递增输出计数器并用保留的消息和 key 重跑压缩，产出 `outLen` 字节。
     // 前 64 字节来自 counter=0；后续每个 64 字节块递增计数器。
     static byte[] _squeezeOutput(int[] outputState, int outLen) {
         byte[] out_ = new byte[outLen];
         // Extract the per-output-block fields.
         int[] msg = new int[16];
         int i = 0;
-        while (i < 16) { msg[i] = outputState[16 + i]; i = i + 1; }
+        while (i < 16) { msg[i] = outputState[Blake3.OutputMessage + i]; i = i + 1; }
         int[] cv0 = new int[8];
         int k = 0;
-        while (k < 8) { cv0[k] = outputState[24 + k]; k = k + 1; }
-        long baseCounter = (((long)outputState[33] & 0xFFFFFFFFL) << 32)
-                         | ((long)outputState[32] & 0xFFFFFFFFL);
-        int blockLen = outputState[34];
-        int flags    = outputState[35];
+        while (k < 8) { cv0[k] = outputState[Blake3.OutputKey + k]; k = k + 1; }
+        long baseCounter = (((long)outputState[Blake3.OutputCounterHi] & 0xFFFFFFFFL) << 32)
+                         | ((long)outputState[Blake3.OutputCounterLo] & 0xFFFFFFFFL);
+        int blockLen = outputState[Blake3.OutputBlockLength];
+        int flags    = outputState[Blake3.OutputFlags];
         // The first 64 output bytes are already represented by outputState[0..16].
         int produced = 0;
         long ctr = baseCounter;
