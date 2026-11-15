@@ -5,6 +5,7 @@ using Std.IO;
 
 void _flowScopeChecks(FlowConfig cfg) {
     string root = _root();
+    _flowReleasePreparationChecks(cfg, root);
     string[] control = new string[]{ "scripts/src/flow/planner.z42", "scripts/src/ci/bench.z42",
         "scripts/src/test/changed.z42", "scripts/src/test/gate.z42", "scripts/src/common/versions.z42",
         ".github/workflows/ci.yml", "scripts/flows.toml" };
@@ -103,7 +104,7 @@ void _flowScopeChecks(FlowConfig cfg) {
     foreach (var key in new string[]{ "host_checks", "toolchain_build", "test_assets" }) {
         _gateAssert(!_flowCiOutput(empty, _flowOutputs(cfg, empty), key), "empty PR does not prepare " + key);
         empty.Event = "push";
-        _gateAssert(_flowCiOutput(empty, _flowOutputs(cfg, empty), key), "unpublished cumulative release retains " + key);
+        _gateAssert(_flowCiOutput(empty, _flowOutputs(cfg, empty), key) == (key == "toolchain_build"), "unpublished release prepares compilation without implicit tests: " + key);
         empty.Event = "pull_request";
     }
     _flowPreflightChecks(cfg);
@@ -148,6 +149,30 @@ void _flowScopeChecks(FlowConfig cfg) {
     _gateAssert(String.Join(",", _flowOutputs(tiny, _flowSelect(tiny, new string[]{ "tests/a" }, root))) == "toolchain_build",
         "prerequisite prepares resources without affecting consumers");
     Console.WriteLine("  ✓ flow scope: control, build, test, benchmark, device and production obligations");
+}
+
+void _flowReleasePreparationChecks(FlowConfig cfg, string root) {
+    foreach (var file in new string[]{ "", "README.md", "scripts/src/ci/refresh.z42", "scripts/src/build/compiler.z42", "scripts/install-z42.sh" }) {
+        FlowPlan plan = _flowSelect(cfg, file.Length == 0 ? new string[0] : new string[]{ file }, root);
+        plan.Event = "push";
+        foreach (var pending in new string[]{ "true", "" }) {
+            plan.ReleaseRequired = pending;
+            string[] flags = _flowOutputs(cfg, plan);
+            _gateAssert(_flowCiOutput(plan, flags, "toolchain_build") && _flowPackageRequired(plan, flags, true)
+                && _flowPackageRequired(plan, flags, false), "pending publication keeps compilation and complete packages: " + file);
+            _gateAssert(!_flowCiOutput(plan, flags, "host_checks") && !_flowCiOutput(plan, flags, "test_assets"),
+                "publication alone does not select host suites or shared golden consumers: " + file);
+        }
+        plan.Full = true;
+        _gateAssert(_flowCiOutput(plan, _flowOutputs(cfg, plan), "host_checks")
+            && _flowCiOutput(plan, _flowOutputs(cfg, plan), "test_assets"), "unknown validation still requests all test resources");
+    }
+    foreach (var file in new string[]{ "src/runtime/src/lib.rs", "src/compiler/z42c.pipeline/src/Pipeline.z42" }) {
+        FlowPlan plan = _flowSelect(cfg, new string[]{ file }, root); plan.Event = "push"; plan.ReleaseRequired = "true";
+        _gateAssert(_flowCiOutput(plan, _flowOutputs(cfg, plan), "host_checks")
+            && _flowCiOutput(plan, _flowOutputs(cfg, plan), "test_assets"), "production validation keeps hosts and shared goldens: " + file);
+    }
+    Console.WriteLine("  ✓ release preparation: compile/package obligations, no implicit host/golden tests, conservative full validation");
 }
 
 void _flowPreflightChecks(FlowConfig cfg) {
