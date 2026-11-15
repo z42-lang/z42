@@ -161,6 +161,9 @@ pub struct RuntimeConfig {
     /// `Z42_NATIVE_PATH` — pre-split search paths for native modules.
     /// Empty list = no override (consumer applies SDK-relative fallback).
     pub native_search_paths: Vec<PathBuf>,
+    pub no_native_static: bool,
+    pub no_native_shared: bool,
+    pub no_native_load: bool,
     /// `Z42_JIT_PROFILE` — enable JIT compilation profiling. A proper boolean
     /// (`true/false`, `1/0`, `yes/no`, `on/off`); anything else is rejected with
     /// a diagnostic and falls back to off. Read by `jit/compile/mod.rs`.
@@ -282,6 +285,7 @@ impl Default for RuntimeConfig {
             gc_throttle_ratio: 0.10,
             safepoint_throttle: 1024,
             native_search_paths: Vec::new(),
+            no_native_static: false, no_native_shared: false, no_native_load: false,
             jit_profile: false,
             mode: None,
             sample_hz: None,
@@ -418,6 +422,9 @@ impl RuntimeConfig {
             gc_throttle_ratio:   parse_gc_ratio(&get, "Z42_GC_THROTTLE_RATIO",   0.10),
             safepoint_throttle:  parse_safepoint_throttle(&get),
             native_search_paths: parse_native_search_paths(&get),
+            no_native_static: parse_bool_knob(&get, "Z42_NO_NATIVE_STATIC"),
+            no_native_shared: parse_bool_knob(&get, "Z42_NO_NATIVE_SHARED"),
+            no_native_load: parse_bool_knob(&get, "Z42_NO_NATIVE_LOAD"),
             // 两个 bool 旋钮共用 add-gc-runtime-knobs 引入的 `parse_bool_knob`。
             // 它对"非 0/false/off/no 即真"是宽松的，但两者都声明了
             // `ValueKind::Bool`，非布尔字符串在 `resolve_knobs` 就被判 Invalid +

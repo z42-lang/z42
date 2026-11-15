@@ -29,7 +29,7 @@
 //! ```
 /// Final-link composition only: register a process-lifetime factory without
 /// exposing the VM's component manager through the ordinary host API.
-pub use super::linked::register_static_component;
+pub use super::linked::{register_static_component, register_shared_component};
 
 use core::ffi::c_void;
 

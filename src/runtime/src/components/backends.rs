@@ -10,7 +10,9 @@ pub enum BackendSource {
     /// Prefer an explicitly linked implementation, then a colocated component.
     #[default]
     Auto,
+    #[cfg(test)]
     Linked,
+    #[cfg(test)]
     Dynamic(PathBuf),
     Disabled,
 }
@@ -39,13 +41,13 @@ pub(super) fn linked(id: ComponentId) -> Option<ComponentInit> {
     None
 }
 
-fn dynamic_paths(id: ComponentId) -> Vec<PathBuf> {
+fn dynamic_paths(id: ComponentId, policy: &crate::loader::NativeLoading) -> Vec<PathBuf> {
     let stem = if id == INTERP_COMPONENT { "z42_interp" } else if id == PROFILER_COMPONENT { "z42_profiler" } else { "z42_jit" };
-    crate::pal::dynlib::candidate_paths(stem, crate::loader::native_paths::directories())
+    crate::pal::dynlib::candidate_paths(stem, policy.search_dirs.clone())
 }
 fn auto_available(id: ComponentId) -> bool {
     if linked(id).is_some() { return true; }
-    cfg!(feature = "component-loading") && dynamic_paths(id).iter().any(|path| known_source(path))
+    cfg!(feature = "component-loading") && dynamic_paths(id, &Default::default()).iter().any(|path| known_source(path))
 }
 pub(super) fn known_source(path: &std::path::Path) -> bool {
     if path.is_file() { return true; }
@@ -56,23 +58,26 @@ pub(super) fn known_source(path: &std::path::Path) -> bool {
 /// Default sources present in this runtime pack; actual loading still validates ABI and identity.
 pub fn jit_available() -> bool { cfg!(feature = "jit") && jit_supported() && auto_available(INTERP_COMPONENT) && auto_available(JIT_COMPONENT) }
 pub fn interp_available() -> bool { auto_available(INTERP_COMPONENT) }
-pub(super) fn select(options: ComponentOptions, source: &BackendSource, id: ComponentId, name: &str) -> Result<ComponentOptions> {
+pub(super) fn select(options: ComponentOptions, source: &BackendSource, id: ComponentId, name: &str, policy: &crate::loader::NativeLoading) -> Result<ComponentOptions> {
     let init = linked(id);
     match source {
         BackendSource::Disabled => bail!("{name} backend is disabled"),
+        #[cfg(test)]
         BackendSource::Linked => {
             let init = init.ok_or_else(|| anyhow::anyhow!("{name} backend is not statically linked"))?;
-            Ok(unsafe { options.with_static(id, init) })
+            Ok(unsafe { options.with_linked(id, init, super::linked::origin(id)) })
         }
-        BackendSource::Auto if init.is_some() => {
+        BackendSource::Auto if init.is_some() && policy.allows(super::linked::origin(id)) => {
             let init = init.ok_or_else(|| anyhow::anyhow!("{name} backend is not statically linked"))?;
-            Ok(unsafe { options.with_static(id, init) })
+            Ok(unsafe { options.with_linked(id, init, super::linked::origin(id)) })
         }
-        BackendSource::Auto | BackendSource::Dynamic(_) => {
+        _ => {
+            policy.check(crate::loader::NativeOrigin::RuntimeLoad)?;
             let path = match source {
+                #[cfg(test)]
                 BackendSource::Dynamic(path) => path.clone(),
                 _ => {
-                    let paths = dynamic_paths(id);
+                    let paths = dynamic_paths(id, policy);
                     paths.iter().find(|p| p.is_file() || crate::pal::dynlib::is_loader_name(p)).cloned().ok_or_else(|| anyhow::anyhow!(
                         "{name} backend unavailable: no linked selection and dynamic library was not found; searched {}",
                         paths.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", ")))?
@@ -87,11 +92,11 @@ pub(super) fn select(options: ComponentOptions, source: &BackendSource, id: Comp
     }
 }
 impl BackendOptions {
-    pub(crate) fn components(&self, mode: ExecMode, user: &ComponentOptions) -> Result<ComponentOptions> {
+    pub(crate) fn components(&self, mode: ExecMode, user: &ComponentOptions, policy: &crate::loader::NativeLoading) -> Result<ComponentOptions> {
         if mode == ExecMode::Aot { bail!("AOT mode is not implemented yet"); }
         if mode == ExecMode::Jit && !jit_supported() { bail!("JIT backend is unsupported on this target"); }
-        let extra = select(ComponentOptions::default(), &self.interp, INTERP_COMPONENT, "interpreter")?;
-        let extra = if mode == ExecMode::Jit { select(extra, &self.jit, JIT_COMPONENT, "JIT")? } else { extra };
+        let extra = select(ComponentOptions::default(), &self.interp, INTERP_COMPONENT, "interpreter", policy)?;
+        let extra = if mode == ExecMode::Jit { select(extra, &self.jit, JIT_COMPONENT, "JIT", policy)? } else { extra };
         Ok(user.merged(&extra))
     }
 }

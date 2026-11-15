@@ -62,7 +62,7 @@ impl VmContext {
         let mut module = crate::metadata::Module::from_image(image);
         crate::metadata::types::build_type_registry(&mut module);
         crate::metadata::types::verify_constraints(&module)?;
-        crate::host::artifact::build_block_indices(&mut module);
+        crate::loader::build_block_indices(&mut module);
         Ok(Self::with_module_and_vfs(module, vfs))
     }
 }
@@ -86,7 +86,7 @@ pub(crate) fn construct(
     let ctx = with_config(
         module,
         vfs,
-        crate::host::extensions::freeze(extensions),
+        crate::vm::services::freeze(extensions),
         crate::config::runtime_config().vm_config(),
         crate::corelib::object_protocol(),
         engines,
@@ -103,7 +103,7 @@ pub(crate) fn with_config(
     engines: crate::exec::EngineRegistry,
 ) -> std::pin::Pin<Box<VmContext>> {
     let sampler = crate::diagnostics::sampling::Sampling::with_config(
-        config.sample_hz, config.trace_timeline,
+        config.sample_hz, config.trace_timeline, crate::components::api::prepare_profiler,
     );
     VmContext::with_runtime(
         module,
@@ -115,7 +115,7 @@ pub(crate) fn with_config(
             engines,
             builtins: crate::interop::providers::functions(),
             catalog: crate::interop::providers::catalog(),
-            fusion: crate::host::artifact::FUSION_INPUTS,
+            fusion: crate::loader::FUSION_INPUTS,
             sampler,
         },
     )

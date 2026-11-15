@@ -1,5 +1,5 @@
 //! Light profiling contracts and a lazy per-VM provider; no analysis implementation.
-use crate::{components::api::{BackendSource, VmComponents}, vm::VmContext, gc::Heap};
+use crate::{vm::VmContext, gc::Heap};
 use std::sync::OnceLock;
 
 pub trait SampleBackend: Send + Sync {
@@ -20,33 +20,24 @@ pub struct Sampling {
     enabled: bool,
     hz: Option<u32>,
     trace: bool,
-    source: OnceLock<BackendSource>,
+    prepare: fn(&VmContext, u32, bool) -> anyhow::Result<()>,
     initialized: OnceLock<Result<(), String>>,
     backend: OnceLock<Box<dyn ProfilerBackend>>,
-    // Drop the provider before its instance/factory/code owners. Never store a
-    // ComponentLease here: its Core reference would form a self-retention cycle.
-    code: OnceLock<VmComponents>,
+
 }
 impl Sampling {
-    pub fn with_config(hz: Option<u32>, trace: bool) -> Self {
-        Self { enabled: hz.is_some(), hz, trace, source: OnceLock::new(),
-            initialized: OnceLock::new(), backend: OnceLock::new(), code: OnceLock::new() }
-    }
-    pub fn set_source(&self, source: BackendSource) -> anyhow::Result<()> {
-        anyhow::ensure!(self.initialized.get().is_none() && self.backend.get().is_none(), "profiler is already initialized");
-        self.source.set(source).map_err(|_| anyhow::anyhow!("profiler source is already configured"))
+    pub fn with_config(hz: Option<u32>, trace: bool, prepare: fn(&VmContext, u32, bool) -> anyhow::Result<()>) -> Self {
+        Self { enabled: hz.is_some(), hz, trace, prepare,
+            initialized: OnceLock::new(), backend: OnceLock::new() }
     }
     /// Called only by a validated same-build component through the shared core.
     pub fn install(&self, backend: Box<dyn ProfilerBackend>) -> anyhow::Result<()> {
         self.backend.set(backend).map_err(|_| anyhow::anyhow!("profiler provider is already installed"))
     }
-    pub(crate) fn retain(&self, components: VmComponents) -> anyhow::Result<()> {
-        self.code.set(components).map_err(|_| anyhow::anyhow!("profiler code is already retained"))
-    }
     pub fn provider(&self, ctx: &VmContext) -> anyhow::Result<&dyn ProfilerBackend> {
         let result = self.initialized.get_or_init(|| {
             if self.backend.get().is_some() { return Ok(()); }
-            crate::components::api::attach_profiler(ctx, self.source.get_or_init(BackendSource::default), self.hz.unwrap_or(0), self.trace)
+            (self.prepare)(ctx, self.hz.unwrap_or(0), self.trace)
                 .map_err(|e| format!("{e:#}"))
         });
         result.as_ref().map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -55,10 +46,6 @@ impl Sampling {
     }
     pub fn is_loaded(&self) -> bool {
         self.initialized.get().is_some_and(|result| result.is_ok()) && self.backend.get().is_some()
-    }
-    #[cfg(test)]
-    pub(crate) fn components(&self) -> Option<&VmComponents> {
-        if self.is_loaded() { self.code.get() } else { None }
     }
     #[inline]
     pub fn enabled(&self) -> bool { self.enabled }

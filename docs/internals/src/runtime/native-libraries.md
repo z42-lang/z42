@@ -24,7 +24,7 @@ z42 有**两类** native 库，走**两条**互不干扰的布局/解析路径�
 compression 等是**运行时横切库**（跨平台、随 SDK 走、不属任何单个 app），布局与解析如下：
 
 - **布局**：`<sdk>/native/libz42_<name>.{so,dylib,dll}`。
-- **发现**：首次调用时，loader 先查询显式注册的静态符号解析器；没有静态提供方时，host 按逻辑库名拼接候选文件。目录顺序为 `Z42_NATIVE_PATH` 覆盖 → `<exe>/../native/` SDK 布局 → `<exe>/native/` → `<exe>/` dev 直放。
+- **发现**：首次调用时，loader 先查询显式注册的静态符号解析器；没有静态提供方时，loader 按逻辑库名拼接候选文件。目录顺序为 `Z42_NATIVE_PATH` 覆盖 → `<exe>/../native/` SDK 布局 → `<exe>/native/` → `<exe>/` dev 直放。
 - **确定序**：按候选顺序选择，不枚举目录或初始化未请求的库。每 VM 缓存命名解析结果，PAL 保留动态代码寿命。
 
 ---
@@ -66,7 +66,7 @@ pub(crate) fn resolve_native_beside(zpkg_dir: &Path, lib_name: &str) -> Option<P
   `cargo build -p z42-repl` 产出，经 `_pubBundleProjectNativeDeps` 沿 path-dep 闭包平铺进
   `programs/z42i/`——packaging 只整目录拷 publish 输出，无 repl 特殊处理。`_pkgInstallZ42vm` **不**往 `bin/` 放 repl 库；`_copyNativeLibs` 按精确文件名
   白名单拷（`_isEmbedLib` / `_isNativeExtLib`），repl 不在名单里（hook 把它建进共享 cargoOut，白名单防其漏进 `<sdk>/native/`）。
-- **发现**（`host/extensions.rs 的 native_candidates`）：`Z42_REPL_NATIVE` 覆盖 → dev cargo-target
+- **发现**（`vm_services.rs 的 native_candidates`）：`Z42_REPL_NATIVE` 覆盖 → dev cargo-target
   目录（z42vm 旁）→ 从运行 `<sdk>/bin/<app>` 派生 `<sdk>/programs/z42i/`，经共享的
   `resolve_native_beside` 解析。
 - **组件私有边界**：编辑器随 z42i 发布，不成为共享 native 目录中的跨平台标准库扩展。loader 按逻辑库名获得候选路径，再由提供方绑定自己的 C ABI；不会扫描并初始化无关库。

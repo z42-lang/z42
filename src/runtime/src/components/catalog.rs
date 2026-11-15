@@ -47,12 +47,13 @@ impl Factory {
 
 #[derive(Clone)]
 pub(super) enum Registration {
-    Static {
+    Linked {
+        origin: crate::loader::NativeOrigin,
         id: ComponentId,
         init: ComponentInit,
         cache: Arc<OnceLock<Result<Arc<Factory>, String>>>,
     },
-    Dynamic {
+    Runtime {
         id: ComponentId,
         path: PathBuf,
         symbol: String,
@@ -120,13 +121,13 @@ unsafe fn read_descriptor(id: ComponentId, init: ComponentInit) -> Result<Factor
     }
     unsafe { Factory::from_validated_descriptor(&descriptor, dependencies, interfaces) }
 }
-fn load(registration: &Registration) -> Result<Factory> {
+fn load(registration: &Registration, policy: &crate::loader::NativeLoading) -> Result<Factory> {
     match registration {
-        Registration::Static { id, init, .. } => unsafe { read_descriptor(*id, *init) },
-        Registration::Dynamic { id, path, symbol, .. } => {
+        Registration::Linked { id, init, .. } => unsafe { read_descriptor(*id, *init) },
+        Registration::Runtime { id, path, symbol, .. } => {
             #[cfg(feature = "component-loading")]
             {
-                let library = unsafe { crate::loader::code::open(path) }?;
+                let library = unsafe { crate::loader::code::open(path, policy) }?;
                 let init = unsafe { library.symbol::<ComponentInit>(symbol) }?;
                 let factory = unsafe { read_descriptor(*id, init) }?;
                 Ok(unsafe { factory.with_library(library) })
@@ -139,18 +140,20 @@ fn load(registration: &Registration) -> Result<Factory> {
         }
     }
 }
-fn cached_load(registration: &Registration) -> Result<Arc<Factory>> {
-    let cache = match registration { Registration::Static { cache, .. } | Registration::Dynamic { cache, .. } => cache };
-    cache.get_or_init(|| load(registration).map(Arc::new).map_err(|e| format!("{e:#}")))
+fn cached_load(registration: &Registration, policy: &crate::loader::NativeLoading) -> Result<Arc<Factory>> {
+    policy.check(match registration { Registration::Linked { origin, .. } => *origin,
+        Registration::Runtime { .. } => crate::loader::NativeOrigin::RuntimeLoad })?;
+    let cache = match registration { Registration::Linked { cache, .. } | Registration::Runtime { cache, .. } => cache };
+    cache.get_or_init(|| load(registration, policy).map(Arc::new).map_err(|e| format!("{e:#}")))
         .as_ref().map(Arc::clone).map_err(|e| anyhow::anyhow!("{e}"))
 }
 impl Catalog {
-    pub fn load(registrations: &[Registration], roots: &[ComponentId]) -> Result<Self> {
+    pub fn load(registrations: &[Registration], roots: &[ComponentId], policy: &crate::loader::NativeLoading) -> Result<Self> {
         let mut providers = BTreeMap::new();
         // Reject duplicates before native initialization has side effects.
         for registration in registrations {
             let id = match registration {
-                Registration::Static { id, .. } | Registration::Dynamic { id, .. } => *id,
+                Registration::Linked { id, .. } | Registration::Runtime { id, .. } => *id,
             };
             if providers.insert(id, registration).is_some() {
                 bail!("duplicate component {id}");
@@ -165,7 +168,7 @@ impl Catalog {
             if pending.contains_key(&id) { continue; }
             let registration = providers.get(&id)
                 .ok_or_else(|| anyhow::anyhow!("missing component {id}"))?;
-            let factory = cached_load(registration).context("loading runtime component")?;
+            let factory = cached_load(registration, policy).context("loading runtime component")?;
             for dep in factory.dependencies() {
                 if !providers.contains_key(dep) {
                     bail!("component {} requires missing component {dep}", factory.id());

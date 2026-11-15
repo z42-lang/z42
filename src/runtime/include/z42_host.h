@@ -3,6 +3,8 @@
 #ifndef Z42_HOST_H
 #define Z42_HOST_H
 #include "z42_abi.h"
+#include "../crates/z42-abi/z42_native.h"
+#include "../crates/z42-compression/z42_compression.h"
 #include "../src/host/z42_host.h"
 #include "../src/components/z42_components.h"
 #endif /* Z42_HOST_H */

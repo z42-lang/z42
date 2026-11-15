@@ -45,3 +45,15 @@ fn unified_native_header_exposes_host_and_linkage_without_extra_includes() {
     let composition = compile("#include \"z42_host.h\"\nuint32_t init(void) { return z42_component_register_static(Z42_COMPONENT_INTERP, z42_interp_init); }\n");
     assert!(composition.status.success(), "{}", String::from_utf8_lossy(&composition.stderr));
 }
+
+#[test]
+fn shared_registration_records_a_distinct_origin_without_initializing() {
+    let id = ComponentId::new(0x1802c0ffee);
+    unsafe {
+        assert_eq!(z42_component_register_shared(id, None), ComponentStatus::INVALID_ARGUMENT);
+        assert_eq!(z42_component_register_shared(id, Some(first)), ComponentStatus::OK);
+        assert_eq!(z42_component_register_shared(id, Some(first)), ComponentStatus::OK);
+        assert_eq!(z42_component_register_static(id, Some(first)), ComponentStatus::ERROR);
+    }
+    assert_eq!(super::super::linked::origin(id), crate::loader::NativeOrigin::SharedLink);
+}

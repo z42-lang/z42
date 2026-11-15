@@ -221,3 +221,5 @@ source-identity 只比「拷进来的东西和源一不一致」，管不到「�
   job（`package release <label>` 的第一步）。合成一份发布、一次装齐，任何宿主都能 `publish --rid` 到其它桌面平台。
 - `package sdk --verify` 的 apphost 腿要本机的 desktop workload（stub 模板来自 workload 包的 `apphost-<rid>`，
   SDK 包按设计不带它），不在就先打一份。
+
+原生验证分别执行静态归档链接、共享库链接和运行时 dlopen。共享库消费者禁用静态来源与运行时加载后仍须成功，并验证禁用共享来源时明确拒绝。compression 的链接声明随所属 crate 维护，由统一 host 分发头展开；设备暂存不新增逐库转发头。

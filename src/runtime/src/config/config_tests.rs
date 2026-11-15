@@ -2029,3 +2029,12 @@ fn runtime_settings_doc_knob_counts_match_the_table() {
         missing.join("\n  - ")
     );
 }
+
+#[test]
+fn native_source_switches_are_independent() {
+    let cfg = RuntimeConfig::from_getter(fake_env(&[("Z42_NO_NATIVE_STATIC", "1"),
+        ("Z42_NO_NATIVE_SHARED", "false"), ("Z42_NO_NATIVE_LOAD", "true")]));
+    assert!(cfg.no_native_static);
+    assert!(!cfg.no_native_shared);
+    assert!(cfg.no_native_load);
+}

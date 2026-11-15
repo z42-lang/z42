@@ -90,22 +90,22 @@ z42c build: warning: [profile.release.runtime] 未知运行时旋钮 `gc-mdoe`�
 - `--all`：让 `--list-knobs` / `--show-config` 连 `unsupported` 与 `internal` 档一起列出；
 - `--json`：改输出 JSON 而非文本。
 
-### 默认只看得到 14 个
+### 默认只看得到 17 个
 
-`--list-knobs` 默认**只列 `public` 档的 14 个**，`--all` 才列出全部 48 个：
+`--list-knobs` 默认**只列 `public` 档的 17 个**，`--all` 才列出全部 51 个：
 
 ```console
 $ z42vm --list-knobs
-runtime knobs (14 of 48; pass --all for unsupported + internal knobs)
+runtime knobs (17 of 51; pass --all for unsupported + internal knobs)
 …
 $ z42vm --list-knobs --all
-runtime knobs (48 of 48)
+runtime knobs (51 of 51)
 ```
 
-`--show-config` 同样默认 14 行、`--all` 48 行。从 z42 代码里调
-`Std.Runtime.RuntimeConfig.Names()` 拿到的是**全部 48 个**——脚本侧不分档。
+`--show-config` 同样默认 17 行、`--all` 51 行。从 z42 代码里调
+`Std.Runtime.RuntimeConfig.Names()` 拿到的是**全部 51 个**——脚本侧不分档。
 
-那 48 个里有 6 个是**元旋钮**（`Z42_CONFIG` / `Z42_APP_CONFIG` / `Z42_STRICT_CONFIG` /
+那 51 个里有 6 个是**元旋钮**（`Z42_CONFIG` / `Z42_APP_CONFIG` / `Z42_STRICT_CONFIG` /
 `Z42_HOME` / `Z42_PORTABLE_VM` / `Z42_RUNTIME_LIBRARY`）：它们决定读哪个文件、诊断多严格、SDK 装在哪，只收命令行与
 环境变量，写进配置文件会自指（或者根本不是「这个应用的」设置），所以没有 kebab 形式的 key。
 
@@ -201,14 +201,17 @@ probing 路径 ${Z42_HOME}/programs/z42c 无法解析 —— 是否没有安装 
 
 ## 旋钮清单（public）
 
-日常会用到的就是这 14 个。「默认」一列是**未设时**的行为。
+公开旋钮如下。「默认」一列是**未设时**的行为。
 
 | 旋钮 | 环境变量 | 类型 | 默认 |
 |---|---|---|---|
 | `mode` | `Z42_MODE` | enum(`interp`\|`jit`\|`aot`) | build 默认（编进了 jit 就 jit，否则 interp） |
 | `log` | `Z42_LOG` | string | `z42=warn`（`--verbose` 下 `z42=info`） |
-| `libs` | `Z42_LIBS` | path | `<z42vm 所在目录>/../libs/`；开发树里再回落到当前目录下的 `artifacts/intermediate/libraries/flat/release` |
+| `libs` | `Z42_LIBS` | path | `<z42vm 所在目录>/../libs/`；开发路径由构建工具通过环境配置注入 |
 | `probing-paths` | `Z42_PROBING_PATHS` | path-list | 无 —— 依赖搜索序就是 `[entry-zpkg 目录, libs]` |
+| `no-native-static` | `Z42_NO_NATIVE_STATIC` | bool | 关，允许激活静态链接提供方 |
+| `no-native-shared` | `Z42_NO_NATIVE_SHARED` | bool | 关，允许激活共享链接提供方 |
+| `no-native-load` | `Z42_NO_NATIVE_LOAD` | bool | 关，允许 VM 运行时加载 |
 | `native-path` | `Z42_NATIVE_PATH` | path-list | 包相对搜索 |
 | `crash-dir` | `Z42_CRASH_DIR` | path | 不写文件，崩溃报告只进 stderr |
 | `gc-mode` | `Z42_GC_MODE` | enum（见下） | `generational-mark-sweep` |
@@ -342,3 +345,5 @@ mode = "interp"
 `z42vm --verbose` / `-v` 等价 `--set log=z42=info`。
 
 `Z42_RUNTIME_LIBRARY` 只接受环境变量：它在 Core 与 CLI 配置初始化前指定要加载的库文件，显式路径失败时直接退出。未设置时仅使用可执行文件相对的 native/ 或同目录库；不查构建目录。
+
+原生来源许可在每 VM 装配时捕获。禁用某来源会阻止该 VM 的激活或装载，不撤销操作系统已装入的链接依赖；启动器加载 Core 本身不属于托管 VM 的原生模块加载。

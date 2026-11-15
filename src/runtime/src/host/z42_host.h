@@ -270,13 +270,6 @@ Z42HostStatus z42_host_shutdown(Z42HostRef host);
 int z42_host_run_app(const char* app_zpkg, const char* entry,
                      const char* libs_dir, int argc, const char* const* argv);
 
-/* Named C-ABI symbols supplied by an explicitly linked native library. Names
- * are borrowed during the callback; unknown symbols return NULL. Register before
- * creating hosts. This records the provider; symbols resolve only on first use. */
-typedef const void* (*Z42NativeSymbolResolver)(const char* name);
-Z42HostStatus z42_host_register_static_native_library(const char* name, Z42NativeSymbolResolver resolve);
-const void* z42_compression_get_symbol(const char* name);
-
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

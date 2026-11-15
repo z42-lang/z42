@@ -41,10 +41,10 @@ fn program(mode: ExecMode, throws: bool) -> LoadedProgram {
         functions: vec![function],
         func_index: Default::default(),
     });
-    crate::host::artifact::build_block_indices(&mut module);
+    crate::loader::build_block_indices(&mut module);
     crate::loader::package::build_func_index(&mut module);
     let ctx = VmContext::with_module(module);
-    crate::host::program_builder::resolve_tokens(&ctx, ctx.module().unwrap());
+    crate::vm::assembly::resolve_tokens(&ctx, ctx.module().unwrap());
     LoadedProgram::new(ctx, mode, Some("Demo.Main".into())).unwrap()
 }
 
@@ -186,7 +186,7 @@ fn resolver_overrides_disk_prelude() {
         search_dirs: vec!["/libs".into()],
         resolver: Some(Arc::new(Resolver)),
         eager_dependencies: true,
-        components: Default::default(), backends: Default::default(), profiler: Default::default(),
+        native: Default::default(), allow_profiling: true,
     };
     let program = LoadedProgram::load_bytes(&empty_zbc(), options).unwrap();
     assert!(program.module().functions.is_empty());
@@ -211,12 +211,12 @@ fn fatal_error_keeps_the_report_for_the_cli_adapter() {
 fn malformed_selected_eager_dependency_fails_during_load() {
     let fs = Arc::new(MemoryFs::new());
     fs.mount(std::path::Path::new("/libs").join("broken.zpkg").to_str().unwrap(), b"broken dependency".to_vec());
-    let mut artifact = crate::host::artifact::load_artifact_from_bytes(&empty_zbc()).unwrap();
+    let mut artifact = crate::loader::load_artifact_from_bytes(&empty_zbc()).unwrap();
     artifact.dependencies.push(zpkg::format::ZpkgDep {
         file: "broken.zpkg".into(), namespaces: Vec::new(), symbols: Vec::new(),
     });
     let options = LoadOptions { mode: ExecMode::Interp, vfs: fs,
-        search_dirs: vec!["/libs".into()], eager_dependencies: true, resolver: None, components: Default::default(), backends: Default::default(), profiler: Default::default() };
-    let error = super::load::prepare(artifact, None, &options).err().expect("must reject a corrupt dependency");
+        search_dirs: vec!["/libs".into()], eager_dependencies: true, resolver: None, native: Default::default(), allow_profiling: true };
+    let error = super::load::prepare(artifact, None, &options, &Default::default()).err().expect("must reject a corrupt dependency");
     assert!(format!("{error:#}").contains("broken.zpkg"));
 }

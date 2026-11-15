@@ -33,10 +33,10 @@ type RegisterFn = unsafe extern "C" fn();
 /// The path must identify trusted code; opening runs library initializers.
 #[cfg(feature = "native-interop")]
 pub(crate) unsafe fn open_library(
-    path: &Path,
+    path: &Path, policy: &super::NativeLoading,
 ) -> std::io::Result<std::sync::Arc<crate::loader::code::CodeImage>> {
     crate::pal::dynlib::require_supported()?;
-    unsafe { crate::loader::code::open(path) }.map_err(|error| {
+    unsafe { crate::loader::code::open(path, policy) }.map_err(|error| {
         std::io::Error::new(error.kind(), format!("dlopen({}): {error}", path.display()))
     })
 }
@@ -46,7 +46,8 @@ pub(crate) unsafe fn open_library(
 pub fn load_library(ctx: &VmContext, path: &Path) -> Result<()> {
     error::clear();
 
-    let lib = unsafe { open_library(path) }
+    ctx.core().loader().native_loading().check(super::NativeOrigin::RuntimeLoad)?;
+    let lib = unsafe { open_library(path, ctx.core().loader().native_loading()) }
         .map_err(anyhow::Error::from)
         .map_err(|e| {
             error::set(LIB_LOAD_FAILURE, format!("{e:#}"));
@@ -115,7 +116,7 @@ pub(crate) struct Libraries {
 
 /// Candidate policy injected by the host. The logical library name never carries a suffix.
 #[cfg(any(feature = "native-interop", feature = "component-loading"))]
-pub(crate) type PathSource = fn(&str) -> Vec<std::path::PathBuf>;
+pub(crate) type PathSource = fn(&str, &super::NativeLoading) -> Vec<std::path::PathBuf>;
 #[cfg(any(feature = "native-interop", feature = "component-loading"))]
 pub(crate) struct SearchPaths(pub(crate) PathSource);
 
@@ -134,11 +135,12 @@ pub(crate) fn resolve_symbol(
     library: &str,
     symbol: &str,
 ) -> Result<*mut std::ffi::c_void> {
-    if let Some(result) = super::linked::resolve(library, symbol) {
+    if let Some(result) = super::linked::resolve_with_policy(library, symbol, ctx.core().loader().native_loading()) {
         return result;
     }
     #[cfg(any(feature = "native-interop", feature = "component-loading"))]
     {
+        ctx.core().loader().native_loading().check(super::NativeOrigin::RuntimeLoad)?;
         let libraries = ctx
             .ext::<Libraries>()
             .ok_or_else(|| anyhow!("missing native loader VM state"))?;
@@ -148,11 +150,11 @@ pub(crate) fn resolve_symbol(
             None => {
                 let paths = path_source(ctx)?;
                 let result = (|| -> Result<_> {
-                    for candidate in paths(library) {
+                    for candidate in paths(library, ctx.core().loader().native_loading()) {
                         if !candidate.is_file() && !crate::pal::dynlib::is_loader_name(&candidate) {
                             continue;
                         }
-                        return unsafe { crate::loader::code::open(&candidate) }
+                        return unsafe { crate::loader::code::open(&candidate, ctx.core().loader().native_loading()) }
                             .map_err(anyhow::Error::from);
                     }
                     bail_native_missing(library)
@@ -196,8 +198,9 @@ fn bail_native_missing<T>(library: &str) -> Result<T> {
 /// Load a self-registering module through the same descriptor entry used for static linkage.
 #[cfg(feature = "component-loading")]
 pub fn load_native_module(ctx: &VmContext, path: &Path) -> Result<()> {
+    ctx.core().loader().native_loading().check(super::NativeOrigin::RuntimeLoad)?;
     crate::pal::dynlib::require_supported()?;
-    let image = unsafe { crate::loader::code::open(path)? };
+    let image = unsafe { crate::loader::code::open(path, ctx.core().loader().native_loading())? };
     let stem = path
         .file_stem()
         .and_then(OsStr::to_str)

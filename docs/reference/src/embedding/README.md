@@ -10,4 +10,4 @@
 - [原生互操作（native interop）](native-interop.md)
 - [Rust VM 扩展状态](vm-extensions.md)
 
-Rust 嵌入统一从 z42::host 导入接口与类型。LoadOptions.backends 可分别为 interp/JIT 选择 Auto（优先静态，再查动态库）、Linked、Dynamic(path) 或 Disabled；执行模式只选择可用后端。请求未链接、缺失、禁用或平台不支持的后端会返回错误。JIT 模式同时需要基线解释器。
+Rust 嵌入使用 z42::host 的加载与执行接口。LoadOptions.mode 请求执行模式，native 设置原生代码搜索目录和三种来源许可，allow_profiling 控制可选诊断能力。具体组件装配保持内部；显式 JIT 请求不可用时返回错误，不静默降级。

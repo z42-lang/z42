@@ -3,23 +3,23 @@
 #![cfg(feature = "shared-core")]
 use std::{path::PathBuf, sync::Arc};
 use z42::host::{
-    BackendOptions, BackendSource, ExecMode,
+    ExecMode,
     LoadOptions, LoadedProgram, Value, VmContext,
 };
 
 fn input(name: &str) -> PathBuf {
     std::env::var_os(name).map(PathBuf::from).expect("component verification must supply packaged fixture paths")
 }
-fn backends() -> BackendOptions {
-    let native = input("Z42_TEST_ENGINE_COMPONENT_DIR");
-    BackendOptions {
-        interp: BackendSource::Dynamic(native.join(format!("{}z42_interp{}", std::env::consts::DLL_PREFIX, std::env::consts::DLL_SUFFIX))),
-        jit: BackendSource::Dynamic(native.join(format!("{}z42_jit{}", std::env::consts::DLL_PREFIX, std::env::consts::DLL_SUFFIX))),
+fn native_loading() -> z42::loader::NativeLoading {
+    z42::loader::NativeLoading {
+        search_dirs: vec![input("Z42_TEST_ENGINE_COMPONENT_DIR")],
+        ..Default::default()
     }
 }
-fn load(mode: ExecMode, backends: BackendOptions) -> anyhow::Result<LoadedProgram> {
+
+fn load(mode: ExecMode, native: z42::loader::NativeLoading) -> anyhow::Result<LoadedProgram> {
     LoadedProgram::load_file(input("Z42_TEST_ENGINE_BYTECODE").to_str().unwrap(), LoadOptions {
-        mode, backends, search_dirs: vec![input("Z42_TEST_ENGINE_LIBS")], ..Default::default()
+        mode, native, search_dirs: vec![input("Z42_TEST_ENGINE_LIBS")], ..Default::default()
     })
 }
 fn echo(program: &LoadedProgram, value: i64) -> i64 {
@@ -31,7 +31,7 @@ fn echo(program: &LoadedProgram, value: i64) -> i64 {
 #[test]
 fn actual_dynamic_object_protocol_callbacks_and_execution_bridges_agree() {
     for mode in [ExecMode::Interp, ExecMode::Jit] {
-        let program = load(mode, backends()).unwrap();
+        let program = load(mode, native_loading()).unwrap();
         for _ in 0..2 {
             assert!(matches!(program.invoke("EngineComponentProbe.ObjectProtocolRoundtrip", &[]).unwrap(), Some(Value::I64(42))));
         }
@@ -45,8 +45,8 @@ fn actual_dynamic_engines_preserve_vm_isolation_worker_gc_and_exceptions() {
     // This test thread exits after both VMs/options drop. Backend/dependency TLS
     // destructors must still point into mapped native images at thread exit.
     for mode in [ExecMode::Interp, ExecMode::Jit] {
-        let first = load(mode, backends()).unwrap();
-        let second = load(mode, backends()).unwrap();
+        let first = load(mode, native_loading()).unwrap();
+        let second = load(mode, native_loading()).unwrap();
         assert_eq!(echo(&first, 40), 41);
         assert_eq!(echo(&first, 40), 42);
         assert_eq!(echo(&second, 40), 41);
@@ -71,7 +71,7 @@ fn actual_dynamic_engines_preserve_vm_isolation_worker_gc_and_exceptions() {
 }
 #[test]
 fn worker_retains_dynamic_execution_after_host_release() {
-    let program = load(ExecMode::Jit, backends()).unwrap();
+    let program = load(ExecMode::Jit, native_loading()).unwrap();
     assert_eq!(echo(&program, 5), 6);
     let weak = Arc::downgrade(program.context().core());
     let worker = VmContext::new_with_core(program.context().core_arc());
@@ -85,22 +85,18 @@ fn worker_retains_dynamic_execution_after_host_release() {
     assert!(weak.upgrade().is_none(), "backend state must not form a Core cycle");
 }
 #[test]
-fn missing_disabled_and_unlinked_backends_are_errors() {
-    let mut options = backends();
-    options.jit = BackendSource::Dynamic(input("Z42_TEST_ENGINE_COMPONENT_DIR").join("missing-jit-component"));
-    let error = load(ExecMode::Jit, options).err().unwrap().to_string();
+fn missing_and_disallowed_native_sources_are_errors() {
+    let mut native = native_loading();
+    native.search_dirs = vec![input("Z42_TEST_ENGINE_COMPONENT_DIR").join("missing-components")];
+    let error = load(ExecMode::Jit, native).err().unwrap().to_string();
     assert!(error.contains("was not found"), "{error}");
-    let mut options = backends();
-    options.jit = BackendSource::Disabled;
-    assert!(load(ExecMode::Jit, options).err().unwrap().to_string().contains("disabled"));
-    let mut options = backends();
-    options.jit = BackendSource::Linked;
-    assert!(load(ExecMode::Jit, options).err().unwrap().to_string().contains("not statically linked"));
-    let mut options = backends();
-    options.jit = BackendSource::Disabled;
-    assert_eq!(echo(&load(ExecMode::Interp, options).unwrap(), 5), 6);
+    let mut native = native_loading();
+    native.allow_runtime = false;
+    let error = load(ExecMode::Jit, native).err().unwrap().to_string();
+    assert!(error.contains("disabled"), "{error}");
+    // The rejected VM must not poison process-wide native code caches.
+    assert_eq!(echo(&load(ExecMode::Interp, native_loading()).unwrap(), 40), 41);
 }
-
 #[test]
 fn packaged_c_embedding_host_loads_components_and_shuts_down() {
     use std::{ffi::{c_char, CString}, ptr};
@@ -167,7 +163,7 @@ fn dynamic_interpreter_preserves_native_pin_instructions() {
         max_reg: 3, cold: None, reg_types: Box::new([]), block_index: Default::default(),
         branch_targets: vec![], frame_meta: None,
     })], Default::default());
-    let program = load(ExecMode::Interp, backends()).unwrap();
+    let program = load(ExecMode::Interp, native_loading()).unwrap();
     let ctx = program.context();
     let outcome = ctx.core().exec().engines.invoke_mode(ExecMode::Interp, ctx, &module, &module.functions[0], &[]).unwrap();
     assert!(matches!(outcome, ExecOutcome::Returned(Some(Value::I64(11)))));
@@ -175,8 +171,8 @@ fn dynamic_interpreter_preserves_native_pin_instructions() {
 
 #[test]
 fn actual_dynamic_profiler_is_lazy_isolated_and_releases_its_core() {
-    let a = load(ExecMode::Interp, backends()).unwrap();
-    let b = load(ExecMode::Interp, backends()).unwrap();
+    let a = load(ExecMode::Interp, native_loading()).unwrap();
+    let b = load(ExecMode::Interp, native_loading()).unwrap();
     assert!(!z42::host::profiler_loaded(a.context()));
     assert_eq!(echo(&a, 40), 41);
     assert!(!z42::host::profiler_loaded(a.context()));
@@ -194,12 +190,12 @@ fn actual_dynamic_profiler_is_lazy_isolated_and_releases_its_core() {
     assert!(weak.upgrade().is_none());
 }
 #[test]
-fn unlinked_profiler_fails_only_when_requested() {
+fn disabled_profiler_fails_only_when_requested() {
     let program = LoadedProgram::load_file(input("Z42_TEST_ENGINE_BYTECODE").to_str().unwrap(), LoadOptions {
-        mode: ExecMode::Interp, backends: backends(), profiler: BackendSource::Linked,
+        mode: ExecMode::Interp, native: native_loading(), allow_profiling: false,
         search_dirs: vec![input("Z42_TEST_ENGINE_LIBS")], ..Default::default()
     }).unwrap();
     assert_eq!(echo(&program, 40), 41);
     let error = z42::host::prepare_profiler(program.context()).unwrap_err().to_string();
-    assert!(error.contains("profiler") && error.contains("not statically linked"), "{error}");
+    assert!(error.contains("profiler") && error.contains("disabled"), "{error}");
 }

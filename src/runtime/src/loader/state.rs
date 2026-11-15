@@ -5,6 +5,7 @@ use crate::pal::fs::Vfs;
 use super::{LazyLoader, contexts::ContextRegistry, fusion_inputs::FusionInputSource};
 
 pub struct LoaderState {
+    native_loading: std::sync::OnceLock<super::NativeLoading>,
     pub fusion_inputs: FusionInputSource,
     /// Shared reads are sufficient after symbol registration; loading takes the write lock.
     pub lazy_loader: RwLock<Option<LazyLoader>>,
@@ -21,8 +22,16 @@ pub struct LoaderState {
 }
 
 impl LoaderState {
+    pub(crate) fn configure_native(&self, settings: super::NativeLoading) -> anyhow::Result<()> {
+        self.native_loading.set(settings).map_err(|_| anyhow::anyhow!("native loading settings are already frozen"))
+    }
+    pub(crate) fn native_loading(&self) -> &super::NativeLoading {
+        self.native_loading.get_or_init(Default::default)
+    }
+
     pub fn new(vfs: Arc<dyn Vfs>, fusion_inputs: FusionInputSource) -> Self {
         Self {
+            native_loading: Default::default(),
             fusion_inputs,
             lazy_loader: RwLock::new(None),
             pending_type_loads: Mutex::new(Vec::new()),

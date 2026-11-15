@@ -83,6 +83,13 @@ struct Z42NativeHostApi {
  * Host return_value copies borrowed data before returning. STR_ARRAY data points
  * to len Z42NativeValues, each with kind STR. VOID and NULL remain distinct.
  */
+/* Final-link composition. Registration is lazy and never modifies host errors.
+ * The resolver and returned code must remain valid through process exit.
+ * Returns Z42_NATIVE_OK or Z42_NATIVE_ERROR for invalid/conflicting registration. */
+typedef const void* (*Z42NativeSymbolResolver)(const char* name);
+uint32_t z42_native_register_static(const char* name, Z42NativeSymbolResolver resolve);
+uint32_t z42_native_register_shared(const char* name, Z42NativeSymbolResolver resolve);
+
 #ifdef __cplusplus
 }
 #endif

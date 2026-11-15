@@ -8,6 +8,7 @@ Process _componentTestProcess(string exe, string native) {
     return new Process(exe).WorkingDirectory(native)
         .EnvRemove("DYLD_LIBRARY_PATH").EnvRemove("DYLD_FALLBACK_LIBRARY_PATH").EnvRemove("LD_LIBRARY_PATH")
         .EnvRemove("Z42_HOME").EnvRemove("Z42_LIBS").EnvRemove("Z42_PORTABLE_VM")
+        .EnvRemove("Z42_NO_NATIVE_STATIC").EnvRemove("Z42_NO_NATIVE_SHARED").EnvRemove("Z42_NO_NATIVE_LOAD")
         .EnvRemove("Z42_CONFIG").EnvRemove("Z42_APP_CONFIG").EnvRemove("Z42_MODE")
         .Env("Z42_NATIVE_PATH", native).Env("RUST_MIN_STACK", "8388608").Stderr(Stdio.Inherit());
 }

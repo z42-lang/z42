@@ -130,11 +130,11 @@ fn role_queries_are_read_only_and_worker_leases_preserve_lifetime() {
 #[test]
 fn successful_attach_without_registering_the_requested_engine_is_rejected() {
     let _guard = LOCK.lock().unwrap();
-    let ctx = crate::host::vm_defaults::construct(None, crate::pal::fs::default_vfs(), Default::default(),
+    let ctx = crate::vm::defaults::construct(None, crate::pal::fs::default_vfs(), Default::default(),
         crate::exec::EngineRegistry::new(None));
     let options = unsafe { ComponentOptions::default().with_static(RENAMED, renamed) };
     options.install_bound(&ctx, ExecutionBindings::new([(api::ExecutionRole::Baseline, RENAMED)]).unwrap()).unwrap();
-    let error = super::api::attach_execution(&ctx, crate::zpkg::ExecMode::Interp).unwrap_err().to_string();
+    let error = super::api::attach_execution(&ctx, crate::zpkg::ExecMode::Interp, &crate::config::runtime_config_snapshot().jit_config()).unwrap_err().to_string();
     assert!(error.contains("did not register"), "{error}");
     assert!(!ctx.core().exec().engines.has_baseline());
 }
@@ -148,7 +148,7 @@ fn checking_a_real_library_candidate_does_not_open_it() {
     assert!(!crate::loader::code::is_loaded(&path));
     assert!(super::backends::known_source(&path));
     assert!(!crate::loader::code::is_loaded(&path), "a presence query loaded native code");
-    let _image = unsafe { crate::loader::code::open(&path) }.unwrap();
+    let _image = unsafe { crate::loader::code::open(&path, &Default::default()) }.unwrap();
     assert!(crate::loader::code::is_loaded(&path), "explicit preparation loads the same valid image");
     // Windows keeps mapped DLL files locked; the build directory owns this copy
     // until the test process exits and releases its process-lifetime image cache.

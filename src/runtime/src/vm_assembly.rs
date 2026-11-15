@@ -8,8 +8,21 @@ use crate::metadata::Module;
 use std::path::PathBuf;
 use std::pin::Pin;
 
-use super::program::{LoadOptions, LoadedProgram};
+use crate::host::program::{LoadOptions, LoadedProgram};
 use anyhow::Result;
+
+#[derive(Default)]
+pub(crate) struct ComponentInputs {
+    pub components: crate::components::api::ComponentOptions,
+    pub backends: crate::components::api::BackendOptions,
+    pub profiler: crate::components::api::BackendSource,
+}
+impl ComponentInputs {
+    pub(crate) fn for_request(options: &LoadOptions) -> Self {
+        Self { profiler: if options.allow_profiling { Default::default() }
+            else { crate::components::api::BackendSource::Disabled }, ..Default::default() }
+    }
+}
 
 /// Publish a callable program only after metadata and component setup succeeds.
 /// Initialization execution remains in the invocation and execution barriers.
@@ -17,15 +30,18 @@ pub(crate) fn build(
     module: Module,
     inputs: ProgramInputs,
     options: &LoadOptions,
+    components: &ComponentInputs,
     entry_hint: Option<String>,
     initial_events: Vec<(String, Option<u64>)>,
 ) -> Result<LoadedProgram> {
+    let jit_config = crate::config::runtime_config_snapshot().jit_config();
     let ctx = build_context(module, inputs);
+    ctx.core().loader().configure_native(options.native.clone())?;
     if let Some(module) = ctx.module() {
         resolve_tokens(&ctx, module);
     }
     crate::components::api::prepare_program(
-        &ctx, options.mode, &options.components, &options.backends, &options.profiler,
+        &ctx, options.mode, &components.components, &components.backends, &components.profiler, &jit_config,
     )?;
     for (name, byte_size) in initial_events {
         ctx.core().diagnostics().runtime_observers.fire(&crate::diagnostics::RuntimeEvent::ModuleLoaded {
@@ -58,20 +74,20 @@ fn build_context(mut module: Module, inputs: ProgramInputs) -> Pin<Box<VmContext
     // Availability needs built type/function indices and a mutable module. Fold
     // before Core takes ownership and before any token is resolved, so unavailable
     // branches never expose unresolved call sites to execution preparation.
-    let avail_stats = crate::host::artifact::fold_availability(
+    let avail_stats = crate::loader::fold_availability(
         &*inputs.vfs,
         &mut module,
         &inputs.declared_candidates,
     );
     if !avail_stats.is_noop() {
         // 剪枝改了块集合 → 派生侧表（block_index / branch_targets）必须按剪枝后的 CFG 重建。
-        crate::host::artifact::build_block_indices(&mut module);
+        crate::loader::build_block_indices(&mut module);
         crate::loader::package::build_func_index(&mut module);
         tracing::debug!("available!: {avail_stats:?}");
     }
 
     let string_pool_len = module.string_pool.len();
-    let ctx = super::vm_defaults::construct(
+    let ctx = super::defaults::construct(
         Some(module),
         inputs.vfs,
         Default::default(),

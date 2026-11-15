@@ -43,6 +43,8 @@ rustup target add aarch64-apple-ios aarch64-apple-ios-sim aarch64-apple-darwin
 
 模拟器选择 JIT：`Z42VM(..., execMode: .jit)`；运行时提供独立 `libz42_jit.a` / `z42_jit.framework`。真机请求 JIT 明确报错。
 
+静态 Swift 宿主通过统一 C 头中的 `z42_native_register_static` 登记 compression 提供方，检查 `Z42_NATIVE_OK`；该注册接口属于 loader，不使用 host 会话的 last-error。登记本身不调用解析器，脚本首次使用时才解析库符号。
+
 导出工程嵌入同批 interp/JIT、profiler、compression 与共享 std Framework。应用只链接 `z42.framework`；profiler 由核心在首次分析请求时加载。
 
 限制：单实例；同步 invoke；marshal 仅 null + `i64` / `f64` / `bool`。

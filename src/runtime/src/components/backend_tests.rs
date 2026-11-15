@@ -3,9 +3,9 @@ use crate::components::abi::*;
 use crate::host::{LoadedProgram, LoadOptions, ExecMode, VmContext};
 use std::sync::atomic::{AtomicUsize, Ordering};
 fn load(mode: ExecMode, backends: BackendOptions) -> anyhow::Result<LoadedProgram> {
-    LoadedProgram::load_bytes(&crate::host::program_tests::empty_zbc(), LoadOptions {
-        mode, backends, ..Default::default()
-    })
+    LoadedProgram::load_bytes_with_components(&crate::host::program_tests::empty_zbc(), LoadOptions {
+        mode, ..Default::default()
+    }, crate::vm::assembly::ComponentInputs { backends, ..Default::default() })
 }
 fn failure(mode: ExecMode, options: BackendOptions) -> String {
     format!("{:#}", load(mode, options).err().expect("backend selection must fail"))
@@ -76,11 +76,11 @@ unsafe extern "C" fn foreign_init() -> *const ComponentDescriptor { &FOREIGN_DES
 #[test]
 fn another_core_is_rejected_before_any_vm_address_is_passed_to_it() {
     ATTACH_CALLS.store(0, Ordering::Relaxed);
-    let ctx = crate::host::vm_defaults::construct(None, crate::pal::fs::default_vfs(), Default::default(),
+    let ctx = crate::vm::defaults::construct(None, crate::pal::fs::default_vfs(), Default::default(),
         crate::exec::EngineRegistry::new(None));
     let components = unsafe { ComponentOptions::default().with_static(INTERP_COMPONENT, foreign_init) };
     components.install_bound(&ctx, super::execution_roles::ExecutionBindings::new([(super::api::ExecutionRole::Baseline, INTERP_COMPONENT)]).unwrap()).unwrap();
-    let error = super::api::attach_execution(&ctx, ExecMode::Interp).unwrap_err();
+    let error = super::api::attach_execution(&ctx, ExecMode::Interp, &crate::config::runtime_config_snapshot().jit_config()).unwrap_err();
     assert!(error.to_string().contains("core image or ABI mismatch"));
     assert_eq!(ATTACH_CALLS.load(Ordering::Relaxed), 0);
 }
@@ -104,10 +104,10 @@ static WRONG_ABI_DESCRIPTOR: ComponentDescriptor = ComponentDescriptor {
 unsafe extern "C" fn wrong_abi_init() -> *const ComponentDescriptor { &WRONG_ABI_DESCRIPTOR }
 #[test]
 fn same_image_with_incompatible_compiled_layout_is_rejected() {
-    let ctx = crate::host::vm_defaults::construct(None, crate::pal::fs::default_vfs(), Default::default(),
+    let ctx = crate::vm::defaults::construct(None, crate::pal::fs::default_vfs(), Default::default(),
         crate::exec::EngineRegistry::new(None));
     let components = unsafe { ComponentOptions::default().with_static(INTERP_COMPONENT, wrong_abi_init) };
     components.install_bound(&ctx, super::execution_roles::ExecutionBindings::new([(super::api::ExecutionRole::Baseline, INTERP_COMPONENT)]).unwrap()).unwrap();
-    assert!(super::api::attach_execution(&ctx, ExecMode::Interp).unwrap_err().to_string().contains("core image or ABI mismatch"));
+    assert!(super::api::attach_execution(&ctx, ExecMode::Interp, &crate::config::runtime_config_snapshot().jit_config()).unwrap_err().to_string().contains("core image or ABI mismatch"));
     assert_eq!(ATTACH_CALLS.load(Ordering::Relaxed), 0);
 }

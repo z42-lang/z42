@@ -28,14 +28,17 @@ fn actual_code_images_converge_across_threads_and_outlive_callers() {
         let barrier = barrier.clone();
         std::thread::spawn(move || {
             barrier.wait();
-            unsafe { super::open(&path) }.unwrap()
+            unsafe { super::open(&path, &Default::default()) }.unwrap()
         })
     }).collect();
     let images: Vec<_> = threads.into_iter().map(|thread| thread.join().unwrap()).collect();
     assert!(images.iter().all(|image| Arc::ptr_eq(&images[0], image)));
     let alias = directory.join(".").join(path.file_name().unwrap());
-    assert!(Arc::ptr_eq(&images[0], &unsafe { super::open(&alias) }.unwrap()));
+    assert!(Arc::ptr_eq(&images[0], &unsafe { super::open(&alias, &Default::default()) }.unwrap()));
     assert!(super::is_loaded(&alias));
+    let denied = super::super::NativeLoading { allow_runtime: false, ..Default::default() };
+    assert_eq!(unsafe { super::open(&alias, &denied) }.err().unwrap().kind(), std::io::ErrorKind::PermissionDenied);
+    assert!(Arc::ptr_eq(&images[0], &unsafe { super::open(&alias, &Default::default()) }.unwrap()));
     let weak = Arc::downgrade(&images[0]);
     assert!(unsafe { images[0].symbol::<extern "C" fn()>("missing_symbol") }.is_err());
     drop(images);
@@ -52,9 +55,18 @@ fn invalid_images_are_not_published_or_cached_as_success() {
     let path = directory.join(crate::pal::dynlib::file_name("invalid"));
     std::fs::write(&path, b"not native code").unwrap();
     for _ in 0..2 {
-        assert!(unsafe { super::open(&path) }.is_err());
+        assert!(unsafe { super::open(&path, &Default::default()) }.is_err());
         assert!(!super::is_loaded(&path));
     }
     std::fs::remove_dir_all(directory).unwrap();
 }
 
+
+#[test]
+fn denied_load_does_not_probe_paths_or_reuse_cached_permission() {
+    let denied = super::super::NativeLoading { allow_runtime: false, ..Default::default() };
+    let missing = std::env::temp_dir().join("z42-denied-image-never-created");
+    let error = unsafe { super::open(&missing, &denied) }.err().unwrap();
+    assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+    assert!(!super::is_loaded(&missing));
+}

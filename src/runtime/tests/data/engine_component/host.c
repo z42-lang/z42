@@ -3,6 +3,10 @@
 #define _GNU_SOURCE
 #endif
 #include "z42_host.h"
+#ifdef Z42_COMPONENT_SHARED
+#define z42_native_register_static z42_native_register_shared
+#define z42_component_register_static z42_component_register_shared
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -40,7 +44,7 @@ typedef Z42HostStatus (*Shutdown)(Z42HostRef);
 typedef Z42Error (*LastError)(Z42HostRef);
 typedef uint32_t (*Register)(Z42ComponentId, Z42ComponentInit);
 #define REQUIRE(condition) do { if (!(condition)) { fprintf(stderr, "C host check failed at line %d: %s\n", __LINE__, #condition); return 1; } } while (0)
-typedef Z42HostStatus (*RegisterNative)(const char*, Z42NativeSymbolResolver);
+typedef uint32_t (*RegisterNative)(const char*, Z42NativeSymbolResolver);
 struct Api { RegisterNative native; Initialize initialize; Load load; Resolve resolve; Invoke invoke;
     Shutdown shutdown; LastError error; Register reg; };
 static const Z42ComponentDescriptor* conflicting_factory(void) { return NULL; }
@@ -62,7 +66,8 @@ static int failure(struct Api* api, Z42HostRef host, int expect_missing) {
     Z42Error error = api->error(host);
     const char* message = error.message ? error.message : "no error message";
     fprintf(stderr, "component host: %s\n", message);
-    int missing = expect_missing == 3 ? strstr(message, "profiler") != NULL
+    int missing = expect_missing == 4 ? strstr(message, "disabled by this VM") != NULL
+        : expect_missing == 3 ? strstr(message, "profiler") != NULL
         : expect_missing == 2 ? strstr(message, "compression") != NULL
         : expect_missing && (strstr(message, "JIT") || strstr(message, "jit") || strstr(message, "Jit"));
     if (host) api->shutdown(host);
@@ -71,6 +76,7 @@ static int failure(struct Api* api, Z42HostRef host, int expect_missing) {
 int main(int argc, char** argv) {
     if (argc < 5) return 2; /* core path, bytecode, libs, mode, [expect-missing] */
     int expect_missing = argc > 5 && strcmp(argv[5], "expect-missing") == 0;
+    if (argc > 5 && strcmp(argv[5], "source-denied") == 0) expect_missing = 4;
     int sampling = argc > 5 && strncmp(argv[5], "sampling", 8) == 0;
     if (sampling && strcmp(argv[5], "sampling-missing") == 0) expect_missing = 3;
     const char* sample_hz = getenv("Z42_SAMPLE_HZ");
@@ -97,7 +103,7 @@ int main(int argc, char** argv) {
     }
 #define BIND(field, type, name) api.field = (type)SYMBOL(library, name); if (!api.field) return 1
     REQUIRE(SYMBOL(library, "z42_host_register_static_component") == NULL);
-    BIND(native, RegisterNative, "z42_host_register_static_native_library");
+    BIND(native, RegisterNative, "z42_native_register_static");
     BIND(initialize, Initialize, "z42_host_initialize");
     BIND(load, Load, "z42_host_load_zbc");
     BIND(resolve, Resolve, "z42_host_resolve_entry");
@@ -109,7 +115,7 @@ int main(int argc, char** argv) {
     LinkedInit linked_init = (LinkedInit)SYMBOL(library, "z42_linked_components_init");
     if (!linked_init || linked_init() != 0) return 1;
 #else
-    api = (struct Api){ z42_host_register_static_native_library, z42_host_initialize, z42_host_load_zbc, z42_host_resolve_entry,
+    api = (struct Api){ z42_native_register_static, z42_host_initialize, z42_host_load_zbc, z42_host_resolve_entry,
         z42_host_invoke, z42_host_shutdown, z42_host_last_error, z42_component_register_static };
     if (api.reg(Z42_COMPONENT_INTERP, NULL) != Z42_COMPONENT_INVALID_ARGUMENT) return 1;
     if (api.reg(Z42_COMPONENT_INTERP, z42_interp_init) != Z42_COMPONENT_OK) return 1;
@@ -122,9 +128,9 @@ int main(int argc, char** argv) {
     REQUIRE(api.reg(Z42_COMPONENT_PROFILER, z42_profiler_init) == Z42_COMPONENT_OK);
 #endif
 #ifdef Z42_COMPONENT_HAS_COMPRESSION
-    REQUIRE(api.native("z42_compression", z42_compression_get_symbol) == Z42_HOST_OK);
-    REQUIRE(api.native("z42_compression", z42_compression_get_symbol) == Z42_HOST_OK);
-    REQUIRE(api.native("z42_compression", empty_resolver) == Z42_HOST_ERR_BAD_CONFIG);
+    REQUIRE(api.native("z42_compression", z42_compression_get_symbol) == Z42_NATIVE_OK);
+    REQUIRE(api.native("z42_compression", z42_compression_get_symbol) == Z42_NATIVE_OK);
+    REQUIRE(api.native("z42_compression", empty_resolver) == Z42_NATIVE_ERROR);
     REQUIRE(z42_compression_get_symbol(NULL) == NULL);
     REQUIRE(z42_compression_get_symbol("unknown_symbol") == NULL);
 #endif
@@ -133,9 +139,9 @@ int main(int argc, char** argv) {
     if (argc > 6) REQUIRE(!module_loaded(argv[6]));
     if (argc > 7) REQUIRE(!module_loaded(argv[7]));
 #endif
-    REQUIRE(api.native(NULL, empty_resolver) == Z42_HOST_ERR_BAD_CONFIG);
-    REQUIRE(api.native("z42_compression", NULL) == Z42_HOST_ERR_BAD_CONFIG);
-    REQUIRE(api.native("../invalid_library", empty_resolver) == Z42_HOST_ERR_BAD_CONFIG);
+    REQUIRE(api.native(NULL, empty_resolver) == Z42_NATIVE_ERROR);
+    REQUIRE(api.native("z42_compression", NULL) == Z42_NATIVE_ERROR);
+    REQUIRE(api.native("../invalid_library", empty_resolver) == Z42_NATIVE_ERROR);
     const char* search[] = { argv[3], NULL };
     Z42HostConfig cfg = {0};
     cfg.abi_version = Z42_HOST_ABI_VERSION; cfg.struct_size = sizeof(cfg);
@@ -152,7 +158,7 @@ int main(int argc, char** argv) {
     fclose(file);
     Z42ModuleRef module = NULL;
     if (api.load(host, bytes, (size_t)length, &module) != Z42_HOST_OK) return failure(&api, host, expect_missing);
-    if (expect_missing == 1 || expect_missing == 3) { fprintf(stderr, "missing component unexpectedly loaded\n"); return 1; }
+    if (expect_missing == 1 || expect_missing == 3 || expect_missing == 4) { fprintf(stderr, "missing component unexpectedly loaded\n"); return 1; }
     Z42EntryRef entry = NULL;
     if (api.resolve(host, module, "EngineComponentProbe.Echo", &entry) != Z42_HOST_OK) return failure(&api, host, 0);
     for (uint64_t i = 40; i < 43; ++i) {

@@ -17,6 +17,20 @@ pub unsafe extern "C" fn z42_component_register_static(
     }
 }
 
+/// Register a linked shared-library provider without opening it or calling init.
+/// # Safety
+/// The factory and library must satisfy the same-build ABI and process lifetime.
+#[no_mangle]
+pub unsafe extern "C" fn z42_component_register_shared(
+    id: ComponentId, init: Option<ComponentInit>,
+) -> ComponentStatus {
+    let Some(init) = init else { return ComponentStatus::INVALID_ARGUMENT; };
+    match std::panic::catch_unwind(|| unsafe { super::linked::register_shared_component(id, init) }) {
+        Ok(Ok(())) => ComponentStatus::OK,
+        Ok(Err(_)) | Err(_) => ComponentStatus::ERROR,
+    }
+}
+
 /// Final static archives provide their selected composition. A dynamic Core
 /// discovers providers during preparation and has no linked defaults.
 #[cfg(not(feature = "static-embedding"))]

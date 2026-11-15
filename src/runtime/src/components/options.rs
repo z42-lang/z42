@@ -7,10 +7,11 @@ use crate::vm::VmContext;
 use anyhow::{bail, Result};
 use std::{
     path::PathBuf,
-    sync::{Arc, OnceLock},
 };
 use crate::components::abi::*;
 use super::execution_roles::ExecutionBindings;
+#[cfg(test)]
+use std::sync::Arc;
 
 /// Immutable component selection. Clones share the factory load result; each VM
 /// receives new instances. Rebuild these options to retry a failed library load.
@@ -18,7 +19,6 @@ use super::execution_roles::ExecutionBindings;
 pub struct ComponentOptions {
     registrations: Vec<Registration>,
     roots: Vec<ComponentId>,
-    catalog: Option<Arc<OnceLock<Result<Arc<Catalog>, String>>>>,
 }
 impl ComponentOptions {
     /// Select a statically linked factory. Its direct function reference keeps it
@@ -27,8 +27,14 @@ impl ComponentOptions {
     /// # Safety
     /// init and every returned descriptor span/table/callback must satisfy the
     /// component ABI, concurrency and lifetime contracts. No unwinding is allowed.
+    #[cfg(test)]
     pub unsafe fn with_static(mut self, id: ComponentId, init: ComponentInit) -> Self {
         self = unsafe { self.with_static_provider(id, init) };
+        self.roots.push(id);
+        self
+    }
+    pub(super) unsafe fn with_linked(mut self, id: ComponentId, init: ComponentInit, origin: crate::loader::NativeOrigin) -> Self {
+        self.registrations.push(Registration::Linked { id, init, origin, cache: Default::default() });
         self.roots.push(id);
         self
     }
@@ -37,9 +43,9 @@ impl ComponentOptions {
     ///
     /// # Safety
     /// The factory obeys the same ABI and lifetime contract as [`Self::with_static`].
+    #[cfg(test)]
     pub unsafe fn with_static_provider(mut self, id: ComponentId, init: ComponentInit) -> Self {
-        self.registrations.push(Registration::Static { id, init, cache: Default::default() });
-        self.catalog = Some(Arc::new(OnceLock::new()));
+        self.registrations.push(Registration::Linked { id, init, origin: crate::loader::NativeOrigin::StaticLink, cache: Default::default() });
         self
     }
     /// Select a trusted native library and its C descriptor entrypoint.
@@ -68,13 +74,12 @@ impl ComponentOptions {
         path: impl Into<PathBuf>,
         symbol: impl Into<String>,
     ) -> Self {
-        self.registrations.push(Registration::Dynamic {
+        self.registrations.push(Registration::Runtime {
             id,
             path: path.into(),
             symbol: symbol.into(),
             cache: Default::default(),
         });
-        self.catalog = Some(Arc::new(OnceLock::new()));
         self
     }
     pub(crate) fn merged(&self, extra: &Self) -> Self {
@@ -82,7 +87,7 @@ impl ComponentOptions {
         registrations.extend(extra.registrations.iter().cloned());
         let mut roots = self.roots.clone();
         roots.extend(extra.roots.iter().copied());
-        Self { registrations, roots, catalog: Some(Arc::new(OnceLock::new())) }
+        Self { registrations, roots }
     }
     #[cfg(test)]
     pub(super) fn install(&self, ctx: &VmContext) -> Result<()> {
@@ -92,39 +97,26 @@ impl ComponentOptions {
         if ctx.core().components().get().is_some() {
             bail!("VM component registrations are already frozen");
         }
-        let components = self.create_bound(ctx.heap().heap_epoch(), execution)?;
+        let components = self.create_bound(ctx.heap().heap_epoch(), execution, ctx.core().loader().native_loading())?;
         ctx.core()
             .components()
             .set(components)
             .map_err(|_| anyhow::anyhow!("VM component registrations are already frozen"))
     }
-    pub(super) fn create(&self, vm_id: u64) -> Result<VmComponents> {
-        self.create_bound(vm_id, ExecutionBindings::default())
+    pub(super) fn create(&self, vm_id: u64, policy: &crate::loader::NativeLoading) -> Result<VmComponents> {
+        self.create_bound(vm_id, ExecutionBindings::default(), policy)
     }
-    fn create_bound(&self, vm_id: u64, execution: ExecutionBindings) -> Result<VmComponents> {
-        match &self.catalog {
-            None => VmComponents::create_bound(&[], vm_id, execution),
-            Some(cell) => {
-                let catalog = cell.get_or_init(|| {
-                    Catalog::load(&self.registrations, &self.roots)
-                        .map(Arc::new)
-                        .map_err(|e| format!("{e:#}"))
-                });
-                let catalog = catalog.as_ref().map_err(|e| anyhow::anyhow!("{e}"))?;
-                VmComponents::create_bound(&catalog.factories, vm_id, execution)
-            }
-        }
+    fn create_bound(&self, vm_id: u64, execution: ExecutionBindings, policy: &crate::loader::NativeLoading) -> Result<VmComponents> {
+        // Recheck admission on every VM, even when factory/code caches are warm.
+        // Policy rejection must not populate a shared initialization failure cache.
+        let catalog = Catalog::load(&self.registrations, &self.roots, policy)?;
+        VmComponents::create_bound(&catalog.factories, vm_id, execution)
     }
     #[cfg(test)]
     pub(super) fn catalog_for_test(&self) -> Arc<Catalog> {
-        self.catalog
-            .as_ref()
-            .unwrap()
-            .get_or_init(|| Catalog::load(&self.registrations, &self.roots).map(Arc::new).map_err(|e| format!("{e:#}")))
-            .as_ref()
-            .unwrap()
-            .clone()
+        Arc::new(Catalog::load(&self.registrations, &self.roots, &Default::default()).unwrap())
     }
+
 }
 
 /// Query a registered component without transferring its state or library ownership.
@@ -138,7 +130,7 @@ pub fn component_interface<T: ComponentInterface>(
         let interface = components.lease(id, ctx.core_arc())?;
         if interface.is_some() { return Ok(interface); }
     }
-    match ctx.core().diagnostics().sampler.components() {
+    match ctx.core().profiling().components() {
         Some(components) => components.lease(id, ctx.core_arc()),
         None => Ok(None),
     }
@@ -147,7 +139,7 @@ pub fn component_interface<T: ComponentInterface>(
 #[cfg(test)]
 pub fn component_ids(ctx: &VmContext) -> Vec<ComponentId> {
     let mut ids = ctx.core().components().get().map_or_else(Vec::new, VmComponents::ids);
-    if let Some(components) = ctx.core().diagnostics().sampler.components() {
+    if let Some(components) = ctx.core().profiling().components() {
         for id in components.ids() { if !ids.contains(&id) { ids.push(id); } }
     }
     ids

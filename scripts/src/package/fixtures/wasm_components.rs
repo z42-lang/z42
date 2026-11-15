@@ -33,7 +33,7 @@ extern "C" {
     #[cfg(compression)]
     fn z42_compression_get_symbol(name: *const u8) -> *const c_void;
     #[cfg(compression)]
-    fn z42_host_register_static_native_library(name: *const u8, resolver: unsafe extern "C" fn(*const u8) -> *const c_void) -> i32;
+    fn z42_native_register_static(name: *const u8, resolver: unsafe extern "C" fn(*const u8) -> *const c_void) -> u32;
 }
 // JS stores immutable zpkg/zbc data here; runtime allocations use a separate heap.
 static mut INPUT: [u8; 64 * 1024 * 1024] = [0; 64 * 1024 * 1024];
@@ -52,7 +52,7 @@ pub unsafe extern "C" fn run(bytes: *const u8, length: usize) -> i32 {
     let id = ComponentId(*b"z42.interp.v1\0\0\0");
     if unsafe { z42_component_register_static(id, z42_interp_init) } != 0 { return 1; }
     #[cfg(compression)]
-    if unsafe { z42_host_register_static_native_library(b"z42_compression\0".as_ptr(), z42_compression_get_symbol) } != 0 { return 2; }
+    if unsafe { z42_native_register_static(b"z42_compression\0".as_ptr(), z42_compression_get_symbol) } != 0 { return 2; }
     #[cfg(profiler)]
     if unsafe { z42_component_register_static(ComponentId(*b"z42.profiler.v1\0"), z42_profiler_init) } != 0 { return 11; }
     let config = Config { version: 2, size: core::mem::size_of::<Config>() as u32, mode: 1,

@@ -31,7 +31,7 @@ fn gate_dispatch_errors_and_backend_lifetime() {
     for enabled in [false, true] {
         let polls = Arc::new(AtomicUsize::new(0));
         let drops = Arc::new(AtomicUsize::new(0));
-        let sampling = Sampling::with_config(enabled.then_some(100), false);
+        let sampling = Sampling::with_config(enabled.then_some(100), false, |_, _, _| unreachable!("installed backend needs no preparation"));
         sampling.install(Box::new(Backend { polls: polls.clone(), drops: drops.clone() })).ok().unwrap();
         assert_eq!(sampling.enabled(), enabled);
         sampling.poll(&ctx);
