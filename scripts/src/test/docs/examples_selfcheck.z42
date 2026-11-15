@@ -80,6 +80,16 @@ void _selfcheckExampleParallel() {
         _gateAssert(!runs[0].Failed && !runs[1].Failed && runs[0].Steps == 2 && runs[1].Steps == 2,
             "concurrent transcripts keep ordered commands in independent sandboxes");
         _gateAssert(!File.Exists(Path.Join(dir, "value.txt")), "transcript working directories do not escape the sandbox");
+        File.WriteAllText(path, "$ cd child\n$ cat value.txt\nwrong\n");
+        ExampleRunResult bad = _runExampleSession(path, (string c) => _runTranscript("", c, 1000, false, false));
+        _gateAssert(bad.Failed && bad.Diagnostics.Contains(path + ":") && bad.Diagnostics.Contains("$ cat value.txt"),
+            "transcript mismatch keeps source location and command diagnostics");
+        foreach (var line in bad.Diagnostics.Split("\n")) {
+            string kept = line.Trim();
+            if (kept.StartsWith("sandbox kept: ")) { Directory.Delete(kept.Substring(14), true); }
+        }
+        ExampleRunResult blessed = _runTranscript("", path, 1000, true, false);
+        _gateAssert(blessed.Blessed && !blessed.Failed && File.ReadAllText(path).Contains("ordered"), "bless rewrites expected output");
     } finally { Directory.Delete(dir, true); }
     Console.WriteLine("  ✓ examples parallel: overlap, exactly once, ordered results, exceptions, empty queue and sandbox isolation");
 }

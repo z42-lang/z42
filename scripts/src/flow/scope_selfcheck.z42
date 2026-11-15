@@ -10,7 +10,8 @@ void _flowScopeChecks(FlowConfig cfg) {
         FlowPlan p = _flowSelect(cfg, new string[]{ file }, root);
         string[] flags = _flowOutputs(cfg, p);
         _gateAssert(!p.Full && !p.Publish && _strIn(flags, "examples") && !_strIn(flags, "runtime_checks")
-            && !_strIn(flags, "platform") && !_strIn(flags, "bench_vm"), "example executor validates SDK sessions without unrelated platforms: " + file);
+            && _strIn(flags, "toolchain_build") && !_strIn(flags, "host_checks")
+            && _flowPackageRequired(p, flags, true) && !_strIn(flags, "platform") && !_strIn(flags, "bench_vm"), "example executor validates SDK sessions without unrelated platforms: " + file);
     }
     string[] control = new string[]{ "scripts/src/flow/planner.z42", "scripts/src/ci/bench.z42",
         "scripts/src/test/changed.z42", "scripts/src/test/gate.z42", "scripts/src/common/versions.z42",
