@@ -3,6 +3,8 @@ using Std.IO;
 using Std.Json;
 
 int _testCargoArtifactInputs() {
+    _testHostToolVm();
+    _testPackagedDesktopPreparation();
     string work = _xtaskWork(_root(), "cargo-artifacts-selfcheck");
     _resetDir(work);
     try {
@@ -58,4 +60,62 @@ void _testStagedStdInputs(string work) {
     if (File.ReadAllText(Path.Join(dest, name)) != "producer std") {
         throw new Exception("cargo-artifacts: rejected copy changed destination");
     }
+}
+
+void _testHostToolVm() {
+    string root = _root();
+    string tree = _xtaskWork(root, "host-tool-vm");
+    _resetDir(tree);
+    try {
+        Directory.Create(Path.Join(tree, "src/runtime/.cargo"));
+        File.Copy(Path.Join(root, _runtimeCargoConfig()), Path.Join(tree, _runtimeCargoConfig()));
+        string name = Platform.IsWindows() ? "z42vm.exe" : "z42vm";
+        string ordinary = _builtVm(tree, "release");
+        string component = Path.Join(_componentCargoOut(tree, "release"), name);
+        string debug = Path.Join(_componentCargoOut(tree, "debug"), name);
+        foreach (var path in new string[]{ ordinary, component, debug }) {
+            Directory.Create(Path.GetDirectoryName(path)); File.WriteAllText(path, "producer entry");
+        }
+        _gateAssert(_hostToolVm(tree, "release") == ordinary, "host tools retain the ordinary producer when present");
+        File.Delete(ordinary);
+        _gateAssert(_hostToolVm(tree, "release") == component, "read-only consumers can use the package producer without rebuilding");
+        _gateAssert(_builtVm(tree, "release") == ordinary, "consumer selection never redirects Cargo outputs");
+        File.WriteAllText(component, "");
+        bool rejected = false;
+        try { _hostToolVm(tree, "release"); } catch (Exception e) { rejected = true; }
+        _gateAssert(rejected, "empty release entries do not silently select debug");
+        _gateAssert(_hostToolVm(tree, "release", true) == debug, "only callers requesting debug fallback use it");
+        File.Delete(debug); rejected = false;
+        try { _hostToolVm(tree, "release", true); } catch (Exception e) { rejected = true; }
+        _gateAssert(rejected, "no host producer is an error");
+    } finally { Directory.Delete(tree, true); }
+    Console.WriteLine("  PASS host tool VM: ordinary/package producer, strict output paths, explicit debug and missing entries");
+}
+
+void _testPackagedDesktopPreparation() {
+    string root = _root();
+    string tree = _xtaskWork(root, "packaged-desktop-preparation");
+    string? previous = Environment.GetEnvironmentVariable("Z42_RUNTIME_DIR");
+    _resetDir(tree);
+    try {
+        Directory.Create(Path.Join(tree, "scripts"));
+        File.Copy(Path.Join(root, "scripts/versions.toml"), Path.Join(tree, "scripts/versions.toml"));
+        string pkg = Path.Join(tree, "runtime"); Directory.Create(pkg);
+        RepoRoot.Value = tree;
+        Environment.SetEnvironmentVariable("Z42_RUNTIME_DIR", pkg);
+        var command = new TestAppCommand();
+        _gateAssert(command.Invoke(new string[]{ "desktop", "build" }) != 0, "missing packaged native payload is rejected");
+        _gateAssert(!Directory.Exists(Path.Join(tree, "artifacts")), "packaged C ABI validation does not prepare an unused builder or ordinary VM");
+        Directory.Create(Path.Join(pkg, "native"));
+        File.WriteAllText(Path.Join(pkg, "native/libz42.a"), "packaged native marker");
+        var present = new TestAppCommand();
+        _gateAssert(present.Invoke(new string[]{ "desktop", "build" }) == 0, "packaged build consumes native payload without requiring source toolchain");
+        _gateAssert(!Directory.Exists(Path.Join(tree, "artifacts")), "valid packaged build creates no compiler artifacts");
+    } finally {
+        RepoRoot.Value = root;
+        if (previous == null) { Environment.UnsetEnvironmentVariable("Z42_RUNTIME_DIR"); }
+        else { Environment.SetEnvironmentVariable("Z42_RUNTIME_DIR", previous); }
+        Directory.Delete(tree, true);
+    }
+    Console.WriteLine("  PASS packaged desktop: native payload errors without builder preparation");
 }

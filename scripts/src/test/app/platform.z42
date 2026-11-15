@@ -92,8 +92,7 @@ int _platformAssets(IPlatformBackend b, string root) {
         ConsoleError.WriteLine("error: z42c driver not built (artifacts/build/compiler/z42c.*/release/dist); run build compiler");
         return 1;
     }
-    string vm = _builtVm(root, "release");
-    if (!File.Exists(vm)) { vm = _builtVm(root, "debug"); }
+    string vm = _hostToolVm(root, "release", true);
     string driverZpkg = Path.Join(driverHome, "z42c.driver.zpkg");
     string stdlibDist = _libsDir(root);
     AssetLayout layout = b.Assets(root);

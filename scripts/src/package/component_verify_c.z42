@@ -180,7 +180,8 @@ int _componentVerifyBundle(string root, string rid, string profile) {
     string work = _xtaskWork(root, "component-c-" + rid + "-" + profile);
     _resetDir(work);
     string zbc = Path.Join(work, "engine.zbc");
-    Process compile = _z42cProcMode(_builtVm(root, "release"), _libsDir(root), _driverZpkg(root, "release"), "interp")
+    string vm = rid == _detectHostRid() ? _pkgHostVm(_componentCargoOut(root, profile)) : _hostToolVm(root, "release");
+    Process compile = _z42cProcMode(vm, _libsDir(root), _driverZpkg(root, "release"), "interp")
         .Arg("--emit-zbc").Arg(Path.Join(root, "src/runtime/tests/data/engine_component/source.z42")).Arg(zbc);
     int c = _exec(compile); if (c != 0) { return c; }
     if (rid == "browser-wasm") { return _componentWasmVerify(root, pkg, zbc, work); }

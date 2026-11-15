@@ -6,6 +6,12 @@ using Std.IO;
 void _flowScopeChecks(FlowConfig cfg) {
     string root = _root();
     _flowReleasePreparationChecks(cfg, root);
+    FlowPlan process = _flowSelect(cfg, new string[]{ "scripts/src/common/process.z42" }, root);
+    string[] processFlags = _flowOutputs(cfg, process);
+    _gateAssert(!process.Full && _strIn(processFlags, "sdk_checks") && _strIn(processFlags, "platform")
+        && _strIn(processFlags, "host_checks") && !_strIn(processFlags, "bench_vm")
+        && !_strIn(processFlags, "bench_stdlib") && !_strIn(processFlags, "bench_integration"),
+        "shared process infrastructure retains build, package and host contracts without unknown-path performance fallback");
     foreach (var file in new string[]{ "scripts/src/test/docs/examples.z42", "scripts/src/test/docs/examples_parallel.z42", "scripts/src/test/docs/examples_run.z42", "scripts/src/test/docs/examples_transcript.z42" }) {
         FlowPlan p = _flowSelect(cfg, new string[]{ file }, root);
         string[] flags = _flowOutputs(cfg, p);

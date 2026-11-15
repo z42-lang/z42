@@ -37,7 +37,8 @@ int _testApp(TestAppCommand c) {
     }
     string root = _root();
     // z42b 每次增量重编（源未变时近 no-op）：只查「在不在」会让本地改过 z42b 源后继续跑旧的 z42b。
-    int dep = _ensureZ42b(root); if (dep != 0) { return dep; }
+    bool packagedDesktop = which == "desktop" && zbc.Length == 0 && step != "bundle" && _desktopRuntimeDir().Length > 0;
+    if (!packagedDesktop) { int dep = _ensureZ42b(root); if (dep != 0) { return dep; } }
     if (zbc.Length > 0) { return _runDesktopEmbedded(root, "", zbc, format, 0, 0); }
 
     string[] outcome = new string[plats.Length];
