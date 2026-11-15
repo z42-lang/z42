@@ -143,11 +143,20 @@ int _testPackagesInstall() {
     _stgAssert("SDK C headers excluded", !Directory.Exists(Path.Join(sdkDir, "native/include")));
     _stgAssert("SDK import lib excluded", !File.Exists(Path.Join(sdkDir, "native/z42.dll.lib"))
         && !File.Exists(Path.Join(sdkDir, "native/z42_compression.dll.lib")));
+    _stgAssert("SDK build and publication use their producer VM", _pkgHostVm(fakeCargoOut) == Path.Join(fakeCargoOut, vmName));
     // Consume only the public runtime artifact: no private entry build directory.
     _stgAssert("no native executable", !File.Exists(Path.Join(sdkDir, "native/z42vm.exe"))
         && !File.Exists(Path.Join(sdkDir, "native/z42vm")));
     _stgAssert("Core only in native", !File.Exists(Path.Join(sdkDir, "bin/" + _componentLibrary("z42"))));
     _stgAssert("no shared std in bin", Path.Glob(Path.Join(sdkDir, "bin"), _componentStdPattern()).Length == 0);
+    File.Delete(Path.Join(fakeCargoOut, vmName));
+    bool missingProducerRejected = false;
+    try { _pkgHostVm(fakeCargoOut); } catch (Exception e) { missingProducerRejected = true; }
+    _stgAssert("missing producer entry never falls back to an unrelated host VM", missingProducerRejected);
+    File.WriteAllText(Path.Join(fakeCargoOut, vmName), "");
+    missingProducerRejected = false;
+    try { _pkgHostVm(fakeCargoOut); } catch (Exception e) { missingProducerRejected = true; }
+    _stgAssert("empty producer entry is rejected", missingProducerRejected);
     File.Delete(Path.Join(fakeCargoOut, vmName));
     bool missingMainRejected = false;
     try { missingMainRejected = _pkgInstallZ42vm(ctx, sdkDir) != 0; } catch (Exception e) { missingMainRejected = true; }

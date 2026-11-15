@@ -59,7 +59,6 @@ int _packageDesktop(string root, string pkgDir, string rid, string version, stri
     bool isWin = rid.StartsWith("windows-");
     _PkgInstallCtx ictx = new _PkgInstallCtx();
     ictx.CargoOut    = cargoOut;
-    ictx.HostVm      = _builtVm(root, "release");
     ictx.Z42bZpkg    = _toolchainZpkg(root, _z42bToml());   // z42b publishes itself deploy-only (`--no-build`)
     // 解析面在此刻取：[2c/5] 已把 workload ×4 / launcher / z42b / z42d / z42i 全建完，快照这时才完整。
     ictx.Libs        = _toolchainCompileLibs(root);
@@ -107,7 +106,7 @@ int _pkgBuildToolchainComponents(string root, string z42cDir, string cargoOut, s
     // Components built with z42c (host z42vm + colocated z42c.driver.zpkg). Host z42vm compiles regardless of target
     // rid → RID-independent zpkgs. Built into Z42_LIBS first so later components
     // resolve their workload/launcher deps (z42b must exist before it can publish).
-    string hostVm = _builtVm(root, "release");
+    string hostVm = _pkgHostVm(cargoOut);
     // 序列 = workload libs（`_workloadTomls` 目录约定；desktop 无 appbuilder——`z42-workload-desktop`
     // **包**装的是 Rust 的 per-RID apphost stub，与这里的 z42 lib 无关）+ 工具链 apphost（packages.toml
     // `[component.*]`，`_toolchainApphostTomls`）。z42i 例外：依赖 z42.repl，须在循环后单建（见下）。

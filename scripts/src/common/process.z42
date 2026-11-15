@@ -148,5 +148,5 @@ string _sha256Hex(string path) {
 // The release z42c driver over the pure stdlib flat (what is compiled here uses only stdlib; the
 // driver is self-contained).
 Process _releaseZ42c(string root) {
-    return _z42cProc(_builtVm(root, "release"), _libsDir(root), _driverZpkg(root, "release"));
+    return _z42cProc(_hostToolVm(root, "release"), _libsDir(root), _driverZpkg(root, "release"));
 }

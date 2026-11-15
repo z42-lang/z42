@@ -15,17 +15,26 @@ namespace Z42Xtask;
 
 using Std.IO;
 
-// 装组件需要的构建上下文。runtime 包只用到 CargoOut；apphost 组件要求后五项齐全（缺则报错，不静默跳过）。
+// 装组件需要的构建上下文。runtime 包只用到 CargoOut；apphost 组件还要求其余四项齐全（缺则报错，不静默跳过）。
 class _PkgInstallCtx {
     public string CargoOut;      // 完整 runtime 输出目录（唯一 z42vm + libz42.* 等共享库）
-    public string HostVm;        // 跑 z42b 的宿主 z42vm
     public string Z42bZpkg;      // 已编好的 z42.builder.zpkg
     public string Libs;          // z42b 自身的解析面（_toolchainCompileLibs）
     public string ApphostStub;   // 未 patch 的 apphost 模板（Z42_APPHOST_TEMPLATE）
     public string Rid;
     public _PkgInstallCtx() {
-        this.CargoOut = ""; this.HostVm = ""; this.Z42bZpkg = ""; this.Libs = ""; this.ApphostStub = ""; this.Rid = "";
+        this.CargoOut = ""; this.Z42bZpkg = ""; this.Libs = ""; this.ApphostStub = ""; this.Rid = "";
     }
+}
+
+// Compile and publish with the exact runtime image that will be shipped.
+// A missing producer entry is an error; an unrelated build-tree VM cannot repair it.
+string _pkgHostVm(string cargoOut) {
+    string vm = Path.Join(cargoOut, Platform.IsWindows() ? "z42vm.exe" : "z42vm");
+    if (!File.Exists(vm) || File.GetSize(vm) == 0L) {
+        throw new Exception("SDK runtime producer entry is missing: " + vm);
+    }
+    return vm;
 }
 
 // 按 `[package.<packageName>].include` 顺序把每个组件装进 pkgDir。任一组件失败 ⇒ 立即返回非 0（不留半个包当成功）。
@@ -99,11 +108,11 @@ int _pkgInstallApphost(_PkgComponent comp, string pkgDir, _PkgInstallCtx ctx) {
         ConsoleError.WriteLine("error: apphost component '" + comp.name + "' has no `project` in packages.toml");
         return 1;
     }
-    if (ctx.HostVm.Length == 0 || ctx.Z42bZpkg.Length == 0 || ctx.ApphostStub.Length == 0 || ctx.Rid.Length == 0) {
+    if (ctx.CargoOut.Length == 0 || ctx.Z42bZpkg.Length == 0 || ctx.ApphostStub.Length == 0 || ctx.Rid.Length == 0) {
         ConsoleError.WriteLine("error: apphost component '" + comp.name + "' needs z42b + apphost stub (not built for this package)");
         return 1;
     }
-    return _z42bPublish(ctx.HostVm, ctx.Z42bZpkg, ctx.Libs, ctx.ApphostStub, comp.project, ctx.Rid, pkgDir);
+    return _z42bPublish(_pkgHostVm(ctx.CargoOut), ctx.Z42bZpkg, ctx.Libs, ctx.ApphostStub, comp.project, ctx.Rid, pkgDir);
 }
 
 // Copy owner-provided C contracts from the runtime source

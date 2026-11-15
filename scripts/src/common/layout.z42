@@ -458,6 +458,19 @@ string _builtVm(string root, string profile) {
     return _builtBin(root, profile, "z42vm");
 }
 
+// Read-only tool consumers can execute either complete host image. Output paths
+// remain _builtVm/_runtimeOut: selecting a producer never changes Cargo's target.
+string _hostToolVm(string root, string profile, bool allowDebug = false) {
+    string name = Platform.IsWindows() ? "z42vm.exe" : "z42vm";
+    string[] profiles = allowDebug ? new string[]{ profile, "debug" } : new string[]{ profile };
+    foreach (var p in profiles) {
+        foreach (var vm in new string[]{ _builtVm(root, p), Path.Join(_componentCargoOut(root, p), name) }) {
+            if (File.Exists(vm) && File.GetSize(vm) > 0L) { return vm; }
+        }
+    }
+    throw new Exception("host tool VM is missing; build runtime or package SDK first (" + profile + ")");
+}
+
 // ── 设备测试宿主工程的暂存目录（test app 与 package wasm 共用） ─────────────────
 
 // <p> 的宿主工程副本：artifacts/intermediate/toolchain/workload/<p>/host。
