@@ -88,3 +88,36 @@ void test_blake3_xof_multiple_counters_and_independent_results() {
         i = i + 1;
     }
 }
+
+// Nonzero high-bit tails exercise complete scratch overwrite after full blocks.
+[Test]
+void test_blake3_partial_message_words_and_repeated_calls() {
+    int[] sizes = new int[]{65, 66, 67, 127, 129, 1025, 1026, 1027, 2051, 4097};
+    string[] expected = new string[]{
+        "76f00599fb5483de9bb046e171e901ab74d3c1537968d3a405082a3e0177313b359602d8319616b2222b656059e567068c6f10864de9ee306a4d948df231b618f886ffc1fbd537148a83a111441ea080e43518aa8d89076ded9adf13ee67016f328e77f13ab2bcf8d3cee062eaa42b2beddd9b5de6a8d1c4b253a56515c723c09fab59",
+        "f25860765ccf580ced65aee87ba325ee6624b5ccd5f7cf165a2e45145c80ea8b909aa104f44e604e5fad02a09718ad85fb2a86f10928c3b8d9eb0ca98ef0137975fc39a6cb4d216e47688538d53f7c5b62fbed3b30e6153f8df72a3b032e8cc480af00315efc782be31e914ce59c2287973d193c79c6f6f6c5cffdb7df283d337e0d75",
+        "c4d97bd605846a79bc59c6bdb620ac9e4a73e4bb22544d5980a35b17c118208ab38e848972975b87f811fbe83395e299e588691a06b204fd1a498eacc1ffa057f83f44c69cd965712ee5526934d2cd015a2c76c7aa2cd12ecd93219f2d6ab52a5ea52aadfdf4d715f9bfd0b38ee5620ea43acdcccb4a9ac731a7d8ef44d3d9af3c208b",
+        "30458bf610f9b9541aaaa61dc85cd139755b5a5518bc115b993c07fae9112ad3a4304bafdcbb947527d267544a86897c3c851364f581bb268b9720fcd5b04083f4d493b4a2d6d1bd8347cc2ff3c24c340ba8ee93fd4606101f949f5f14f29138b50ba749b0bb2a1d6a38c9b491a60f4038babd7d1167a8b9a6cf475f54362f320f272d",
+        "384a92206161a9129ab268706b63d25ae1e3ff013f6e80a9f6002cd0ba86a0b00a9a687e6d5aafe24905f9ddec88c6f6eac9fd972f693a0702aca62ab2a1fad5985849f473cc2b629bf6cdc893e793b6dd27d6d53801c9cfa0c3ba3e718263187ec3205dcb0e455314e7f5299ec8f87f5d8b249f09003c5c6dd0e2154ba9fcb209b8d2",
+        "eaeefa591fe937d68c9bedadbe83d0ce8eb66e9bf0e1a92848db4f68832e56a0c65c828ace429747654899564b1ef6296570cf5ba8950b37e6b7e8ffba3e41593783998e6375fd9fd3afc10d4a195b89ece9afcdc05c0b451975b6bbaa1e7e6debb8dc1017307e0205bd130cdd503ada351254052d68ff477bb2d0d894a7f8711aef37",
+        "dc8692dab3b9593ccf960e9896eb4ba286c99d05cb8f6318b67f2f15adc73e86fee47d77e925cb2e9a49f512611dce5bc214a9b0b9d7f642bc46017f11e2d48e4a5157e1a6e7a827a790c1c685618c6e950979a6f8e93696c968fe00034574de05237a6259add54442352296e0d5a5b336c6d9529743c93b608701ca5c8280f2ea9c62",
+        "922a29377947d8d558a06145832d0f21fe42ad30f4e7650cbd46c8ffcfb1766d7cf46532a7f0a2fadb15ef4ee9444be5b6285fd0717ed0b15e98d2f6048569695a2fdbdaf7f3df4cedc99585a1f692cfaf4cd7ee245de9dffc4370e5a28f1825eebc72f19975d9c468bd643dad9afe20309e01df8ef4554c97aa9d825a0dff0a31d9f3",
+        "7f837f4e26b58a6ad35a2cdd0e794e5c2034c4313c5a00541fc87190e3746d3d8842a20a0ba190b6725e711677fe840ec92b1e18115bdf8172c77c343d666ddb1bc66ed07192bd1e1d25b5935124237533c9c6c95d3259792aa4413039a1ce238041b707d6b249581646ac9ae72acb49b330f52e8f59dc68ba3bfa8076aee2f3203c88",
+        "f5ac9868d05b78d47f4e8bd796eaf62dc5e12f5a992add78404c608bbea72bd3cb599f50e3355ff88c981fb28568eefba0857985f7af631f21b3c5e3876fc7cfc9965e1d0c91362f08e02fac4361803dec4b9d35a5d6f942f0ee7f4e83ed3fd91fa234d7113ec8d39efa7c7c2b0c80c99281ba092f59f45480dbc84c8e5b1031e18561"
+    };
+    int pass = 0;
+    while (pass < 2) {
+        int i = 0;
+        while (i < sizes.Length) {
+            int index = (pass == 0) ? i : sizes.Length - 1 - i;
+            byte[] data = new byte[sizes[index]];
+            int j = 0;
+            while (j < data.Length) { data[j] = (byte)((j * 197 + 255) % 256); j = j + 1; }
+            Assert.Equal(expected[index].Substring(0, 32), Hex.Encode(Blake3.HashLen(data, 16)));
+            Assert.Equal(expected[index].Substring(0, 64), Hex.Encode(Blake3.Hash(data)));
+            Assert.Equal(expected[index], Hex.Encode(Blake3.HashLen(data, 131)));
+            i = i + 1;
+        }
+        pass = pass + 1;
+    }
+}
