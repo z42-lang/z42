@@ -101,8 +101,8 @@ bool _flowPackageRequired(FlowPlan plan, string[] selected, bool host) {
 
 bool _flowCiOutput(FlowPlan plan, string[] selected, string key) {
     bool preparation = key == "host_checks" || key == "toolchain_build" || key == "test_assets";
-    return _strIn(selected, key) || (preparation && (plan.Full
-        || (_flowReleaseRequired(plan) && (key != "host_checks" || !plan.DocsOnly))));
+    return _strIn(selected, key) || (preparation && plan.Full)
+        || (key == "toolchain_build" && _flowReleaseRequired(plan));
 }
 
 void _flowWriteOutputs(FlowConfig cfg, FlowPlan plan, string path) {

@@ -92,7 +92,9 @@ xtask flow plan --event-file "$GITHUB_EVENT_PATH" \
   --out artifacts/ci-plan.json --github-output "$GITHUB_OUTPUT"
 ```
 
-规划器分别输出 `host_checks`、`toolchain_build`、`test_assets`、`docs_checks` 和 `archive_checks`。每个 job 只消费对应信号：有改动不等于要构建产品，有宿主验证也不等于要组装第二份 SDK。空 PR 不选择这些资源，只保留轻量规划与 `ci-ok`。无法读取基线、完整策略及非 PR 的累计发布义务保守保留前提。
+规划器分别输出 `host_checks`、`toolchain_build`、`test_assets`、`docs_checks` 和 `archive_checks`。每个 job 只消费对应信号：有改动不等于要构建产品，有宿主验证也不等于要组装第二份 SDK。空 PR 不选择这些资源，只保留轻量规划与 `ci-ok`。无法读取验证基线及完整策略保留全部测试前提。
+非 PR 的累计发布义务保留共享工具链编译和完整打包，不单独选择宿主测试或共享 golden 消费者；
+`host_checks` 与 `test_assets` 由实际验证改动及其依赖选择，发布状态未知也不会扩大已知的验证范围。
 
 | 改动职责 | 所选流程 |
 |---|---|
