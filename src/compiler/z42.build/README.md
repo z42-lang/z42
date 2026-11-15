@@ -27,8 +27,9 @@ class iOSBuild         class iOSWorkload            class WorkloadBase
 - 继承 / 重载 / hook 全归一到 `override` + `base.M(ctx)`（z42 原生 OOP，**不需反射**）。
 - 编译器默认静态绑定；项目 hook 则由 builder 从声明的插件中加载并组合，见 [z42b](../../../docs/internals/src/toolchain/z42b.md)。
 - **编译走 in-process 共享实现**（`ICompiler`）：Compile 头相位不 fork `z42c` 子进程，
-  而是经注入的 `ICompiler` 在进程内调编译器库——与独立 `z42c.driver` CLI **同一份实现**。
-  依赖倒置：z42.build 定接口，编译器库（z42c）`: ICompiler` 实现它（z42c → z42.build，无环）。
+  而是经 `Pipeline.Compiler` 在进程内调用 `Z42cCompiler`——与独立 `z42c.driver` CLI **同一份实现**。
+  `ICompiler` 与实现均由 `z42c.pipeline` 提供；`z42.build → z42c.pipeline` 是静态依赖，
+  pipeline 不反向依赖构建框架。宿主可显式替换 `Pipeline.Compiler`。
 
 ## 如何测试验证
 `tests/deployment_copies_tests.z42` 覆盖部署文件的归属、路径检查、失败重试及共享目录内的异内容覆盖冲突。

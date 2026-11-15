@@ -42,10 +42,13 @@ git clone https://github.com/z42-lang/z42 && cd z42
 - **完全没有 launcher** 时（只有 cargo 编出的 z42vm），用 z42vm 直跑 zpkg：
 
   ```bash
-  vm="$PWD/artifacts/build/runtime/release/z42vm"
+  vm="$PWD/artifacts/build/runtime/release-dynamic/z42vm"
   libs="$PWD/artifacts/intermediate/libraries/flat/release"
   Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- build stdlib
   ```
+
+  上例使用宿主 release 动态运行时的输出目录；debug 构建对应 `debug/`。
+  runtime 的 Cargo profile 与其他组件的输出目录有区别，见[产物目录布局](artifacts-layout.md)。
 
 ### 并行 worktree 供种
 
