@@ -32,6 +32,8 @@ byte[] mac    = HmacSha256.Compute(key, message);
 xtask test stdlib z42.crypto    # 本库全部 [Test]：每个算法一个 *_vectors.z42，对照 NIST / RFC 官方向量
 ```
 
+`tests/blake3_xof_reference.z42` 覆盖官方 35 组完整 131 字节输出向量、64 字节输出块边界和多计数器长输出；短摘要与长输出前缀保持一致。
+
 `tests/secp256k1/` 是目录单元（`source.z42` + `vectors.z42` 共享 namespace，须一起编）。全部通过即可。
 
 ## 关联文档
