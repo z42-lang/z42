@@ -1,0 +1,30 @@
+name: Refresh queued main plan
+description: Recheck queued macOS work before building products
+inputs:
+  role:
+    description: host, host-package, stdlib or ios
+    required: true
+outputs:
+  needed:
+    description: Whether this job still has unvalidated work
+    value: ${{ steps.refresh.outputs.needed }}
+  platform_package:
+    description: Whether refreshed work still requires platform packages
+    value: ${{ steps.refresh.outputs.platform_package }}
+runs:
+  using: composite
+  steps:
+    - uses: actions/download-artifact@v8
+      with:
+        name: ci-plan
+        path: artifacts
+    - uses: ./.github/actions/ci-bootstrap
+      with:
+        gh-token: ${{ github.token }}
+        xtask-only: "true"
+    - id: refresh
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        MAIN_JOB_ROLE: ${{ inputs.role }}
+      run: xtask ci refresh-plan --role "$MAIN_JOB_ROLE"

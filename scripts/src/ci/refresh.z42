@@ -1,0 +1,66 @@
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Json;
+using Std.Collections;
+using Std.Cli;
+
+FlowPlan _ciRefreshPlan(CiGitHub api, FlowConfig cfg, FlowPlan original, string repo, string root) {
+    if (original.Event != "push" || original.Policy != "ci") { return original; }
+    try {
+        string base_ = _ciMainBase(api, repo, original.Head);
+        if (base_.Length == 0) { return original; }
+        JsonValue diff = api.Get("repos/" + repo + "/compare/" + base_ + "..." + original.Head);
+        string status = _ciString(diff, "status"); JsonValue files = diff.Get("files");
+        if ((status != "ahead" && status != "identical") || !files.IsArray() || files.Count() >= 300) { return original; }
+        var paths = new List<string>();
+        for (int i = 0; i < files.Count(); i = i + 1) {
+            string file = files.At(i).Get("filename").AsString();
+            if (file.Length == 0) { return original; }
+            paths.Add(file); paths.Add(_ciString(files.At(i), "previous_filename"));
+        }
+        FlowPlan plan = _flowSelect(cfg, paths.ToArray(), root);
+        plan.Base = base_; plan.Head = original.Head; plan.Policy = "ci"; plan.Event = "push";
+        plan.ReleaseRequired = _ciPublishedEquivalent(api, repo, original.Head, root) ? "false" : original.ReleaseRequired;
+        return plan;
+    } catch (Exception e) { ConsoleError.WriteLine("queued plan unverified; retain original work: " + e.Message); return original; }
+}
+
+bool _ciRoleRequired(FlowConfig cfg, FlowPlan plan, string role) {
+    string[] flags = _flowOutputs(cfg, plan);
+    if (role == "host") { return _flowCiOutput(plan, flags, "host_checks"); }
+    if (role == "host-package") { return _flowPackageRequired(plan, flags, true); }
+    if (role == "stdlib") { return _strIn(flags, "stdlib"); }
+    if (role == "ios") { return _flowPackageRequired(plan, flags, false) || _strIn(flags, "ios"); }
+    throw new CliException("unknown queued job role: " + role);
+}
+
+int _ciRefresh(string path, string role, CiGitHub api) {
+    if (!_strIn(new string[]{ "host", "host-package", "stdlib", "ios" }, role)) { throw new CliException("unknown queued job role: " + role); }
+    string root = _root(); FlowConfig cfg = _flowConfigFor(root);
+    FlowPlan original = _flowReadPlan(cfg, path, root);
+    bool needed = true;
+    if (Environment.GetEnvironmentVariable("GITHUB_EVENT_NAME", "") == "push"
+        && Environment.GetEnvironmentVariable("GITHUB_REF", "") == "refs/heads/main"
+        && Environment.GetEnvironmentVariable("GITHUB_SHA", "") == original.Head) {
+        FlowPlan fresh = _ciRefreshPlan(api, cfg, original, _ciRepo(), root);
+        string staging = _xtaskWork(root, "refreshed-main-plan.json");
+        try {
+            Directory.Create(Path.GetDirectoryName(staging));
+            File.WriteAllText(staging, JsonValue.StringifyPretty(_flowJson(cfg, fresh)));
+            // Verify the API projection against real Git before replacing this job's local plan.
+            fresh = _flowReadPlan(cfg, staging, root);
+        } catch (Exception e) { ConsoleError.WriteLine("queued refresh unverified; retain original work: " + e.Message); fresh = original; }
+        finally { if (File.Exists(staging)) { File.Delete(staging); } }
+        File.WriteAllText(path, JsonValue.StringifyPretty(_flowJson(cfg, fresh)));
+        needed = _ciRoleRequired(cfg, original, role) && _ciRoleRequired(cfg, fresh, role);
+        Console.WriteLine("queued main " + role + ": base " + original.Base + " -> " + fresh.Base + ", needed=" + needed.ToString());
+    }
+    string text = "needed=" + (needed ? "true" : "false") + "\n";
+    string output = Environment.GetEnvironmentVariable("GITHUB_OUTPUT", "");
+    if (output.Length > 0) {
+        _flowWriteOutputs(cfg, _flowReadPlan(cfg, path, root), output);
+        File.AppendAllText(output, text);
+    }
+    Console.Write(text); return 0;
+}
