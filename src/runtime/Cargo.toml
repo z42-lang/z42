@@ -3,7 +3,7 @@ members = [".", "tests/data/component", "crates/z42-profiler", "crates/z42-inter
 default-members = [".", "crates/z42-zpkg", "crates/z42-compression"]
 
 [workspace.package]
-version = "0.7.0"
+version = "0.8.0"
 
 [package]
 name = "z42"
@@ -114,11 +114,11 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(loom)', 'cfg(z42_test_faca
 
 [target.'cfg(all(any(target_arch = "x86_64", target_arch = "aarch64"), any(target_os = "linux", target_os = "macos", target_os = "windows", target_os = "android", all(target_os = "ios", target_abi = "sim"))))'.dev-dependencies]
 # White-box backend tests compile the backend sources inside the runtime harness.
-cranelift-codegen = { version = "0.135", features = ["unwind"] }
-cranelift-frontend = { version = "0.135" }
-cranelift-jit      = { version = "0.135" }
-cranelift-module   = { version = "0.135" }
-cranelift-native = { version = "0.135" }
+cranelift-codegen = { version = "0.137", features = ["unwind"] }
+cranelift-frontend = { version = "0.137" }
+cranelift-jit      = { version = "0.137" }
+cranelift-module   = { version = "0.137" }
+cranelift-native = { version = "0.137" }
 
 z42-jit = { path = "crates/z42-jit", default-features = false }
 
