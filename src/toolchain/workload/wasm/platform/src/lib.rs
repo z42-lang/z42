@@ -16,7 +16,7 @@ use std::sync::{Arc, OnceLock};
 
 use wasm_bindgen::prelude::*;
 use z42::pal::fs::Vfs;
-use z42::pal::vfs::MemoryFs;
+use z42::pal::fs::MemoryFs;
 
 use z42::host::rust::{ExecMode, Host, HostConfig, Value};
 

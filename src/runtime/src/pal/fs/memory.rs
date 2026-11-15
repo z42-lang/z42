@@ -10,7 +10,7 @@ use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::io::{Error, ErrorKind, Result};
 
-use super::super::fs::{glob_match, Vfs};
+use super::{glob_match, Vfs};
 
 /// In-memory file system. Each instance is its own store: two VMs handed two instances
 /// never see each other's files; VMs sharing one `Arc<MemoryFs>` share it.

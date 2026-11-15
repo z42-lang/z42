@@ -236,8 +236,8 @@ fn fixture_zpkg() -> PathBuf {
 fn build_in_dirs_not_found_errors() {
     let a = std::env::temp_dir().join("z42-coloc-a-empty");
     let _ = std::fs::create_dir_all(&a);
-    assert!(ZpkgCandidate::build_in_dirs(&crate::pal::vfs::LocalFs, &[a], "nope.zpkg").is_err());
-    assert!(ZpkgCandidate::build_in_dirs(&crate::pal::vfs::LocalFs, &[], "nope.zpkg").is_err());
+    assert!(ZpkgCandidate::build_in_dirs(&crate::pal::fs::LocalFs, &[a], "nope.zpkg").is_err());
+    assert!(ZpkgCandidate::build_in_dirs(&crate::pal::fs::LocalFs, &[], "nope.zpkg").is_err());
 }
 
 #[test]
@@ -252,7 +252,7 @@ fn build_in_dirs_finds_in_later_dir() {
     let target = dir2.join("colo.zpkg");
     std::fs::copy(fixture_zpkg(), &target).expect("copy fixture zpkg");
 
-    let cand = ZpkgCandidate::build_in_dirs(&crate::pal::vfs::LocalFs, &[dir1.clone(), dir2.clone()], "colo.zpkg")
+    let cand = ZpkgCandidate::build_in_dirs(&crate::pal::fs::LocalFs, &[dir1.clone(), dir2.clone()], "colo.zpkg")
         .expect("resolves from the second dir");
     assert_eq!(cand.file_path, target, "resolved from the dir that actually has the file");
 }
@@ -268,7 +268,7 @@ fn build_in_dirs_first_dir_wins() {
     std::fs::copy(fixture_zpkg(), dir1.join("dup.zpkg")).unwrap();
     std::fs::copy(fixture_zpkg(), dir2.join("dup.zpkg")).unwrap();
 
-    let cand = ZpkgCandidate::build_in_dirs(&crate::pal::vfs::LocalFs, &[dir1.clone(), dir2.clone()], "dup.zpkg").unwrap();
+    let cand = ZpkgCandidate::build_in_dirs(&crate::pal::fs::LocalFs, &[dir1.clone(), dir2.clone()], "dup.zpkg").unwrap();
     assert_eq!(cand.file_path, dir1.join("dup.zpkg"), "first search dir wins on conflict");
 }
 
@@ -763,7 +763,7 @@ fn vm_core_registers_entry_functions_and_the_loader_appends() {
 
 #[test]
 fn lazy_load_uses_registered_fusion_input_source_at_preparation() {
-    use crate::pal::vfs::MemoryFs;
+    use crate::pal::fs::MemoryFs;
     use crate::loader::fusion_inputs::FusionInputs;
     use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
 

@@ -10,7 +10,7 @@
 - `types/`：TypeDesc 形状、字段、对象/struct 布局、元素类型及泛型实参句柄。
 - `protocol.rs`：GetType、默认文本和 Type 构造的只读能力契约；上下文和错误域由调用者指定，不依赖执行层实现。
 - `header/`：区块头、标记位、强/弱句柄与 generation 快照。
-- `object/`：对象与堆外对象存储、字段访问、引用遍历，以及 native Monitor 的同步状态。
+- `storage.rs` / `fields.rs` / `owned_object.rs`：对象及堆外对象存储、字段访问与引用遍历；`monitor.rs` 和 `reflected_type.rs` 分别定义同步状态与反射类型载荷。
 - `array/`：数组描述符、元素、视图及排序/检索原语。
 - `string/`：不可变字符串句柄、字符索引与 ASCII 集合字节扫描（长串 SSE2 / 标量回落）。
 
@@ -40,5 +40,7 @@ GC 仍负责 chunk 分配、回收、代数及弱句柄的 chunk epoch 校验；
 ## 核心文件
 
 `tests.rs` 验证整个 object 的默认值、布局、引用追踪与表示契约，不以 types 命名覆盖其它子模块的用例。
+
+对象存储实现模块保持私有，消费者从 object 根导入，不引用 storage、fields 等物理文件路径。
 
 `mod.rs` 汇总公共词汇；各 concern 的 `mod.rs` 汇总对应叶子实现。原有 ABI 布局、对象访问、引用字、数组及字符串测试与实现同目录。

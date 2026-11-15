@@ -79,7 +79,7 @@ fn module_search_returns_an_independent_snapshot() {
 
 #[test]
 fn module_search_reflects_directories_added_by_later_loads() {
-    let fs = std::sync::Arc::new(crate::pal::vfs::MemoryFs::new());
+    let fs = std::sync::Arc::new(crate::pal::fs::MemoryFs::new());
     fs.mount(
         "/plugins/extra.zbc",
         crate::host::program_tests::empty_zbc(),

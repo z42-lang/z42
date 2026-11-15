@@ -98,7 +98,7 @@ pub struct HostConfig {
     /// The file system the host's VMs load packages from and run on (`search_paths`
     /// are looked up on it too). `None` = the runtime's default: the OS file system,
     /// or a fresh in-memory one where the target has none. A host that mounts files
-    /// into a `z42::pal::vfs::MemoryFs` passes it here.
+    /// into a `z42::pal::fs::MemoryFs` passes it here.
     pub vfs: Option<Arc<dyn Vfs>>,
 }
 

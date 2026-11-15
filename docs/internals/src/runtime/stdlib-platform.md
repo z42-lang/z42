@@ -151,10 +151,10 @@ Windows CI runner 验证，等于把未验证代码塞进 PAL；等 runner 到�
   `__env_get_cwd` / `__env_set_cwd` 实现与注册都在 `corelib/io/fs.rs` 的 `typed` 模块
   （经 `corelib/builtins.rs` 的 TYPED 登记）。
 - **文件系统**：`corelib/io/fs.rs` 的路径型 builtin 一律走**本 VM 的** `Vfs` 句柄（`VmContext::vfs`，
-  trait 在 `pal/fs.rs`），两个实现在 `pal/vfs/`——`LocalFs`（`std::fs`）与 `MemoryFs`（`path → bytes`
+  trait 在 `pal/fs/mod.rs`），两个实现在 `pal/fs/`——`LocalFs`（`std::fs`）与 `MemoryFs`（`path → bytes`
   的内存 VFS，宿主挂载 zpkg）。句柄由创建 VM 的一方给（`VmContext::with_vfs` / `RunOpts::vfs` /
   `HostConfig::vfs`），不给就按 `pal::fs::HAS_FS` 取默认（wasm → 新的 `MemoryFs`）；同一进程里两台
-  VM 各用各的，互不可见。加 WASI / 移动端后端 = `pal/vfs/` 多一个 `Vfs` 实现，builtin 本身不动。
+  VM 各用各的，互不可见。加 WASI / 移动端后端 = `pal/fs/` 多一个 `Vfs` 实现，builtin 本身不动。
 
 ## 8. 加一个 OS / 加一个能力
 

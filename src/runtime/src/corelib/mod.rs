@@ -30,8 +30,6 @@ pub mod os;
 pub use os::{platform, process, system};
 pub mod net;
 pub use net as network;
-#[cfg(feature = "tls")]
-pub mod tls;
 
 
 #[cfg(test)]

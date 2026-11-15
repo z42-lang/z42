@@ -8,9 +8,19 @@
 //! | `net/listener.rs` | listener slot + the interruptible accept wait (used by the ABI v2 accept) |
 //! | `net/unsupported.rs` | stubs of the ABI v2 builtins for builds without the `net` / `tls` feature (e.g. wasm32): throw `NetUnsupportedException` |
 //!
-//! TLS (`__tls_*`) is in `corelib/tls/mod.rs`; it shares `net/error.rs`.
+//! TLS (`__tls_*`) is in `corelib/net/tls.rs`; it shares `net/error.rs`.
+//! TLS state and builtin adapters are internal to the network domain:
+//! ```compile_fail
+//! use z42::corelib::net::tls::State;
+//! ```
+//! ```compile_fail
+//! use z42::corelib::tls::State;
+//! ```
 
 pub(crate) mod error;
+
+#[cfg(feature = "tls")]
+pub(crate) mod tls;
 
 #[cfg(feature = "net")]
 pub(crate) mod listener;

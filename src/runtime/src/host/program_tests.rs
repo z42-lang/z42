@@ -2,7 +2,7 @@ use super::{LoadOptions, LoadedProgram};
 use crate::{
     zpkg::{self, BasicBlock, ExecMode, Instruction, Terminator},
     object::Value,
-    pal::vfs::MemoryFs,
+    pal::fs::MemoryFs,
     vm::VmContext, metadata::Module,
 };
 use std::sync::Arc;
