@@ -40,7 +40,7 @@ schema_version = 1
 #   4. .github/workflows/release.yml 自动触发跨平台 SDK package publish
 
 [project]
-version = "0.7.0"                       # → Cargo.toml [workspace.package].version
+version = "0.8.0"                       # → Cargo.toml [workspace.package].version
 
 # ══════════════════════════════════════════════════════════════════════════
 # TOOLCHAIN: 跨平台 build 工具（每台 dev/CI 机都要装）
@@ -48,7 +48,7 @@ version = "0.7.0"                       # → Cargo.toml [workspace.package].ver
 
 [toolchain.rust]
 channel     = "stable"
-min_version = "1.95"                    # MSRV；cranelift 0.135 requires 1.95+; scripts/src/setup/install.z42 的 rust 检查校它
+min_version = "1.100"                   # MSRV；scripts/src/setup/install.z42 的 rust 检查校它
 components  = ["rustfmt", "clippy"]
 # rust_targets 由各 [platform.*] 汇总
 
