@@ -106,9 +106,10 @@ int _componentCRun(string exe, string pkg, string rid, string zbc, string mode, 
     if (!shared) { p = p.EnvRemove("Z42_NO_NATIVE_STATIC").EnvRemove("Z42_NO_NATIVE_SHARED").EnvRemove("Z42_NO_NATIVE_LOAD"); }
     if (shared) {
         // Initial process linkage uses the native directory; runtime dlopen is forbidden.
+        string prefix = rid == "iossim-arm64" ? "SIMCTL_CHILD_" : "";
         p = p.WorkingDirectory(Path.Join(pkg, "native"))
-            .Env("Z42_NO_NATIVE_STATIC", "true").Env("Z42_NO_NATIVE_LOAD", "true")
-            .Env("Z42_NO_NATIVE_SHARED", denyShared ? "true" : "false");
+            .Env(prefix + "Z42_NO_NATIVE_STATIC", "true").Env(prefix + "Z42_NO_NATIVE_LOAD", "true")
+            .Env(prefix + "Z42_NO_NATIVE_SHARED", denyShared ? "true" : "false");
     }
     if (action.StartsWith("sampling")) {
         // simctl forwards SIMCTL_CHILD_* to the spawned simulator process.

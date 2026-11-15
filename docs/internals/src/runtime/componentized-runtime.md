@@ -186,7 +186,7 @@ LOH 覆盖、native 扩展加载、固定地址登记和 TLAB/SATB 顺序保持�
 ./xtask package runtime --linkage dynamic --profile release --verify
 ```
 
-动态包 verify 将库搬移到独立目录，清除动态链接搜索环境，执行实际生产依赖图的 engine_components 集成测试，覆盖解释/JIT、worker/GC/异常、VM 隔离、缺库/禁用/未静态链接、接口租约和正常释放，以及从 host 动态库调用 C 嵌入接口。测试必须实际执行，零用例不算通过。通用静态/动态 ABI 夹具另覆盖描述符拒绝、依赖、回滚与库保活。
+动态包 verify 将库搬移到独立目录，清除动态链接搜索环境，执行实际生产依赖图的 engine_components 集成测试，覆盖解释/JIT、worker/GC/异常、VM 隔离、缺库/来源禁用、worker 在宿主释放后的执行及正常释放，以及从 host 动态库调用 C 嵌入接口。测试必须实际执行，零用例不算通过。通用静态/动态 ABI 夹具另覆盖描述符拒绝、依赖、回滚与库保活。
 
 profiler 的算法与线程位于 z42-profiler，diagnostics 只持有中立契约和按需 provider。关闭采样时不实例化 Sampler；开启时在托管执行前加载并检查身份，堆分析在首次请求时加载。每 VM 的 provider 先于其组件代码租约释放，租约不反向持有 Core。
 
@@ -211,5 +211,5 @@ profiler 的算法与线程位于 z42-profiler，diagnostics 只持有中立契�
 - [诊断与跟踪](diagnostics.md)
 
 跨库组件协议由 z42::components::abi 定义，包含描述符、C 布局接口和执行注册；core build.rs 生成共享构建身份。
-z42::components::bridge 提供最小核心身份/布局校验及只读对象服务借用，不包含组件管理。对象协议定义归 object，bridge 只将 Core 的已绑定服务交给经过同核心校验的执行组件，不做组件表查询。host 的具名管理再导出仍属于待收口缺口。生产执行库单向依赖 core，
+z42::components::bridge 提供最小核心身份/布局校验及只读对象服务借用，不包含组件管理。对象协议定义归 object，bridge 只将 Core 的已绑定服务交给经过同核心校验的执行组件，不做组件表查询。host 不再转出组件管理类型。生产执行库单向依赖 core，
 通用 ABI 夹具只使用协议值和回调，实际执行组件仍链接同一份共享核心。

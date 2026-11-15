@@ -66,7 +66,7 @@ vm.rs 只负责共享 Core 与线程视图的组合、布局、构造和生命�
 |---|---|---|
 | 宿主仍可访问低层上下文 | LoadedProgram::context、host 的 VmCore/VmContext 再导出 | LoadOptions 已只保留功能请求；继续按真实低层消费者收口可达面 |
 | 组件协议中的依赖身份 | `components::abi::RuntimeApi` 的跨组件依赖查询 | VM 执行消费者按语义角色请求服务；按 ID 查询只在内部测试构建可见，生产 VM 经内部能力入口获取租约，协议内依赖 ID 由管理层拥有 |
-| 配置与装配输入仍未完全显式 | `config/availability.rs` 查询 components；`loader/native_paths.rs`、`components/api.rs::attach_execution` 读取 runtime_config | 默认路径已归 loader；后续在装配入口捕获路径/JIT 配置及平台能力，管理实现消费显式输入 |
+| 配置与装配输入仍未完全显式 | `config/availability.rs` 查询默认组件可用性；低层上下文默认构造仍使用进程配置 | 路径/许可已按 VM 捕获，JIT 参数由装配显式传入；继续区分默认进程能力查询与每 VM 请求 |
 | 普通宿主与 C 适配尚未分开 | `host/ffi.rs/config.rs/state.rs/ops.rs/marshal.rs` | CLI 已归 cli 适配且平台构建可排除；后续 C 适配/头文件归能力所有者，host 保留功能请求/环境服务契约 |
 | 初始化层级含混 | `host/state.rs` 的会话保存多个 LoadedProgram；`ops::build_host_module` 每次创建程序/VM；`LoadedProgram::invoke` 执行一次性托管初始化 | 区分会话、VM/包准备与托管初始化，不把 C initialize 当作所有模块已初始化；统一装配但保持隔离和失败终态 |
 | 进程策略混入每 VM 输入 | `config/vm_config.rs::process_loh_bytes` 在 Core 构造时修改进程级 LOH 设置 | 进程 bootstrap 与 VM 设置分开捕获，禁止任意 VM 构造改写其它 VM 可见的全局策略 |
