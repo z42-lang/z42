@@ -159,14 +159,13 @@ public static class Blake3 {
         if (length == 0) { blocks = 1; }   // empty input gets one zero block
         int b = 0;
         int[] outputState = new int[Blake3.OutputStateSize];
+        int[] block = new int[16];
         while (b < blocks) {
             int blockOff = offset + b * Blake3.BLOCK_SIZE;
             int blockLen = length - b * Blake3.BLOCK_SIZE;
             if (blockLen > Blake3.BLOCK_SIZE) { blockLen = Blake3.BLOCK_SIZE; }
             if (blockLen < 0) { blockLen = 0; }
-            byte[] block = new byte[Blake3.BLOCK_SIZE];
-            int j = 0;
-            while (j < blockLen) { block[j] = data[blockOff + j]; j = j + 1; }
+            Blake3._loadBlockWords(data, blockOff, blockLen, block);
             // Compute flags for this block.
             int flags = 0;
             if (b == 0) { flags = flags | Blake3.FLAG_CHUNK_START; }
@@ -183,7 +182,7 @@ public static class Blake3 {
                 while (k < 16) { outputState[k] = state[k]; k = k + 1; }
                 // Block + key portion of state needed only for XOF squeeze:
                 int m = 0;
-                while (m < 16) { outputState[Blake3.OutputMessage + m] = Blake3._readLE32(block, m * 4); m = m + 1; }
+                while (m < 16) { outputState[Blake3.OutputMessage + m] = block[m]; m = m + 1; }
                 int kk = 0;
                 while (kk < 8) { outputState[Blake3.OutputKey + kk] = cv[kk]; kk = kk + 1; }
                 outputState[Blake3.OutputCounterLo] = (int)(chunkIndex & 0xFFFFFFFFL);
@@ -206,11 +205,12 @@ public static class Blake3 {
     // `_parentOutputState`（它置 PARENT|ROOT），导致 ≥3 chunk 树中每个中间父节点都被错标 ROOT，
     // 使 >2048 字节输入产生非标准哈希（≤1 chunk 的小向量测不到）。
     static int[] _parentCV(int[] leftArr, int leftOff, int[] rightArr, int rightOff) {
-        byte[] block = new byte[Blake3.BLOCK_SIZE];
+        int[] block = new int[16];
         int i = 0;
         while (i < 8) {
-            Blake3._writeLE32(block, i * 4, leftArr[leftOff + i]);
-            Blake3._writeLE32(block, 32 + i * 4, rightArr[rightOff + i]);
+            // Preserve the low 32 bits of the little-endian byte roundtrip.
+            block[i] = (int)((long)leftArr[leftOff + i] & 0xFFFFFFFFL);
+            block[8 + i] = (int)((long)rightArr[rightOff + i] & 0xFFFFFFFFL);
             i = i + 1;
         }
         int[] cv0 = Blake3._iv();
@@ -225,11 +225,12 @@ public static class Blake3 {
     // 带 ROOT 标志的父节点输出状态（仅用于最顶层父节点）。
     static int[] _parentOutputState(int[] leftArr, int leftOff, int[] rightArr, int rightOff) {
         // Build the 64-byte block from left || right CVs.
-        byte[] block = new byte[Blake3.BLOCK_SIZE];
+        int[] block = new int[16];
         int i = 0;
         while (i < 8) {
-            Blake3._writeLE32(block, i * 4, leftArr[leftOff + i]);
-            Blake3._writeLE32(block, 32 + i * 4, rightArr[rightOff + i]);
+            // Preserve the low 32 bits of the little-endian byte roundtrip.
+            block[i] = (int)((long)leftArr[leftOff + i] & 0xFFFFFFFFL);
+            block[8 + i] = (int)((long)rightArr[rightOff + i] & 0xFFFFFFFFL);
             i = i + 1;
         }
         // Parent compression: chaining value = IV, counter = 0,
@@ -242,7 +243,7 @@ public static class Blake3 {
         int k = 0;
         while (k < 16) { outputState[k] = state[k]; k = k + 1; }
         int m = 0;
-        while (m < 16) { outputState[Blake3.OutputMessage + m] = Blake3._readLE32(block, m * 4); m = m + 1; }
+        while (m < 16) { outputState[Blake3.OutputMessage + m] = block[m]; m = m + 1; }
         int kk = 0;
         while (kk < 8) { outputState[Blake3.OutputKey + kk] = cv[kk]; kk = kk + 1; }
         outputState[Blake3.OutputCounterLo] = 0;
@@ -256,20 +257,8 @@ public static class Blake3 {
     // 前 64 字节来自 counter=0；后续每个 64 字节块递增计数器。
     static byte[] _squeezeOutput(int[] outputState, int outLen) {
         byte[] out_ = new byte[outLen];
-        // Extract the per-output-block fields.
-        int[] msg = new int[16];
-        int i = 0;
-        while (i < 16) { msg[i] = outputState[Blake3.OutputMessage + i]; i = i + 1; }
-        int[] cv0 = new int[8];
-        int k = 0;
-        while (k < 8) { cv0[k] = outputState[Blake3.OutputKey + k]; k = k + 1; }
-        long baseCounter = (((long)outputState[Blake3.OutputCounterHi] & 0xFFFFFFFFL) << 32)
-                         | ((long)outputState[Blake3.OutputCounterLo] & 0xFFFFFFFFL);
-        int blockLen = outputState[Blake3.OutputBlockLength];
-        int flags    = outputState[Blake3.OutputFlags];
         // The first 64 output bytes are already represented by outputState[0..16].
         int produced = 0;
-        long ctr = baseCounter;
         // Reuse the initial-state output for the first block.
         byte[] firstBlock = new byte[Blake3.BLOCK_SIZE];
         int b = 0;
@@ -282,18 +271,21 @@ public static class Blake3 {
         int x = 0;
         while (x < copy) { out_[produced + x] = firstBlock[x]; x = x + 1; }
         produced = produced + copy;
-        // Subsequent blocks: bump counter and re-compress with the
-        // same key (cv0), block (msg as bytes), block_len, flags.
-        ctr = ctr + 1L;
-        // Need msg as bytes for compression. Rebuild from msg int[].
-        byte[] block = new byte[Blake3.BLOCK_SIZE];
-        int by = 0;
-        while (by < 16) {
-            Blake3._writeLE32(block, by * 4, msg[by]);
-            by = by + 1;
-        }
+        if (produced == outLen) { return out_; }
+        // Continuation state is needed only beyond the initial output block.
+        int[] msg = new int[16];
+        int i = 0;
+        while (i < 16) { msg[i] = outputState[Blake3.OutputMessage + i]; i = i + 1; }
+        int[] cv0 = new int[8];
+        int k = 0;
+        while (k < 8) { cv0[k] = outputState[Blake3.OutputKey + k]; k = k + 1; }
+        long baseCounter = (((long)outputState[Blake3.OutputCounterHi] & 0xFFFFFFFFL) << 32)
+                         | ((long)outputState[Blake3.OutputCounterLo] & 0xFFFFFFFFL);
+        int blockLen = outputState[Blake3.OutputBlockLength];
+        int flags    = outputState[Blake3.OutputFlags];
+        long ctr = baseCounter + 1L;
         while (produced < outLen) {
-            int[] state = Blake3._compress(cv0, block, ctr, blockLen, flags);
+            int[] state = Blake3._compress(cv0, msg, ctr, blockLen, flags);
             byte[] obytes = new byte[Blake3.BLOCK_SIZE];
             int j = 0;
             while (j < 16) {
@@ -322,9 +314,9 @@ public static class Blake3 {
         return iv;
     }
 
-    // 压缩一个 64 字节块，返回 16 字输出状态。`cv` = 当前链值（8 字）；`block` = 64 字节输入；
+    // 压缩一个 16 字消息块，返回 16 字输出状态。`cv` = 当前链值（8 字）；`m` 只读；
     // `counter` = chunk 索引（父节点 / 输出块为 0）；`blockLen` = 本块字节数（1..64）；`flags` = 组合标志。
-    static int[] _compress(int[] cv, byte[] block, long counter, int blockLen, int flags) {
+    static int[] _compress(int[] cv, int[] m, long counter, int blockLen, int flags) {
         int[] state = new int[16];
         state[0] = cv[0]; state[1] = cv[1]; state[2] = cv[2]; state[3] = cv[3];
         state[4] = cv[4]; state[5] = cv[5]; state[6] = cv[6]; state[7] = cv[7];
@@ -335,10 +327,6 @@ public static class Blake3 {
         state[13] = (int)((counter >> 32) & 0xFFFFFFFFL);
         state[14] = blockLen;
         state[15] = flags;
-        // Message words m[0..15] from block (little-endian).
-        int[] m = new int[16];
-        int i = 0;
-        while (i < 16) { m[i] = Blake3._readLE32(block, i * 4); i = i + 1; }
         // 7 rounds with BLAKE3-specific permutation.
         int[] sigma = Blake3._SIGMA;   // 7 × 16 entries (built once at static init)
         int r = 0;
@@ -423,6 +411,25 @@ public static class Blake3 {
         long lx = ((long)x) & 0xFFFFFFFFL;
         long shifted = ((lx >> n) | (lx << (32 - n))) & 0xFFFFFFFFL;
         return (int)shifted;
+    }
+
+    // Overwrite every word: the final partial block must not retain bytes
+    // from the preceding block in the chunk-local scratch array.
+    static void _loadBlockWords(byte[] data, int offset, int length, int[] words) {
+        int i = 0;
+        while (i < 16) {
+            int start = i * 4;
+            if (start + 4 <= length) { words[i] = Blake3._readLE32(data, offset + start); }
+            else {
+                int word = 0; int j = 0;
+                while (j < 4 && start + j < length) {
+                    word = word | (((int)data[offset + start + j] & 0xFF) << (j * 8));
+                    j = j + 1;
+                }
+                words[i] = word;
+            }
+            i = i + 1;
+        }
     }
 
     static int _readLE32(byte[] b, int o) {

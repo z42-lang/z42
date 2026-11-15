@@ -47,6 +47,24 @@ void bench_blake3_4k_multichunk(Bencher b) {
     });
 }
 
+[Benchmark]
+void bench_blake3_deployment_digest_small(Bencher b) {
+    byte[] msg = _mkPayload(64);
+    b.iter(() => { GC.KeepAlive(Blake3.HashLen(msg, 16)); });
+}
+
+[Benchmark]
+void bench_blake3_deployment_digest_512k(Bencher b) {
+    byte[] msg = _mkPayload(524288);
+    b.iter(() => { GC.KeepAlive(Blake3.HashLen(msg, 16)); });
+}
+
+[Benchmark]
+void bench_blake3_xof_4k(Bencher b) {
+    byte[] msg = _mkPayload(4096);
+    b.iter(() => { GC.KeepAlive(Blake3.HashLen(msg, 257)); });
+}
+
 // Smoke [Test] — bench bodies run.
 [Test]
 void test_crypto_bench_bodies_run() {
