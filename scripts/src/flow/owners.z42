@@ -44,7 +44,7 @@ class FlowOwners {
 WorkspaceMembers _flowWorkspaceMembers(string workspace) {
     try { return _discoverWorkspaceMembers(workspace); }
     catch (Exception e) {
-        ConsoleError.WriteLine("[test changed] workspace 无法发现成员，保留全量覆盖: " + e.Message);
+        ConsoleError.WriteLine("[test changed] workspace 无法发现成员，跳过成员归属规则: " + e.Message);
         return null;
     }
 }
