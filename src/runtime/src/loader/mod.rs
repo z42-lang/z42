@@ -24,3 +24,13 @@ pub(crate) mod native_paths;
 
 mod runtime;
 pub use runtime::RuntimeLoader;
+
+mod artifact;
+pub use artifact::{load_artifact, load_artifact_from_bytes, build_block_indices, fold_availability};
+pub(crate) use artifact::FUSION_INPUTS;
+
+mod native_policy;
+pub use native_policy::NativeLoading;
+pub(crate) use native_policy::NativeOrigin;
+
+mod ffi;

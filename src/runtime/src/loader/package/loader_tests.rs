@@ -519,7 +519,7 @@ fn indexed_zpkg_loads_via_path() {
     std::fs::copy(indexed_fixture_dir().join("source.zpkg"), base.join("demo.indexed.zpkg")).unwrap();
     std::fs::copy(indexed_fixture_dir().join("source.zbc"), base.join("source.zbc")).unwrap();
 
-    let art = crate::host::load_artifact(&crate::pal::vfs::LocalFs,
+    let art = crate::loader::load_artifact(&crate::pal::vfs::LocalFs,
         base.join("demo.indexed.zpkg").to_str().unwrap(),
     )
     .expect("indexed zpkg loads through the path-aware loader");
@@ -536,7 +536,7 @@ fn indexed_zpkg_rejects_hash_mismatch() {
     zbc.push(0x78); // 篡改散装 zbc → 内容 hash 必不符
     std::fs::write(base.join("source.zbc"), zbc).unwrap();
 
-    let err = match crate::host::load_artifact(&crate::pal::vfs::LocalFs,
+    let err = match crate::loader::load_artifact(&crate::pal::vfs::LocalFs,
         base.join("demo.indexed.zpkg").to_str().unwrap(),
     ) {
         Ok(_) => panic!("tampered scattered zbc must be rejected"),
@@ -549,7 +549,7 @@ fn indexed_zpkg_rejects_hash_mismatch() {
 fn indexed_zpkg_bytes_only_load_is_rejected() {
     // 字节 API（embedding）无包目录 → 明确拒绝而非静默。
     let raw = std::fs::read(indexed_fixture_dir().join("source.zpkg")).unwrap();
-    let err = match crate::host::load_artifact_from_bytes(&raw) {
+    let err = match crate::loader::load_artifact_from_bytes(&raw) {
         Ok(_) => panic!("indexed from bytes alone must be rejected"),
         Err(e) => e,
     };
@@ -687,10 +687,10 @@ fn public_fusion_provider_preserves_process_config_first_read() {
         match mode.as_str() {
             "initialize-before-load" => {
                 assert!(init_runtime_config(config).is_ok());
-                assert!(crate::host::load_artifact_from_bytes(&raw).is_ok());
+                assert!(crate::loader::load_artifact_from_bytes(&raw).is_ok());
             }
             "load-before-initialize" => {
-                assert!(crate::host::load_artifact_from_bytes(&raw).is_ok());
+                assert!(crate::loader::load_artifact_from_bytes(&raw).is_ok());
                 assert!(init_runtime_config(config).is_err());
             }
             _ => panic!("unexpected child mode: {mode}"),

@@ -5,7 +5,7 @@ use crate::{components::api::BackendSource, vm::VmContext, host};
 fn unused_profiler_has_no_backend_and_disabled_source_fails_on_demand() {
     let ctx = VmContext::new();
     let sampler = &ctx.core().diagnostics().sampler;
-    sampler.set_source(BackendSource::Disabled).unwrap();
+    ctx.core().profiling().set_source(BackendSource::Disabled).unwrap();
     sampler.poll(&ctx);
     assert!(!host::profiler_loaded(&ctx));
     let error = host::prepare_profiler(&ctx).unwrap_err().to_string();
@@ -16,7 +16,7 @@ fn unused_profiler_has_no_backend_and_disabled_source_fails_on_demand() {
 #[test]
 fn missing_profiler_is_an_error_without_changing_normal_execution() {
     let ctx = VmContext::new();
-    ctx.core().diagnostics().sampler.set_source(BackendSource::Dynamic(std::path::PathBuf::from("/missing/z42-profiler"))).unwrap();
+    ctx.core().profiling().set_source(BackendSource::Dynamic(std::path::PathBuf::from("/missing/z42-profiler"))).unwrap();
     assert!(!host::profiler_loaded(&ctx));
     let error = host::prepare_profiler(&ctx).unwrap_err().to_string();
     assert!(error.contains("profiler") && error.contains("not found"), "{error}");
@@ -25,7 +25,7 @@ fn missing_profiler_is_an_error_without_changing_normal_execution() {
 fn linked_profiler_is_lazy_per_core_and_does_not_retain_the_vm() {
     let a = VmContext::new();
     let b = VmContext::new();
-    a.core().diagnostics().sampler.set_source(BackendSource::Linked).unwrap();
+    a.core().profiling().set_source(BackendSource::Linked).unwrap();
     let weak = std::sync::Arc::downgrade(a.core());
     assert!(!host::profiler_loaded(&a));
     host::prepare_profiler(&a).unwrap();
@@ -42,11 +42,11 @@ fn linked_profiler_is_lazy_per_core_and_does_not_retain_the_vm() {
 
 #[test]
 fn explicitly_selected_profiler_uses_the_existing_component_registry() {
-    let components = unsafe { host::ComponentOptions::default().with_static(
+    let components = unsafe { api::ComponentOptions::default().with_static(
         abi::PROFILER_COMPONENT, crate::profiler::component::z42_profiler_init) };
-    let program = host::LoadedProgram::load_bytes(&crate::host::program_tests::empty_zbc(), host::LoadOptions {
-        components, mode: host::ExecMode::Interp, ..Default::default()
-    }).unwrap();
+    let program = host::LoadedProgram::load_bytes_with_components(&crate::host::program_tests::empty_zbc(), host::LoadOptions {
+        mode: host::ExecMode::Interp, ..Default::default()
+    }, crate::vm::assembly::ComponentInputs { components, ..Default::default() }).unwrap();
     assert!(!host::profiler_loaded(program.context()));
     host::prepare_profiler(program.context()).unwrap();
     assert_eq!(api::component_ids(program.context()).iter().filter(|&&id| id == abi::PROFILER_COMPONENT).count(), 1);
@@ -57,7 +57,7 @@ fn loaded_program_applies_profiler_source_without_eager_attachment() {
     let program = host::LoadedProgram::load_bytes(
         &crate::host::program_tests::empty_zbc(),
         host::LoadOptions {
-            profiler: BackendSource::Disabled,
+            allow_profiling: false,
             mode: host::ExecMode::Interp,
             ..Default::default()
         },

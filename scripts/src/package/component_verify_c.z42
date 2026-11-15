@@ -27,16 +27,24 @@ Process _componentCCompiler(string root, string rid) {
     }
     return new Process("cc");
 }
-string _componentCBuild(string root, string pkg, string rid, string work, bool dynamic, bool jit, bool compression, bool profiler = false) {
+string _componentCBuild(string root, string pkg, string rid, string work, bool dynamic, bool jit, bool compression, bool profiler = false, bool shared = false) {
     string native = Path.Join(pkg, "native");
-    string name = dynamic ? "dynamic" : (jit ? "static-jit" : "static-interp");
+    string name = shared ? "shared" : (dynamic ? "dynamic" : (jit ? "static-jit" : "static-interp"));
     if (compression) { name = name + "-compression"; }
     if (profiler) { name = name + "-profiler"; }
     string exe = Path.Join(work, name + (Platform.IsWindows() ? ".exe" : ""));
     Process p = _componentCCompiler(root, rid).Arg("-std=c11")
         .Arg("-I").Arg(Path.Join(native, "include"))
         .Arg(Path.Join(root, "src/runtime/tests/data/engine_component/host.c"));
-    if (dynamic) {
+    if (shared) {
+        p = p.Arg("-DZ42_COMPONENT_SHARED").Arg("-DZ42_COMPONENT_HAS_COMPRESSION").Arg("-DZ42_COMPONENT_HAS_PROFILER");
+        if (jit) { p = p.Arg("-DZ42_COMPONENT_HAS_JIT"); }
+        foreach (var stem in new string[]{ "z42", "z42_interp", "z42_jit", "z42_profiler", "z42_compression" }) {
+            if (stem == "z42_jit" && !jit) { continue; }
+            p = p.Arg(Platform.IsWindows() ? Path.Join(native, stem + ".dll.lib") : _componentNativeBinary(pkg, stem, rid));
+        }
+        if (!Platform.IsWindows()) { p = p.Arg("-Wl,-rpath," + native); }
+    } else if (dynamic) {
         p = p.Arg("-DZ42_COMPONENT_DYNAMIC");
         if (rid.StartsWith("linux-")) { p = p.Arg("-ldl"); }
     } else {
@@ -90,11 +98,18 @@ Process _componentCRunner(string exe, string rid) {
         .EnvRemove("Z42_HOME").EnvRemove("Z42_LIBS").EnvRemove("Z42_PORTABLE_VM")
         .EnvRemove("LD_LIBRARY_PATH").EnvRemove("DYLD_LIBRARY_PATH").EnvRemove("DYLD_FALLBACK_LIBRARY_PATH");
 }
-int _componentCRun(string exe, string pkg, string rid, string zbc, string mode, string action) {
+int _componentCRun(string exe, string pkg, string rid, string zbc, string mode, string action, bool shared = false, bool denyShared = false) {
     Process p = _componentCRunner(exe, rid)
         .Arg(_componentNativeBinary(pkg, "z42", rid)).Arg(zbc).Arg(Path.Join(pkg, "libs"))
         .Arg(mode).Arg(action).Arg(_componentNativeBinary(pkg, "z42_compression", rid))
         .Arg(_componentNativeBinary(pkg, "z42_profiler", rid));
+    if (!shared) { p = p.EnvRemove("Z42_NO_NATIVE_STATIC").EnvRemove("Z42_NO_NATIVE_SHARED").EnvRemove("Z42_NO_NATIVE_LOAD"); }
+    if (shared) {
+        // Initial process linkage uses the native directory; runtime dlopen is forbidden.
+        p = p.WorkingDirectory(Path.Join(pkg, "native"))
+            .Env("Z42_NO_NATIVE_STATIC", "true").Env("Z42_NO_NATIVE_LOAD", "true")
+            .Env("Z42_NO_NATIVE_SHARED", denyShared ? "true" : "false");
+    }
     if (action.StartsWith("sampling")) {
         // simctl forwards SIMCTL_CHILD_* to the spawned simulator process.
         string key = rid == "iossim-arm64" ? "SIMCTL_CHILD_Z42_SAMPLE_HZ" : "Z42_SAMPLE_HZ";
@@ -128,6 +143,16 @@ int _componentCVerifyDynamic(string root, string pkg, string rid, string zbc, st
     try { return _componentCRun(exe, pkg, rid, zbc, "interp", "compression-missing"); }
     finally { File.Move(hidden, library); }
 }
+int _componentCVerifyShared(string root, string pkg, string rid, string zbc, string work) {
+    bool jit = _componentTargetHasJit(rid);
+    string exe = _componentCBuild(root, pkg, rid, work, false, jit, true, true, true);
+    if (exe.Length == 0) { return 1; }
+    int c = _componentCRun(exe, pkg, rid, zbc, "interp", "compression", true); if (c != 0) { return c; }
+    c = _componentCRun(exe, pkg, rid, zbc, "interp", "profiler", true); if (c != 0) { return c; }
+    if (jit) { c = _componentCRun(exe, pkg, rid, zbc, "jit", "no-compression", true); if (c != 0) { return c; } }
+    return _componentCRun(exe, pkg, rid, zbc, "interp", "source-denied", true, true);
+}
+
 int _componentCVerifyStatic(string root, string pkg, string rid, string zbc, string work) {
     string exe = _componentCBuild(root, pkg, rid, work, false, false, false);
     if (exe.Length == 0) { return 1; }
@@ -159,6 +184,7 @@ int _componentVerifyBundle(string root, string rid, string profile) {
     if (rid == "browser-wasm") { return _componentWasmVerify(root, pkg, zbc, work); }
     c = _componentCVerifyStatic(root, pkg, rid, zbc, work); if (c != 0) { return c; }
     c = _componentCVerifyDynamic(root, pkg, rid, zbc, work); if (c != 0) { return c; }
+    c = _componentCVerifyShared(root, pkg, rid, zbc, work); if (c != 0) { return c; }
     if (rid == "iossim-arm64") { return _componentIosVerifyExport(root, pkg, zbc, work); }
     return 0;
 }

@@ -83,9 +83,9 @@ api 的装配协调按角色取得接口、验证核心身份后调用 Execution
 
 interp 的静态、虚、闭包和混合调用通过共享参数视图进入 Engine；JIT 的冷/不可翻译调用通过注册的基线 Engine 回落。解释器热循环保留 OSR 计数及阈值比较，交接经 TierApi。两个后端不互相引用实现，不使用进程全局 JIT 单例。
 
-LoadOptions.backends 的每个后端可选 Auto、Linked、Dynamic(path)、Disabled。Auto 优先使用静态实现，否则查询动态库；JIT 模式同时需要基线解释器。显式 JIT 请求在加载/准备阶段验证，未链接、库缺失、平台不支持、协议不匹配和被禁用均返回错误，不改成解释模式。CLI 的 --mode jit、配置和 Z42_MODE=jit 遵循相同规则。
+LoadOptions.mode 表达执行模式，native 表达搜索目录与静态/共享链接/运行时装入许可，allow_profiling 控制可选分析能力。私有装配优先使用允许的已链接提供方，再按允许策略搜索运行时库；JIT 请求仍同时需要基线解释器，缺失或不支持时明确报错。
 
-原生库搜索共用 loader/native_paths：显式配置（含 Z42_NATIVE_PATH）、可执行文件旁 native/、../native/、可执行文件目录和已加载核心所在目录。iOS 也查询相邻 Framework 与应用的 Frameworks 目录；Android 最后交给系统加载器按库名查询，以支持 APK 内未解压的原生库。Auto 按固定候选顺序查询，显式 Dynamic 只使用所给路径。可用性查询只读候选文件及 loader/code 的已装入映像缓存，不打开库或调用工厂；Android 未知裸库名在显式准备时才交给系统加载器。
+原生库搜索共用 loader/native_paths：显式配置（含 Z42_NATIVE_PATH）、可执行文件旁 native/、../native/、可执行文件目录和已加载核心所在目录。iOS 也查询相邻 Framework 与应用的 Frameworks 目录；Android 最后交给系统加载器按库名查询，以支持 APK 内未解压的原生库。VM 在冻结的搜索目录中按固定候选顺序查询，来源许可在探测或复用代码之前检查。可用性查询只读候选文件及 loader/code 的已装入映像缓存，不打开库或调用工厂；Android 未知裸库名在显式准备时才交给系统加载器。
 C 宿主初始化核对 JIT 的构建/目标支持，不探测来源；缺库、入口与 ABI 错误由程序准备报告。真正装配仍须完成库加载和接口校验。
 
 ### 构建矩阵
@@ -151,7 +151,7 @@ SDK 的 native/ 包含统一 libz42、interp/JIT 组件、compression 和匹配�
 
 ### 按需压缩与 WASM 组合
 
-compression 不属于核心的必需依赖。原生包中的独立动态库在首次调用压缩内置函数时才加载；单纯初始化 VM 或执行其他代码不会装载它。静态宿主链接 libz42_compression.a 后，通过 z42_host_register_static_native_library("z42_compression", z42_compression_get_symbol) 登记符号解析器；Rust 入口统一从 host 导出。未链接或未部署时，实际压缩调用返回明确的组件不可用错误。
+compression 不属于核心的必需依赖。原生包中的独立动态库在首次调用压缩内置函数时才加载；单纯初始化 VM 或执行其他代码不会装载它。静态宿主链接 libz42_compression.a 后，通过 z42_native_register_static("z42_compression", z42_compression_get_symbol) 登记符号解析器；Rust 链接登记入口归 loader::linked。未链接或未部署时，实际压缩调用返回明确的组件不可用错误。
 
 browser-wasm 默认最终模块显式启用 bundled-compression，保持现成 JavaScript 门面的能力。最终 WASM 的 Cargo 输出与静态组件图隔离，避免不同 workspace 的 LTO / bitcode 产物相互覆盖。随包提供的 libz42.a、libz42_interp.a、libz42_compression.a 则用于项目自行组合：选择需要的库，在最终链接阶段登记组件，生成另一份 .wasm。运行时开关只能选择已链接能力，不能凭空加载未链接的原生库。每个组件的原生链接参数记录在包内 manifest.toml 的 [components.<stem>].link_flags（静态链接配方含 init 调用与归档顺序）；静态库必须使用同一批发布产物。
 
@@ -169,7 +169,7 @@ worker 加入同一 Core，不重建组件或扩展。ComponentLease 保留 Core
 
 ## 6. 配置与装配
 
-host/program_builder 统一程序发布顺序，host/vm_defaults、host/extensions 与 host/artifact 提供主 VM 装配输入，将 RuntimeConfig 转为 VM 使用的配置和惰性 FusionInputs；VM 的基础机制接收明确的构造输入。corelib 提供自身 builtin 描述符和对象协议绑定，host 经 interop 装配默认集合；后端登记归 components。LazyLoader 的宿主默认构造使用 inherent 方法，加载机制仍可显式接收 FusionInputSource。主上下文通过 RuntimeInputs 接收引擎、builtin 目录/表、对象协议、采样和扩展；worker 仅共享已有 Core 并建立线程视图。
+vm_assembly 统一程序发布顺序，vm_defaults 和 vm_services 提供默认 VM 输入，loader/artifact 拥有产物入口与 LazyLoader 构造。host 负责功能请求和 resolver 适配，worker 共享已有 Core。
 
 BuiltinCatalog 只含名称/ID 与折叠属性，callable 表属于 exec，provider 由门面装配。纯派发缓存归 runtime/dispatch，加载、初始化、等待与异常物化编排归 exec/ops。监视器机制与争用探针属于 core，标准库适配属于 corelib。
 

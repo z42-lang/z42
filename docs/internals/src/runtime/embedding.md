@@ -362,7 +362,7 @@ wasm 是单线程、且经 `z42_wasm` 而不是这个 C 符号进来，所以那
 
 ## CLI 与嵌入端共用的 Rust 服务
 
-`host::LoadedProgram` 拥有一个加载后的模块及其固定地址上下文。`load_file` 与 `load_bytes` 将产物交给同一个 `host/load.rs` 准备：解析宿主 resolver、选择 prelude、解析依赖、去重并合并模块、验证约束，然后经 `host/program_builder.rs` 完成可用性裁剪、初始化器登记和链接。
+`host::LoadedProgram` 拥有一个加载后的模块及其固定地址上下文。`load_file` 与 `load_bytes` 将产物交给同一个 `host/load.rs` 准备：解析宿主 resolver、选择 prelude、解析依赖、去重并合并模块、验证约束，然后经 `vm_assembly.rs` 完成可用性裁剪、初始化器登记和链接。
 
 `LoadOptions` 显式携带 VFS、搜索目录、resolver、执行模式及依赖预加载策略。字节输入没有隐式入口目录；文件应用按入口目录、配置 probing 路径、标准库目录构造搜索顺序。需要在调用前解析依赖包入口的 C 宿主启用预加载；应用默认按需加载。两种策略共用解析与合并实现。
 
@@ -373,18 +373,10 @@ wasm 是单线程、且经 `z42_wasm` 而不是这个 C 符号进来，所以那
 
 ## 可选原生组件
 
-当前 Rust 宿主仍通过 `LoadOptions.components` 选择同构建组件；管理类型从 `z42::host` 获取，协议类型单独从 `z42::components::abi` 获取。
-这是尚待收口的管理公开面；VM 内部消费者使用 `components::api` 的能力请求。
-`ComponentOptions::with_static` 接收已链接的工厂函数，`with_dynamic` 接收预期组件 ID、库路径和 C 初始化入口；
-调用方通过 unsafe 承诺原生代码及 ABI 的有效性。两种方法同时登记来源并启用组件。
+Rust 宿主通过 LoadOptions 表达执行模式、native 来源许可/搜索目录和 allow_profiling，不指定组件 ID 或工厂。VM 的私有 ComponentInputs 负责装配，内部测试通过专用入口注入提供方。
 
-`with_static_provider` / `with_dynamic_provider` 采用相同来源参数，仅登记可用提供方。加载程序时从启用根递归解析依赖，加载必需提供方并按依赖顺序创建实例；未使用提供方不会初始化或打开库。缺失来源、重复 ID、依赖环或接口不匹配均报错，不发布部分注册表。装配期间不会额外扫描进程工厂或改变后端选择。
+loader 分别校验静态链接、共享链接和运行时加载来源。配置在 VM 发布前冻结；命中进程代码缓存或共享工厂缓存也要重新检查当前 VM 的许可，拒绝不污染后续 VM 的工厂缓存。
 
-`component_ids(program.context())` 返回依赖顺序的组件 ID；
-`component_interface::<T>(program.context(), id)` 返回接口租约，未提供的组件或接口返回 None。
-查询本身不触发初始化；请求的接口版本、大小或对齐不匹配会报错。租约在释放之前保留整个 VM 及其组件代码。
+最终链接胶水使用 components::abi 的 register_static_component 或 register_shared_component；原生模块使用 loader::linked 的对应登记入口。登记不执行工厂或符号解析器。只有实际使用的能力/模块才装入或创建实例。
 
-组件选项克隆共享不可变工厂和加载结果；每次程序加载创建新的实例。修改选项会创建新的加载缓存；
-失败的库加载结果也会缓存，重试时重新构造选项。首版装配后冻结，不支持运行中的替换或热卸载。
-C 宿主和 CLI 目前沿用默认组件选择；具体执行引擎仍使用既有注册入口。
-组件协议与所有权见 [组件化运行时](componentized-runtime.md)。
+组件管理查询只存在于内部测试构建。生产 VM 通过能力入口获取接口；租约保留 Core、实例与代码，实例按依赖逆序销毁，不支持热卸载。组件协议与所有权见 [组件化运行时](componentized-runtime.md)。

@@ -320,7 +320,7 @@ fn declaration_loads_once_on_first_call_and_rejects_mismatched_implementations_a
         );
         entry as *const () as *const c_void
     }
-    unsafe { crate::host::register_static_native_library("native.lazy.test", resolver) }.unwrap();
+    unsafe { crate::loader::linked::register_static_library("native.lazy.test", resolver) }.unwrap();
     let mut builder = RegistryBuilder::default();
     unsafe { builder.register_declaration(&DECLARATION) }.unwrap();
     let registry = Box::leak(Box::new(builder.freeze()));
@@ -328,7 +328,7 @@ fn declaration_loads_once_on_first_call_and_rejects_mismatched_implementations_a
     extensions
         .register(crate::interop::state_for_vm(registry))
         .unwrap();
-    let ctx = crate::host::vm_defaults::with_config(
+    let ctx = crate::vm::defaults::with_config(
         None,
         crate::pal::fs::default_vfs(),
         extensions.freeze(),
@@ -497,7 +497,7 @@ fn undeclared_linked_module_is_untouched_until_called_and_shared_only_within_its
         assert_eq!(unsafe { std::ffi::CStr::from_ptr(name) }.to_bytes(), b"independent.auto.example_module_v1");
         entry as *const () as *const c_void
     }
-    unsafe { crate::host::register_static_native_library("independent.auto.example", resolver) }.unwrap();
+    unsafe { crate::loader::linked::register_static_library("independent.auto.example", resolver) }.unwrap();
     let first = VmContext::new();
     let second = VmContext::new();
     assert!(crate::interop::resolve_native_module(&first, "independent.auto.example").unwrap().is_none());
@@ -526,7 +526,7 @@ fn automatic_module_rejects_bad_abi_or_name_without_publishing_any_module() {
         ("independent.wrong.name", name_resolver as crate::loader::linked::NativeSymbolResolver),
         ("independent.bad.abi", abi_resolver as crate::loader::linked::NativeSymbolResolver),
     ] {
-        unsafe { crate::host::register_static_native_library(name, resolver) }.unwrap();
+        unsafe { crate::loader::linked::register_static_library(name, resolver) }.unwrap();
         let ctx = VmContext::new();
         assert!(invoke_export(&ctx, Some(name), "__native_echo", &[]).unwrap().is_err());
         assert!(crate::interop::resolve_native_module(&ctx, name).unwrap().is_none());

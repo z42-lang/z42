@@ -14,11 +14,10 @@ use std::{
 
 /// Host-provided inputs. A byte source has no implicit working-directory search.
 pub struct LoadOptions {
-    /// Native component selection, attached once before this program executes.
-    pub components: super::ComponentOptions,
-    pub backends: super::BackendOptions,
-    /// Profiler is attached only for sampling or the first heap inspection.
-    pub profiler: super::BackendSource,
+    /// Allowed native deployment sources and search directories, captured per VM.
+    pub native: crate::loader::NativeLoading,
+    /// Permit optional sampling and heap inspection; false never activates a profiler.
+    pub allow_profiling: bool,
     pub mode: ExecMode,
     pub vfs: Arc<dyn Vfs>,
     pub search_dirs: Vec<PathBuf>,
@@ -30,9 +29,8 @@ pub struct LoadOptions {
 impl Default for LoadOptions {
     fn default() -> Self {
         Self {
-            components: Default::default(),
-            backends: Default::default(),
-            profiler: Default::default(),
+            native: Default::default(),
+            allow_profiling: true,
             mode: super::default_mode(),
             vfs: crate::pal::fs::default_vfs(),
             search_dirs: Vec::new(),
@@ -53,7 +51,7 @@ pub struct LoadedProgram {
 }
 
 impl LoadedProgram {
-    pub(super) fn new(
+    pub(crate) fn new(
         ctx: Pin<Box<VmContext>>,
         mode: ExecMode,
         entry_hint: Option<String>,
@@ -74,13 +72,20 @@ impl LoadedProgram {
     }
 
     pub fn load_file(path: &str, options: LoadOptions) -> Result<Self> {
-        let artifact = crate::host::artifact::load_artifact(&*options.vfs, path)?;
-        super::load::prepare(artifact, Some(path), &options)
+        let artifact = crate::loader::load_artifact(&*options.vfs, path)?;
+        super::load::prepare(artifact, Some(path), &options, &crate::vm::assembly::ComponentInputs::for_request(&options))
     }
 
     pub fn load_bytes(bytes: &[u8], options: LoadOptions) -> Result<Self> {
-        let artifact = crate::host::artifact::load_artifact_from_bytes(bytes)?;
-        super::load::prepare(artifact, None, &options)
+        let artifact = crate::loader::load_artifact_from_bytes(bytes)?;
+        super::load::prepare(artifact, None, &options, &crate::vm::assembly::ComponentInputs::for_request(&options))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn load_bytes_with_components(bytes: &[u8], options: LoadOptions,
+        components: crate::vm::assembly::ComponentInputs) -> Result<Self> {
+        let artifact = crate::loader::load_artifact_from_bytes(bytes)?;
+        super::load::prepare(artifact, None, &options, &components)
     }
 
     pub fn context(&self) -> &VmContext {

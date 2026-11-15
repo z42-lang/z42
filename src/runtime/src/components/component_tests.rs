@@ -24,13 +24,13 @@ fn count(lease: &ComponentLease<CounterApi>) -> (u64, u64) {
     (n, vm)
 }
 fn load(components: ComponentOptions) -> anyhow::Result<LoadedProgram> {
-    LoadedProgram::load_bytes(
+    LoadedProgram::load_bytes_with_components(
         &crate::host::program_tests::empty_zbc(),
         LoadOptions {
             mode: ExecMode::Interp,
-            components,
             ..Default::default()
         },
+        crate::vm::assembly::ComponentInputs { components, ..Default::default() },
     )
 }
 #[test]
@@ -287,17 +287,17 @@ fn real_dynamic_library_shares_the_static_protocol_and_stays_loaded_for_leases()
         "native code remains mapped for thread-local destructors"
     );
     assert_eq!(live(), 0, "image retention must not retain VM instances");
-    let same = unsafe { crate::loader::code::open(fixture()).unwrap() };
+    let same = unsafe { crate::loader::code::open(fixture(), &Default::default()).unwrap() };
     assert!(std::sync::Arc::ptr_eq(&same, &weak_library.upgrade().unwrap()));
     let alias = fixture().parent().unwrap().join(".").join(fixture().file_name().unwrap());
-    let aliased = unsafe { crate::loader::code::open(&alias).unwrap() };
+    let aliased = unsafe { crate::loader::code::open(&alias, &Default::default()).unwrap() };
     assert!(std::sync::Arc::ptr_eq(&same, &aliased));
 }
 #[test]
 #[cfg(feature = "component-loading")]
 fn dynamic_failures_reject_before_publication_and_destroy_partial_state() {
     let _lock = LOCK.lock().unwrap();
-    let library = unsafe { crate::loader::code::open(fixture()).unwrap() };
+    let library = unsafe { crate::loader::code::open(fixture(), &Default::default()).unwrap() };
     let reset: extern "C" fn() = unsafe { symbol(&library, "probe_reset") };
     let live: extern "C" fn() -> usize = unsafe { symbol(&library, "probe_live") };
     let created: extern "C" fn() -> u64 = unsafe { symbol(&library, "probe_created") };
@@ -462,4 +462,22 @@ fn a_static_root_can_activate_a_dynamic_dependency_provider() {
     assert_eq!(component_ids(program.context()), [A, B, INTERP_COMPONENT]);
     drop((a, program));
     assert_eq!(probe::probe_live(), 0);
+}
+
+#[test]
+fn denied_linked_origins_do_not_initialize_or_poison_cached_factories() {
+    let _lock = LOCK.lock().unwrap();
+    for origin in [crate::loader::NativeOrigin::StaticLink, crate::loader::NativeOrigin::SharedLink] {
+        probe::probe_reset();
+        let opts = unsafe { ComponentOptions::default().with_linked(A, probe::z42_component_probe_a_init, origin) };
+        let denied = crate::loader::NativeLoading { allow_static: false, allow_shared: false, ..Default::default() };
+        assert!(opts.create(77, &denied).is_err());
+        assert_eq!(probe::probe_inits(), 0);
+        let instances = opts.create(77, &Default::default()).unwrap();
+        assert_eq!(probe::probe_inits(), 1);
+        assert!(opts.create(78, &denied).is_err());
+        assert_eq!(probe::probe_inits(), 1, "warm factory cannot grant another VM permission");
+        drop(instances);
+        assert_eq!(probe::probe_live(), 0);
+    }
 }

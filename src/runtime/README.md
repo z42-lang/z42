@@ -27,9 +27,9 @@ native 安装器将其聚合成既有统一头，workload 不增加逐模块 inc
 | `main_startup.rs` | 命令行宿主的私有启动策略；main_command.rs 解析参数并消费 host 接口 |
 | `corelib/builtins.rs` / `host/builtins.rs` | 核心库导出自身描述符，host 经 interop 注册独立提供方并生成查询目录与执行表 |
 | `corelib/mod.rs` | 核心库提供 GetType 和默认 ToString 的对象协议绑定；宿主将其注入 VM |
-| `host/artifact.rs` | 门面在函数融合准备时读取进程配置，为公开加载入口与每 VM loader 提供同一惰性输入 |
-| `host/vm_defaults.rs` | 默认配置、内置服务与扩展输入；Core 构造、线程加入和 Drop 机制由 vm.rs 负责 |
-| `host/extensions.rs` | 门面装配 interop 与核心库每 VM 资源状态，保留库句柄到最后释放，所有构造入口共用 |
+| `loader/artifact.rs` | 门面在函数融合准备时读取进程配置，为公开加载入口与每 VM loader 提供同一惰性输入 |
+| `vm_defaults.rs` | 默认配置、内置服务与扩展输入；Core 构造、线程加入和 Drop 机制由 vm.rs 负责 |
+| `vm_services.rs` | 门面装配 interop 与核心库每 VM 资源状态，保留库句柄到最后释放，所有构造入口共用 |
 | `threads/state.rs` | `ThreadState` 拥有每 VM 线程注册、暂停握手与 fatal 状态，VmCore 组合持有 |
 | `metadata/state.rs` | `RuntimeState` 组合入口 module 与运行时身份表，保留每 VM 链接隔离 |
 | `loader/state.rs` | `LoaderState` 组合每 VM 加载上下文、初始化队列与 VFS |
@@ -41,7 +41,7 @@ native 安装器将其聚合成既有统一头，workload 不增加逐模块 inc
 | `config/vm_config.rs` | `VmConfig`：门面捕获的构造输入，包含 heap 与采样设置；LOH 覆盖仍应用到进程策略 |
 | `vm_extensions.rs` | `VmExtensions` 创建前登记与冻结的每 VM Rust 扩展状态，`VmContext::ext` 借用查询 |
 | `host/app.rs` | `host::run_app`：加载 `.zbc`/`.zpkg` + 合并依赖 + 执行入口（z42vm / `z42_run_app` / wasm `runTestApp` 共用）|
-| `host/program_builder.rs` | 合并后的启动步骤（`build`），`host::run_app` 与宿主 API（`host/ops.rs`）共用，防两条路径分叉 |
+| `vm_assembly.rs` | 合并后的启动步骤（`build`），`host::run_app` 与宿主 API（`host/ops.rs`）共用，防两条路径分叉 |
 | `lib.rs` | 库入口，re-export 公开 API |
 | `config/mod.rs` + `config/` | `RuntimeConfig`（每个 `Z42_*` 旋钮的单一登记处）：`config/mod.rs` 为 hub（Default / from_env / toml 加载 / 全局单例）；`config/knob_table.rs` 的 `KNOWN_KNOBS` 旋钮表、`knobs.rs`、`parse.rs`（各 `parse_*`）、`resolve.rs`（四层输入 + 默认的分层解析与 provenance）、`subsystem_inputs.rs`（转换为子系统拥有的 `GcConfig` / `JitConfig` / `VmConfig`）、`source.rs`（`Z42_CONFIG` / `Z42_APP_CONFIG` 文件层）、`cli.rs`（`--set key=value`）、`availability.rs`（旋钮可用性）、`render.rs`（`--info` / `--list-knobs` / `--show-config` 渲染）；单测在 `config/config_tests.rs` |
 | `diagnostics/counters.rs` | `RuntimeCounters`：VM 可观测性原子计数器 |

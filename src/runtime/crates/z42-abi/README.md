@@ -48,3 +48,5 @@ C 协议头 `z42_abi.h`、`z42_native.h` 与 Rust 镜像由本 crate 一起维�
 |------|------|
 | `src/lib.rs` | `#[repr(C)]` 镜像所有 ABI 类型；`extern "C"` 声明 `z42_*` 函数 |
 | `tests/abi_layout_tests.rs` | 验证 `offset_of!` / `size_of` / 旗标常量未漂移 |
+
+`z42_native.h` 同时声明 loader 所有的静态/共享链接登记函数；其返回模块状态，不依赖 host 会话或错误槽。

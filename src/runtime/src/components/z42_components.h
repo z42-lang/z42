@@ -29,6 +29,8 @@ const Z42ComponentDescriptor* z42_profiler_init(void);
  * Z42_COMPONENT_ERROR. Registration never changes host error state.
  * Descriptor/build/ABI validation still occurs before a program is loaded. */
 uint32_t z42_component_register_static(Z42ComponentId id, Z42ComponentInit init);
+/* Same contract, for a provider supplied by a shared-library link dependency. */
+uint32_t z42_component_register_shared(Z42ComponentId id, Z42ComponentInit init);
 
 /* Final static archives register their bundled backends here. Dynamic cores
  * expose the same entry as a no-op and discover colocated components on load. */

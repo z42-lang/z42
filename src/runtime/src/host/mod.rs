@@ -10,7 +10,20 @@
 //! ```compile_fail
 //! use z42::host::ComponentLease;
 //! ```
-pub use crate::components::api::ComponentOptions;
+//! ```compile_fail
+//! use z42::host::ComponentOptions;
+//! ```
+//! ```compile_fail
+//! use z42::host::BackendOptions;
+//! ```
+//! ```compile_fail
+//! use z42::host::BackendSource;
+//! ```
+//! ```
+//! let mut request = z42::host::LoadOptions::default();
+//! request.native.allow_runtime = false;
+//! request.allow_profiling = false;
+//! ```
 pub use crate::{object::Value, pal::fs::Vfs, vm::{VmContext, VmCore}, metadata::Module};
 pub mod config;
 pub mod resolver;
@@ -24,8 +37,6 @@ pub mod ops;
 pub mod state;
 mod ffi;
 mod app;
-pub(crate) mod vm_defaults;
-pub(crate) mod program_builder;
 mod load;
 pub(crate) mod app_state;
 pub(crate) mod services;
@@ -40,8 +51,6 @@ pub(crate) use app::report_on_exit;
 #[cfg(test)] mod app_tests;
 #[cfg(test)] pub(crate) mod program_tests;
 
-pub use artifact::{load_artifact, load_artifact_from_bytes, build_block_indices, fold_availability};
-pub use crate::components::api::{BackendOptions, BackendSource};
 
 pub use crate::vm::VmExtensions;
 
@@ -50,12 +59,9 @@ pub use z42_abi::{Z42Value, Z42_VALUE_TAG_I64};
 /// Ergonomic Rust embedding over the shared host services.
 pub mod rust;
 
-pub use crate::loader::linked::{NativeSymbolResolver, register_static_library as register_static_native_library};
 
 pub use crate::config::{RuntimeConfig, VmConfig};
 
-mod artifact;
-mod extensions;
 
 
 mod profiling;

@@ -10,24 +10,28 @@ use std::{
 pub type NativeSymbolResolver = unsafe extern "C" fn(*const c_char) -> *const c_void;
 
 #[derive(Default)]
-struct Providers(RwLock<HashMap<String, NativeSymbolResolver>>);
+struct Providers(RwLock<HashMap<String, (NativeSymbolResolver, super::NativeOrigin)>>);
 impl Providers {
     fn register(&self, name: &str, resolver: NativeSymbolResolver) -> Result<()> {
+        self.register_source(name, resolver, super::NativeOrigin::StaticLink)
+    }
+    fn register_source(&self, name: &str, resolver: NativeSymbolResolver, origin: super::NativeOrigin) -> Result<()> {
         validate_name(name)?;
         let mut providers = self.0.write();
         if let Some(previous) = providers.get(name) {
-            if !std::ptr::fn_addr_eq(*previous, resolver) {
+            if !std::ptr::fn_addr_eq(previous.0, resolver) || previous.1 != origin {
                 bail!("native library `{name}` already has a different static provider");
             }
         } else {
-            providers.insert(name.to_owned(), resolver);
+            providers.insert(name.to_owned(), (resolver, origin));
         }
         Ok(())
     }
 
-    fn resolve(&self, library: &str, symbol: &str) -> Option<Result<*mut c_void>> {
-        let resolver = self.0.read().get(library).copied()?;
+    fn resolve_with_policy(&self, library: &str, symbol: &str, policy: &super::NativeLoading) -> Option<Result<*mut c_void>> {
+        let (resolver, origin) = self.0.read().get(library).copied()?;
         Some((|| {
+            policy.check(origin)?;
             let symbol = CString::new(symbol)?;
             // Third-party code must never run under the provider table lock.
             let pointer = unsafe { resolver(symbol.as_ptr()) };
@@ -40,6 +44,11 @@ impl Providers {
             Ok(pointer.cast_mut())
         })())
     }
+    #[cfg(test)]
+    fn resolve(&self, library: &str, symbol: &str) -> Option<Result<*mut c_void>> {
+        self.resolve_with_policy(library, symbol, &Default::default())
+    }
+
 }
 
 fn providers() -> &'static Providers {
@@ -56,11 +65,18 @@ pub unsafe fn register_static_library(name: &str, resolver: NativeSymbolResolver
     providers().register(name, resolver)
 }
 
-pub(crate) fn resolve(library: &str, symbol: &str) -> Option<Result<*mut c_void>> {
-    if let Some(result) = providers().resolve(library, symbol) { return Some(result); }
+/// Register symbols supplied by a shared-library link dependency.
+/// # Safety
+/// The resolver and library must remain valid through process exit.
+pub unsafe fn register_shared_library(name: &str, resolver: NativeSymbolResolver) -> Result<()> {
+    providers().register_source(name, resolver, super::NativeOrigin::SharedLink)
+}
+
+pub(crate) fn resolve_with_policy(library: &str, symbol: &str, policy: &super::NativeLoading) -> Option<Result<*mut c_void>> {
+    if let Some(result) = providers().resolve_with_policy(library, symbol, policy) { return Some(result); }
     if symbol == format!("{library}_module_v1") {
         if let Some((_, entry)) = crate::LINKED_NATIVE_MODULES.iter().find(|(name, _)| *name == library) {
-            return Some(Ok(*entry as *const () as *mut c_void));
+            return Some(policy.check(super::NativeOrigin::StaticLink).map(|_| *entry as *const () as *mut c_void));
         }
     }
     None

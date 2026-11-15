@@ -25,7 +25,9 @@ pub(crate) fn is_loaded(path: &Path) -> bool {
 /// # Safety
 /// Opening executes native initializers. The library must be trusted and built
 /// for this process; cached images do not grant permission to a new caller.
-pub(crate) unsafe fn open(path: &Path) -> std::io::Result<Arc<CodeImage>> {
+pub(crate) unsafe fn open(path: &Path, policy: &super::NativeLoading) -> std::io::Result<Arc<CodeImage>> {
+    policy.check(super::NativeOrigin::RuntimeLoad)
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::PermissionDenied, error.to_string()))?;
     let path = key(path)?;
     if let Some(image) = images().lock().get(&path).cloned() { return Ok(image); }
     // Native initializers may reenter the loader. Never hold the cache lock here.

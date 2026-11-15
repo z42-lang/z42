@@ -16,6 +16,13 @@ mod extensions;
 pub use extensions::{ExtensionState, VmExtensions};
 
 
+#[path = "vm_assembly.rs"]
+pub(crate) mod assembly;
+#[path = "vm_defaults.rs"]
+pub(crate) mod defaults;
+#[path = "vm_services.rs"]
+pub(crate) mod services;
+
 /// State shared by all contexts of one VM, owned through `Arc<VmCore>`.
 /// Subsystems own their synchronization and teardown; contexts retain thread-local
 /// frames, pending exceptions and allocation arenas. Concrete core-library and
@@ -35,6 +42,8 @@ pub struct VmCore {
 
     /// Observation state shared by this VM; per-thread counters stay on each context.
     pub(crate) diagnostics: crate::diagnostics::DiagnosticsState,
+    // The backend in diagnostics must drop before its owning profiler instance.
+    profiling: crate::components::api::ProfilingState,
 
     /// Released after the heap and engines so extension-owned resources outlive them.
     pub(crate) ext_state: crate::vm::ExtensionState,
@@ -74,6 +83,7 @@ impl VmContext {
 }
 impl VmCore {
     #[inline] pub(crate) fn object_protocol(&self) -> &crate::object::ObjectProtocol<VmContext, crate::exec::call::builtin_abi::BuiltinError> { &self.object_protocol }
+    #[inline] pub(crate) fn profiling(&self) -> &crate::components::api::ProfilingState { &self.profiling }
     #[inline] pub(crate) fn components(&self) -> &std::sync::OnceLock<crate::components::api::VmComponents> { &self.components }
     #[inline] pub fn exec(&self) -> &crate::exec::ExecState { &self.exec }
     #[inline] pub fn heap(&self) -> &Heap { &self.heap }
@@ -184,6 +194,7 @@ impl VmContext {
         // heap → strong-Arc loop = leak). Weak.upgrade() per call.
         let core: Arc<VmCore> = Arc::new(VmCore {
             components: std::sync::OnceLock::new(),
+            profiling: Default::default(),
             threads: crate::threads::ThreadState::new(config.safepoint_throttle),
             loader: crate::loader::LoaderState::new(vfs, fusion),
             heap:                 Box::new(Heap::new(config.gc)),

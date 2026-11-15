@@ -12,17 +12,17 @@ use super::execution_roles::ExecutionBindings;
 /// Prepare once before publishing the program; execution uses its bound engines.
 pub(crate) fn prepare_program(
     ctx: &VmContext, mode: ExecMode, components: &ComponentOptions,
-    backends: &BackendOptions, profiler: &BackendSource,
+    backends: &BackendOptions, profiler: &BackendSource, jit_config: &crate::exec::JitConfig,
 ) -> Result<()> {
-    let selected = backends.components(mode, components)?;
+    let selected = backends.components(mode, components, ctx.core().loader().native_loading())?;
     let mut roles = vec![(ExecutionRole::Baseline, crate::components::abi::INTERP_COMPONENT)];
     if mode == ExecMode::Jit {
         roles.push((ExecutionRole::Optimizing, crate::components::abi::JIT_COMPONENT));
     }
     let bindings = ExecutionBindings::new(roles)?;
-    ctx.core().diagnostics().sampler.set_source(profiler.clone())?;
+    ctx.core().profiling().set_source(profiler.clone())?;
     selected.install_bound(ctx, bindings)?;
-    attach_execution(ctx, mode)?;
+    attach_execution(ctx, mode, jit_config)?;
     if ctx.core().diagnostics().sampler.enabled() {
         profiler_service(ctx)?;
     }
@@ -56,11 +56,9 @@ pub(crate) fn profiler_service(ctx: &VmContext) -> Result<&dyn crate::diagnostic
     ctx.core().diagnostics().sampler.provider(ctx)
 }
 
-pub(crate) fn attach_profiler(ctx: &VmContext, source: &BackendSource, hz: u32, trace: bool) -> Result<()> {
-    super::profiling::attach(ctx, source, hz, trace)
-}
+pub(crate) use super::profiling::{ProfilingState, prepare as prepare_profiler};
 
-pub(super) fn attach_execution(ctx: &VmContext, mode: ExecMode) -> Result<()> {
+pub(super) fn attach_execution(ctx: &VmContext, mode: ExecMode, cfg: &crate::exec::JitConfig) -> Result<()> {
     for role in [ExecutionRole::Baseline, ExecutionRole::Optimizing] {
         if role == ExecutionRole::Optimizing && mode != ExecMode::Jit { continue; }
         let name = if role == ExecutionRole::Baseline { "interpreter" } else { "JIT" };
@@ -74,7 +72,6 @@ pub(super) fn attach_execution(ctx: &VmContext, mode: ExecMode) -> Result<()> {
             .ok_or_else(|| anyhow::anyhow!("{name} component has no code lease"))?;
         // Acquire code lifetime before installing any backend-owned trait objects.
         ctx.core().exec().engines.retain_code(code);
-        let cfg = crate::config::runtime_config().jit_config();
         let config = ExecutionConfig { threshold: cfg.threshold, osr_threshold: cfg.osr_threshold,
             interp_tierup: cfg.interp_tierup, profile: cfg.profile as u32, debug_promote: cfg.debug_promote as u32 };
         let status = unsafe { (interface.attach)((ctx as *const VmContext).cast(), &config) };

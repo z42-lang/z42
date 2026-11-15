@@ -343,6 +343,33 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         ..DEBUG_KNOB
     },
     KnobSpec {
+        name: "Z42_NO_NATIVE_LOAD",
+        toml_key: "no-native-load",
+        value: ValueKind::Bool,
+        description: "disable VM runtime loading of native libraries",
+        default_hint: "false; source allowed",
+        consumed_by: "loader/native_policy.rs",
+        ..PUBLIC
+    },
+    KnobSpec {
+        name: "Z42_NO_NATIVE_SHARED",
+        toml_key: "no-native-shared",
+        value: ValueKind::Bool,
+        description: "disable activation of shared-link native providers",
+        default_hint: "false; source allowed",
+        consumed_by: "loader/native_policy.rs",
+        ..PUBLIC
+    },
+    KnobSpec {
+        name: "Z42_NO_NATIVE_STATIC",
+        toml_key: "no-native-static",
+        value: ValueKind::Bool,
+        description: "disable activation of statically linked native providers",
+        default_hint: "false; source allowed",
+        consumed_by: "loader/native_policy.rs",
+        ..PUBLIC
+    },
+    KnobSpec {
         name: "Z42_NO_TYPED_FUSION",
         toml_key: "no-typed-fusion",
         value: ValueKind::Bool,
@@ -395,7 +422,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         platforms: NOT_WASM,
         description: "override path to the REPL line-editor cdylib (libz42_repl); accepts the file or its directory",
         default_hint: "unset; searched relative to the z42vm binary",
-        consumed_by: "host/extensions.rs",
+        consumed_by: "loader/native_paths.rs",
         ..DEBUG_KNOB
     },
     KnobSpec {
