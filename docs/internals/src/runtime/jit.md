@@ -496,7 +496,7 @@ flowchart TD
 ## 字段访问：原生单态字段 IC
 
 > `jit/translate/field_ic.rs`（守卫、读写、引用写的屏障判定）+ `jit/translate/hoist.rs`（循环内的守卫 hoist）+
-> `metadata/dispatch/ic.rs`（`FieldIC` 载荷）+ `object/object/object.rs`（`obj_jit_layout`）+
+> `metadata/dispatch/ic.rs`（`FieldIC` 载荷）+ `object/storage.rs`（`obj_jit_layout`）+
 > `object/value/ref_word.rs`（种类表）。慢路径：`jit/helpers/object_field.rs`（`jit_field_get` / `jit_field_set`，
 > 经 [objops](interp-jit-semantics.md#对象操作objops) 与解释器同一份语义）。
 
@@ -549,7 +549,7 @@ entry 0 是站点第一次见到的类型；多态站点的其它类型走 helpe
 ### 正确性靠的不变式
 
 - 句柄位逐位等于寄存器 payload；对象块头 + 对象头 + 字段的偏移、`TypeDesc::id` 经 `Arc` 的偏移、块头里年龄 / 记忆集位的位置
-  都由 `object_tests::jit_layout_matches_the_accessors` 对照 Rust 访问器钉住；两张种类表由 `ref_word_tests` 钉住。
+  都由 `storage_tests::jit_layout_matches_the_accessors` 对照 Rust 访问器钉住；两张种类表由 `ref_word_tests` 钉住。
 - 一个 `TypeId` 只对应一种布局（继承 fixup 出的描述符同 id 同布局；`assert_field_ic_loc` 在 debug 构建的每次 IC 命中复核）。
 - load / store 与守卫之间没有 safepoint。
 - 解释器与 JIT 的值、异常文本逐条一致（`field_ic_tests` 对照解释器；屏障测试证明内联写入的老→新边在下一次 minor 后仍在，

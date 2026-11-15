@@ -1,6 +1,6 @@
 use super::*;
 use crate::corelib::application::Services;
-use crate::pal::{fs::Vfs, vfs::MemoryFs};
+use crate::pal::fs::{Vfs, MemoryFs};
 use std::path::PathBuf;
 
 #[test]

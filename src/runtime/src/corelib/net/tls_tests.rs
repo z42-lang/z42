@@ -1,5 +1,6 @@
 //! ABI v2 TLS builtins (`tls.rs`): the .NET `SslStream` exception mapping and parking.
-//! Loopback only — the peers are plain TCP listeners and an in-process rustls server
+//! Default tests use loopback only; an ignored opt-in test covers public HTTPS roots.
+//! Loopback peers are plain TCP listeners and an in-process rustls server
 //! with a self-signed certificate (`tls_test_data/`: P-256, CN / SAN `localhost` +
 //! `127.0.0.1`, valid until 2126), which the client must reject: it is not under the
 //! bundled roots.
@@ -44,6 +45,7 @@ fn a_peer_hanging_up_mid_handshake_is_an_io_exception_and_the_wait_is_parked() {
     drop(peer);
     let e = client.join().unwrap().expect("the handshake fails");
     assert!(matches!(e, BuiltinError::Io(ref m) if m.contains("unexpected EOF")), "{e}");
+    assert_eq!(super::state(&ctx).unwrap().slots.count(), 0);
 }
 
 #[test]
@@ -116,10 +118,52 @@ fn bad_arguments_and_unknown_handles() {
     assert!(matches!(e, BuiltinError::ArgumentOutOfRange(_)), "{e}");
     let e = connect(&ctx, "not a host name", 443, 0).unwrap_err();
     assert!(matches!(e, BuiltinError::Argument(_)), "{e}");
+    assert_eq!(super::state(&ctx).unwrap().slots.count(), 0);
     let buf = ctx.heap().alloc_bytes(vec![0u8; 4]);
     let e = call(&ctx, "__tls_read", &[Value::I64(999_999), buf, Value::I64(0), Value::I64(4)]).unwrap_err();
     assert_eq!(detailed(&e).0, "Std.Net.Sockets.SocketClosedException");
     let e = call(&ctx, "__tls_set_read_timeout", &[Value::I64(999_999), Value::I64(10)]).unwrap_err();
     assert_eq!(detailed(&e).0, "Std.Net.Sockets.SocketClosedException");
+    let buf = ctx.heap().alloc_bytes(vec![b'x']);
+    let e = call(&ctx, "__tls_write", &[Value::I64(999_999), buf, Value::I64(0), Value::I64(1)]).unwrap_err();
+    assert_eq!(detailed(&e).0, "Std.Net.Sockets.SocketClosedException");
+    let e = call(&ctx, "__tls_set_write_timeout", &[Value::I64(999_999), Value::I64(10)]).unwrap_err();
+    assert_eq!(detailed(&e).0, "Std.Net.Sockets.SocketClosedException");
     call(&ctx, "__tls_close", &[Value::I64(999_999)]).unwrap();
+    assert_eq!(super::state(&ctx).unwrap().slots.count(), 0);
+}
+
+/// Explicitly opt-in: validates bundled public roots and encrypted I/O against a real endpoint.
+#[test]
+#[ignore = "requires outbound network on :443"]
+fn real_https_handshake_and_get_round_trip() {
+    let ctx = VmContext::new();
+    let slot = match connect(&ctx, "example.com", 443, 5000).unwrap() {
+        Some(Value::I64(id)) => id,
+        other => panic!("expected TLS slot, got {other:?}"),
+    };
+    let request = b"GET / HTTP/1.0\r\nHost: example.com\r\nConnection: close\r\n\r\n";
+    let write_buf = ctx.heap().alloc_bytes(request.to_vec());
+    let write_root = ctx.heap().pin_root(write_buf.clone());
+    call(&ctx, "__tls_write", &[Value::I64(slot), write_buf, Value::I64(0), Value::I64(request.len() as i64)]).unwrap();
+    ctx.heap().unpin_root(write_root);
+    let read_buf = ctx.heap().alloc_bytes(vec![0; 64]);
+    let read_root = ctx.heap().pin_root(read_buf.clone());
+    let count = match call(&ctx, "__tls_read", &[Value::I64(slot), read_buf.clone(), Value::I64(0), Value::I64(64)]).unwrap() {
+        Some(Value::I64(n)) => n,
+        other => panic!("expected byte count, got {other:?}"),
+    };
+    assert!(count > 0);
+    if let Value::Array(arr) = &read_buf {
+        let head: Vec<u8> = arr.borrow().iter_boxed().take(count as usize).map(|v| match v {
+            Value::I64(byte) => byte as u8,
+            other => panic!("expected byte, got {other:?}"),
+        }).collect();
+        assert!(head.starts_with(b"HTTP/"), "{head:?}");
+    } else {
+        panic!("expected byte array");
+    }
+    ctx.heap().unpin_root(read_root);
+    call(&ctx, "__tls_close", &[Value::I64(slot)]).unwrap();
+    assert_eq!(super::state(&ctx).unwrap().slots.count(), 0);
 }

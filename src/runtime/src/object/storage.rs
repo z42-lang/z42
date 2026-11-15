@@ -185,7 +185,7 @@ const TYPE_WORD_PAD: usize = 16 - std::mem::size_of::<GcWord>() - std::mem::size
 /// synthesized layout) is a 16 B cell whose tag word sits at its own offset and whose payload
 /// word sits past the compiler's layout (`tparam_cell`, `ObjectLayout::tparam_cells`). A boxed
 /// struct's payload is its struct blob. Field access goes through the methods in
-/// `object_fields.rs`, every one an atomic cell access (`Cells`).
+/// `fields.rs`, every one an atomic cell access (`Cells`).
 #[repr(C)]
 pub struct ScriptObject {
     /// The block's GC word (owned by the region; read here only for the meta bit).
@@ -237,7 +237,7 @@ impl ObjHeader {
 /// a call (64-bit targets; `jit::translate::field_ic`): `hdr = handle & HANDLE_ADDR_MASK` is the
 /// block header — which is the whole object header — and the field cells follow it; every offset
 /// below is from `hdr`. Pinned against the Rust accessors by
-/// `object_tests::jit_layout_matches_the_accessors`.
+/// `storage_tests::jit_layout_matches_the_accessors`.
 #[cfg(all(feature = "jit", target_pointer_width = "64"))]
 pub mod obj_jit_layout {
     use crate::object::header::GcBlockHeader;
@@ -576,5 +576,5 @@ impl crate::object::ObjRef {
 // ── Value ────────────────────────────────────────────────────────────────────
 
 #[cfg(all(test, z42_test_facade))]
-#[path = "object_tests.rs"]
-mod object_tests;
+#[path = "storage_tests.rs"]
+mod storage_tests;

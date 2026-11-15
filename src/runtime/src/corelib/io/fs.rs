@@ -68,7 +68,7 @@ pub(crate) enum PathRole {
 /// on the OS file system, for the operations that bypass the VM's VFS (FileStream, temp
 /// files, links, `Stdio.ToFile`).
 pub(crate) fn fs_error(e: std::io::Error, path: &str, role: PathRole) -> BuiltinError {
-    vfs_error(&crate::pal::vfs::LocalFs, e, path, role)
+    vfs_error(&crate::pal::fs::LocalFs, e, path, role)
 }
 
 /// Map an error on `path` in the file system `fs` to the exception .NET throws for it
@@ -345,7 +345,7 @@ pub mod typed {
     pub fn file_link(src: String, dst: String) -> Result<(), BuiltinError> {
         check_path(&src, "src")?;
         check_path(&dst, "dst")?;
-        std::fs::hard_link(&src, &dst).map_err(|e| two_path_error(&crate::pal::vfs::LocalFs, e, &src, &dst))
+        std::fs::hard_link(&src, &dst).map_err(|e| two_path_error(&crate::pal::fs::LocalFs, e, &src, &dst))
     }
 
     /// Symbolic link `dst → src` (the target need not exist).

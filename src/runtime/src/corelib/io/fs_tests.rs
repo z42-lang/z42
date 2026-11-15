@@ -248,7 +248,7 @@ fn a_collection_completes_while_a_thread_is_blocked_in_a_file_read() {
 /// missing directory is `DirectoryNotFoundException` (the test above).
 #[test]
 fn memory_fs_missing_file_is_file_not_found() {
-    let c = VmContext::with_vfs(std::sync::Arc::new(crate::pal::vfs::MemoryFs::new()));
+    let c = VmContext::with_vfs(std::sync::Arc::new(crate::pal::fs::MemoryFs::new()));
     let e = fail(&c, "__file_read_text", &[str_v("/no-dir/f.txt")]);
     assert!(matches!(&e, BuiltinError::FileNotFound(m) if m == "Could not find file '/no-dir/f.txt'."), "{e:?}");
     crate::exec::call::builtins::exec_builtin(&c, "__file_write_bytes", &[str_v("/d/a.bin"), c.heap().alloc_bytes(vec![1, 2])]).unwrap();

@@ -37,7 +37,7 @@ fn worker_retains_facade_resources_until_last_context_drop() {
         fn drop(&mut self) { self.0.fetch_add(1, Ordering::SeqCst); }
     }
     let drops = Arc::new(AtomicUsize::new(0));
-    let fs = Arc::new(crate::pal::vfs::MemoryFs::new());
+    let fs = Arc::new(crate::pal::fs::MemoryFs::new());
     fs.mount("/owned", b"shared".to_vec());
     let vfs: Arc<dyn Vfs> = fs;
     let mut extensions = crate::vm::VmExtensions::new();

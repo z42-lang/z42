@@ -167,8 +167,8 @@ fn vfs_do(ctx: &VmContext, name: &str, args: &[&str]) {
     crate::exec::call::builtins::exec_builtin(ctx, name, &args).unwrap();
 }
 
-fn memory_vm() -> (std::sync::Arc<crate::pal::vfs::MemoryFs>, std::pin::Pin<Box<VmContext>>) {
-    let fs = std::sync::Arc::new(crate::pal::vfs::MemoryFs::new());
+fn memory_vm() -> (std::sync::Arc<crate::pal::fs::MemoryFs>, std::pin::Pin<Box<VmContext>>) {
+    let fs = std::sync::Arc::new(crate::pal::fs::MemoryFs::new());
     let ctx = VmContext::with_vfs(fs.clone());
     (fs, ctx)
 }

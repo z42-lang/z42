@@ -1488,7 +1488,7 @@ pub struct ResolvedTokens {
 
 id 永不复用，所以它也是比地址更稳的缓存键：描述符释放后地址可能被别的类型复用（可回收的 load context、REPL 轮次），id 不会。`isa_cache` 因此按 `(接收者 TypeId, 目标键)` 做键（见 [interp-jit-semantics.md](interp-jit-semantics.md)「类型判定的缓存键」）。同一类型可能有多个描述符版本（急切主模块里只含自身字段的那份、惰性加载器 fixup 出的合并副本），它们同 id、同名、同基类链——按 id 做键的缓存对它们给出同一判定；`TypeTable` 的槽位指向最新版本。
 
-> **无锁读 type_id**：PIC scan 读 receiver `type_id` 不拿锁。`ObjRef::type_desc()`（`object/object/object.rs`）经 `borrow()` 直接读对象头里的 `type_desc`（发布前写定、之后不变），没有每对象锁。详见 `docs/internals/src/runtime/gc.md`。这是 PIC inline 入 Cranelift IR（待办）的前置条件 —— 需 lock 的话 PIC 不能 inline。
+> **无锁读 type_id**：PIC scan 读 receiver `type_id` 不拿锁。`ObjRef::type_desc()`（`object/storage.rs`）经 `borrow()` 直接读对象头里的 `type_desc`（发布前写定、之后不变），没有每对象锁。详见 `docs/internals/src/runtime/gc.md`。这是 PIC inline 入 Cranelift IR（待办）的前置条件 —— 需 lock 的话 PIC 不能 inline。
 
 ### 跨 zpkg 时序
 

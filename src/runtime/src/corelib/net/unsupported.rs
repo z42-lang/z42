@@ -4,7 +4,7 @@
 //! `tls.rs` — the stdlib declarations are shared.
 //!
 //! `net` stands in for `tcp` / `udp` when the `net` feature is off; `tls` stands in
-//! for `corelib/tls/mod.rs` when the `tls` feature is off (`tls` implies `net`, so a build
+//! for `corelib/net/tls.rs` when the `tls` feature is off (`tls` implies `net`, so a build
 //! can have sockets without TLS but not the reverse). The wasm preset has neither.
 
 #[cfg(not(feature = "net"))]

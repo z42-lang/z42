@@ -17,7 +17,7 @@ CoreCLR `src/coreclr/pal/` 含 ~50 个文件抽象：
 | Concern | CoreCLR pal/ 文件 | z42 pal/ 计划 | Status |
 |---|---|---|---|
 | Thread / stack | thread.cpp | `pal/thread.rs` | Done |
-| File I/O | file.cpp / path.cpp | `pal/fs.rs` | Done |
+| File I/O | file.cpp / path.cpp | `pal/fs/mod.rs` | Done |
 | Signal / exceptions | signal.cpp | `pal/signal.rs`（仅 OS 原语；z42 reporter 留 host/signal.rs） | Done |
 | Memory / pages | virtual.cpp | `pal/mem.rs` | Done |
 | Process / environ | process.cpp / environ.cpp | `pal/process.rs`、`pal/system.rs` | Done |
@@ -94,14 +94,16 @@ feature 裁剪和测试代码维持各自原有规则。
 
 ## 各 concern 与待办
 
-### `pal/fs.rs` + `pal/vfs/` — 文件系统
+### `pal/fs/` — 文件系统
+
+`pal::fs` 是唯一消费入口，统一导出 `Vfs`、`LocalFs`、`MemoryFs` 及文件系统 OS 操作。接口与实现同目录，local/memory 实现模块私有；调用方不依赖实现文件路径。
 
 **每台 VM 一个 `Vfs` 句柄。** 路径型文件操作（`File.*` / `Directory.*` / `Path.Glob` 的 builtin）、包加载
 （`loader`、`namespace_index`、惰性加载器）与 `host::run_app` 的启动探测都走 VM 持有的
 `Arc<dyn Vfs>`，没有进程级的「当前后端」开关：
 
 ```rust
-// pal/fs.rs
+// pal/fs/mod.rs
 pub trait Vfs: Send + Sync {
     fn read_to_string / read / write / append / exists / is_dir / remove_file / remove_dir
        / copy / rename / create_dir_all / modified_ms / file_len / read_dir / glob / write_atomic;
@@ -110,7 +112,7 @@ pub trait Vfs: Send + Sync {
 pub fn default_vfs() -> Arc<dyn Vfs>;     // HAS_FS ? LocalFs : 新的空 MemoryFs
 pub fn glob_match(pattern, text) -> bool; // Vfs::glob 的 `*` / `?` 语言
 
-// pal/vfs/
+// pal/fs/
 pub struct LocalFs;                       // std::fs；write_atomic = tmp + sync_before_rename + rename
 pub struct MemoryFs;                      // 实例自有 path → bytes；mount(path, bytes)；目录由前缀推出
 ```
@@ -130,7 +132,7 @@ pub struct MemoryFs;                      // 实例自有 path → bytes；mount
 PAL 为 `corelib/io/fs.rs` 提供 VFS 之外的两个 OS 操作。
 
 ```rust
-// pal/fs.rs
+// pal/fs/mod.rs
 pub fn make_executable(path: &str) -> Result<()>;  // unix: mode|0o111；非 unix no-op
 pub fn symlink(src: &str, dst: &str) -> Result<()>; // unix symlink；非 unix bail
 ```
