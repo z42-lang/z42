@@ -80,6 +80,13 @@ void _ciQueuedChecks(FlowConfig cfg) {
 
 void _ciRefreshWorkflowChecks() {
     string workflow = File.ReadAllText(Path.Join(_root(), ".github/workflows/ci.yml"));
+    _ciRefreshWorkflowTextChecks(workflow);
+    _ciRefreshWorkflowTextChecks(workflow.Replace("\r\n", "\n").Replace("\n", "\r\n"));
+    Console.WriteLine("  ✓ queued workflow: LF/CRLF admission, complete downstream gating and preserved refreshed plan");
+}
+
+void _ciRefreshWorkflowTextChecks(string text) {
+    string workflow = text.Replace("\r\n", "\n");
     foreach (var job in new string[]{ "build-and-test", "host-package", "stdlib-consistency", "package-ios", "test-ios" }) {
         string section = workflow.Substring(workflow.IndexOf("\n  " + job + ":") + 1);
         string body = ""; bool first = true;
@@ -97,7 +104,6 @@ void _ciRefreshWorkflowChecks() {
             if (step.Contains("name: ci-plan")) { _gateAssert(step.Contains("needed == ''"), "shared artifact cannot overwrite the refreshed local plan"); }
         }
     }
-    Console.WriteLine("  ✓ queued workflow: main-only admission, complete downstream gating and preserved refreshed plan");
 }
 
 void _ciQueuedGitChecks(FlowConfig cfg) {
