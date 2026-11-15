@@ -10,7 +10,7 @@ fn assert_installed(ctx: &VmContext) {
         assert!(ctx.ext::<super::network::udp::State>().is_some());
     }
     #[cfg(feature = "tls")]
-    assert!(ctx.ext::<super::tls::State>().is_some());
+    assert!(ctx.ext::<super::net::tls::State>().is_some());
 }
 
 fn module() -> crate::metadata::Module {
@@ -50,7 +50,7 @@ fn resource_state_is_shared_by_workers_and_isolated_between_vms() {
     #[cfg(feature = "net")]
     { check!(super::network::tcp::State); check!(super::network::udp::State); }
     #[cfg(feature = "tls")]
-    check!(super::tls::State);
+    check!(super::net::tls::State);
     assert_installed(&worker);
 }
 

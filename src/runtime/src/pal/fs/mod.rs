@@ -5,11 +5,30 @@
 //! [`default_vfs`]); the file builtins, the package loader and the app runner all read
 //! through that handle, never through a process-wide switch. Two VMs in one process
 //! therefore see separate in-memory file systems. Implementations live in
-//! [`super::vfs`]: [`LocalFs`](super::vfs::LocalFs) (`std::fs`) and
-//! [`MemoryFs`](super::vfs::MemoryFs) (`path → bytes`, what wasm runs on).
+//! this module: [`LocalFs`] (`std::fs`) and [`MemoryFs`] (`path → bytes`, what wasm runs on).
 //!
 //! The OS implementations live under `pal/sys/`, so
 //! `corelib/io/fs.rs` carries zero `#[cfg(...)]` for them.
+//!
+//! Filesystem consumers use one contract for the trait and its implementations:
+//! ```
+//! use z42::pal::fs::{LocalFs, MemoryFs, Vfs};
+//! let local: &dyn Vfs = &LocalFs;
+//! let memory = MemoryFs::new();
+//! memory.mount("hello.txt", b"hello".to_vec());
+//! assert_eq!(memory.read_to_string("hello.txt").unwrap(), "hello");
+//! ```
+//! ```compile_fail
+//! use z42::pal::vfs::MemoryFs;
+//! ```
+//! ```compile_fail
+//! use z42::pal::fs::memory::MemoryFs;
+//! ```
+
+mod local;
+mod memory;
+pub use local::LocalFs;
+pub use memory::MemoryFs;
 
 use std::io::Result;
 use std::path::Path;
@@ -60,9 +79,9 @@ pub trait Vfs: Send + Sync {
 /// one ([`HAS_FS`]), otherwise a fresh, empty in-memory one.
 pub fn default_vfs() -> Arc<dyn Vfs> {
     if HAS_FS {
-        Arc::new(super::vfs::LocalFs)
+        Arc::new(LocalFs)
     } else {
-        Arc::new(super::vfs::MemoryFs::new())
+        Arc::new(MemoryFs::new())
     }
 }
 
@@ -133,5 +152,4 @@ pub fn symlink(src: &str, dst: &str) -> Result<()> {
 }
 
 #[cfg(all(test, z42_test_facade))]
-#[path = "fs_tests.rs"]
-mod fs_tests;
+mod tests;

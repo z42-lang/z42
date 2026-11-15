@@ -563,7 +563,7 @@ string 各留自己的 `Value` variant，不经此路）。整数标量的 **LE 
 尺寸），**不**走 `type_desc.inline_regions()`（那会给零字段 wrapper 空 `struct_bytes`）→ wrapper 的 emitted
 struct_layout / zbc TYPE section 完全不动，**无格式 bump**。
 
-**拆箱**：`ScriptObject::boxed_prim_i64()`（`object/object/object.rs`）按 `type_desc.name` 的
+**拆箱**：`ScriptObject::boxed_prim_i64()`（`object/storage.rs`）按 `type_desc.name` 的
 `(width, signed)` 从 `struct_bytes` 前 `width` 字节还原 i64——signed narrow 符号扩展、unsigned 零扩展；
 非整数盒（多字段 struct 装箱 / 名不在整数 wrapper 表）返 `None`。**这个 `Some`/`None` 是「基元盒 vs struct 盒」
 的分流判据**：所有原 `Value::Boxed` 消费点收敛成单一 `BoxedStruct` 臂，需要区分时用 `boxed_prim_i64()`：

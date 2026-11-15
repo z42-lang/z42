@@ -22,7 +22,7 @@
   块头（`GcBlockHeader`，[object/header/block.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/object/header/block.rs)）对所有变长块同形：
   前 8 字节是 GC 字（`GcWord`：16 位 generation，最低位即存活位 / mark / `type_tag` / 32 位 payload 长度），后 8 字节是「种类字」——
   对象的 `Arc<TypeDesc>`，其余块恒为空。所以对象头**就是**块头，类型字之后直接是字段单元（布局与取舍见 [gc.md](gc.md)「变长块堆」）。
-  `ScriptObject`（[object/object/object.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/object/object/object.rs)）是一个 `#[repr(C)]` **动态大小类型**：
+  `ScriptObject`（[object/storage.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/object/storage.rs)）是一个 `#[repr(C)]` **动态大小类型**：
   `{ gc: GcWord, type_desc, payload: [UnsafeCell<u8>] }`，盖在整个块上；`&ScriptObject` 是胖引用，元数据是 payload 长度，
   **引用的范围恰好盖住头 + 字段 + meta 字**。`payload_len()`（字段区长度）= payload 长度减去 meta 字（有 meta 时 8 B，看块头 `type_tag`
   bit 6，`OBJ_META_BIT`），`cells()` 只覆盖字段区——每次字段访问都在引用自己的范围里，从不从引用走到它外面的内存
@@ -34,7 +34,7 @@
   字段区是零初始化的：基元字段、8 B 引用字（含内联 struct 的引用叶子）与 16 B 型参单元都在里面，没有 16 B `Value` 侧表，布局见 §3「字段存储布局」。
   热路径的结构与 ABI 只放细句柄（`ObjRef`、`ObjRef::as_ptr` 的头地址），不放 `&ScriptObject`；只看类型的路径（虚调用 IC、类型检查）经
   `ObjRef::header()` 拿细的 `&ObjHeader`，不读 payload 长度。
-  堆外的对象（栈分配对象、堆外构造的对象）是同样形状的**脱离块**（`OwnedObject`，[owned_object.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/object/object/owned_object.rs)：
+  堆外的对象（栈分配对象、堆外构造的对象）是同样形状的**脱离块**（`OwnedObject`，[owned_object.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/object/owned_object.rs)：
   一个不属于任何 region 的 `{头, 字段, [meta]}`），所以 `&ScriptObject` 不论对象在哪都一样读。
   典型尺寸（头 + 字段，按 size class 取整：16 / 24，再往上每八度 4 档）：空类 16 B、`{int}` / `{long}` 24 B、`{int; string}` 32 B；
   泛型实例与带原生底座的对象再多一个 8 B meta 字。
@@ -260,13 +260,13 @@ ObjectHeader {
 - 名→字段下标由 `TypeDesc.field_index`（类级共享）。**继承：基类字段在前、子类追加**，子类区从 `align_up(base.size, 8)` 开始，
   基类部分的单元归属原样继承。
 - 访问 `obj.f` = 按字段下标查 `ObjectLayout.field_access[i]`（`{offset, width, tag, cell, aux}`，加载期算好），按单元读写
-  （`object/object/object_fields.rs`：`load_access` / `store_access`）。站点的 `FieldIC` 把解析结果缓存成
+  （`object/fields.rs`：`load_access` / `store_access`）。站点的 `FieldIC` 把解析结果缓存成
   `TypeId | FieldLoc`（`FieldLoc` = 单元字节偏移 16 位 + 基元宽度 + 种类：基元的精确 `TAG_*` / 引用字 / 型参单元（偏移位存字段下标）/
   struct 根），命中只比较一次 `TypeId` 就做单元访问，不查名字、不读布局（只有型参单元回布局取第二个坐标）。`Value` ↔ 单元的转换只在这里、
   `ref_word` 与 `tparam_cell`；两个引擎经 [objops](interp-jit-semantics.md#对象操作objops) 调到它们。JIT 生成码直接读站点 IC 的
   entry 0，按对象头 → `TypeDesc::id` 守卫后按字节偏移原生读写基元与引用字，引用写内联屏障判定（见 [jit.md](jit.md)「字段访问：
   原生单态字段 IC」）→ **对象头（类型字在 +8、`type_tag` 在 +3、字段从 +16 起）、`TypeDesc::id` 的位置、引用字编码与 Value 大小是 ABI 一部分，须固化**
-  （`obj_jit_layout`，由 `object_tests::jit_layout_matches_the_accessors` 钉住）。
+  （`obj_jit_layout`，由 `storage_tests::jit_layout_matches_the_accessors` 钉住）。
 - GC 只经 `ScriptObject::visit_refs`（每个非零引用字 + 型参单元标签字里的引用；装箱 struct 按 struct 布局，合成布局按型参单元）遍历一个对象的出边，标记、栈对象根扫描、保留图共用；
   清扫断边用 `clear_refs_for_sweep`。
 

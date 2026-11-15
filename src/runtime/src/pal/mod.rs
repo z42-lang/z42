@@ -9,7 +9,7 @@
 //! - [`system`] — hostname / OS version / OS name.
 //! - [`fs`] — the per-VM [`fs::Vfs`] trait, `default_vfs`, `glob_match`, and the file-system
 //!   OS calls outside it: `make_executable` / `symlink` / `sync_before_rename`, path-list separator.
-//! - [`vfs`] — the `Vfs` implementations: `LocalFs` (`std::fs`), `MemoryFs` (`path → bytes`).
+//!   Its implementations `LocalFs` and `MemoryFs` are exposed by the same `fs` contract.
 //! - [`mem`] — page size and decommit / recommit of GC chunk pages.
 //! - [`thread`] — stack bounds, thread token, run-on-a-big-stack.
 //! - [`time`] — monotonic clock (a tick counter where the target has none).
@@ -24,7 +24,6 @@
 
 pub mod system;
 pub mod fs;
-pub mod vfs;
 pub mod mem;
 pub mod thread;
 pub mod time;

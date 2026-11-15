@@ -14,8 +14,8 @@ runtime 其余模块**零 cfg 调用** OS 服务。每个 concern 提供平台�
 |------|------|
 | `sys/` | `unix/`、`windows/`、`wasm/` 后端及保留原降级行为的 `fallback/`；`common/` 复用共享实现 |
 | `system.rs` | `hostname()` / `os_version()` / `os_name()`、进程环境（`pid` / `current_dir` / `set_env` / `temp_dir`）、`OS_CAPS` |
-| `fs.rs` | `Vfs` trait（每台 VM 一个句柄，路径型文件操作全走它）/ `default_vfs()` / `glob_match()`；VFS 之外的 OS 调用 `make_executable()` / `symlink()` / `sync_before_rename()` / `is_name_too_long()` / `PATH_LIST_SEP` / `HAS_FS` |
-| `vfs/` | `Vfs` 的实现：`LocalFs`（标准库 fs）、`MemoryFs`（实例自有的 `path → bytes`，`mount()` 挂文件）|
+| `fs/mod.rs` | `Vfs` trait（每台 VM 一个句柄，路径型文件操作全走它）/ `default_vfs()` / `glob_match()`；VFS 之外的 OS 调用 `make_executable()` / `symlink()` / `sync_before_rename()` / `is_name_too_long()` / `PATH_LIST_SEP` / `HAS_FS` |
+| `fs/local.rs` / `fs/memory.rs` | `Vfs` 的实现：`LocalFs`（标准库 fs）、`MemoryFs`（实例自有的 `path → bytes`，`mount()` 挂文件）|
 | `process.rs` | `exit_code()`、`own_process_group()`、`ProcessTree`（超时杀整棵进程树）、`find_executable()` |
 | `random.rs` | `fill()` —— OS CSPRNG |
 | `dynlib.rs` | 脚本扩展支持性、文件名/候选平台布局、同目录探测、映像地址查询及 `Library` 开库/符号 OS 原语；缓存和进程代码保活归 loader/code |
@@ -26,7 +26,9 @@ runtime 其余模块**零 cfg 调用** OS 服务。每个 concern 提供平台�
 | `net.rs` | socket 的 OS 部分：`winsock_code()`（errno → Winsock 码）/ `timed_out_error()` / `wait_readable()`（可中断 accept 等待）/ `set_tcp_keepalive()`（`net` feature）|
 | `signal.rs` | fatal-signal 注册 + `sigsafe` async-signal-safe write + `signal_name` + reset/reraise；非 POSIX 平台为空操作（z42 崩溃 reporter 在 `host/signal.rs`，调本模块）|
 
-测试：各文件配套 `*_tests.rs`。
+文件系统消费者统一从 `pal::fs::{Vfs, LocalFs, MemoryFs}` 导入；local/memory 是私有实现，不单独建立 vfs 消费入口。
+
+测试：叶实现配套 `*_tests.rs`，文件系统契约与 OS 操作在 `fs/tests.rs`。
 
 ## 入口点
 

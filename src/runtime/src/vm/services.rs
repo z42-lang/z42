@@ -31,7 +31,7 @@ pub(crate) fn freeze(extensions: VmExtensions) -> ExtensionState {
         add(&mut defaults, corelib::net::udp::State::default());
     }
     #[cfg(feature = "tls")]
-    add(&mut defaults, corelib::tls::State::default());
+    add(&mut defaults, corelib::net::tls::State::default());
     extensions.with_defaults(defaults).freeze()
 }
 

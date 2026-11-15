@@ -6,7 +6,7 @@
 use std::io::Result;
 use std::path::Path;
 
-use super::super::fs::{glob_match, sync_before_rename, Vfs};
+use super::{glob_match, sync_before_rename, Vfs};
 
 /// The OS file system. Stateless: every VM on it sees the same disk.
 #[derive(Clone, Copy, Debug, Default)]

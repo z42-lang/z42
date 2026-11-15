@@ -6,7 +6,7 @@ fn lookup_and_queue_drain_need_no_vm_heap_or_execution_engine() {
     let metadata = crate::metadata::RuntimeState::new(None, &CATALOG);
     let cache = crate::metadata::ThreadRuntimeState::new();
     let state = crate::loader::LoaderState::new(
-        Arc::new(crate::pal::vfs::MemoryFs::new()),
+        Arc::new(crate::pal::fs::MemoryFs::new()),
         || crate::loader::fusion_inputs::FusionInputs { no_fusion: true, no_typed_fusion: true, fusion_debug: false },
     );
     let events = crate::diagnostics::RuntimeObserverRegistry::new();

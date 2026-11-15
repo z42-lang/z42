@@ -148,7 +148,7 @@ fn make_fake_zpkg(dir: &Path, filename: &str, namespaces: &[&str]) {
 /// resolve_namespace with empty paths returns an empty vec
 #[test]
 fn test_resolve_namespace_empty_paths() {
-    let result = resolve_namespace(&crate::pal::vfs::LocalFs, "Std.IO", &[]);
+    let result = resolve_namespace(&crate::pal::fs::LocalFs, "Std.IO", &[]);
     assert!(result.is_ok());
     assert!(result.unwrap().is_empty());
 }
@@ -164,7 +164,7 @@ fn test_resolve_namespace_ambiguous_returns_both() {
     make_fake_zpkg(&tmp, "libA.zpkg", &["z42.conflict"]);
     make_fake_zpkg(&tmp, "libB.zpkg", &["z42.conflict"]);
 
-    let result = resolve_namespace(&crate::pal::vfs::LocalFs, "z42.conflict", &[tmp.clone()]);
+    let result = resolve_namespace(&crate::pal::fs::LocalFs, "z42.conflict", &[tmp.clone()]);
     std::fs::remove_dir_all(&tmp).ok();
 
     assert!(result.is_ok(), "unexpected error: {:?}", result.err());
@@ -519,7 +519,7 @@ fn indexed_zpkg_loads_via_path() {
     std::fs::copy(indexed_fixture_dir().join("source.zpkg"), base.join("demo.indexed.zpkg")).unwrap();
     std::fs::copy(indexed_fixture_dir().join("source.zbc"), base.join("source.zbc")).unwrap();
 
-    let art = crate::loader::load_artifact(&crate::pal::vfs::LocalFs,
+    let art = crate::loader::load_artifact(&crate::pal::fs::LocalFs,
         base.join("demo.indexed.zpkg").to_str().unwrap(),
     )
     .expect("indexed zpkg loads through the path-aware loader");
@@ -536,7 +536,7 @@ fn indexed_zpkg_rejects_hash_mismatch() {
     zbc.push(0x78); // 篡改散装 zbc → 内容 hash 必不符
     std::fs::write(base.join("source.zbc"), zbc).unwrap();
 
-    let err = match crate::loader::load_artifact(&crate::pal::vfs::LocalFs,
+    let err = match crate::loader::load_artifact(&crate::pal::fs::LocalFs,
         base.join("demo.indexed.zpkg").to_str().unwrap(),
     ) {
         Ok(_) => panic!("tampered scattered zbc must be rejected"),
@@ -633,7 +633,7 @@ fn fusion_input_polarity_preserves_cmp_branch_recognition() {
 
 #[test]
 fn artifact_fusion_inputs_are_read_only_after_successful_decode() {
-    use crate::pal::vfs::MemoryFs;
+    use crate::pal::fs::MemoryFs;
     use crate::loader::fusion_inputs::FusionInputs;
     use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
 
