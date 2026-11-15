@@ -3,8 +3,10 @@ namespace Z42Xtask;
 
 using Std.IO;
 using Std.Collections;
+using Std.Threading;
 
 int _selfcheckExamplesStage() {
+    _selfcheckExampleParallel();
     string root = _root();
     string dir = _xtaskWork(root, "examples-stage");
     string? home = Environment.GetEnvironmentVariable("Z42_HOME");
@@ -41,4 +43,53 @@ int _selfcheckExamplesStage() {
     }
     Console.WriteLine("  ✅ examples stage: skip and explicit SDK without local build");
     return 0;
+}
+
+class ExampleVisits { public int[] Counts = new int[3]; }
+
+void _selfcheckExampleParallel() {
+    var ready = new Channel<int>();
+    var release = new Channel<int>();
+    var visits = new Mutex<ExampleVisits>(new ExampleVisits());
+    ExampleRunResult[] results = _runExampleSessions(new string[]{ "0", "1", "2" }, 2, (string name) => {
+        int i = int.Parse(name);
+        visits.Lock((ExampleVisits v) => { v.Counts[i] = v.Counts[i] + 1; return v; });
+        if (i == 0) { ready.Send(1); release.Recv(); }
+        if (i == 1) { ready.Recv(); release.Send(1); }
+        if (i == 2) { throw new Exception("fixture session failure"); }
+        var result = new ExampleRunResult(); result.Steps = i + 1;
+        result.Diagnostics = name;
+        return result;
+    });
+    _gateAssert(results[0].Steps == 1 && results[1].Steps == 2 && results[0].Diagnostics == "0"
+        && results[1].Diagnostics == "1", "parallel sessions overlap and retain ordered results");
+    _gateAssert(results[2].Failed && results[2].Diagnostics.Contains("fixture session failure"), "worker exceptions fail their session");
+    _gateAssert(visits.Read<bool>((ExampleVisits v) => v.Counts[0] == 1 && v.Counts[1] == 1 && v.Counts[2] == 1), "each session executes exactly once");
+    _gateAssert(_runExampleSessions(new string[0], 0, (string name) => new ExampleRunResult()).Length == 0, "empty example queue starts no workers");
+    _gateAssert(_runExampleSessions(new string[]{ "one" }, 8, (string name) => new ExampleRunResult()).Length == 1, "worker count can exceed session count");
+    var invalid = new ExamplesOptions(); invalid.Jobs = -1;
+    _gateAssert(_testExamples(invalid) != 0, "negative jobs fail before SDK preparation");
+    string dir = Directory.CreateTempDir("xtask-example-order");
+    try {
+        Directory.Create(Path.Join(dir, "child"));
+        File.WriteAllText(Path.Join(dir, "child/value.txt"), "ordered");
+        string path = Path.Join(dir, "test.console");
+        File.WriteAllText(path, "$ cd child\n$ cat value.txt\nordered\n");
+        ExampleRunResult[] runs = _runExampleSessions(new string[]{ path, path }, 2,
+            (string c) => _runTranscript("", c, 1000, false, false));
+        _gateAssert(!runs[0].Failed && !runs[1].Failed && runs[0].Steps == 2 && runs[1].Steps == 2,
+            "concurrent transcripts keep ordered commands in independent sandboxes");
+        _gateAssert(!File.Exists(Path.Join(dir, "value.txt")), "transcript working directories do not escape the sandbox");
+        File.WriteAllText(path, "$ cd child\n$ cat value.txt\nwrong\n");
+        ExampleRunResult bad = _runExampleSession(path, (string c) => _runTranscript("", c, 1000, false, false));
+        _gateAssert(bad.Failed && bad.Diagnostics.Contains(path + ":") && bad.Diagnostics.Contains("$ cat value.txt"),
+            "transcript mismatch keeps source location and command diagnostics");
+        foreach (var line in bad.Diagnostics.Split("\n")) {
+            string kept = line.Trim();
+            if (kept.StartsWith("sandbox kept: ")) { Directory.Delete(kept.Substring(14), true); }
+        }
+        ExampleRunResult blessed = _runTranscript("", path, 1000, true, false);
+        _gateAssert(blessed.Blessed && !blessed.Failed && File.ReadAllText(path).Contains("ordered"), "bless rewrites expected output");
+    } finally { Directory.Delete(dir, true); }
+    Console.WriteLine("  ✓ examples parallel: overlap, exactly once, ordered results, exceptions, empty queue and sandbox isolation");
 }

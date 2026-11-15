@@ -184,6 +184,7 @@ class TestDocsCommand : Command {
     [Option(help: "examples: only check docs/learn ↔ examples references (no SDK needed)")] public bool BookOnly;
     [Option(help: "examples: rewrite mismatching expected output with the actual output")] public bool Bless;
     [Option(help: "examples: keep every sandbox directory (failed ones are always kept)")] public bool Keep;
+    [Option(help: "examples: parallel sessions (0 = CPU count; --bless runs serially)")] public int Jobs = 0;
     [Option(help: "examples: per-step timeout in seconds")] public int Timeout = 120;
     [Argument(help: "default: both", choices: new string[]{ "links", "examples" })] public string Kind = "";
     [Argument(help: "examples: only transcripts under examples/<path> (default: all)", name: "path")]
@@ -203,6 +204,7 @@ class TestDocsCommand : Command {
         o.Bless = this.Bless;
         o.Keep = this.Keep;
         o.TimeoutS = this.Timeout;
+        o.Jobs = this.Jobs;
         return _testExamples(o);
     }
 }

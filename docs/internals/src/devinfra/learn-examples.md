@@ -31,6 +31,8 @@ z42c build: 1 error(s) in ./src/Main.z42
 | `# ANCHOR: name` / `# ANCHOR_END: name` | 把一个脚本拆成几段分别 include 到页面不同位置 |
 
 - 沙箱：临时目录里放脚本所在目录的副本，环境变量清空（只留 PATH / HOME 等），每步默认超时 120 秒。
+- 会话之间默认按 CPU 数并行调度，每个会话内的命令保持顺序；每条会话使用独立沙箱和 HOME。结果与错误按脚本路径的字典序输出，工作线程异常也判失败。
+- `--jobs N` 指定本进程的会话并发度，`0` 为自动、`1` 为串行，负数报错；不限制 CI job 数量。`--bless` 始终串行，避免重叠示例目录在复制与改写期望之间互相影响。
 - `ls` 按字典序列出、隐藏以 `.` 开头的条目、目录带 `/`；`cat` 原样输出文件。
 
 ## 校验与更新
@@ -39,6 +41,7 @@ z42c build: 1 error(s) in ./src/Main.z42
 xtask build toolchain && xtask package dev-sdk          # 先有一个当前源码的 SDK（artifacts/.z42）
 xtask test docs examples                                # 书↔示例引用校验 + 重放全部会话脚本
 xtask test docs examples getting-started/hello-world    # 只跑一章
+xtask test docs examples --jobs 1                       # 串行重放，便于复现和对比
 xtask test docs examples --book-only                    # 只校验引用（不需要 SDK）
 xtask test docs examples <path> --bless                 # 输出确实该变时：用实际输出改写期望，再人工审阅 diff
 ```

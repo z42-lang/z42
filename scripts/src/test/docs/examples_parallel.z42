@@ -1,0 +1,48 @@
+namespace Z42Xtask;
+
+using Std.Threading;
+
+// Each worker owns a result slot; only the queue cursor is shared. Reporting and
+// --bless stay on the caller's ordered path, never on a worker's console.
+ExampleRunResult[] _runExampleSessions(string[] consoles, int jobs, Func<string, ExampleRunResult> run) {
+    if (jobs < 0) { throw new ArgumentException("negative example jobs"); }
+    if (jobs == 0) { jobs = OperatingSystem.CpuCount(); }
+    if (jobs < 1) { jobs = 1; }
+    if (jobs > consoles.Length) { jobs = consoles.Length; }
+    ExampleRunResult[] results = new ExampleRunResult[consoles.Length];
+    if (jobs == 1) {
+        for (int i = 0; i < consoles.Length; i = i + 1) { results[i] = _runExampleSession(consoles[i], run); }
+        return results;
+    }
+    var next = new Mutex<int>(0);
+    Thread[] workers = new Thread[jobs];
+    int started = 0;
+    try {
+        for (int i = 0; i < jobs; i = i + 1) {
+            workers[i] = Thread.Start(() => {
+                while (true) {
+                    int index = next.Update<int>((int v) => (v + 1, v));
+                    if (index >= consoles.Length) { break; }
+                    results[index] = _runExampleSession(consoles[index], run);
+                }
+            });
+            started = started + 1;
+        }
+    } finally {
+        string error = "";
+        for (int i = 0; i < started; i = i + 1) {
+            try { workers[i].Join(); } catch (Exception e) { error = error + e.Message + "\n"; }
+        }
+        if (error.Length > 0) { throw new Exception(error); }
+    }
+    return results;
+}
+
+ExampleRunResult _runExampleSession(string path, Func<string, ExampleRunResult> run) {
+    try { return run(path); }
+    catch (Exception e) {
+        var failed = new ExampleRunResult(); failed.Failed = true;
+        failed.Diagnostics = "    ✗ " + path + ": " + e.Message + "\n";
+        return failed;
+    }
+}
