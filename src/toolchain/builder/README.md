@@ -87,9 +87,11 @@ xtask test stdlib       # z42b 作为 [Test] 运行器跑全部 stdlib 单元
 
 ## 依赖关系
 
-- 依赖 [`src/compiler/z42.build/`](../../compiler/z42.build)（管线框架接口）、
-  [`src/compiler/z42.project/`](../../compiler/z42.project)（`z42.toml` 模型）。
-- 调用 `z42c`（编译）、各 workload（平台尾相位）；经 `extern` 调 VM native 原语
+- 静态依赖 [`z42c.pipeline`](../../compiler/z42c.pipeline)（编译契约与实现）、
+  [`z42.build`](../../compiler/z42.build)（管线框架）、
+  [`z42.package`](../../compiler/z42.package)（包元信息）与
+  [`z42.project`](../../compiler/z42.project)（`z42.toml` 模型与依赖规划）。
+- 编译阶段在进程内调用 `Z42cCompiler`；声明的 hook 插件与 workload 仍按构建配置加载。经 `extern` 调 VM native 原语
   （Sign / Archive / Hash / Download / ProbeVersion，住 `runtime`）。
 - 被 launcher 命令分发调用（见 [`docs/internals/src/toolchain/launcher.md`](../../../docs/internals/src/toolchain/launcher.md)）。
 

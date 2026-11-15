@@ -137,13 +137,10 @@ DEPS 边开始沿用这些目录。搜索目录只交给部署队列，消费方
 > **死在 `mid` 的方法里**（`MissingSymbolException: NcLeaf.Deep`）—— 报的像是「mid 的代码有问题」，
 > 实际是打包漏了 `leaf`。编译期全绿（vendored 目录早已并进 libsDirs）。
 
-> 📌 **解析器住在 `z42.project` 而不是编译器里**：它只依赖清单模型、零编译器
-> 依赖。理由是 **`z42b` 要用它** —— z42b 刻意 stdlib-only、只经注入的 `ICompiler` 碰编译器，
-> 解析器若留在 `z42c.pipeline` 它就够不着，`z42b build` 就会**完全不解析 path 依赖**（repo 外对着
-> 带 path 依赖的工程报 `E0494`）。
-> **共用的是解析器，不是循环** —— per-member 构建两边本就不同（driver 调 `_build` 走增量缓存与侧车，
-> z42b 调 `_orchestrate` 走 rid/workload/hooks）。`z42c.pipeline` 暂留一层同名转发（种子 ABI：上一 nightly
-> 的 driver 二进制还按旧 FQN 调它）。待办：下一 nightly 后删除。
+> 📌 **路径依赖规划由 `z42.project` 共享**：`PathDepPlan` 只依赖清单模型，
+> 不依赖编译后端或构建框架。driver 与 builder 共用这份图规划，分别负责执行：driver 调 `_build`
+> 走增量缓存与侧车，builder 调 `_orchestrate` 走 rid/workload/hooks。
+> builder 静态依赖 `z42c.pipeline` 并在进程内调用编译器；模型和依赖图规划仍归 `z42.project`。
 
 > 📌 **发布（`z42 publish`）不另建一份闭包**：payload 里的依赖 zpkg 全部来自
 > `_pubPlanDistDeps → 预检 → Apply(dist → payload)`，即上面这份 dist。守着这条不变式的门 = `scripts/src/build/toolchain.z42` 的 `_assertPayloadComplete`。
