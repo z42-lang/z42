@@ -5,22 +5,25 @@
 //! ```compile_fail
 //! use z42::context::VmContext;
 //! ```
+//! VM consumers use the module contract independently of its implementation layout:
+//! ```
+//! use z42::vm::{VmCore, VmContext, VmExtensions};
+//! let _: Option<std::sync::Arc<VmCore>> = None;
+//! let _: Option<std::pin::Pin<Box<VmContext>>> = None;
+//! let _ = VmExtensions::new();
+//! ```
 use std::marker::PhantomPinned;
 use std::sync::{Arc, Weak};
 use parking_lot::Mutex;
 use crate::gc::Heap;
 use crate::threads::VmContextPtr;
 
-#[path = "vm_extensions.rs"]
 mod extensions;
 pub use extensions::{ExtensionState, VmExtensions};
 
 
-#[path = "vm_assembly.rs"]
 pub(crate) mod assembly;
-#[path = "vm_defaults.rs"]
 pub(crate) mod defaults;
-#[path = "vm_services.rs"]
 pub(crate) mod services;
 
 /// State shared by all contexts of one VM, owned through `Arc<VmCore>`.
@@ -385,5 +388,4 @@ impl VmContext {
 }
 
 #[cfg(all(test, z42_test_facade))]
-#[path = "vm_tests.rs"]
 mod tests;

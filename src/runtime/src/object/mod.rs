@@ -25,4 +25,4 @@ pub use array::*;
 pub use string::Str;
 
 #[cfg(all(test, z42_test_facade))]
-mod types_tests;
+mod tests;

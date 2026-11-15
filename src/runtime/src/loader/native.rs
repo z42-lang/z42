@@ -8,7 +8,7 @@ use std::ffi::OsStr;
 use std::path::Path;
 
 use anyhow::Result;
-#[cfg(any(feature = "native-interop", feature = "component-loading"))]
+#[cfg(feature = "native-interop")]
 use anyhow::Context;
 use anyhow::anyhow;
 

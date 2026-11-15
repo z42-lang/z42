@@ -53,7 +53,7 @@ void _flowScopeChecks(FlowConfig cfg) {
         _gateAssert(_strIn(vmFlags, key), "VM build validates the produced runtime: " + key);
     }
     _gateAssert(!_strIn(vmFlags, "stdlib") && !_strIn(vmFlags, "compiler_checks") && !_strIn(vmFlags, "platform"), "VM build does not change compiler/stdlib or packaging contracts");
-    foreach (var file in new string[]{ "src/runtime/src/config/knob_table.rs", "src/runtime/src/vm.rs", "src/runtime/src/loader/runtime.rs", "src/runtime/src/threads/roots.rs", "src/runtime/src/threads/roots_tests.rs" }) {
+    foreach (var file in new string[]{ "src/runtime/src/config/knob_table.rs", "src/runtime/src/vm/mod.rs", "src/runtime/src/loader/runtime.rs", "src/runtime/src/threads/roots.rs", "src/runtime/src/threads/roots_tests.rs" }) {
         FlowPlan p = _flowSelect(cfg, new string[]{ file }, root);
         foreach (var key in new string[]{ "vm", "runtime_checks", "host_checks", "platform", "stdlib", "compiler_checks", "bench_integration" }) {
             _gateAssert(_strIn(_flowOutputs(cfg, p), key), "production VM changes retain consumers: " + file + "/" + key);

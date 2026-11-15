@@ -22,15 +22,25 @@ use crate::corelib::io;
 
 
 use super::config::Z42HostConfig;
-use super::entry::Z42Entry;
 use super::error::{clear_error, set_error, snapshot_last_error, Z42HostStatus};
-use super::module::Z42Module;
 use super::state::{is_valid_handle, HostEntry, HOST_SENTINEL};
 
 /// Opaque pointee for `Z42HostRef`. Pointers are sentinel values; the
 /// real state lives in `state::HOST`.
 #[repr(C)]
 pub struct Z42Host {
+    _private: [u8; 0],
+}
+
+/// Opaque module token; its backing record belongs to the host session's module table.
+#[repr(C)]
+pub struct Z42Module {
+    _private: [u8; 0],
+}
+
+/// Opaque resolved-entry token; its backing record belongs to the host session's entry table.
+#[repr(C)]
+pub struct Z42Entry {
     _private: [u8; 0],
 }
 
