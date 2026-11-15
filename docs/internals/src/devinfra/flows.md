@@ -128,6 +128,9 @@ xtask flow run --plan artifacts/ci-plan.json --job compiler-checks
 发布另用 nightly 到 HEAD 的累计差异，通过相同输入规则的 `publish` 字段判断；不能拿单次 push 差异替代。
 `ci main-scope` 分别输出累计验证基线与 `sdk` 发布信号；验证基线未知时工作流传入 `--full`，不会退回最后一次 push 的差异。`sdk` 作为 `XTASK_RELEASE_REQUIRED` 传入计划，决定发布所需的打包范围。缺失 nightly、API 失败或 compare 达到 300 文件上限时保留发布。main 合并队列与 PR 旧 head 清理的边界见 [CI 调度](ci.md)。
 
+main 排队任务可通过 `xtask ci refresh-plan` 基于更新的成功祖先重算本地计划。API 差异须与真实 Git 重建一致，
+同一 HEAD、schema 和配置校验保持不变；其它 job 共享的 artifact 不被改写。发布与验证的复核边界见 [CI 调度](ci.md#macos-并行与-runner-获取失败恢复)。
+
 ## 验证与限制
 
 `xtask check flows` 验证配置、影响与前提的隔离、workspace 归属、真实 Git 事件基线、重命名、计划过期、

@@ -47,9 +47,6 @@ jobs:
       wasm: ${{ steps.filter.outputs.wasm }}
       stdlib: ${{ steps.filter.outputs.stdlib }}
       archive_checks: ${{ steps.filter.outputs.archive_checks }}
-      macos_host_lane: ${{ steps.macos_queue.outputs.host }}
-      macos_package_lane: ${{ steps.macos_queue.outputs.package }}
-      macos_checks_lane: ${{ steps.macos_queue.outputs.checks }}
       # 当前 nightly → 本 commit 的累计改动是否影响 SDK；只在 push to main 上判，其余事件为空（= 照常发布）。
       sdk: ${{ steps.main_scope.outputs.sdk }}
     steps:
@@ -60,10 +57,6 @@ jobs:
         with:
           gh-token: ${{ secrets.GITHUB_TOKEN }}
           xtask-only: "true"
-
-      - name: Select bounded macOS runner queue
-        id: macos_queue
-        run: xtask ci queue
 
       - name: Release superseded main asset runs
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -134,10 +127,6 @@ jobs:
           - { os: macos-26,         platform: macos-arm64 }
           - { os: windows-latest,   platform: windows-x64 }
     runs-on: ${{ matrix.os }}
-    concurrency:
-      group: ${{ matrix.platform == 'macos-arm64' && format('ci-macos-arm64-{0}', needs.changes.outputs.macos_checks_lane) || format('ci-archives-{0}-{1}', github.run_id, matrix.platform) }}
-      queue: max
-      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/ci-bootstrap
@@ -169,25 +158,28 @@ jobs:
           - { os: macos-26,         platform: macos-arm64 }
           - { os: windows-latest,   platform: windows-x64 }
     runs-on: ${{ matrix.os }}
-    # Three shared lanes bound macOS demand; job classes rotate between them per run.
-    # Non-macOS matrix legs keep independent groups and run in parallel.
-    concurrency:
-      group: ${{ matrix.platform == 'macos-arm64' && format('ci-macos-arm64-{0}', needs.changes.outputs.macos_host_lane) || format('ci-test-host-{0}-{1}', github.run_id, matrix.platform) }}
-      queue: max
-      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v7
+      - name: Refresh queued main obligations
+        id: refresh
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && runner.os == 'macOS'
+        uses: ./.github/actions/refresh-main-plan
+        with:
+          role: host
       - uses: actions/download-artifact@v8
+        if: steps.refresh.outputs.needed == ''
         with:
           name: ci-plan
           path: artifacts
 
 
       - name: Setup Rust
+        if: steps.refresh.outputs.needed != 'false'
         uses: dtolnay/rust-toolchain@stable
 
       # 独立 cache key：compile-toolchain 只编 release 且先结束，共用 key 时本 job 额外编的 debug / test 依赖从不回存。
       - name: Cache Rust deps (Swatinem)
+        if: steps.refresh.outputs.needed != 'false'
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src/runtime -> ../../artifacts/build/runtime
@@ -195,11 +187,13 @@ jobs:
 
       # 每条腿都用上一版 nightly 的 z42c 种子从源码自举（自举纪律保证能编过），之后一切经 xtask。
       - name: Bootstrap toolchain (nightly z42c seed → current source)
+        if: steps.refresh.outputs.needed != 'false'
         uses: ./.github/actions/ci-bootstrap
         with:
           gh-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Validate host from the shared plan
+        if: steps.refresh.outputs.needed != 'false'
         shell: bash
         run: |
           set -euo pipefail
@@ -208,7 +202,7 @@ jobs:
 
       # 失败时把 stage 保留的临时输出传上来（runner 回收后就没了）。
       - name: Upload test logs on failure
-        if: failure()
+        if: steps.refresh.outputs.needed != 'false' && (failure())
         uses: actions/upload-artifact@v7
         with:
           name: test-logs-${{ matrix.os }}
@@ -235,19 +229,23 @@ jobs:
           - { os: macos-26,         platform: macos-arm64 }
           - { os: windows-latest,   platform: windows-x64 }
     runs-on: ${{ matrix.os }}
-    concurrency:
-      group: ${{ matrix.platform == 'macos-arm64' && format('ci-macos-arm64-{0}', needs.changes.outputs.macos_package_lane) || format('ci-package-host-{0}-{1}', github.run_id, matrix.platform) }}
-      queue: max
-      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v7
+      - name: Refresh queued main obligations
+        id: refresh
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && runner.os == 'macOS'
+        uses: ./.github/actions/refresh-main-plan
+        with:
+          role: host-package
 
       # 独立 cache key：打包另编 cdylib / staticlib / compression / apphost，共用窄 key 会每次冷编（Windows 6~8 分钟）。
       - uses: ./.github/actions/xtask-bootstrap-artifact
+        if: steps.refresh.outputs.needed != 'false'
         with:
           cache-key: package-host-v3
 
       - name: Package host SDK + verify
+        if: steps.refresh.outputs.needed != 'false'
         shell: bash
         run: |
           set -euo pipefail
@@ -257,7 +255,7 @@ jobs:
           xtask package sdk --no-build --archive --label nightly --verify
 
       - name: Relocated dynamic execution components + C host
-        if: needs.changes.outputs.platform_package == 'true'
+        if: steps.refresh.outputs.needed != 'false' && steps.refresh.outputs.platform_package != 'false' && (needs.changes.outputs.platform_package == 'true')
         shell: bash
         run: |
           set -euo pipefail
@@ -268,7 +266,7 @@ jobs:
           xtask package runtime --linkage dynamic --profile debug --no-build --verify
 
       - name: Package host runtime and workloads
-        if: needs.changes.outputs.platform_package == 'true'
+        if: steps.refresh.outputs.needed != 'false' && steps.refresh.outputs.platform_package != 'false' && (needs.changes.outputs.platform_package == 'true')
         shell: bash
         run: |
           set -euo pipefail
@@ -281,6 +279,7 @@ jobs:
           fi
 
       - name: Learn-book examples (packaged SDK)
+        if: steps.refresh.outputs.needed != 'false'
         # 本 job 被选中时负责各平台的示例重放；使用真实打包 SDK，Windows 也在此验证。
         shell: bash
         run: |
@@ -289,6 +288,7 @@ jobs:
           xtask test docs examples --sdk "$pkg_dir"
 
       - name: Installer smoke (offline, packaged SDK)
+        if: steps.refresh.outputs.needed != 'false'
         # 统一安装脚本（scripts/install-z42.*）对刚打出的 SDK 包跑一遍 `--archive` 离线安装：
         # 装进临时 home → `z42 --version` → `z42 new` + `z42 run`。第二次安装同一份包必须
         # 保留安装目录里的非 SDK 内容（workload 等）。网络下载路径由 nightly 发布后的真实 URL 覆盖。
@@ -322,7 +322,7 @@ jobs:
         # 静态一遍、动态一遍（经 rpath 找 libz42.{dylib,so}）——install name / SONAME 坏了，动态那遍就加载不了。
         # 打包模式只跑 R1–R7：嵌入语料用的是构建树的 VM，与包无关，归 test-desktop-cabi。
         # Windows 没有 `cc`，上一步按文件检查 import lib。
-        if: runner.os != 'Windows' && needs.changes.outputs.platform_package == 'true'
+        if: steps.refresh.outputs.needed != 'false' && (runner.os != 'Windows' && needs.changes.outputs.platform_package == 'true')
         shell: bash
         run: |
           set -euo pipefail
@@ -330,7 +330,7 @@ jobs:
           Z42_RUNTIME_DIR="$rt_dir" xtask test app desktop
 
       - name: Upload host archives
-        if: github.event_name != 'pull_request'
+        if: steps.refresh.outputs.needed != 'false' && (github.event_name != 'pull_request')
         uses: actions/upload-artifact@v7
         with:
           name: release-host-${{ matrix.platform }}
@@ -560,10 +560,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     needs: [changes, toolchain-bootstrap]
     if: needs.changes.outputs.stdlib == 'true'
-    concurrency:
-      group: ${{ matrix.platform == 'macos-arm64' && format('ci-macos-arm64-{0}', needs.changes.outputs.macos_checks_lane) || format('ci-stdlib-{0}-{1}-{2}-{3}', github.run_id, matrix.platform, matrix.mode, matrix.shard) }}
-      queue: max
-      cancel-in-progress: false
     strategy:
       fail-fast: ${{ github.event_name == 'pull_request' }}
       matrix:
@@ -575,14 +571,23 @@ jobs:
           - { os: macos-26,         platform: macos-arm64, mode: interp }
     steps:
       - uses: actions/checkout@v7
+      - name: Refresh queued main obligations
+        id: refresh
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && runner.os == 'macOS'
+        uses: ./.github/actions/refresh-main-plan
+        with:
+          role: stdlib
       - uses: actions/download-artifact@v8
+        if: steps.refresh.outputs.needed == ''
         with:
           name: ci-plan
           path: artifacts
       - uses: ./.github/actions/xtask-bootstrap-artifact
+        if: steps.refresh.outputs.needed != 'false'
         with:
           vm: prebuilt
       - name: Run stdlib tests
+        if: steps.refresh.outputs.needed != 'false'
         shell: bash
         run: xtask test stdlib --plan artifacts/ci-plan.json --no-build --mode ${{ matrix.mode }} --jobs 4 ${{ matrix.shard && format('--shard {0}', matrix.shard) || '' }}
 
@@ -633,20 +638,24 @@ jobs:
     needs: [changes, toolchain-bootstrap]
     if: needs.changes.outputs.platform_package == 'true' || needs.changes.outputs.ios == 'true'
     runs-on: macos-26
-    concurrency:
-      group: ${{ format('ci-macos-arm64-{0}', needs.changes.outputs.macos_checks_lane) }}
-      queue: max
-      cancel-in-progress: false
 
     steps:
       - uses: actions/checkout@v7
+      - name: Refresh queued main obligations
+        id: refresh
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && runner.os == 'macOS'
+        uses: ./.github/actions/refresh-main-plan
+        with:
+          role: ios
 
       - uses: ./.github/actions/xtask-bootstrap-artifact
+        if: steps.refresh.outputs.needed != 'false'
         with:
           cache-key: ios-v2
           rust-targets: aarch64-apple-ios,aarch64-apple-ios-sim
 
       - name: Package ios-arm64 + iossim-arm64 (xtask package)
+        if: steps.refresh.outputs.needed != 'false'
         shell: bash
         run: |
           set -euo pipefail
@@ -657,7 +666,7 @@ jobs:
           xtask package runtime --rid iossim-arm64 --no-build --verify
 
       - name: Upload iOS archives
-        if: github.event_name != 'pull_request'
+        if: steps.refresh.outputs.needed != 'false' && (github.event_name != 'pull_request')
         uses: actions/upload-artifact@v7
         with:
           name: release-ios
@@ -840,7 +849,7 @@ jobs:
           vm: prebuilt
 
       # Check inside the serialized publication job; API errors must stop the write.
-      - name: Skip if nightly is already newer
+      - name: Skip if nightly is newer or already validated with equivalent assets
         id: stale
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -955,7 +964,7 @@ jobs:
     name: test-ios-sim(macos-arm64) shard ${{ matrix.shard }}
     # 冷构建 + 模拟器冷启动。
     timeout-minutes: 60
-    needs: [changes, toolchain-bootstrap]   # macOS 原生资源槽由 changes 输出。
+    needs: [changes, toolchain-bootstrap]
     # Platform changes run embedding/JIT/compression smoke; nightly/manual retains the full corpus.
     if: needs.changes.outputs.platform_package == 'true' || needs.changes.outputs.ios == 'true'
     # 嵌入语料全量分 3 片，每片约 155 个用例，压在模拟器 60 分钟墙内；每片自己起模拟器，R1–R7 并进同一次运行。
@@ -964,22 +973,26 @@ jobs:
       matrix:
         shard: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '[1,2,3]' || '[1]') }}
     runs-on: macos-26
-    concurrency:
-      group: ${{ format('ci-macos-arm64-{0}', needs.changes.outputs.macos_checks_lane) }}
-      queue: max
-      cancel-in-progress: false
     permissions:
       actions: read     # setup-z42-sdk 回退（gh run download）
       contents: read
       checks: write
     steps:
       - uses: actions/checkout@v7
+      - name: Refresh queued main obligations
+        id: refresh
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && runner.os == 'macOS'
+        uses: ./.github/actions/refresh-main-plan
+        with:
+          role: ios
       - uses: ./.github/actions/xtask-bootstrap-artifact
+        if: steps.refresh.outputs.needed != 'false'
         with:
           cache-key: tier2-ios
           rust-targets: aarch64-apple-ios,aarch64-apple-ios-sim,aarch64-apple-darwin
       # 一条命令，与本地相同：这一片的嵌入语料 + R1–R7 走一次 `xcodebuild test`，z42b 解析模拟器并写 JUnit。
       - name: xtask test app ios (shard ${{ matrix.shard }}/3, one simulator run)
+        if: steps.refresh.outputs.needed != 'false'
         shell: bash
         run: |
           set -euo pipefail
@@ -990,14 +1003,14 @@ jobs:
           fi
       - name: Publish iOS test report (GitHub Check)
         uses: dorny/test-reporter@v3
-        if: always()
+        if: steps.refresh.outputs.needed != 'false' && (always())
         with:
           name: platform-tests / ios (shard ${{ matrix.shard }})
           path: artifacts/reports/tests/ios/junit.xml
           reporter: java-junit
           fail-on-error: false
       - name: Upload iOS JUnit
-        if: always()
+        if: steps.refresh.outputs.needed != 'false' && (always())
         uses: actions/upload-artifact@v7
         with:
           name: junit-ios-${{ matrix.shard }}

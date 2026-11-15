@@ -23,8 +23,7 @@ int _ciSupersedeMain(CiGitHub api, string repo, string id, bool dryRun, string b
     JsonValue current = api.Get(path);
     if (!_ciMainRun(current, repo)) { return 0; }
     string head = _ciString(current, "head_sha");
-    string latest = prefix + "/git/ref/heads/main";
-    if (_ciString(api.Get(latest).Get("object"), "sha") != head) { return 0; }
+    if (!_ciCurrentAssets(api, repo, head)) { return 0; }
     // Only this push may replace earlier CI; cumulative release scope is independent.
     if (before.Length == 0 || before == head) { return 0; }
     string root = _root(); FlowConfig cfg = _flowConfigFor(root);
@@ -41,7 +40,7 @@ int _ciSupersedeMain(CiGitHub api, string repo, string id, bool dryRun, string b
         string oldPath = prefix + "/actions/runs/" + old.Get("id").AsLong().ToString();
         JsonValue fresh = api.Get(oldPath);
         if (!_ciOlderMain(fresh, api.Get(path), repo) || _ciString(fresh, "head_sha") != oldHead
-            || _ciString(api.Get(latest).Get("object"), "sha") != head) { continue; }
+            || !_ciCurrentAssets(api, repo, head)) { continue; }
         Console.WriteLine((dryRun ? "would cancel superseded main run " : "cancel superseded main run ") + old.Get("id").AsLong().ToString());
         // No force-cancel: an always() release update may be completing its asset transaction.
         if (!dryRun) {
@@ -50,4 +49,18 @@ int _ciSupersedeMain(CiGitHub api, string repo, string id, bool dryRun, string b
         }
     }
     return 0;
+}
+
+bool _ciCurrentAssets(CiGitHub api, string repo, string head) {
+    string latest = _ciString(api.Get("repos/" + repo + "/git/ref/heads/main").Get("object"), "sha");
+    if (latest == head) { return true; }
+    JsonValue diff = api.Get("repos/" + repo + "/compare/" + head + "..." + latest);
+    JsonValue files = diff.Get("files");
+    if (_ciString(diff, "status") != "ahead" || !files.IsArray() || files.Count() >= 300) { return false; }
+    for (int i = 0; i < files.Count(); i = i + 1) {
+        foreach (var file in new string[]{ _ciString(files.At(i), "filename"), _ciString(files.At(i), "previous_filename") }) {
+            if (file.StartsWith(".github/workflows/")) { return false; }
+        }
+    }
+    return !_ciSdkFiles(_flowConfigFor(_root()), _root(), files);
 }

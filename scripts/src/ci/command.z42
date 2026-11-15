@@ -7,21 +7,16 @@ using Std.Cli;
 class CiCommand : Command {
     public CiCommand() : base("ci", "GitHub CI control operations") {
         this.AddCommand(new CiHostTestCommand());
-        this.AddCommand(new CiQueueCommand());
         this.AddCommand(new CiRetryCommand());
         this.AddCommand(new CiUploadCommand());
         this.AddCommand(new CiPublishNightlyCommand());
         this.AddCommand(new CiMainScopeCommand());
+        this.AddCommand(new CiRefreshCommand());
         this.AddCommand(new CiPublicationCommand());
         this.AddCommand(new CiSupersedeCommand());
         this.AddCommand(new CiInstallerCheckCommand());
         this.AddCommand(new CiBenchScopeCommand());
     }
-}
-
-class CiQueueCommand : Command {
-    public CiQueueCommand() : base("queue", "reserve macOS capacity for PRs and background CI") {}
-    public override int Run() { return _ciQueue(); }
 }
 
 class CiRetryCommand : Command {
@@ -76,6 +71,16 @@ class CiMainScopeCommand : Command {
     public override int Run() {
         try { return _ciMainScope(new CiGitHub()); }
         catch (Exception e) { ConsoleError.WriteLine("main scope: " + e.Message); return 1; }
+    }
+}
+
+class CiRefreshCommand : Command {
+    [Option(help: "validated local plan")] public string Plan = "artifacts/ci-plan.json";
+    [Option(help: "queued job obligation", choices: new string[]{ "host", "host-package", "stdlib", "ios" })] public string Role = "";
+    public CiRefreshCommand() : base("refresh-plan", "recheck queued main work against successful validation and published assets") {}
+    public override int Run() {
+        try { return _ciRefresh(this.Plan, this.Role, new CiGitHub()); }
+        catch (Exception e) { ConsoleError.WriteLine("queued main plan: " + e.Message); return 1; }
     }
 }
 

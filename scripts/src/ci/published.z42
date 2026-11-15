@@ -1,0 +1,56 @@
+namespace Z42Xtask;
+
+using Std.Json;
+using Std.Collections;
+using Std.Regex;
+
+string[] _ciPublishedNames(string root) {
+    var names = new List<string>();
+    foreach (var name in new string[]{ "SHA256SUMS", "release-index.json", "install-z42.sh", "install-z42.ps1" }) { names.Add(name); }
+    foreach (var rid in _vRidNames(root)) {
+        names.Add(_rtName("nightly", rid));
+        if (_vRidCategory(root, rid) == "desktop") { names.Add(_sdkName("nightly", rid)); }
+    }
+    foreach (var wl in _vWorkloads(root)) { names.Add(_wlArchiveName("nightly", wl)); }
+    names.Add(_wlArchiveName("nightly", "test"));
+    return names.ToArray();
+}
+
+bool _ciPublishedInventory(JsonValue release, string tag, string root) {
+    if (_ciString(release, "tag_name") != "nightly" || _ciString(release, "target_commitish") != tag
+        || !release.Get("draft").IsBool() || release.Get("draft").AsBool()
+        || !release.Get("prerelease").IsBool() || !release.Get("prerelease").AsBool()) { return false; }
+    JsonValue assets = release.Get("assets");
+    if (!assets.IsArray()) { return false; }
+    foreach (var name in _ciPublishedNames(root)) {
+        int found = 0;
+        for (int i = 0; i < assets.Count(); i = i + 1) {
+            JsonValue asset = assets.At(i);
+            if (_ciString(asset, "name") != name) { continue; }
+            if (_ciString(asset, "state") != "uploaded" || !asset.Get("size").IsLong() || asset.Get("size").AsLong() <= 0
+                || !Regex.Compile("^sha256:[0-9a-f]{64}$").IsMatch(_ciString(asset, "digest"))) { return false; }
+            found = found + 1;
+        }
+        if (found != 1) { return false; }
+    }
+    return true;
+}
+
+bool _ciPublishedEquivalent(CiGitHub api, string repo, string head, string root) {
+    try {
+        string prefix = "repos/" + repo;
+        string tag = _ciString(api.Get(prefix + "/git/ref/tags/nightly").Get("object"), "sha");
+        // Same-head reruns can repair publication; reuse only an ancestor with validated asset inputs.
+        if (tag.Length == 0 || tag == head) { return false; }
+        string validated = _ciMainBase(api, repo, head);
+        if (validated.Length == 0) { return false; }
+        JsonValue validation = api.Get(prefix + "/compare/" + tag + "..." + validated);
+        string status = _ciString(validation, "status");
+        if (status != "ahead" && status != "identical"
+            && (status != "behind" || _ciSdkFiles(_flowConfigFor(root), root, validation.Get("files")))) { return false; }
+        JsonValue delta = api.Get(prefix + "/compare/" + tag + "..." + head);
+        if (_ciString(delta, "status") != "ahead" || _ciSdkFiles(_flowConfigFor(root), root, delta.Get("files"))) { return false; }
+        if (!_ciPublishedInventory(api.Get(prefix + "/releases/tags/nightly"), tag, root)) { return false; }
+        return _ciString(api.Get(prefix + "/git/ref/tags/nightly").Get("object"), "sha") == tag;
+    } catch (Exception e) { Std.IO.ConsoleError.WriteLine("published assets unverified; retain work: " + e.Message); return false; }
+}

@@ -160,7 +160,8 @@ GitHub compare 最多返回 300 个文件。截断列表里只要出现已登记
 就足以证明本次 push 影响资产，仍可替换验证过身份和祖先关系的旧运行；若只看到文档、测试或未知路径，
 则不能据此断言没有遗漏资产，保留旧运行并报告差异不完整。完整列表的未知路径仍按保守发布规则处理。
 
-只有当前 main head 的规划器可取消同仓库、同 workflow、较小 run number 的运行；写请求前再读取身份与 main head。
+资产提交的规划器只取消同仓库、同 workflow、较小 run number 的运行；写请求前再读取身份与 main head。
+若 main 已前进，仅在完整比较确认后续提交都不影响发布输入、也未改动 workflow 时允许继续，避免连续合入私有测试导致资产替换漏执行。非资产 push 自身仍不取消旧运行。
 这也能释放旧并发分组遗留的运行。main 只发送普通取消，不 force-cancel，以允许已开始的资产写入完成。
 PR 新 head 的取消、每日全量与手动运行仍按事件分组。
 
@@ -208,24 +209,21 @@ main / schedule / 手动运行保留完整结果。这个机制不跨独立 job 
 API 的完成竞态按已完成处理，其它错误显式失败；`--dry-run` 可本地查看候选。
 控制 workflow 只检出 `github.workflow_sha` 的可信源码，不消费 PR 产物或运行 PR 代码。
 
-有界队列的 FIFO 按进入 concurrency 等待的时间排序，不能保证最先打开的 PR 最先完成。
-不通过占用 runner 轮询整轮 CI 来实现全仓优先级。
+### macOS 并行与 runner 获取失败恢复
 
-### macOS 资源队列与 runner 获取失败恢复
+主 CI 不设置 macOS 数量上限或仓库槽位，宿主、打包、标准库与 iOS job 可直接并行申请 runner。
+实际开始时间仍取决于 GitHub 的可用资源。整个 workflow 保留 PR 旧 head 替换和 main 资产差异取消；
+只有 nightly 写入使用 job 级互斥，避免并发修改同一个 Release。
 
-主 CI 在 `detect-changes` 的 xtask 自举后调用 `xtask ci queue`，分配两类独立资源池：
-PR 使用 `pr-0` / `pr-1` 两个槽；main / schedule / 手动运行使用 `background-0` 一个槽。
-宿主、宿主打包与其它检查分别按 `run_number` 加 0 / 1 / 2 后对本池槽数取余。
-同一次运行的任务可在池内并行；重跑保持相同槽位，后台 SDK 工作不会占住 PR 的 concurrency 通道。
+macOS main push 的任务拿到 runner 后，先用种子 SDK 执行 `xtask ci refresh-plan --role <职责>`。
+它以最近成功的 main 祖先重新计算尚未验证的改动，核对完整 Git 差异后替换本 job 的本地计划；
+待测私有测试仍保留，已经由成功祖先覆盖的生产测试不再重复。PR、定期和手动运行不收窄。
+发布前提只有在 nightly 是当前提交的祖先、其发布输入已由成功 CI 覆盖、tag 与 Release target 一致、非 draft 的 prerelease
+且配置要求的全部资产均有 uploaded 状态、正大小与 SHA256 收据时才可解除。
+同 head 重跑继续允许修复；缺失资产、错误状态、API 失败、截断差异或 Git 投影不一致均保留原任务。
+未完成的验证和发布不会被视为成功。已无该职责的任务在 Rust 和产品构建之前结束，释放 runner。
+发布 job 在原有互斥锁内复核同一条件，确认资产已经发布后跳过下载与重发。
 
-job 级 group 统一为 `ci-macos-arm64-<池与槽>`。新配置总需求上限为 3，其中 PR 最多 2、后台最多 1，
-低于 [Free / Pro / Team 默认的 macOS 并发上限 5](https://docs.github.com/en/actions/reference/limits)，
-为其它 workflow 留出余量。槽数的唯一配置在 `scripts/src/ci/queue.z42`。
-每个槽使用 `queue: max` 和 `cancel-in-progress: false`，最多保留 100 个等待者；
-默认单等待者队列会让新 job 顶掉较早等待者。Linux / Windows 的矩阵腿仍按 run ID、任务类型和平台并行。
-资源池按进入等待的时间 FIFO，不保证整个 PR 按创建时间完成；配置切换前的运行继续使用其原有组。
-
-这个队列限制本仓库发给 macOS runner 池的并发需求，但不保证 GitHub 始终有可用的 hosted runner。
 GitHub 放弃获取 runner 时，job API 可能报告 `cancelled`，`needs` 矩阵结果可能为 `abandoned`；
 两者都代表测试没有完成，`ci-ok` 仍须判红。
 

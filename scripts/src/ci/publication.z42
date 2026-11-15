@@ -32,6 +32,9 @@ bool _ciNightlyStale(CiGitHub api, string repo, string head) {
 
 int _ciCheckPublication(CiGitHub api) {
     bool stale = _ciNightlyStale(api, _ciRepo(), Environment.GetEnvironmentVariable("GITHUB_SHA", ""));
+    if (!stale && Environment.GetEnvironmentVariable("GITHUB_EVENT_NAME", "") == "push") {
+        stale = _ciPublishedEquivalent(api, _ciRepo(), Environment.GetEnvironmentVariable("GITHUB_SHA", ""), _root());
+    }
     string text = "stale=" + (stale ? "true" : "false") + "\n";
     string output = Environment.GetEnvironmentVariable("GITHUB_OUTPUT", "");
     if (output.Length > 0) { File.AppendAllText(output, text); }
