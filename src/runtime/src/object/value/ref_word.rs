@@ -41,7 +41,7 @@ pub const RK_BOXED_VALUE: u64 = 7;
 
 /// JIT 读路径的查表：种类 → 寄存器里 `Value` 的判别值。`null` 的字是 0 ⇒ 种类 0 ⇒ `Null`(5)，
 /// 负载随之为 0。种类 7 是 [`SLOW_PATH_TAG`]：要回落到 helper 取盒子里的值。判别值由
-/// `object/types_tests.rs::value_discriminants_pinned` 钉住。
+/// `object/tests.rs::value_discriminants_pinned` 钉住。
 pub static KIND_TO_VALUE_TAG: [u8; 8] = [5, 7, 6, 4, 10, SLOW_PATH_TAG, 17, SLOW_PATH_TAG];
 pub const SLOW_PATH_TAG: u8 = 0xFF;
 

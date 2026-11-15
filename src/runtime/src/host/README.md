@@ -2,12 +2,12 @@
 
 ## 职责
 
-本目录是唯一运行时包 `z42` 的宿主模块，不单独编译。当前组合 Rust 接口、C ABI 与静态组件登记，共用运行时服务。
+本目录是唯一运行时包 `z42` 的宿主模块，不单独编译。组合 Rust 接口与 C ABI，共用运行时服务；静态组件登记归 components，原生库登记归 loader。
 命令行参数和启动环境由 Core 的 cli feature 下私有 main_command/main_startup 处理，不经 host 导出。main 只加载 Core 的进程入口；命令行实现通过本目录的加载/执行接口使用 VM。
 
 为命令行、Rust 嵌入端和外部 C 宿主提供统一加载、初始化与调用服务。CLI 负责参数和进程策略，C ABI 负责指针、句柄和状态码；产物解析、GC 和执行语义由各底层子系统实现。
 
-普通宿主使用加载、调用、配置、句柄和回调等功能接口。当前 `mod.rs` 仍具名转出管理类型和按 ID 查询，
+普通宿主使用加载、调用、配置、句柄和回调等功能接口，不导出组件管理类型和按 ID 查询。
 `LoadOptions` 只表达功能请求与加载环境；组件装配输入保持 VM 内部。
 VM 内部组件门面、跨库协议与普通宿主契约的区别及当前缺口见[运行时模块边界](../../../../docs/internals/src/runtime/module-boundaries.md)。
 
@@ -23,9 +23,9 @@ VM 内部组件门面、跨库协议与普通宿主契约的区别及当前缺�
 | `execution_available` | 按执行模式查询可用性，不暴露组件身份，不装库或创建 VM |
 | `load.rs` | 宿主 resolver、依赖准备和统一 VM 装配请求；产物机制由 loader 提供 |
 | `run_app` / `RunOpts` | 一次性应用运行、应用参数、退出报告和进程退出时的释放策略 |
-| `ffi.rs` / `config.rs` / `state.rs` | C ABI 适配、配置验证及宿主句柄注册表 |
+| `ffi.rs` / `config.rs` / `state.rs` | C ABI 与不透明句柄定义、配置验证及句柄注册表；Rust 消费者从 host 根导入 Z42Host/Z42Module/Z42Entry |
 | `ops.rs` / `marshal.rs` | ABI 操作适配和参数、返回值转换 |
-| `ExecMode` / `PackageImage` | 由组件拥有、通过宿主门面提供的执行策略和不可变包定义类型 |
+| `ExecMode` / `PackageImage` | 由 z42-zpkg 拥有、通过宿主门面提供的执行模式和不可变包定义类型 |
 | `signal.rs` | 致命信号安装、VM 栈捕获和崩溃报告，底层信号原语由 PAL 提供 |
 | `resolver.rs` | 宿主包解析接口、C 回调适配和 `read_zpkg_namespaces` 包解析键查询 |
 | `services.rs` / `app_state.rs` | 核心库隔离运行服务和每 VM 应用参数 |

@@ -76,5 +76,5 @@ impl Drop for ExtensionState {
 }
 
 #[cfg(all(test, z42_test_facade))]
-#[path = "vm_extensions_tests.rs"]
+#[path = "extensions_tests.rs"]
 mod tests;

@@ -24,14 +24,24 @@
 //! request.native.allow_runtime = false;
 //! request.allow_profiling = false;
 //! ```
+//! C handle consumers import the owning host API rather than implementation files:
+//! ```
+//! use z42::host::{Z42Host, Z42Module, Z42Entry};
+//! let _: (*mut Z42Host, *mut Z42Module, *mut Z42Entry) =
+//!     (std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut());
+//! ```
+//! ```compile_fail
+//! use z42::host::entry::Z42Entry;
+//! ```
+//! ```compile_fail
+//! use z42::host::module::Z42Module;
+//! ```
 pub use crate::{object::Value, pal::fs::Vfs, vm::{VmContext, VmCore}, metadata::Module};
 pub mod config;
 pub mod resolver;
 pub(crate) mod program;
 pub mod signal;
 pub mod error;
-pub mod entry;
-pub mod module;
 pub mod marshal;
 pub mod ops;
 pub mod state;
@@ -41,7 +51,12 @@ mod load;
 pub(crate) mod app_state;
 pub(crate) mod services;
 pub use z42_zpkg::{ExecMode, image::PackageImage};
-pub use ffi::*;
+pub use ffi::{
+    Z42Host, Z42Module, Z42Entry, z42_host_initialize, z42_host_shutdown,
+    z42_host_load_zbc, z42_host_resolve_entry, z42_host_invoke,
+    z42_host_set_stdout_sink, z42_host_set_stderr_sink, z42_host_last_error,
+    z42_zpkg_read_namespaces, install_zpkg_resolver, install_vfs, z42_host_run_app,
+};
 pub use resolver::{read_zpkg_namespaces, ZpkgResolver};
 pub use program::{LoadOptions, LoadedProgram};
 pub use app::{default_mode, execution_available, run_app, RunOpts};

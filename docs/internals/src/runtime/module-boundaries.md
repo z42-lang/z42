@@ -2,7 +2,7 @@
 
 > 代码：`src/runtime/src/`、`src/runtime/crates/`
 > 相关：[组件化运行时](componentized-runtime.md)、[VM 总体架构](vm-architecture.md)、[嵌入机制](embedding.md)
-> 待办：组件管理公开面与来源模型尚未收口，默认 VM 装配仍位于 host；目标结构未全部实施。
+> 当前：普通 host 不暴露组件管理输入，VM 装配归 vm，原生来源许可归 loader；剩余低层上下文可达面与跨域编排见下表。
 
 ## 概述
 
@@ -57,9 +57,9 @@ engine/init、counters/observer、protocol 实现模块私有；实现文件移�
 
 ### 当前可核对的缺口
 
-vm.rs 只负责共享 Core 与线程视图的组合、布局、构造和生命周期。缺符号裁决已归 exec/exception，
+vm/mod.rs 只负责共享 Core 与线程视图的组合、布局、构造和生命周期。缺符号裁决已归 exec/exception，
 异常交接直接归 ThreadExecState，静态默认值物化归对象执行层；不能将托管异常/GC 分配搬入纯 metadata。
-剩余 lookup 的加载编排、frames 的执行/GC 暂停协作、observation 的计数聚合依次按所属服务拆分，
+加载查询、帧/GC 暂停协作和计数聚合已分别归 loader、exec/threads 与 diagnostics。组合层通过所属服务调用，
 不把带有完整 VmContext 的 impl 块分散到其它目录当作解耦完成。
 
 | 缺口 | 代码证据 | 影响与目标 |
@@ -105,9 +105,9 @@ flowchart TD
 组件实例间的语义依赖决定创建/销毁顺序；代码/外部依赖的装载由 loader 处理。普通 Rust/Cargo 依赖已在构建时组合，
 不因拆成 crate 而增加运行时加载。三类 crate 的实际接入关系见[组件化运行时](componentized-runtime.md#1-库边界)。
 
-### host 与初始化收口方向（尚未实施）
+### 宿主输入与初始化分工
 
-main.rs 已直接动态链接共享 Core；参数解析、环境和相对路径是该宿主的实现，C 绑定和其它平台也消费同一 VM 服务契约。
+main.rs 动态加载共享 Core 的进程入口；Core 的 cli feature 下解析参数、环境和相对路径，C 绑定和其它平台也消费同一 VM 服务契约。
 同构建 Rust 宿主使用 Rust 接口；需要 C 互操作的边界才使用版本化 C 布局/回调，不跨 C ABI 传 Rust trait 对象。
 VM 组合层提供单一准备流程，平台适配只转换输入，不复制模块初始化和包加载实现：
 
@@ -137,6 +137,8 @@ C initialize 当前建立进程单例宿主会话，不等于创建一个承载�
 
 ### 文件命名与职责映射
 
+模块有多个实现和测试时按所有者集中到目录，根目录不以 vm_* 等前缀代替模块组织；短小入口测试可以内联。具体实现移动通过模块声明和显式导出吸收，C 句柄从 host 根导入，不将 entry.rs/module.rs 等文件名公开为依赖路径。
+
 同名并不自动等于重复实现：PAL 的 unix/windows/wasm 文件是同一契约的平台镜像，保留对称命名。
 下表是职责收口后的候选名，未改名的文件仍在左列路径；最终名称随对应抽象同轮确认，不先制造兼容转发层。
 
@@ -150,8 +152,8 @@ C initialize 当前建立进程单例宿主会话，不等于创建一个承载�
 | loader/native.rs、exec/native.rs | 原生库装入/注册；native 调用服务 | native_library_loader.rs、native_module_registration.rs、native_call_services.rs |
 | host/profiling.rs、components/profiling.rs | 宿主诊断请求；profiler 装配 | diagnostic_requests.rs、profiler_attachment.rs |
 | object/protocol.rs、exec/ops/stringify.rs | 对象能力契约；托管调用/默认文本物化 | 定义与执行桥已按所有者分开；继续检查 exec/ops 中布局/存储事实与执行编排的混合 |
-| host/load.rs、program_builder.rs、vm_defaults.rs | 包准备、程序/VM 装配和默认策略 | 职责先迁到 VM 装配层，再按 program_preparation、vm_assembly、default_services 命名 |
-| vm.rs | Core、线程视图和布局偏移 | 按 vm_core、vm_context、context_layout 拆分，保持布局约束 |
+| host/load.rs、vm/assembly.rs、vm/defaults.rs | 宿主请求、VM 装配、默认输入 | host 转换请求，vm 持有装配顺序；loader 拥有产物准备机制 |
+| vm/ | Core、线程视图、布局、默认服务与装配 | 多个实现按共同所有者集中；crate::vm 的类型和组件 bridge 消费路径不随物理布局变化 |
 
 `*_config`、`*_policy`、`*_registry` 等后缀表达不同职责。目录本身已足够限定的局部文件不为全仓唯一名机械改名；
 对外引用面收口后，具体实现文件重命名只影响其模块声明、适配器和同目录测试。
@@ -181,7 +183,7 @@ GC/对象、线程/执行及元数据共享的数据契约需要单独建模，�
 
 核心 builtin/provider 描述归 corelib，通用不可变目录归 interop，host 不再拥有 builtins 登记表。独立模块在首次限定调用时才经 loader 解析自描述入口，interop 校验并登记；lib.rs 的已链接入口清单仅表达链接事实，不在初始化时执行。动态 Core 不依赖 compression 的声明 crate，loader 的静态登记接受任意有效逻辑名，不写死库名单。
 
-VM 组合为单文件 vm.rs，context 目录已删除。帧/arena/异常使用 ThreadExecState，包加载查找使用不持有 VmContext 的 RuntimeLoader，静态存储使用 StaticFields，初始化执行使用 Initialization。计数汇总归 DiagnosticsState，注册与注销归 ThreadState；vm.rs 只提供组合、生命周期和借用。
+VM 组合和装配集中在 vm/，context 目录已删除。帧/arena/异常使用 ThreadExecState，包加载查找使用不持有 VmContext 的 RuntimeLoader，静态存储使用 StaticFields，初始化执行使用 Initialization。计数汇总归 DiagnosticsState，注册与注销归 ThreadState；vm/mod.rs 只提供组合、生命周期和借用。
 
 组件消费 VM 上下文和布局事实的稳定位置为 components::bridge，interp/jit/profiler 不引用 vm 实现路径。bridge 只列出实际类型与常量，不把整个实现模块改名导出。静态初始化失败沿 exec 屏障的异常结果传递，不另设无人写入的全局错误槽；构造缓存纪元直接由 metadata 提供，不经过 loader 的空转发。
 

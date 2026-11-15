@@ -310,14 +310,14 @@ unsafe impl Send for Host {}
 /// Loaded `.zbc` (with merged dependencies). Cheap to clone via the
 /// underlying handle, but we keep it `!Clone` to make ownership obvious.
 pub struct Module {
-    handle: *mut z42::host::module::Z42Module,
+    handle: *mut z42::host::Z42Module,
 }
 
 unsafe impl Send for Module {}
 
 /// Resolved entry (function / static method).
 pub struct Entry {
-    handle: *mut z42::host::entry::Z42Entry,
+    handle: *mut z42::host::Z42Entry,
 }
 
 unsafe impl Send for Entry {}
@@ -417,7 +417,7 @@ impl Host {
     }
 
     pub fn load_zbc(&self, bytes: &[u8]) -> Result<Module, HostError> {
-        let mut out: *mut z42::host::module::Z42Module = ptr::null_mut();
+        let mut out: *mut z42::host::Z42Module = ptr::null_mut();
         let status = unsafe {
             z42_host_load_zbc(self.handle, bytes.as_ptr(), bytes.len(), &mut out)
         };
@@ -440,7 +440,7 @@ impl Host {
     pub fn resolve_entry(&self, m: &Module, fqn: &str) -> Result<Entry, HostError> {
         let cstr = CString::new(fqn)
             .map_err(|_| HostError::BadConfig("fqn contains NUL".into()))?;
-        let mut out: *mut z42::host::entry::Z42Entry = ptr::null_mut();
+        let mut out: *mut z42::host::Z42Entry = ptr::null_mut();
         let status = unsafe {
             z42_host_resolve_entry(self.handle, m.handle, cstr.as_ptr(), &mut out)
         };
