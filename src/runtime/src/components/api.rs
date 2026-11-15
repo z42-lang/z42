@@ -4,7 +4,9 @@ use anyhow::Result;
 pub(crate) use super::execution_roles::ExecutionRole;
 pub use super::backends::{BackendOptions, BackendSource};
 pub use super::instance::{ComponentLease, VmComponents};
-pub use super::options::{ComponentOptions, component_interface, component_ids};
+pub use super::options::ComponentOptions;
+#[cfg(test)]
+pub use super::options::{component_interface, component_ids};
 use super::execution_roles::ExecutionBindings;
 
 /// Prepare once before publishing the program; execution uses its bound engines.

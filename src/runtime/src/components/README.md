@@ -35,7 +35,7 @@ VM 消费者通过内部 `components::api` 请求准备、执行角色和分析�
 
 加载流程为：选择启用根与提供方来源 → 请求 loader 准备代码并校验所需工厂闭包 → 按语义依赖创建每 VM 实例 → 发布注册表 → 装配执行接口。
 
-`with_static` / `with_dynamic` 选择启用根；`with_static_provider` / `with_dynamic_provider` 只登记可被依赖的来源。未使用的提供方不调用 init、不打开库，也不创建实例。依赖必须有显式来源；不会扫描其他进程工厂或绕过后端禁用策略。普通接口查询保持只读，不触发装配。失败回滚和正常释放均按依赖逆序销毁。组件身份与接口查询只通过 crate 内部 `components::api` 使用，host 不再导出查询或租约。内部 `ComponentLease` 保留所属 Core、实例和代码；原生映像的进程寿命缓存由 loader/code 管理，防止 TLS 析构跳入已卸载代码。
+`with_static` / `with_dynamic` 选择启用根；`with_static_provider` / `with_dynamic_provider` 只登记可被依赖的来源。未使用的提供方不调用 init、不打开库，也不创建实例。依赖必须有显式来源；不会扫描其他进程工厂或绕过后端禁用策略。普通接口查询保持只读，不触发装配。失败回滚和正常释放均按依赖逆序销毁。按组件 ID 的身份与接口查询仅为内部测试构建提供；生产 VM 通过 `components::api` 的能力入口消费组件，host 不导出查询或租约。内部 `ComponentLease` 保留所属 Core、实例和代码；原生映像的进程寿命缓存由 loader/code 管理，防止 TLS 析构跳入已卸载代码。
 
 通用接口只传 C 布局、函数指针与不透明句柄，不跨边界转移 Rust 容器所有权或 unwind。静态登记与动态库入口都要求可信的原生回调；创建失败返回的非空状态也必须能由销毁回调清理。
 

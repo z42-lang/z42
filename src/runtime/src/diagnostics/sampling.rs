@@ -56,6 +56,7 @@ impl Sampling {
     pub fn is_loaded(&self) -> bool {
         self.initialized.get().is_some_and(|result| result.is_ok()) && self.backend.get().is_some()
     }
+    #[cfg(test)]
     pub(crate) fn components(&self) -> Option<&VmComponents> {
         if self.is_loaded() { self.code.get() } else { None }
     }
