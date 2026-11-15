@@ -41,6 +41,8 @@ macOS 采用 @rpath 和 @loader_path，Linux 采用 $ORIGIN 与 $ORIGIN/../nativ
 
 静态封装从同一 Cargo 图的 JSON `compiler-artifact` 与 `build-script-executed` 记录读取依赖目录、宿主 proc-macro 目录和原生库搜索目录；不依赖 Cargo 内部的 `deps/` 布局。构建记录保留在构建目录，不随运行时包分发。 Android 的 cargo-ndk 会消费这些消息，因此静态构建通过透明的 Cargo 可执行文件转发器同时记录原始 stdout；元数据预检、编译参数、NDK 环境及退出码仍由原工具处理。转发器是宿主构建工具，不属于运行时包。
 
+SDK 的工具链编译和 apphost 发布使用本次 components 产物目录中的 z42vm，与待发布的原生闭包同源。安装上下文只保留该产物目录，不再单独指定另一份宿主 VM；入口缺失或为空时拒绝执行，不回退普通构建目录。
+
 共享 Rust std 在生产图构建成功后按该工具链暂存到产物目录。SDK、开发 SDK 和预编译 CI 产物的消费方从该目录复制匹配的 std，不查询接收机器的 rustup。缺失或有歧义时拒绝组包；刷新构建目录的 std 时清除旧版本。
 
 ### Native 统一头与模块所有权

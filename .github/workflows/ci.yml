@@ -243,6 +243,7 @@ jobs:
         if: steps.refresh.outputs.needed != 'false'
         with:
           cache-key: package-host-v3
+          vm: deferred
 
       - name: Package host SDK + verify
         if: steps.refresh.outputs.needed != 'false'

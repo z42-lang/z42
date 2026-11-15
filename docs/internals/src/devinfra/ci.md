@@ -47,6 +47,8 @@ regen 一次 golden `.zbc`、连同 `.z42` 布局打成 `current-sdk-ubuntu-late
 只消费现成 release VM 的 job（`compile-test-assets`、`compiler-checks`、`test stdlib --no-build`、`publish-nightly`）使用 `vm: prebuilt`，
 Linux x64 直接取 `compile-toolchain` 上传的 `z42vm-linux-x64`（VM 和同目录的 cdylib），其他宿主仍在本机编译。
 预编译 artifact 只有运行文件，后续调用 Cargo 的 job 需要自己的 Rust 环境和依赖缓存。
+`package-host` 使用 `vm: deferred` 只准备 Rust 和缓存；`package sdk` 构建完整 components 运行时图，并用同一图的 VM 编译及发布工具链程序，不再预先构建另一套普通 release VM。组件单测目标、统一 feature 和发行包验证仍保留。
+
 `test-vm-jit` 使用 `vm: deferred` 准备 Rust 和 debug 依赖缓存，由 `xtask test e2e` 构建 debug VM 和压缩库，
 保留 debug 断言及溢出检查，并跳过 release 链接。
 

@@ -499,3 +499,5 @@ CI 文档工具安装使用 `xtask setup book-tools`，Binaryen 静态构建使�
 
 示例会话重放默认按 CPU 数并行领取任务，输出按路径排序；会话内部仍按命令顺序执行。
 `xtask test docs examples --jobs 1` 可串行复现，`--bless` 始终串行改写；完整语义见[学习手册示例](../docs/internals/src/devinfra/learn-examples.md)。
+
+桌面 SDK 打包使用自己构建的 components 运行时编译并发布工具链程序，入口缺失直接报错。CI 的 host-package bootstrap 延后 VM 构建，仅准备 Rust、缓存和共享 zpkg；完整组件图及验证仍由 `package sdk` 执行。
