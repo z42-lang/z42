@@ -56,7 +56,10 @@ outside = true
 
 `workspace` 指向现有 workspace 清单，`relative` 匹配成员内路径。成员及其排除规则复用项目发现器，
 命令中的 `{owner}` 使用 `[project].name`，不从目录名猜测。`{chapter}` 用于 examples 的章节参数。
-删除、排除或无法发现的成员保守回退。`docs` 标记普通文档快速通道，`publish` 独立标记发布输入。性能范围由流程节点的 `bench_stdlib`、`bench_vm`、`bench_integration` 信号决定，不再另列输入白名单。
+删除、排除或无法发现的成员不提供 owner 上下文，继续匹配后续规则；没有显式目录归属时仍全量回退。
+编译器私有测试与基准按当前成员细分，整个编译器目录另有生产归属：成员移除后仍验证编译器及其消费者，
+不执行已移除成员，也不因失去成员信息而额外选择 VM 性能、SDK 验证和平台流程。
+`docs` 标记普通文档快速通道，`publish` 独立标记发布输入。性能范围由流程节点的 `bench_stdlib`、`bench_vm`、`bench_integration` 信号决定，不再另列输入白名单。
 
 流程节点的字段：
 

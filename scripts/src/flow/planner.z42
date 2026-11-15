@@ -75,8 +75,8 @@ FlowInput _flowInput(FlowConfig cfg, string file, FlowOwners owners) {
         if (!_flowMatches(file, r.Include) || _flowMatches(file, r.Exclude)) { continue; }
         if (r.Workspace.Length > 0) {
             FlowOwner owner = owners.Find(file, Path.Join(owners.Root, r.Workspace));
-            // A removed/excluded member has no trustworthy current ownership.
-            if (owner == null) { return null; }
+            // Missing membership cannot supply context; a later domain rule may still own the path.
+            if (owner == null) { continue; }
             if (!_flowMatches(owner.RelativePath, r.Relative)) { continue; }
         }
         return r;

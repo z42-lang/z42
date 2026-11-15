@@ -6,6 +6,7 @@ int _checkFlows() {
     try {
         FlowConfig cfg = _flowLoad(Path.Join(_root(), "scripts/flows.toml"));
         _flowPlannerChecks(cfg);
+        _flowRemovedOwnerChecks(cfg);
         _flowGitChecks(cfg);
         _ciSelectionChecks(cfg);
         _ciHostChecks(cfg);
@@ -81,6 +82,29 @@ void _flowExpectBad(string text, string why) {
     bool rejected = false;
     try { _flowParse(text); } catch (Exception e) { rejected = true; }
     _gateAssert(rejected, "flow config rejects " + why);
+}
+
+void _flowRemovedOwnerChecks(FlowConfig cfg) {
+    string root = _root();
+    foreach (var relative in new string[]{ "src/ICompiler.z42", "z42.compiler.contracts.z42.toml", "tests/old.z42", "benches/old.z42" }) {
+        FlowPlan p = _flowSelect(cfg, new string[]{ "src/compiler/z42.compiler.contracts/" + relative }, root);
+        string[] flags = _flowOutputs(cfg, p);
+        _gateAssert(p.Publish && _flowHas(p.Steps, "compiler-source") && _flowHas(p.Steps, "compiler")
+            && _flowHas(p.Steps, "e2e") && _strIn(flags, "stdlib") && _strIn(flags, "bench_stdlib")
+            && _strIn(flags, "bench_integration"), "removed compiler members retain compiler consumers: " + relative);
+        foreach (var unrelated in new string[]{ "platform", "runtime_checks", "sdk_checks", "bench_vm" }) {
+            _gateAssert(!_strIn(flags, unrelated), "removed compiler ownership avoids unrelated full fallback: " + unrelated);
+        }
+    }
+    foreach (var file in new string[]{ "src/libraries/removed-member/src/old.z42", "unknown.production" }) {
+        _gateAssert(_flowHas(_flowSelect(cfg, new string[]{ file }, root).Steps, "green"), "no configured domain keeps full fallback: " + file);
+    }
+    string text = "version = 1\nfull = [\"all\"]\n[flows.all]\n[flows.member]\n[flows.domain]\n[[inputs]]\nid = \"member\"\ninclude = [\"domain/**\"]\nworkspace = \"missing.workspace.toml\"\nrelative = [\"src/**\"]\nselect = [\"member\"]\n";
+    _gateAssert(_flowHas(_flowSelect(_flowParse(text), new string[]{ "domain/src/file.z42" }, root).Steps, "all"), "unavailable workspace without fallback stays full");
+    FlowConfig fallback = _flowParse(text + "[[inputs]]\nid = \"domain\"\ninclude = [\"domain/**\"]\nselect = [\"domain\"]\n");
+    FlowPlan domain = _flowSelect(fallback, new string[]{ "domain/src/file.z42" }, root);
+    _gateAssert(_flowHas(domain.Steps, "domain") && !_flowHas(domain.Steps, "member") && !_flowHas(domain.Steps, "all"), "unavailable member uses only an explicit later domain rule");
+    Console.WriteLine("  ✓ removed ownership: explicit domains, conservative compiler consumers and unknown fallback");
 }
 
 // Existing local change contracts are checked on FlowPlan directly, once in the flows stage.
