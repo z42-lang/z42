@@ -566,6 +566,6 @@ publish = false
 
 [[inputs]]
 id = "ci-configuration"
-include = [".github/workflows/**", "scripts/flows.toml"]
+include = [".github/workflows/**", "scripts/flows.toml", ".github/actions/refresh-main-plan/**"]
 select = ["xtask"]
 publish = false

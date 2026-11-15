@@ -22,7 +22,7 @@ void _flowPrGitChecks(FlowConfig cfg) {
         Environment.SetEnvironmentVariable("XTASK_RELEASE_REQUIRED", "false");
         foreach (var kind in new string[]{ "control", "empty", "runtime" }) {
             _ciGit(dir, new string[]{ "checkout", "-qB", "pr", oldBase });
-            string file = kind == "control" ? "scripts/src/ci/queue.z42" : "src/runtime/src/pr.rs";
+            string file = kind == "control" ? "scripts/src/ci/refresh.z42" : "src/runtime/src/pr.rs";
             if (kind != "empty") { _ciWrite(dir, file, "PR change\n"); }
             _ciGit(dir, new string[]{ "add", "." }); _ciGit(dir, new string[]{ "commit", "--allow-empty", "-qm", "PR" });
             string pr = _flowCommit(dir, "HEAD");

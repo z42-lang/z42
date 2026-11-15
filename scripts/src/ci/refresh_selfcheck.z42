@@ -1,0 +1,150 @@
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Json;
+
+class CiQueuedFake : CiMainFake {
+    public string Tag = "base";
+    public JsonValue Validation = JsonValue.Parse("{\"status\":\"identical\",\"files\":[]}");
+    public JsonValue Release;
+    public CiQueuedFake() { this.Release = _ciQueuedRelease(_root()); }
+    public override JsonValue Get(string path) {
+        if (this.Fail.Length > 0 && path.Contains(this.Fail)) { throw new Exception("queued fixture API failure"); }
+        if (path.EndsWith("/git/ref/tags/nightly")) { return JsonValue.Parse("{\"object\":{\"sha\":\"" + this.Tag + "\"}}"); }
+        if (path.EndsWith("/releases/tags/nightly")) { return this.Release; }
+        if (path.EndsWith("/compare/" + this.Tag + "..." + _ciString(this.Runs.Get("workflow_runs").At(0), "head_sha"))) { return this.Validation; }
+        var shared = new CiMainFake(); shared.Runs = this.Runs; shared.Compare = this.Compare;
+        shared.Main = this.Main; shared.Fail = this.Fail; return shared.Get(path);
+    }
+}
+
+JsonValue _ciQueuedRelease(string root) {
+    JsonValue release = JsonValue.Parse("{\"tag_name\":\"nightly\",\"target_commitish\":\"base\",\"draft\":false,\"prerelease\":true,\"assets\":[]}");
+    foreach (var name in _ciPublishedNames(root)) {
+        JsonValue asset = JsonValue.Parse("{\"state\":\"uploaded\",\"size\":10,\"digest\":\"sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}");
+        asset.Set("name", JsonValue.OfString(name)); release.Get("assets").Add(asset);
+    }
+    return release;
+}
+
+void _ciQueuedChecks(FlowConfig cfg) {
+    string root = _root();
+    var api = new CiQueuedFake();
+    _gateAssert(_ciPublishedEquivalent(api, "owner/repo", "head", root), "validated published ancestor with complete receipts avoids duplicate publication");
+    _gateAssert(!_ciPublishedEquivalent(api, "owner/repo", "base", root), "same-head publication can repair assets");
+    api = new CiQueuedFake(); api.Tag = "pending"; api.Release.Set("target_commitish", JsonValue.OfString("pending"));
+    api.Validation = _ciCompareFiles("README.md", ""); api.Validation.Set("status", JsonValue.OfString("behind"));
+    _gateAssert(_ciPublishedEquivalent(api, "owner/repo", "head", root), "private commits after successful validation do not invalidate published asset inputs");
+    api.Validation.Get("files").At(0).Set("filename", JsonValue.OfString("src/runtime/src/lib.rs"));
+    _gateAssert(!_ciPublishedEquivalent(api, "owner/repo", "head", root), "unvalidated production after the successful baseline retains publication");
+    foreach (var defect in new string[]{ "draft", "prerelease", "target", "missing", "digest", "size", "state", "duplicate", "api", "production", "truncated", "failed-validation" }) {
+        api = new CiQueuedFake();
+        if (defect == "draft") { api.Release.Set("draft", JsonValue.OfBool(true)); }
+        if (defect == "prerelease") { api.Release.Set("prerelease", JsonValue.OfBool(false)); }
+        if (defect == "target") { api.Release.Set("target_commitish", JsonValue.OfString("other")); }
+        if (defect == "missing") { api.Release.Get("assets").At(0).Set("name", JsonValue.OfString("missing")); }
+        if (defect == "digest" || defect == "state") { api.Release.Get("assets").At(0).Set(defect, JsonValue.OfString("invalid")); }
+        if (defect == "size") { api.Release.Get("assets").At(0).Set("size", JsonValue.OfLong(0L)); }
+        if (defect == "duplicate") { api.Release.Get("assets").Add(api.Release.Get("assets").At(0)); }
+        if (defect == "api") { api.Fail = "/releases/"; }
+        if (defect == "production") { api.Compare = _ciCompareFiles("src/runtime/src/lib.rs", ""); }
+        if (defect == "truncated") { api.Compare = _ciTruncatedMainDiff("README.md", "", 0); }
+        if (defect == "failed-validation") { api.Runs.Get("workflow_runs").At(0).Set("conclusion", JsonValue.OfString("failure")); }
+        _gateAssert(!_ciPublishedEquivalent(api, "owner/repo", "head", root), "unverified publication retains work: " + defect);
+    }
+    FlowPlan original = _flowSelect(cfg, new string[]{ "src/runtime/src/lib.rs" }, root);
+    original.Event = "push"; original.Policy = "ci"; original.Head = "head"; original.Base = "old"; original.ReleaseRequired = "true";
+    api = new CiQueuedFake(); api.Compare = _ciCompareFiles("src/compiler/z42c.pipeline/tests/incremental/pending.z42", "");
+    api.Compare.Set("status", JsonValue.OfString("ahead"));
+    FlowPlan fresh = _ciRefreshPlan(api, cfg, original, "owner/repo", root);
+    _gateAssert(fresh.Base == "base" && fresh.ReleaseRequired == "false" && _ciRoleRequired(cfg, fresh, "stdlib"), "refresh retains private tests after the successful ancestor");
+    foreach (var role in new string[]{ "host", "host-package", "ios" }) {
+        _gateAssert(!_ciRoleRequired(cfg, fresh, role), "already validated production avoids redundant queued work: " + role);
+    }
+    foreach (var defect in new string[]{ "api", "truncated", "diverged", "missing-files" }) {
+        api = new CiQueuedFake();
+        if (defect == "api") { api.Fail = "/compare/"; }
+        if (defect == "truncated") { api.Compare = _ciTruncatedMainDiff("README.md", "", 0); }
+        if (defect == "diverged") { api.Compare.Set("status", JsonValue.OfString("diverged")); }
+        if (defect == "missing-files") { api.Compare.Set("files", JsonValue.OfNull()); }
+        _gateAssert(_ciRefreshPlan(api, cfg, original, "owner/repo", root) == original, "unknown refresh keeps the original plan: " + defect);
+    }
+    foreach (var kind in new string[]{ "pull_request", "schedule", "workflow_dispatch" }) {
+        original.Event = kind;
+        _gateAssert(_ciRefreshPlan(new CiQueuedFake(), cfg, original, "owner/repo", root) == original, "explicit or PR validation is never narrowed: " + kind);
+    }
+    Console.WriteLine("  ✓ queued main: successful ancestor, remaining private tests, complete publication receipts, repair and conservative fallback");
+    _ciQueuedGitChecks(cfg);
+    _ciRefreshWorkflowChecks();
+}
+
+void _ciRefreshWorkflowChecks() {
+    string workflow = File.ReadAllText(Path.Join(_root(), ".github/workflows/ci.yml"));
+    foreach (var job in new string[]{ "build-and-test", "host-package", "stdlib-consistency", "package-ios", "test-ios" }) {
+        string section = workflow.Substring(workflow.IndexOf("\n  " + job + ":") + 1);
+        string body = ""; bool first = true;
+        foreach (var line in section.Split("\n")) {
+            if (!first && line.StartsWith("  ") && !line.StartsWith("   ") && !line.StartsWith("  #") && line.EndsWith(":")) { break; }
+            body = body + line + "\n"; first = false;
+        }
+        int gate = body.IndexOf("id: refresh");
+        _gateAssert(gate > 0 && body.Contains("uses: ./.github/actions/refresh-main-plan")
+            && body.Contains("github.event_name == 'push' && github.ref == 'refs/heads/main' && runner.os == 'macOS'"), "main-only refresh action is wired before work: " + job);
+        string remaining = body.Substring(gate); remaining = remaining.Substring(remaining.IndexOf("          role:"));
+        foreach (var step in remaining.Split("\n      - ")) {
+            if (step.StartsWith("          role:")) { continue; }
+            _gateAssert(step.Contains("steps.refresh.outputs.needed"), "every downstream product and report step honors refresh: " + job);
+            if (step.Contains("name: ci-plan")) { _gateAssert(step.Contains("needed == ''"), "shared artifact cannot overwrite the refreshed local plan"); }
+        }
+    }
+    Console.WriteLine("  ✓ queued workflow: main-only admission, complete downstream gating and preserved refreshed plan");
+}
+
+void _ciQueuedGitChecks(FlowConfig cfg) {
+    string root = _root(); string dir = _xtaskWork(root, "queued-main-git"); _resetDir(dir);
+    string[] keys = new string[]{ "GITHUB_REPOSITORY", "GITHUB_EVENT_NAME", "GITHUB_REF", "GITHUB_SHA", "GITHUB_OUTPUT" };
+    string[] saved = new string[keys.Length];
+    for (int i = 0; i < keys.Length; i = i + 1) { saved[i] = Environment.GetEnvironmentVariable(keys[i], ""); }
+    try {
+        _ciGit(dir, new string[]{ "init", "-q" });
+        _ciWrite(dir, ".gitignore", "artifacts/\n");
+        foreach (var file in new string[]{ "scripts/flows.toml", "scripts/versions.toml" }) { _ciWrite(dir, file, File.ReadAllText(Path.Join(root, file))); }
+        _ciWrite(dir, "src/runtime/src/lib.rs", "old\n");
+        _ciGit(dir, new string[]{ "add", "." }); _ciGit(dir, new string[]{ "commit", "-qm", "old" });
+        string old = _flowCommit(dir, "HEAD");
+        _ciWrite(dir, "src/runtime/src/lib.rs", "validated\n");
+        _ciGit(dir, new string[]{ "add", "." }); _ciGit(dir, new string[]{ "commit", "-qm", "validated" });
+        string validated = _flowCommit(dir, "HEAD");
+        _ciWrite(dir, "src/runtime/tests/private.rs", "remaining private test\n");
+        _ciGit(dir, new string[]{ "add", "." }); _ciGit(dir, new string[]{ "commit", "-qm", "private" });
+        string head = _flowCommit(dir, "HEAD");
+        FlowPlan original = _flowSelect(cfg, _flowDiff(dir, old, head), dir);
+        original.Base = old; original.Head = head; original.Policy = "ci"; original.Event = "push"; original.ReleaseRequired = "true";
+        RepoRoot.Value = dir;
+        var api = new CiQueuedFake(); api.Tag = validated;
+        api.Release.Set("target_commitish", JsonValue.OfString(validated));
+        api.Runs.Get("workflow_runs").At(0).Set("head_sha", JsonValue.OfString(validated));
+        api.Compare = _ciCompareFiles("src/runtime/tests/private.rs", ""); api.Compare.Set("status", JsonValue.OfString("ahead"));
+        string plan = Path.Join(dir, "artifacts/plan.json"); string output = Path.Join(dir, "artifacts/output");
+        Directory.Create(Path.Join(dir, "artifacts"));
+        string[] values = new string[]{ "owner/repo", "push", "refs/heads/main", head, output };
+        for (int i = 0; i < keys.Length; i = i + 1) { Environment.SetEnvironmentVariable(keys[i], values[i]); }
+        foreach (var role in new string[]{ "host", "host-package" }) {
+            File.WriteAllText(plan, JsonValue.StringifyPretty(_flowJson(cfg, original))); File.WriteAllText(output, "");
+            _gateAssert(_ciRefresh(plan, role, api) == 0, "real Git refresh succeeds");
+            FlowPlan fresh = _flowReadPlan(cfg, plan, dir);
+            _gateAssert(fresh.Base == validated && fresh.ReleaseRequired == "false"
+                && String.Join(";", _flowLocalCommands(cfg, fresh)) == "xtask test runtime", "refreshed plan roundtrip retains pending private tests only");
+            _gateAssert(File.ReadAllText(output).Contains("needed=" + (role == "host" ? "true" : "false") + "\n"), "native action output selects the remaining job role");
+        }
+        api.Compare.Get("files").At(0).Set("filename", JsonValue.OfString("README.md"));
+        File.WriteAllText(plan, JsonValue.StringifyPretty(_flowJson(cfg, original))); File.WriteAllText(output, "");
+        _ciRefresh(plan, "host-package", api);
+        _gateAssert(_flowReadPlan(cfg, plan, dir).Base == old && File.ReadAllText(output).Contains("needed=true\n"), "API and real Git mismatch retains original work");
+    } finally {
+        RepoRoot.Value = root;
+        for (int i = 0; i < keys.Length; i = i + 1) { Environment.SetEnvironmentVariable(keys[i], saved[i]); }
+        Directory.Delete(dir, true);
+    }
+    Console.WriteLine("  ✓ queued main Git: local plan replacement, role outputs, private test preservation and projection mismatch fallback");
+}
