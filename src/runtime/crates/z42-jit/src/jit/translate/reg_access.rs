@@ -36,8 +36,8 @@ pub const PAYLOAD_OFFSET: i32 = 8;
 pub const TAG_OFFSET: i32 = 0;
 
 // ── Value discriminant bytes ─────────────────────────────────────────────────
-// Mirror `Value`'s `#[repr(C, u8)]` order (`object/mod.rs`), pinned by
-// `value_discriminants_pinned` in `object/types_tests.rs`. Only the tags the
+// Mirror `crate::object::Value`'s `#[repr(C, u8)]` order, pinned by the
+// object module's `value_discriminants_pinned` test. Only the tags the
 // JIT materializes natively are named here; heap tags (Array/Object/…) never
 // get a native store (their payloads need Arc handling → helper path).
 pub const TAG_I64: u8 = 0;
