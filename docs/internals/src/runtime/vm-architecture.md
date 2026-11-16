@@ -1,5 +1,7 @@
 # z42 VM 内部实现原理
 
+> 代码：`src/runtime/src/host/`、`src/runtime/src/vm/`、`src/runtime/src/components/`、`src/runtime/src/exec/`
+>
 > **目的**：记录 Rust VM 的内部数据结构、算法、加载策略与关键设计决策。
 > 让新接手者不必阅读大量源码即可理解"为什么这样设计"。
 > 面向 VM 开发者，不面向 z42 语言使用者。
@@ -7,6 +9,65 @@
 > 使用者视角请看 `docs/internals/src/formats/ir.md`、`docs/internals/src/runtime/execution-model.md`。
 
 ---
+
+## 模块依赖总览
+
+下图表示主要的**服务依赖**：实线从使用方指向提供方，虚线表示装配、注册或注入，
+不是执行顺序，也不是全部 Rust `use` 的枚举。`vm` 是组合根，负责连接各域的状态与服务；
+它不替代各域的算法实现。现有跨域耦合与尚未收口的接口见[运行时模块边界](module-boundaries.md)。
+
+```mermaid
+flowchart TB
+    entry["CLI / Rust / C 宿主"] --> host["host：加载与调用接口"]
+    host --> loader["loader：包与原生代码加载"]
+    host --> vm["vm：Core / Context 与装配"]
+    vm --> config["config：设置与快照"]
+    vm -.-> comp["components::api：内部能力门面"]
+    vm -.-> exec["exec：执行与初始化屏障"]
+    vm -.-> services["corelib / threads / diagnostics：服务与观察"]
+    comp --> loader
+    comp -.-> backend["interp / JIT 执行组件"]
+    backend -.-> exec
+    host --> exec
+    exec --> loader
+    exec --> metadata["metadata：每 VM 链接身份与查询"]
+    loader --> metadata
+    loader --> pkg["z42-zpkg：不可变包定义与解码"]
+    loader --> pal["pal：文件系统与动态库原语"]
+```
+
+装配从 config 获取设置并转换为各子系统的显式输入。
+组件装配先选择来源、校验契约并创建每 VM 实例，再把执行引擎或诊断服务接入 Core。
+实际执行使用已绑定的 `EngineRegistry`，不在每条指令上查询组件。
+`z42-zpkg` 是直接包含的独立模块，不需要组件实例；compression 等独立运行时库通过
+loader/interop 按需加载，不进入执行组件依赖闭包。
+
+执行期间的数据与服务关系如下。虚线仍表示注入或回调连接；GC 暂停与根扫描是协议交互，
+不能把这张图理解为互不回调的单向分层。
+
+```mermaid
+flowchart TB
+    exec["exec / 已绑定执行引擎"] --> metadata["metadata：类型、函数与分发缓存"]
+    exec --> object["object：Value、对象布局与存储"]
+    exec --> gc["gc：分配、屏障与回收"]
+    exec --> corelib["corelib：托管内建实现"]
+    exec --> interop["interop：原生描述符、实例与调用编组"]
+    interop --> loader["loader：来源许可、符号与代码寿命"]
+    interop -. "脚本回调" .-> exec
+    corelib --> pal["pal：OS 原语"]
+    loader --> pal
+    gc --> object
+    threads["threads：注册、安全点与暂停适配"] -. "暂停与根扫描" .-> gc
+    vm["vm：共享 Core 与线程 Context"] -.-> threads
+    corelib -. "提供对象协议回调，由 VM 注入" .-> object
+    exec --> diagnostics["diagnostics：计数、事件与采样协议"]
+    profiler["profiler 组件"] -. "安装观察与分析服务" .-> diagnostics
+```
+
+`VmCore` 持有共享堆、元数据、加载器、执行引擎和组件；`VmContext` 持有线程执行视图，
+worker 只注册自己的上下文和根，不重新装配组件。`object` 定义通用对象协议，corelib 提供
+回调，VM 注入服务；托管调用与异常仍归 exec。`threads` 负责暂停及根适配，gc 决定回收策略。
+目录职责索引见 [runtime 源码说明](https://github.com/z42-lang/z42/blob/main/src/runtime/src/README.md)。
 
 ## 引擎注册与调用边界
 
@@ -92,7 +153,7 @@ is/as/catch 目标键及数组元素/对象泛型实参的驻留句柄。侧表�
 `VmContext::with_image` 为映像构建新的类型注册表、身份和缓存；跨 VM 不复用已登记的链接函数。
 解码/包加载时机与字节码格式保持不变，没有全局映像缓存或按需解码。
 
-对象表示集中在 `object/{value,types,header,object,array,string}`：Value、类型形状与布局、区块头和
+对象表示集中在 `object/{value,types,header,storage,fields,array,string}`：Value、类型形状与布局、区块头和
 句柄、对象/数组存储及字符串索引。`gc/var_region` 管理分配、回收和弱句柄的 chunk epoch 校验；
 静态 PackageImage 不持有这些对象表示或 GC 状态。对象与字段的内存契约见 [object-abi.md](object-abi.md)。
 泛型数组分配从声明类型或方法实参解析元素。绑定到值 struct 时使用连续零值布局。
@@ -358,44 +419,92 @@ VM 创建的线程（`Std.Threading.Thread`、`z42_host_run_app` 的运行线程
 
 ## VM 启动流程
 
+CLI 启动分为加载 Core、准备程序、调用入口三个阶段。嵌入宿主从 host 接口进入，
+跳过 CLI 参数和进程环境处理；C 宿主会话初始化不等于创建程序 VM。
+
+```mermaid
+sequenceDiagram
+    participant Main as z42vm / main.rs
+    participant CLI as Core / main_command
+    participant Host as host
+    participant Loader as loader
+    participant VM as vm::assembly
+    participant Components as components::api
+    participant Exec as exec / EngineRegistry
+    Main->>Main: 定位 Core，dlopen / LoadLibrary
+    Main->>CLI: z42_main_v1()
+    CLI->>CLI: 解析配置、libs 与搜索路径
+    CLI->>Host: run_app / LoadedProgram::load_file
+    Host->>Loader: 读取入口和 corelib，准备依赖与索引
+    Loader-->>Host: 合并模块与依赖候选
+    Host->>VM: build(module, inputs, options)
+    VM->>VM: 可用性裁剪、Core 构造、主线程注册
+    VM->>VM: 登记入口类型的初始化事实
+    VM->>Loader: 安装并播种 LazyLoader
+    VM->>VM: 配置原生来源策略、准备 token
+    VM->>Components: prepare_program
+    Components->>Loader: 按来源许可获取组件代码
+    Components->>Components: 校验契约，创建实例，绑定执行角色
+    Components->>Exec: 附着执行引擎
+    Components-->>VM: 装配成功
+    VM-->>Host: 重放加载事件，发布 LoadedProgram
+    Host->>Exec: run_entry / invoke_mode
+    Exec-->>Host: 结果或异常
+    Host-->>CLI: 执行结果与退出报告
+    CLI-->>Main: 退出码
 ```
-z42vm <file>                                   [main.rs：CLI + 运行时配置 → host::run_app]
-  │
-  ├── resolve_libs_dir()                       [startup.rs]
-  │      → libs 旋钮（$Z42_LIBS / --set libs= / [runtime].libs）| <binary>/../libs
-  │        | <cwd>/artifacts/intermediate/libraries/flat/{release,debug}
-  │      → 解析结果回写 $Z42_LIBS（仅当未设/为空）：进程内运行的程序
-  │        （尤其 z42c，直接读 $Z42_LIBS 做跨包 dep 解析）与 VM 看到同一 libs 目录，
-  │        SDK 布局无需手动 `Z42_LIBS=`；显式设置不覆盖。[libs_env_to_publish]
-  │
-  │   以下 5.1b–5.1e 在 `host::run_app`（app.rs），与嵌入入口 `z42_run_app` 共用
-  │
-  ├── 5.1b 加载 z42.core.zpkg (eager，隐式 prelude；按 search_dirs 顺序取首个可读的)
-  │      → modules[0]
-  │      → initially_loaded_zpkgs = ["z42.core.zpkg"]
-  │
-  ├── 5.1c 加载 user artifact (.zbc / .zpkg)
-  │      → user_artifact.module + dependencies + import_namespaces
-  │      → probe `<basename>.zsym` 同目录；存在且 build_id 匹配 →
-  │        合并 sidecar DBUG 到 per-module funcs（详见下方 sidecar 章节）
-  │
-  ├── 5.1d 依赖加载策略（search_dirs = [入口zpkg目录, probing-paths 展开结果, stdlib libs]，见下「同址搜索」）
-  │      interp / jit: 纯懒加载（build_declared_candidates 填充 LazyLoader；jit 另按函数惰性编译，见 [jit.md](jit.md)）
-  │      aot（`is_eager`）: eager 预加载所有声明依赖（transitive BFS，整个闭包 merge 进 final_module）
-  │
-  ├── 5.1e merge_modules → final_module
-  │      + build_type_registry / verify_constraints / build_*_index
-  │
-  ├── program_builder::build(final_module, ProgramInputs)        [program_builder.rs]
-  │      fold_availability → vm_defaults::construct → register_cctor_of
-  │      → install_lazy_loader_with_deps(search_dirs, pool_len, declared, initially_loaded)
-  │      → seed_lazy_loader_types / seed_lazy_loader_impls / seed_lazy_loader_symbol_owners
-  │      → resolve_tokens → components.install → backends::attach
-  │      → ModuleLoaded 事件重放 → LoadedProgram::new
-  │
-  └── LoadedProgram::run_entry(entry)
-         → interp::run_with_static_init | jit::run
+
+`main.rs` 只保留一个 `z42vm` 启动器，通过 `Z42_RUNTIME_LIBRARY` 或部署相对路径定位 Core，
+将映像保活至进程退出；命令行实现位于 Core 的私有 `main_command` / `main_startup`。
+`main_startup::resolve_libs_dir` 使用显式配置或可执行文件旁的 `../libs`，不搜索仓库 artifacts；
+开发产物路径由 xtask 通过环境传入。CLI 将搜索目录交给 host，普通 host 不替 CLI 推断路径。
+
+`host/load.rs` 负责组织入口、隐式 corelib 和依赖准备；loader 负责读取、合并与索引机制。
+interp/JIT 的声明依赖保留为惰性候选，JIT 编译也按函数触发；显式 eager 策略会预加载依赖闭包。
+代码中的 AOT 模式分支不代表已有可执行 AOT 后端。sidecar 调试信息在产物加载时配对，见下文。
+
+`vm/assembly.rs::build` 在 token 准备前完成可用性裁剪和加载器播种，组件附着成功后才发布程序。
+任何准备错误向宿主返回，不能发布一个缺少所需执行引擎的 `LoadedProgram`。
+登记 cctor 或排空类型加载队列不执行托管初始化器；真正执行由访问屏障触发。
+
+### 调用、惰性加载与原生库执行
+
+```mermaid
+flowchart TD
+    invoke["LoadedProgram::invoke / run_entry"] --> roots["校验参数、建立执行 guard、钉住参数根"]
+    roots --> first["首次调用：清理静态存储、排空待加载类型队列"]
+    first --> engine["EngineRegistry 按模式分发"]
+    engine --> barrier["exec 初始化屏障：包 / 类型初始化、等待或失败传播"]
+    barrier --> body["执行函数体"]
+    body --> kind{"调用目标"}
+    kind -->|托管函数| lookup["查询 token / 已链接函数"]
+    lookup --> hit{"已解析？"}
+    hit -->|是| call["经已绑定引擎调用"]
+    hit -->|否| lazy["loader 按候选加载 zpkg"]
+    lazy --> link["注册 metadata、登记初始化事实、解析并发布 token"]
+    link --> call
+    call --> barrier
+    kind -->|核心 builtin| builtin["corelib 提供方执行"]
+    kind -->|独立原生模块| native{"interop 已登记目标？"}
+    native -->|否| code["loader 检查来源许可并解析模块入口"]
+    code --> register["interop 校验描述符、登记导出、按需创建 VM 实例"]
+    register --> abi["编组参数并调用原生函数"]
+    native -->|是| abi
+    builtin --> result["返回值或异常，继续调用方"]
+    abi --> result
 ```
+
+图中循环表示嵌套托管调用；初始化屏障只在需要时执行初始化器，已完成的初始化不会重复运行。
+异常沿执行结果返回，宿主入口最终解除参数根；token miss、类型加载队列与初始化器执行是三个不同阶段。
+具体指令的解析与屏障先后由 `exec/ops` 保证，图中省略了其缓存快路径。
+JIT 的冷回落和热点提升通过已注册的基线引擎 / `TierApi` 交接，不重新加载组件；
+编译缓存、OSR 入口与代码页由 JIT 组件持有，详见 [JIT](jit.md)。
+
+原生模块首次调用先查询注册表，缺失时由 loader 解析已链接入口或动态库入口，interop 才解释 ABI
+并创建实例。`z42-compression` 不因启动 VM 或纯查询而装入；脚本未使用它就不调用其描述入口或创建实例。
+来源许可覆盖静态链接、共享链接和运行时装入；这些来源的代码获取都归 loader。
+组件的来源选择与角色装配仍有目标契约尚待完善，见[组件化运行时](componentized-runtime.md)，
+不能将普通原生库的按需登记等同于组件管理。profiler 也只在启用采样或显式分析请求时准备。
 
 ### `$Z42_LIBS` 的交接规则：两个组件、同一条规则
 
@@ -403,7 +512,7 @@ z42vm <file>                                   [main.rs：CLI + 运行时配置 
 
 | 写入方 | 函数 | 写什么 |
 |---|---|---|
-| z42vm 自己 | `libs_env_to_publish`（`startup.rs`）| `resolve_libs_dir()` 的结果，给**进程内**运行的程序看 |
+| z42vm 自己 | `libs_env_to_publish`（`main_startup.rs`）| `resolve_libs_dir()` 的结果，给**进程内**运行的程序看 |
 | apphost | `libs_env_for_child`（`hostrun.rs`）| 它定位到的 `<runtime>/libs`，给它 exec 的**子** z42vm 看 |
 
 ⚠️ **apphost 那格不能简化成「不设」**：安装布局下 z42vm 在 `<dir>/z42vm`，VM 自己的第 ②
