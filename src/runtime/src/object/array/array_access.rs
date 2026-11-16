@@ -340,3 +340,27 @@ fn search_string_range(mut range: std::ops::Range<usize>, backwards: bool,
     find: impl FnMut(usize) -> Option<Result<usize, ()>>) -> Result<Option<usize>, ()> {
     if backwards { range.rev().find_map(find) } else { range.find_map(find) }.transpose()
 }
+
+/// JIT 打包快路：`int[]` / `long[]` / `double[]` 的 `(数据基址, 长度, 槽宽 4|8)`。
+/// 其它一切（非打包 backing / 栈数组 / 非数组 / null）→ 宽度 0 = 「无快路」，内联码回落到
+/// `array_get` / `array_set`，由它们给出与 interp 相同的异常。不抛。
+///
+/// 指针在帧内有效：数组定长不重分配、GC 不移动。
+#[inline]
+pub fn packed_array_data(arr: &Value) -> (*const u8, i64, i64) {
+    match arr {
+        Value::Array(rc) => rc.borrow().jit_packed(),
+        _ => (std::ptr::null(), 0, 0),
+    }
+}
+
+/// JIT 引用读快路：REF / MIXED 数组的 `(元素基址, 长度, 步长 | zero << 8)`（步长 8|16，`zero` 是 MIXED 数组
+/// 未写过的单元读作的基元种类）；其它一切 → 0 = 「无快路」，内联码回落到 `array_get`。不抛。
+/// 指针在帧内有效（同 [`packed_array_data`]）。
+#[inline]
+pub fn reference_array_data(arr: &Value) -> (*const u8, i64, i64) {
+    match arr {
+        Value::Array(rc) => rc.borrow().jit_refs(),
+        _ => (std::ptr::null(), 0, 0),
+    }
+}

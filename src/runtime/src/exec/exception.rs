@@ -107,7 +107,7 @@ pub fn populate_stack_trace_with(value: &Value, ctx: &VmContext, module: &Module
         let trace = Value::Str(trace.into());
         // A `str` field always takes a `Str`; the only rejection `store_slot` has is a primitive
         // slot type mismatch, which cannot happen here.
-        let _ = crate::objops::field::store_slot(ctx, rc, slot, &trace);
+        let _ = crate::object::store_field_slot(ctx.heap(), rc, slot, &trace);
     }
 }
 

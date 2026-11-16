@@ -69,15 +69,6 @@ fn store(o: &ScriptObject, name: &str, v: &Value, ic: Option<&FieldIC>) -> OpRes
     }
 }
 
-/// 引用单元写入后的屏障：只对落进单元的堆引用发（基元经擦除写进 `object` 字段时是装它的盒子）。
-/// `cell` 是被写单元的字节偏移（只给测试观察者看；分代屏障只看属主与新值）。
-#[inline(always)]
-fn barrier(ctx: &VmContext, owner: &Value, v: &Value, wrote: Option<(usize, FieldWrite)>) {
-    if let Some((cell, w)) = wrote {
-        w.with_barrier_value(v, |stored| ctx.heap().write_barrier_field(owner, cell, stored));
-    }
-}
-
 /// `FieldGet`：读接收者 `recv` 的字段 `name`。
 ///
 /// 堆对象是热路径，强制内联进两侧适配层（JIT helper 少一层调用）；其余形态走不内联的慢路。
@@ -150,8 +141,10 @@ fn array_len_field(name: &str, len: usize) -> OpResult<Value> {
 #[inline(always)]
 pub fn field_set(ctx: &VmContext, recv: &Value, name: &str, v: &Value, ic: Option<&FieldIC>) -> OpResult<()> {
     if let Value::Object(rc) = recv {
-        let wrote = store(rc.borrow(), name, v, ic)?;
-        barrier(ctx, recv, v, wrote);
+        if let Some(Some(access)) = resolve(rc.borrow(), name, ic) {
+            crate::object::store_field_access(ctx.heap(), rc, access, v)
+                .map_err(|_| OpError::field_store_rejected(name, v))?;
+        }
         return Ok(());
     }
     field_set_rare(ctx, recv, name, v, ic)
@@ -189,31 +182,14 @@ pub fn load_named(gc: &crate::object::ObjRef, name: &str) -> OpResult<Value> {
 
 /// 经 `ref` 写字段：与 `FieldSet` 同一条写入 + 写屏障规则。
 pub fn store_named(ctx: &VmContext, gc: &crate::object::ObjRef, name: &str, v: &Value) -> OpResult<()> {
-    let wrote = {
-        let o = gc.borrow();
-        if !o.type_desc.field_index.contains_key(name) {
-            return Err(OpError::internal(format!(
-                "ref field `{name}` not found on type `{}`", o.type_desc.name)));
-        }
-        store(o, name, v, None)?
-    };
-    barrier(ctx, &Value::Object(*gc), v, wrote);
-    Ok(())
-}
-
-/// 按**槽位**写堆对象的字段，与 `FieldSet` 同一条写入 + 写屏障规则。
-///
-/// 给不经 `FieldSet` 指令、由 VM 自己往**已存在**对象里写字段的地方用：throw 点补
-/// `Exception.StackTrace`、反射 `FieldInfo.SetValue`、反射 `Type` 对象补 `__typeArgs` /
-/// `__fullName`。这些站点以前直接调 `try_set_field_value` / `set_field_value`——SATB 删除屏障在
-/// 写原语里、照样记了，但**卡表 / 并发 shade 那一半在调用点**，它们一个都没发：老对象收到
-/// 年轻引用却没染脏卡，下一次 minor 就把还被引用着的年轻对象扫掉（use-after-free）。
-///
-/// 基元槽类型不符照 `try_set_field_value` 报错（错误留给调用方按自己的语义包装）。
-pub fn store_slot(ctx: &VmContext, gc: &crate::object::ObjRef, slot: usize, v: &Value) -> anyhow::Result<()> {
     let o = gc.borrow();
-    let Some(fa) = o.field_access_of(slot) else { return Ok(()) };
-    let w = o.store_access(fa, v)?;
-    barrier(ctx, &Value::Object(*gc), v, Some((fa.offset as usize, w)));
+    if !o.type_desc.field_index.contains_key(name) {
+        return Err(OpError::internal(format!(
+            "ref field `{name}` not found on type `{}`", o.type_desc.name)));
+    }
+    if let Some(Some(access)) = resolve(o, name, None) {
+        crate::object::store_field_access(ctx.heap(), gc, access, v)
+            .map_err(|_| OpError::field_store_rejected(name, v))?;
+    }
     Ok(())
 }

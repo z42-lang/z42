@@ -67,7 +67,7 @@ pub unsafe extern "C" fn jit_array_data_opt(
     frame: *mut JitFrame, _ctx: *const VmContext,
     arr: u32, out_ptr: *mut *const Value, out_len: *mut i64, out_width: *mut i64,
 ) {
-    let (ptr, len, width) = crate::objops::array::packed_data(&(*frame).regs[arr as usize]);
+    let (ptr, len, width) = crate::object::packed_array_data(&(*frame).regs[arr as usize]);
     *out_ptr = ptr as *const Value;
     *out_len = len;
     *out_width = width;
@@ -82,7 +82,7 @@ pub unsafe extern "C" fn jit_array_ref_data_opt(
     frame: *mut JitFrame, _ctx: *const VmContext,
     arr: u32, out_ptr: *mut *const u8, out_len: *mut i64, out_stride: *mut i64,
 ) {
-    let (ptr, len, stride) = crate::objops::array::ref_data(&(*frame).regs[arr as usize]);
+    let (ptr, len, stride) = crate::object::reference_array_data(&(*frame).regs[arr as usize]);
     *out_ptr = ptr;
     *out_len = len;
     *out_stride = stride;

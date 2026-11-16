@@ -148,19 +148,9 @@ pub mod typed {
             }
         };
         objops::array_bulk::check_untyped_store(ctx, &this.borrow(), &raw)?;
-        let wrote = {
-            let a = this.borrow();
-            // fix-silent-array-elem-zero：走会报错的那版。此前是 `set_boxed`（release 静默存 0）
-            // ⇒ `a.SetValue(objNull, 0)` 把 `int[0]` 从 9 变成 0、不抛、报成功。
-            // 形参声明是 `Object` ⇒ 没有编译器站点能先转换，值是**用户**给的
-            // （与 IR `ArraySet` 那条路不同，那里 debug-only 的原策略依然正确）。
-            a.try_set_boxed(i, raw.clone()).map_err(|e| BuiltinError::InvalidCast(format!(
-                "Array.SetValue: {e}")))?
-        };
-        // fix-missing-array-write-barriers : storing a reference into an array is a
-        // heap write like any other, and an **old** array receiving a **young** element must mark
-        // its card or the next minor will not re-root it. Same rule as `ArraySet`.
-        crate::objops::array::barrier_elem(ctx, &this, i, wrote, &raw);
+        // Untyped callers reject representation mismatches before mutating storage.
+        crate::object::try_store_array_element(ctx.heap(), &this, i, &raw)
+            .map_err(|e| BuiltinError::InvalidCast(format!("Array.SetValue: {e}")))?;
         Ok(())
     }
 

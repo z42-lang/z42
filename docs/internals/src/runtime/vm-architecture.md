@@ -65,7 +65,9 @@ flowchart TB
 ```
 
 `VmCore` 持有共享堆、元数据、加载器、执行引擎和组件；`VmContext` 持有线程执行视图，
-worker 只注册自己的上下文和根，不重新装配组件。`object` 定义通用对象协议，corelib 提供
+worker 只注册自己的上下文和根，不重新装配组件。object 的字段、数组与 struct 堆写入接口统一执行插入屏障，只接收显式 Heap 与存储描述；
+exec 负责 IL、类型解析和帧适配。装箱与快照归 object，具体消费契约见[运行时模块边界](module-boundaries.md)。
+`object` 定义通用对象协议，corelib 提供
 回调，VM 注入服务；托管调用与异常仍归 exec。`threads` 负责暂停及根适配，gc 决定回收策略。
 目录职责索引见 [runtime 源码说明](https://github.com/z42-lang/z42/blob/main/src/runtime/src/README.md)。
 

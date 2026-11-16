@@ -41,7 +41,7 @@ pub fn unbox_struct(
     // `ScriptObject` — snapshot its blob (`struct_bytes`/`struct_refs`) into a fresh
     // current-frame arena `StructRef` (value-semantics unbox: the arena copy is
     // independent of the box).
-    let (type_name, bytes, refs) = crate::objops::struct_leaf::snapshot_box(gc);
+    let (type_name, bytes, refs) = crate::object::snapshot_struct_box(gc);
     let layout = resolve_layout(ctx, &type_name, bytes.len() as u32);
     let idx = ctx.exec().struct_alloc(frame_id, type_name, layout);
     ctx.exec.struct_arena.lock().with_mut(idx, frame_id, |s| {
@@ -56,7 +56,7 @@ pub fn unbox_struct(
 
 /// Snapshot a struct array element into current-frame storage by value.
 pub fn copy_array_elem_out(ctx: &VmContext, frame_id: u32, e: &ty::StructArrayElem) -> Result<Value> {
-    let (src_bytes, src_refs, layout, tname) = crate::objops::struct_leaf::snapshot_elem(e)?;
+    let (src_bytes, src_refs, layout, tname) = crate::object::snapshot_struct_element(e)?;
     let idx = ctx.exec().struct_alloc(frame_id, tname, layout);
     ctx.exec.struct_arena.lock().with_mut(idx, frame_id, |s| {
         let n = src_bytes.len().min(s.bytes.len());

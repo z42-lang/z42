@@ -16,12 +16,10 @@
 
 use crate::object::types::named_struct_layout;
 use crate::object::{
-    decode_prim, encode_prim, is_ref_tag, prim_width, NativeData, ScriptObject, StructArrayElem,
-    StructTypeLayout, Value,
+    decode_prim, encode_prim, is_ref_tag, prim_width, Value,
 };
 use crate::vm::VmContext;
 use anyhow::{bail, Result};
-use std::sync::Arc;
 
 /// Copy a struct blob into a fresh heap object with boxed identity.
 /// A fresh box is unreachable until returned, so its initial writes need no barrier.
@@ -31,21 +29,7 @@ pub fn box_struct_blob(
     let td = ctx.loader().try_lookup_type(type_name).ok_or_else(|| {
         anyhow::anyhow!("__box_struct: unknown struct type `{type_name}`")
     })?;
-    let obj_val = ctx.heap().alloc_object(td, Vec::new(), NativeData::None);
-    match obj_val {
-        Value::Object(gc) => {
-            {
-                let o = gc.borrow();
-                let size = o.payload_len();
-                // A fresh box (young, unreachable until returned): no barrier owed.
-                let offs = o.type_desc.struct_layout().map(|sl| sl.ref_offsets.clone()).unwrap_or_default();
-                o.write_blob(0, size, bytes, refs, &offs, &mut |_| {})?;
-            }
-            Ok(Value::BoxedStruct(gc))
-        }
-        // alloc_object returns Null under strict-OOM refusal.
-        other => Ok(other),
-    }
+    crate::object::box_struct(ctx.heap(), td, bytes, refs)
 }
 
 /// Read a nested field into its own value snapshot.
@@ -104,10 +88,10 @@ pub fn struct_field_get_val(
     match base_val {
         // Inline struct leaf of a heap object (`byte_off` = composed object-relative offset), or
         // a boxed struct's own leaf (`byte_off` = blob-relative; the box's payload IS the blob).
-        Value::Object(gc) | Value::BoxedStruct(gc) => leaf_get(&gc.borrow(), byte_off, kind),
+        Value::Object(gc) | Value::BoxedStruct(gc) => gc.borrow().struct_leaf(byte_off, kind),
         // The same, for an object escape analysis put in the stack arena.
         Value::StackObject { idx, frame_id } => {
-            ctx.exec.stack_arena.lock().with_obj(*idx, *frame_id, |obj| leaf_get(obj, byte_off, kind))?
+            ctx.exec.stack_arena.lock().with_obj(*idx, *frame_id, |obj| obj.struct_leaf(byte_off, kind))?
         }
         // Leaf of a struct[] element `arr[index]`.
         Value::StructRefHeap { idx, frame_id } => {
@@ -133,14 +117,6 @@ pub fn struct_field_get_val(
     }
 }
 
-fn leaf_get(obj: &ScriptObject, byte_off: u32, kind: u8) -> Result<Value> {
-    if is_ref_tag(kind) {
-        obj.struct_ref_leaf(byte_off)
-    } else {
-        obj.prim_leaf(byte_off as usize, prim_width(kind)?, kind)
-    }
-}
-
 /// Frame-agnostic core of `StructFieldSetPrim` — write `v` into the `base_val` struct's leaf
 /// at `byte_off` in place. Heap bases route a reference store through the write barrier with
 /// the reference that landed (a box, for a value that does not fit 8 B). Shared by interp and
@@ -149,39 +125,19 @@ pub fn struct_field_set_val(
     ctx: &VmContext, base_val: &Value, byte_off: u32, kind: u8, v: &Value,
 ) -> Result<()> {
     match base_val {
-        Value::Object(gc) | Value::BoxedStruct(gc) => {
-            if is_ref_tag(kind) {
-                let wrote = gc.borrow().set_struct_ref_leaf(byte_off, v)?;
-                // The slot argument is informational (card / diagnostics).
-                wrote.with_barrier_value(v, |s| ctx.heap().write_barrier_field(base_val, byte_off as usize, s));
-                Ok(())
-            } else {
-                gc.borrow().set_prim_leaf(byte_off as usize, prim_width(kind)?, kind, v)
-            }
-        }
+        Value::Object(gc) | Value::BoxedStruct(gc) =>
+            crate::object::store_struct_leaf(ctx.heap(), gc, byte_off, kind, v),
         // 🔴 **No write barrier** for a stack object, mirroring `field_set`: it is not a heap
         // slot, its references are kept live by root-scanning the arena every cycle.
         Value::StackObject { idx, frame_id } => {
             ctx.exec.stack_arena.lock().with_obj_mut(*idx, *frame_id, |obj| {
-                if is_ref_tag(kind) {
-                    obj.set_struct_ref_leaf(byte_off, v).map(|_| ())
-                } else {
-                    obj.set_prim_leaf(byte_off as usize, prim_width(kind)?, kind, v)
-                }
+                obj.store_struct_leaf(byte_off, kind, v).map(|_| ())
             })?
         }
         // Leaf write into a struct[] element.
         Value::StructRefHeap { idx, frame_id } => {
             let e = ctx.exec.transient_arena.lock().struct_elem(*idx, *frame_id)?;
-            let i = e.index as usize;
-            if is_ref_tag(kind) {
-                let wrote = e.arr.borrow().set_struct_elem_ref(i, byte_off, v)?;
-                let owner = Value::Array(e.arr);
-                wrote.with_barrier_value(v, |s| ctx.heap().write_barrier_array_elem(&owner, i, s));
-                Ok(())
-            } else {
-                e.arr.borrow().set_struct_elem_prim(i, byte_off, prim_width(kind)?, kind, v)
-            }
+            crate::object::store_struct_element_leaf(ctx.heap(), &e, byte_off, kind, v)
         }
         _ => {
             let (idx, fid) = as_struct_ref(base_val, "StructFieldSetPrim base")?;
@@ -193,23 +149,6 @@ pub fn struct_field_set_val(
             ctx.exec.struct_arena.lock().with_mut(idx, fid, |s| encode_prim(&mut s.bytes, off, w, kind, v))?
         }
     }
-}
-
-/// 装箱 struct 的整块快照（类型名、字节、引用叶子）——拆箱时拷进帧 arena。
-pub(crate) fn snapshot_box(gc: &crate::object::ObjRef) -> (Arc<str>, Vec<u8>, Vec<Value>) {
-    let o = gc.borrow();
-    let (bytes, refs) = o.boxed_blob();
-    (Arc::from(&*o.type_desc.name), bytes, refs)
-}
-
-/// `struct[]` 元素的整块快照（字节、引用叶子、元素布局、元素类型名）——值语义拷出时用。
-pub fn snapshot_elem(e: &StructArrayElem) -> Result<(Vec<u8>, Vec<Value>, Arc<StructTypeLayout>, Arc<str>)> {
-    let arr = e.arr.borrow();
-    let layout = arr.struct_layout()
-        .ok_or_else(|| anyhow::anyhow!("as-cast on a non-value-struct array element"))?;
-    let (bytes, refs) = arr.struct_elem(e.index as usize)
-        .ok_or_else(|| anyhow::anyhow!("struct array element on a non-value-struct array"))?;
-    Ok((bytes, refs, layout, arr.element_type().arc()))
 }
 
 pub fn as_struct_ref(v: &Value, what: &str) -> Result<(u32, u32)> {
