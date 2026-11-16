@@ -46,7 +46,7 @@ fn module_of(strings: &[&str], functions: Vec<Function>) -> Module {
 
 fn interp(vm: &VmContext, m: &Module, name: &str) -> Value {
     let idx = m.func_index[name];
-    match crate::interp::run::exec_function(vm, m, &m.functions[idx], &[]).expect("runs") {
+    match crate::interp::run_outcome(vm, m, &m.functions[idx], &[]).expect("runs") {
         crate::exec::call::outcome::ExecOutcome::Returned(v) => v.unwrap_or(Value::Null),
         crate::exec::call::outcome::ExecOutcome::Thrown(exc) => panic!("threw {exc:?}"),
     }
@@ -55,7 +55,7 @@ fn interp(vm: &VmContext, m: &Module, name: &str) -> Value {
 #[cfg(feature = "jit")]
 fn jit(vm: &VmContext, m: &Module, name: &str) -> Value {
     use crate::jit::runtime::invoke::{call_entry, NativeOutcome};
-    let rt = crate::jit::compile::state::install(vm, m, crate::config::runtime_config().jit_config()).expect("install");
+    let rt = crate::jit::test_support::install(vm, m, z42::config::runtime_config().jit_config()).expect("install");
     for i in 0..m.functions.len() { rt.resolve_fn_by_id(vm, i); }
     let entry = rt.resolve_fn_by_id(vm, m.func_index[name]).expect("compiles");
     match unsafe { call_entry(vm, entry, crate::jit::runtime::frame::JitFrame::new(vm, entry.max_reg, &[])) } {
@@ -138,7 +138,7 @@ fn guarded_ordering_on_i64() {
     // either form the engines surface it (Thrown / Err).
     let vm = VmContext::new();
     let idx = m.func_index["lt_ss"];
-    match crate::interp::run::exec_function(&vm, &m, &m.functions[idx], &[]) {
+    match crate::interp::run_outcome(&vm, &m, &m.functions[idx], &[]) {
         Ok(crate::exec::call::outcome::ExecOutcome::Thrown(_)) | Err(_) => {}
         other => panic!("expected throw, got {other:?}"),
     }

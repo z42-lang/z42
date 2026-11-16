@@ -129,35 +129,6 @@ fn unsupported_mode_fails_before_execution() {
         .contains("AOT mode is not implemented"));
 }
 
-#[cfg(all(feature = "jit", z42_jit_supported))]
-#[test]
-fn jit_host_calls_return_values_compile_and_preserve_static_state() {
-    let program = program(ExecMode::Jit, false);
-    assert_eq!(
-        program.invoke("Demo.Main", &[]).unwrap(),
-        Some(Value::I64(42))
-    );
-    assert!(program.context().core().diagnostics().snapshot(program.context().core().threads()).jit_methods_compiled > 0);
-    program
-        .context()
-        .statics().set_named("Demo.sentinel", Value::I64(91))
-        .unwrap();
-    assert_eq!(
-        program.invoke("Demo.Main", &[]).unwrap(),
-        Some(Value::I64(42))
-    );
-    assert_eq!(
-        program.context().statics().get_named("Demo.sentinel"),
-        Value::I64(91)
-    );
-    let throwing = self::program(ExecMode::Jit, true);
-    assert!(throwing
-        .invoke("Demo.Main", &[])
-        .unwrap_err()
-        .to_string()
-        .contains("uncaught exception"));
-}
-
 #[cfg(not(all(feature = "jit", z42_jit_supported)))]
 #[test]
 fn jit_request_is_rejected_without_the_feature() {

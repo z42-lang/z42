@@ -150,14 +150,17 @@ pub fn install<'a>(vm: &'a VmContext, module: &Module, config: crate::jit::confi
 
 /// Test hook: install a JIT on `vm`'s VM after `tune` adjusted it (thresholds).
 /// Panics when the VM already has one.
-#[cfg(all(test, z42_test_facade))]
+#[cfg(test)]
 pub(crate) fn install_tuned<'a>(
     vm: &'a VmContext, module: &Module, tune: impl FnOnce(&mut JitRuntime),
 ) -> &'a JitRuntime {
-    let mut rt = JitRuntime::new(vm, module, crate::config::runtime_config().jit_config()).expect("JIT setup");
+    if !vm.core().exec().engines.has_baseline() {
+        vm.core().exec().engines.register_baseline(&crate::interp::engine::ENGINE).expect("baseline");
+    }
+    let mut rt = JitRuntime::new(vm, module, z42::config::runtime_config().jit_config()).expect("JIT setup");
     tune(&mut rt);
-    assert!(vm.core.exec.engines.install_tier(crate::exec::TierApi::new(rt)).is_ok(), "a tier is already installed on this VM");
-    let rt = vm.core.exec.engines.tier().and_then(|t| t.backend::<JitRuntime>()).expect("installed");
+    assert!(vm.core().exec().engines.install_tier(crate::exec::TierApi::new(rt)).is_ok(), "a tier is already installed on this VM");
+    let rt = vm.core().exec().engines.tier().and_then(|t| t.backend::<JitRuntime>()).expect("installed");
     publish_to(vm, rt);
     rt
 }
@@ -349,7 +352,7 @@ impl JitRuntime {
 
     /// Test probe: `(call count, rejected?)` of JIT id `id`'s slot (`(0, false)`
     /// when it was never touched).
-    #[cfg(all(test, z42_test_facade))]
+    #[cfg(test)]
     pub(crate) fn slot_probe(&self, id: usize) -> (u32, bool) {
         self.slots.get(id).map_or((0, false), |s| {
             (s.count.load(Ordering::Relaxed), s.state.load(Ordering::Relaxed) == SLOT_REJECTED)
@@ -357,7 +360,7 @@ impl JitRuntime {
     }
 
     /// Test hook: compile `func` with an explicit callee lookup, bypassing the slots.
-    #[cfg(all(test, z42_test_facade))]
+    #[cfg(test)]
     pub(crate) fn compile_with(
         &self, func: &Function, callees: &dyn crate::jit::compile::lookup::ForwardLookup,
     ) -> Result<FnEntry> {
@@ -422,7 +425,7 @@ fn bump_compile_counters(vm: &VmContext, t0: std::time::Instant) {
     c.jit_compile_us_total.fetch_add(t0.elapsed().as_micros() as u64, Ordering::Relaxed);
 }
 
-#[cfg(all(test, z42_test_facade))]
+#[cfg(test)]
 #[path = "runtime_tests.rs"]
 mod runtime_tests;
 

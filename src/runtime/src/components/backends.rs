@@ -32,10 +32,6 @@ pub(super) fn linked(id: ComponentId) -> Option<ComponentInit> {
         #[cfg(test)]
         { return Some(crate::interp::component::z42_interp_init); }
     }
-    if id == JIT_COMPONENT {
-        #[cfg(all(test, feature = "jit", z42_jit_supported))]
-        { return Some(crate::jit::component::z42_jit_init); }
-    }
     #[cfg(test)]
     if id == PROFILER_COMPONENT { return Some(crate::profiler::component::z42_profiler_init); }
     None
@@ -107,7 +103,5 @@ pub(crate) fn registry() -> EngineRegistry {
     #[cfg(not(test))]
     let baseline = None;
     let registry = EngineRegistry::new(baseline);
-    #[cfg(all(test, feature = "jit", z42_jit_supported))]
-    { let _ = registry.register_jit(crate::jit::execution_engine(), crate::config::runtime_config().jit_config()); }
     registry
 }

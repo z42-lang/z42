@@ -164,5 +164,5 @@ pub const fn concat_descs<const N: usize>(parts: &[&[BuiltinDesc]]) -> [BuiltinD
 
 #[cfg(all(test, z42_test_facade))]
 mod abi_tests;
-#[cfg(all(test, z42_test_facade))]
+#[cfg(any(all(test, z42_test_facade), feature = "jit-test-support"))]
 pub mod test_builtins;

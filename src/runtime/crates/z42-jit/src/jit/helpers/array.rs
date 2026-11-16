@@ -129,6 +129,6 @@ pub unsafe extern "C" fn jit_array_len(
     }
 }
 
-#[cfg(all(test, z42_test_facade))]
+#[cfg(test)]
 #[path = "array_tests.rs"]
 mod array_tests;

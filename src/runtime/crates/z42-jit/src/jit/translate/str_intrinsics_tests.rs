@@ -11,7 +11,7 @@ use crate::jit::compile::lookup::{ForwardLookup, StrIntrinsic};
 use crate::exec::call::forward::{builtin_forward, chained_forward};
 use crate::jit::runtime::frame::JitFrame;
 use crate::jit::runtime::invoke::{call_entry, NativeOutcome};
-use crate::jit::compile::state::install;
+use crate::jit::test_support::install;
 use crate::metadata::{Function, Module};
 use crate::zpkg::ir::{BasicBlock, BuiltinInsn, CallInsn, Instruction, Terminator, VCallInsn};
 use crate::zpkg::ir::ExecMode;
@@ -94,14 +94,14 @@ struct Callees<'m>(&'m Module);
 
 impl Callees<'_> {
     fn of(&self, f: &Function) -> Option<u32> {
-        builtin_forward(f, crate::interop::providers::catalog()).or_else(|| chained_forward(f, |n| {
-            self.0.func_index.get(n).and_then(|&i| builtin_forward(&self.0.functions[i], crate::interop::providers::catalog()))
+        builtin_forward(f, crate::interop::providers::test_catalog()).or_else(|| chained_forward(f, |n| {
+            self.0.func_index.get(n).and_then(|&i| builtin_forward(&self.0.functions[i], crate::interop::providers::test_catalog()))
         }))
     }
 }
 
 impl ForwardLookup for Callees<'_> {
-    fn builtins(&self) -> &crate::metadata::builtins::BuiltinCatalog { crate::interop::providers::catalog() }
+    fn builtins(&self) -> &crate::metadata::builtins::BuiltinCatalog { crate::interop::providers::test_catalog() }
     fn forward_of_id(&self, id: u32) -> Option<u32> { self.of(self.0.functions.get(id as usize)?) }
     fn forward_of_name(&self, name: &str) -> Option<u32> {
         self.of(&self.0.functions[*self.0.func_index.get(name)?])
@@ -127,11 +127,11 @@ fn thrown(msg: &str) -> String {
 fn run_jit(m: &Module, idx: usize, args: &[Value], init_pending: bool) -> (String, bool) {
     let vm = VmContext::new();
     crate::metadata::resolve::resolve_function_tokens(&m.functions[idx], m, &vm);
-    let rt = install(&vm, m, crate::config::runtime_config().jit_config()).expect("install");
+    let rt = install(&vm, m, z42::config::runtime_config().jit_config()).expect("install");
     if init_pending {
         use crate::metadata::statics::CctorRegistry;
         // The counter the inline gate reads (and `jit_call`'s barrier recounts).
-        let reg = std::sync::Arc::as_ptr(&vm.core.runtime.cctors) as *const u8;
+        let reg = std::sync::Arc::as_ptr(&vm.core().runtime().cctors) as *const u8;
         let pending = unsafe { &*(reg.add(CctorRegistry::MODULE_PENDING_OFFSET) as *const std::sync::atomic::AtomicUsize) };
         pending.store(1, std::sync::atomic::Ordering::Relaxed);
     }
@@ -146,7 +146,7 @@ fn run_jit(m: &Module, idx: usize, args: &[Value], init_pending: bool) -> (Strin
 
 fn run_interp(m: &Module, idx: usize, args: &[Value]) -> String {
     let vm = VmContext::new();
-    match crate::interp::run::exec_function(&vm, m, &m.functions[idx], args) {
+    match crate::interp::run_outcome(&vm, m, &m.functions[idx], args) {
         Ok(crate::exec::call::outcome::ExecOutcome::Returned(v)) => show(v.unwrap_or(Value::Null)),
         Ok(crate::exec::call::outcome::ExecOutcome::Thrown(v)) => show(v),
         Err(e) => thrown(&e.to_string()),
@@ -222,10 +222,10 @@ fn static_call_with_a_pending_package_init_keeps_the_barrier_path() {
 
 #[test]
 fn recognition_is_by_forwarded_builtin() {
-    let id = |n| crate::interop::providers::catalog().id_of(n).expect("builtin").0;
-    assert_eq!(StrIntrinsic::of_builtin(id("__str_length"), crate::interop::providers::catalog()), Some(StrIntrinsic::Length));
-    assert_eq!(StrIntrinsic::of_builtin(id("__str_char_at"), crate::interop::providers::catalog()), Some(StrIntrinsic::CharAt));
-    assert_eq!(StrIntrinsic::of_builtin(id("__str_byte_length"), crate::interop::providers::catalog()), None);
+    let id = |n| crate::interop::providers::test_catalog().id_of(n).expect("builtin").0;
+    assert_eq!(StrIntrinsic::of_builtin(id("__str_length"), crate::interop::providers::test_catalog()), Some(StrIntrinsic::Length));
+    assert_eq!(StrIntrinsic::of_builtin(id("__str_char_at"), crate::interop::providers::test_catalog()), Some(StrIntrinsic::CharAt));
+    assert_eq!(StrIntrinsic::of_builtin(id("__str_byte_length"), crate::interop::providers::test_catalog()), None);
 }
 
 /// The native view of a handle (`vstr::jit_layout`) reads what the Rust accessors do.

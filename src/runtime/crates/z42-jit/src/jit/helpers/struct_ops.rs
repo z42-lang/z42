@@ -132,6 +132,6 @@ pub unsafe extern "C" fn jit_struct_field_set_prim(
     }
 }
 
-#[cfg(all(test, z42_test_facade))]
+#[cfg(test)]
 #[path = "struct_ops_tests.rs"]
 mod struct_ops_tests;

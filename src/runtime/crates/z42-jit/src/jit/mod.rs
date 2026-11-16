@@ -7,10 +7,10 @@ pub(crate) mod runtime;
 pub(crate) mod helpers;
 mod translate;
 
-#[cfg(all(test, z42_test_facade))]
+#[cfg(test)]
 #[path = "lazy_load_tests.rs"]
 mod lazy_load_tests;
-#[cfg(all(test, z42_test_facade))]
+#[cfg(test)]
 #[path = "generic_call_tests.rs"]
 mod generic_call_tests;
 
@@ -148,3 +148,14 @@ pub mod component;
 
 /// Internal mode-entry contract used by static host assembly.
 pub fn execution_engine() -> &'static dyn crate::exec::Engine { &engine::ENGINE }
+
+#[cfg(test)]
+mod forward_cross_tests;
+#[cfg(test)]
+mod qualified_cross_tests;
+
+#[cfg(test)]
+mod host_cross_tests;
+
+#[cfg(test)]
+mod test_support;

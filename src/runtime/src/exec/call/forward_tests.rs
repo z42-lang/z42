@@ -133,23 +133,6 @@ fn thrown_text(vm: &VmContext, m: &Module, exc: &Value) -> String {
     }
 }
 
-#[cfg(feature = "jit")]
-fn jit(vm: &VmContext, m: &Module, name: &str) -> Result<Value, String> {
-    use crate::jit::runtime::invoke::{call_entry, NativeOutcome};
-    let rt = crate::jit::compile::state::install(vm, m, crate::config::runtime_config().jit_config()).expect("install");
-    // Compile every function eagerly: the wrappers then fold through their compiled
-    // entries (`FnEntry::forward`), the caller through `jit_call`.
-    for i in 0..m.functions.len() { rt.resolve_fn_by_id(vm, i); }
-    let entry = rt.resolve_fn_by_id(vm, idx(m, name)).expect("compiles");
-    match unsafe { call_entry(vm, entry, crate::jit::runtime::frame::JitFrame::new(vm, entry.max_reg, &[])) } {
-        NativeOutcome::Returned(v) => Ok(v.unwrap_or(Value::Null)),
-        NativeOutcome::Threw => {
-            let exc = vm.exec().take_exception().expect("pending exception");
-            Err(thrown_text(vm, m, &exc))
-        }
-    }
-}
-
 fn add_module() -> Module {
     module_of(vec![wrapper("T.C.Add", "__test_abi_add", 2, false), caller("T.Main", "T.C.Add", &[2, 3])])
 }
@@ -161,14 +144,6 @@ fn a_wrapper_call_folds_to_its_builtin() {
     assert_eq!(outcome(&vm, &m, interp(&vm, &m, "T.Main")).map(|v| format!("{v:?}")), Ok("I64(5)".into()));
     let id = crate::interop::providers::catalog().id_of("__test_abi_add").unwrap().0;
     assert_eq!(m.functions[idx(&m, "T.C.Add")].forward.get(), Some(Some(id)), "the call folded");
-}
-
-#[cfg(feature = "jit")]
-#[test]
-fn a_wrapper_call_folds_under_the_jit_too() {
-    let m = add_module();
-    let vm = VmContext::new();
-    assert_eq!(jit(&vm, &m, "T.Main").map(|v| format!("{v:?}")), Ok("I64(5)".into()));
 }
 
 fn fail_module() -> Module {
@@ -195,17 +170,6 @@ fn a_folded_failure_has_the_unfolded_trace() {
     assert_eq!(outcome(&vm2, &m2, interp(&vm2, &m2, "T.Main")).unwrap_err(), folded);
 }
 
-#[cfg(feature = "jit")]
-#[test]
-fn a_folded_failure_has_the_same_trace_under_the_jit() {
-    let m = fail_module();
-    let vm = VmContext::new();
-    let expected = outcome(&vm, &m, interp(&vm, &m, "T.Main")).unwrap_err();
-    let m2 = fail_module();
-    let vm2 = VmContext::new();
-    assert_eq!(jit(&vm2, &m2, "T.Main").unwrap_err(), expected);
-}
-
 fn chain_module() -> Module {
     module_of(vec![
         wrapper("T.C.Inner", "__test_abi_fail", 1, true),
@@ -229,12 +193,6 @@ fn a_chained_forward_folds_and_keeps_both_rows() {
     for f in &m2.functions { f.forward.set(None); }
     let vm2 = VmContext::new();
     assert_eq!(outcome(&vm2, &m2, interp(&vm2, &m2, "T.Main")).unwrap_err(), folded);
-    #[cfg(feature = "jit")]
-    {
-        let m3 = chain_module();
-        let vm3 = VmContext::new();
-        assert_eq!(jit(&vm3, &m3, "T.Main").unwrap_err(), folded);
-    }
 }
 
 /// A builtin that may run z42 code (`reenters`) folds under a light frame for the
@@ -263,12 +221,6 @@ fn a_reentrant_old_table_builtin_folds_under_a_light_frame() {
     m2.functions[idx(&m2, "T.C.Load")].forward.set(None);
     let vm2 = VmContext::new();
     assert_eq!(outcome(&vm2, &m2, interp(&vm2, &m2, "T.Main")).unwrap_err(), folded);
-    #[cfg(feature = "jit")]
-    {
-        let m3 = build();
-        let vm3 = VmContext::new();
-        assert_eq!(jit(&vm3, &m3, "T.Main").unwrap_err(), folded);
-    }
 }
 
 fn internal_module() -> Module {
@@ -285,19 +237,6 @@ fn an_internal_error_is_fatal_in_the_interpreter() {
     assert!(crate::exec::stack_guard::is_fatal(&vm));
     let report = crate::exec::stack_guard::take_report().expect("a fatal report");
     assert!(report.contains("broken invariant (test)") && report.contains("T.Main"), "{report}");
-}
-
-#[cfg(feature = "jit")]
-#[test]
-fn an_internal_error_is_fatal_under_the_jit() {
-    let _g = crate::exec::stack_guard::FATAL_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let m = internal_module();
-    let vm = VmContext::new();
-    let err = jit(&vm, &m, "T.Main").expect_err("unwinds");
-    assert!(err.contains("internal error in builtin `__test_abi_internal`"), "{err}");
-    assert!(crate::exec::stack_guard::is_fatal(&vm), "the JIT path sets the fatal flag too");
-    let report = crate::exec::stack_guard::take_report().expect("a fatal report");
-    assert!(report.contains("broken invariant (test)"), "{report}");
 }
 
 /// While a fatal error unwinds, a failing builtin does not become a z42 exception

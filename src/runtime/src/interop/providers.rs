@@ -183,3 +183,11 @@ pub(crate) fn registry() -> &'static NativeRegistry {
 }
 pub(crate) fn functions() -> &'static [BuiltinDesc] { registry().functions() }
 pub(crate) fn catalog() -> &'static BuiltinCatalog { registry().catalog() }
+
+#[cfg(feature = "jit-test-support")]
+#[doc(hidden)]
+pub fn test_catalog() -> &'static BuiltinCatalog { catalog() }
+
+#[cfg(feature = "jit-test-support")]
+#[doc(hidden)]
+pub fn test_folds_frameless(id: u32) -> bool { catalog().folds_frameless(id) }

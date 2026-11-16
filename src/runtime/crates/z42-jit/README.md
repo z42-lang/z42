@@ -21,7 +21,7 @@ src/jit 为后端实现，src/jit/component.rs 提供工厂与 ExecutionApi；sr
 
 ## 如何测试验证
 
-静态构建运行 `xtask test` 与 `xtask package sdk --verify`。动态构建运行 `xtask package runtime --linkage dynamic --profile debug --verify`（release 同理），实际搬移后的生产组件测试覆盖生命周期和缺失后端错误。源内白盒测试由主 crate 的同源测试模块执行，不复制实现。
+静态构建运行 `xtask test` 与 `xtask package sdk --verify`。动态构建运行 `xtask package runtime --linkage dynamic --profile debug --verify`（release 同理），实际搬移后的生产组件测试覆盖生命周期和缺失后端错误。源内白盒测试由本 crate 执行；测试通过受控的 Core 测试辅助接口和独立解释器装配真实后端。
 
 ## 关联文档
 

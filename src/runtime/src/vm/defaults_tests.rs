@@ -271,11 +271,6 @@ fn safepoint_policy_is_per_vm_and_shared_by_worker_resets() {
             view.threads.safepoint_skip.store(1, Ordering::Relaxed);
             check_safepoint(view);
             assert_eq!(view.threads.safepoint_skip.load(Ordering::Relaxed), throttle);
-            #[cfg(all(feature = "jit", z42_jit_supported))]
-            unsafe {
-                crate::jit::helpers::control::jit_check_safepoint_slow(std::ptr::null_mut(), &**view);
-                assert_eq!(view.threads.safepoint_skip.load(Ordering::Relaxed), throttle);
-            }
         }
         contexts.push((ctx, throttle));
     }
