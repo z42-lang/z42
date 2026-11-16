@@ -98,3 +98,21 @@ void test_local_port_before_bind_throws() {
     }
     Assert.True(threw);
 }
+
+[Test]
+void test_server_error_response_counts_utf8_bytes() {
+    var server = new HttpServer();
+    server.Bind("127.0.0.1", 0);
+    string url = "http://127.0.0.1:" + Int32.ToString(server.LocalPort()) + "/";
+    Thread srv = Thread.Start(() => {
+        server.HandleNext((HttpServerContext ctx) => {
+            throw new Exception("错误");
+        });
+    });
+    var client = new HttpClient();
+    HttpResponse r = client.Get(url);
+    Assert.Equal(500, r.StatusCode);
+    Assert.Equal("Handler threw: 错误", r.BodyAsString());
+    srv.Join();
+    server.Stop();
+}
