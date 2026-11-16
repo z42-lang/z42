@@ -420,7 +420,7 @@ fn write_barrier_array_elem(&self, arr: &Value, idx: usize, new: &Value);
    写永远在 root，不存在 cross-region/cross-generation 关心的场景。
 6. **引用叶子被拷进别处时，按叶子发**：装箱 struct 写进 `struct[]`（STRUCT 数组）时
    写入把盒子的 blob（含引用叶子）**拷进**数组，数组持有的是叶子而不是盒子 ⇒ 屏障按每个叶子发
-   （`objops::array::barrier_elem`），不能拿盒子判龄（老盒子、年轻叶子就漏记）。
+   （`object::barrier_array_element`），不能拿盒子判龄（老盒子、年轻叶子就漏记）。
 
 #### VM 自己的写入点
 
@@ -430,11 +430,11 @@ fn write_barrier_array_elem(&self, arr: &Value, idx: usize, new: &Value);
 
 | 写入点 | 经由 |
 |---|---|
-| throw 点补 `Exception.StackTrace` | `objops::field::store_slot` |
-| 反射 `FieldInfo.SetValue`（普通字段） | `objops::field::store_slot` |
+| throw 点补 `Exception.StackTrace` | `object::store_field_slot` |
+| 反射 `FieldInfo.SetValue`（普通字段） | `object::store_field_slot` |
 | 反射 `FieldInfo.SetValue`（装箱 struct 字段 / 对象内联 struct 叶子） | `write_blob` / `set_struct_ref_leaf`，落下的每个引用发 `write_barrier_field` |
-| 反射构造泛型 `Type`（`__typeArgs` / `__fullName`） | `objops::field::store_slot` |
-| `Std.Array.SetValue` | `try_set_boxed` + `objops::array::barrier_elem` |
+| 反射构造泛型 `Type`（`__typeArgs` / `__fullName`） | `object::store_field_slot` |
+| `Std.Array.SetValue` | `object::try_store_array_element` |
 | `Std.Array.Copy`（`__array_copy`） | `objops::array_bulk::copy_range` + `barrier_after_range_store`（对写入区间每个引用槽，含 struct 元素的引用叶子） |
 | `PropertyInfo.SetValue` | 调 setter ⇒ 走 `FieldSet` |
 

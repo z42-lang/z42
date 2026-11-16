@@ -5,7 +5,7 @@
 //! 适配层各自的映射另有单测（`interp/ops/exec_array_tests.rs`、`jit/helpers/array_tests.rs`、
 //! `jit/helpers/object_field_tests.rs`），端到端逐条对照见 `src/tests/exceptions/objops_errors.z42`。
 
-use super::array::{array_get, array_len, array_new, array_new_lit, array_set, packed_data};
+use super::array::{array_get, array_len, array_new, array_new_lit, array_set};
 use super::field::{field_get, field_set};
 use super::{OpError, Throw};
 use crate::object::{
@@ -225,14 +225,14 @@ fn negative_array_size_throws_overflow() {
 fn packed_data_never_throws() {
     let vm = VmContext::new();
     let a = array_new(&vm, &Value::I64(4), crate::object::TAG_I64, ElemType::intern("long"), false, None, None, None::<fn() -> u32>).unwrap();
-    let (ptr, len, width) = packed_data(&a);
+    let (ptr, len, width) = crate::object::packed_array_data(&a);
     assert!(!ptr.is_null());
     assert_eq!((len, width), (4, 8));
     for v in [Value::Null, Value::I64(1), Value::Str("s".into())] {
-        assert_eq!(packed_data(&v).2, 0, "非打包数组 → 宽度 0（无快路）");
+        assert_eq!(crate::object::packed_array_data(&v).2, 0, "非打包数组 → 宽度 0（无快路）");
     }
     let boxed = Value::Array(ArrayObj::leaked(vec![Value::Null]));
-    assert_eq!(packed_data(&boxed).2, 0);
+    assert_eq!(crate::object::packed_array_data(&boxed).2, 0);
 }
 
 // ── 物化 ─────────────────────────────────────────────────────────────────────

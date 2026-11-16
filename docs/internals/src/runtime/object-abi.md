@@ -351,8 +351,8 @@ MIXED 的零种类（3 位）：读写元素、求长度、JIT 取元素基址�
   （`Array.Copy` / 排序）之后按 `elem_ref_slots` 对区间内每个引用槽发 `write_barrier_array_elem`（`objops::array_bulk`）。
   被覆盖的旧引用由各写原语交给 SATB。
 - **GC** 只经 `ArrayObj::visit_refs` 遍历一个数组的出边（标记、记忆集、保留图共用）；数组块与对象块一样标记、清扫、进记忆集。
-- **JIT**：PRIM 的读写按 `packed_data` 内联；从不被重赋值的 REF / MIXED 数组读进整 `Value` 寄存器（`Ref` / `Str` / 擦除的 `T`）时按
-  `ref_data`（基址、长度、步长 8 / 16，入口块取一次）内联：acquire 读元素的（标签）字、按 `KIND_TO_VALUE_TAG` 查表打 tag；
+- **JIT**：PRIM 的读写按 `object::packed_array_data` 内联；从不被重赋值的 REF / MIXED 数组读进整 `Value` 寄存器（`Ref` / `Str` / 擦除的 `T`）时按
+  `object::reference_array_data`（基址、长度、步长 8 / 16，入口块取一次）内联：acquire 读元素的（标签）字、按 `KIND_TO_VALUE_TAG` 查表打 tag；
   种类 7 盒子与 MIXED 的基元标记字（低 3 位 0、整字非 0）回落 helper。引用写一律走 helper（要写屏障）。
 
 字符串数组的原生搜索由 builtin 层检查声明类型、起止范围和方向，存储层保留固定数组的视图，将目标字符串的 UTF8 视图移到循环外，再按 string/null 比较。引用读取仍经过 acquire/读屏障；遇到其他种类的元素会拒绝原生路径，让脚本继续执行自定义相等语义，不跳过该元素。

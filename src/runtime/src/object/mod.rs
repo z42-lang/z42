@@ -23,6 +23,14 @@
 //! use z42::object::storage::ScriptObject;
 //! ```
 
+//! Heap access implementations stay private; consumers use the object contract.
+//! ```compile_fail
+//! use z42::object::heap_access::store_field_slot;
+//! ```
+//! ```compile_fail
+//! use z42::object::struct_access::box_struct;
+//! ```
+
 mod protocol;
 pub use protocol::ObjectProtocol;
 pub mod value;
@@ -30,6 +38,8 @@ pub mod types;
 pub mod header;
 mod storage;
 mod fields;
+mod heap_access;
+mod struct_access;
 mod owned_object;
 mod monitor;
 mod reflected_type;
@@ -43,6 +53,8 @@ pub use storage::{NativeData, ScriptObject, ObjHeader};
 #[cfg(all(feature = "jit", target_pointer_width = "64"))]
 pub use storage::obj_jit_layout;
 pub use fields::FieldWrite;
+pub use heap_access::{store_field_access, store_field_slot, store_struct_leaf, store_struct_element_leaf, store_array_element, try_store_array_element, barrier_array_element, barrier_array_range};
+pub use struct_access::{box_struct, snapshot_struct_box, snapshot_struct_element};
 pub use owned_object::OwnedObject;
 pub use monitor::Monitor;
 pub use reflected_type::{ReflectedTypeHandle, ReflectedTypeShape, ReflectedTypeKey};

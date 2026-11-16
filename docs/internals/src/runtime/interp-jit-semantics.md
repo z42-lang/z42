@@ -136,7 +136,7 @@ JIT helpers/* (extern C) ┘                       └ Err(OpError) → 引擎�
 不能提升形状的定宽 `ArrayGet` 复用头部检查，并核对实际存储模式和目标寄存器类型。匹配时直接从数组头计算元素地址和长度，再检查下标。每次访问使用当次接收者，因而字段替换数组后会读取新数组。其它存储模式与异常输入由 `jit_array_get` 处理。
 
 反射和 `FieldGet` 通过 `objops::struct_leaf` 读取装箱 struct 的命名字段。字段布局由
-`object/types/named_struct_layout.rs` 根据类型描述计算，嵌套 struct 的快照与装箱在执行侧完成。
+`object/types/named_struct_layout.rs` 根据类型描述计算，执行侧解析类型后，嵌套 struct 的装箱交给 `object::box_struct`；盒与数组元素快照由 object 提供。
 
 **错误通道只有一个**：`objops::OpError`。
 
@@ -163,14 +163,14 @@ JIT helpers/* (extern C) ┘                       └ Err(OpError) → 引擎�
 `<类名>: <消息>` 文本。
 
 **快路不自带语义**。JIT 的原生字段 IC 只读站点 `FieldIC` 已缓存的单元位置（守卫不过——null、非对象、别的类型或
-单元种类——就调慢路 helper），数组的循环不变量提升（`jit_array_data_opt`）只向 objops 要「存储地址」
-（`array::packed_data`），**都从不抛**：拿不到快路就回落到慢路 helper，异常在真实访问点由 objops 给出。逐访问取
+单元种类——就调慢路 helper），数组的循环不变量提升（`jit_array_data_opt`）只向 object 要「存储地址」
+（`object::packed_array_data`），**都从不抛**：拿不到快路就回落到慢路 helper，异常在真实访问点由 objops 给出。逐访问取
 打包数组数据也用同一个不抛的 helper。FieldIC 的解析与安装在 objops 里（`field::resolve`），两引擎共用同一个站点 IC。
 
-> **改存储表示只改 objops**。对象模型改造（
-> R1–R9：原子单元格、8 B 自描述引用、数组模式、去掉每对象 Mutex……）以本层为前提：引擎里不得再出现
-> `borrow()` 字段槽、`get_boxed` / `set_boxed`、`field_value` 之类的直接存储访问；新增对象 / 数组操作时先在
-> objops 写实现，再给两个引擎各加一个适配。
+> **存储机制归 object，IL 编排归 exec。** 字段与数组写入通过 object 根接口统一完成存储和插入屏障，
+> struct 装箱与快照只接收已解析类型和堆；对象层不访问帧、不解析类型或物化异常。
+> 两个引擎通过 objops 共享 IL 校验、FieldIC、初始化和帧适配，不复制对象存储实现。新增操作先判断所属职责，
+> 不因消费端是解释器/JIT 就把存储能力放进 exec。
 >
 > `Std.Array` 的无类型 / 批量原生（`CopyRange`、`GetValue`、`SetValue`）经 `objops::array_bulk`，corelib 只解析参数、
 > 用 `corelib::raise_op` 把 `OpError` 以原异常类抛出。

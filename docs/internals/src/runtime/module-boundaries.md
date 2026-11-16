@@ -165,12 +165,16 @@ C initialize 当前建立进程单例宿主会话，不等于创建一个承载�
 | 实际入口 | 源码中的职责 | 整理方向 |
 |---|---|---|
 | `object/protocol.rs` | 不拥有状态的四个能力回调 | 已归 object；Core 持有绑定，corelib 提供实现，exec 消费 |
-| `exec/ops/object/field.rs` | 槽/名称读取、派发缓存、pin 视图和带屏障写入 | 表示/字段位置来自 object；执行视图和屏障编排保留执行层，后续抽取纯存储部分 |
-| `exec/ops/object/array.rs` | 数组读取/写入、类型实参解析、帧 arena 分配 | 元素编码/布局归 object；泛型解析、arena 和执行错误保留 exec |
-| `exec/ops/object/struct_leaf.rs` | 布局查询、快照、装箱分配和写屏障 | 纯布局已在 object/types/named_struct_layout；显式堆/屏障服务可再抽象，不把 VmContext 依赖搬入 object |
+| `exec/ops/object/field.rs` | 槽/名称读取、派发缓存、pin 视图和带屏障写入 | 缓存与执行视图留在 exec；堆写入和屏障使用 object::store_field_access/store_field_slot |
+| `exec/ops/object/array.rs` | 数组读取/写入、类型实参解析、帧 arena 分配 | 元素编码、带屏障写入及存储地址查询归 object；泛型解析、arena 和执行错误保留 exec |
+| `exec/ops/object/struct_leaf.rs` | 布局查询、快照、装箱分配和写屏障 | 布局、装箱、快照和堆叶子写入归 object；类型加载、命名字段编排与帧句柄解析留在 exec |
 | `exec/ops/structs.rs` | 当前帧 struct 分配、拆箱、复制及布局解析 | arena 生命周期与 frame_id 校验归 exec；布局事实通过只读查询提供 |
 | `exec/ops/object/error.rs` | OpError 到托管异常的物化 | 保留执行层；对象存储层返回自己的错误事实，不构造 VM 异常 |
 | `exec/ops/scalar.rs` | 算术、比较、转换和指令错误判据 | 保留执行语义；输入是 Value 并不足以证明属于 object |
+
+object 堆访问接口只接收 Heap、对象/数组句柄、字段位置或已解析的 TypeDesc，不依赖 VmContext、帧、OpError 或 IL。
+实现通过 object 根导出，反射和异常栈迹直接使用对象写入接口；普通存储操作不需要动态注册查询。
+SATB 删除屏障留在底层存储原语，插入屏障由对象写入接口补齐；struct 数组跟踪实际引用叶子，不能拿来源盒子代替。
 
 `lib.rs` 的 `objops` 仍是 `exec/ops/object` 的转出路径。后续整理同时收口真实所有者与消费者，
 避免长期维护多个路径；删除旧入口时连同后端、corelib、测试和文档迁移。

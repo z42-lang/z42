@@ -37,6 +37,7 @@
 
 解释器和 JIT helper 从 `z42::exec::ops::scalar` 调用共享函数；JIT 内联发码遵循相同规则，由双模式 golden 验证。异常对象的构造和传播由调用方处理。
 对象能力契约位于 `object/protocol.rs`；执行层借用 Core 已绑定的服务，保留托管调用、异常和文本物化。
+堆字段、数组及 struct 写入和插入屏障由 object 根接口提供；exec 负责 IL 检查、缓存、类型解析和帧适配。struct 装箱传入已解析的 TypeDesc，快照与存储地址查询直接消费 object。
 
 ## 如何测试验证
 

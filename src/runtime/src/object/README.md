@@ -9,6 +9,8 @@
 - `value/`：Value、`payloads.rs` 中的引用/pin/闭包载荷、原子单元、引用字、型参单元、struct blob、纯值种类名称，以及 context-free 格式化和盒装值哈希。
 - `types/`：TypeDesc 形状、字段、对象/struct 布局、元素类型及泛型实参句柄。
 - `protocol.rs`：GetType、默认文本和 Type 构造的只读能力契约；上下文和错误域由调用者指定，不依赖执行层实现。
+- `heap_access.rs`：显式接收 Heap 的字段、数组和 struct 写入及插入屏障，不接收 VmContext 或执行错误。
+- `struct_access.rs`：接收已解析类型的 struct 装箱、盒与数组元素快照，不解析类型或访问帧。
 - `header/`：区块头、标记位、强/弱句柄与 generation 快照。
 - `storage.rs` / `fields.rs` / `owned_object.rs`：对象及堆外对象存储、字段访问与引用遍历；`monitor.rs` 和 `reflected_type.rs` 分别定义同步状态与反射类型载荷。
 - `array/`：数组描述符、元素、视图及排序/检索原语。
@@ -41,6 +43,8 @@ GC 仍负责 chunk 分配、回收、代数及弱句柄的 chunk epoch 校验；
 
 `tests.rs` 验证整个 object 的默认值、布局、引用追踪与表示契约，不以 types 命名覆盖其它子模块的用例。
 
-对象存储实现模块保持私有，消费者从 object 根导入，不引用 storage、fields 等物理文件路径。
+对象存储实现模块保持私有，消费者从 object 根导入，不引用 storage、fields、heap_access 或 struct_access 等物理文件路径。
+`store_field_access/store_field_slot`、`store_array_element/try_store_array_element` 和 struct 叶子写入接口完成存储与插入屏障；批量拷贝使用 `barrier_array_range`。typed 与 untyped 数组写入保持不同的校验契约。
+`box_struct` 接收 Heap 和已解析的 TypeDesc；`snapshot_struct_box/snapshot_struct_element` 返回独立快照。字段缓存、类型加载、初始化与托管异常仍由执行层处理，不向对象接口传入整个 VM。
 
 `mod.rs` 汇总公共词汇；各 concern 的 `mod.rs` 汇总对应叶子实现。原有 ABI 布局、对象访问、引用字、数组及字符串测试与实现同目录。

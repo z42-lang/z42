@@ -48,7 +48,7 @@ pub fn copy_range(
             }
             a.copy_elems_within(si, di, n);
         }
-        barrier_after_range_store(ctx, dst, di, n);
+        crate::object::barrier_array_range(ctx.heap(), dst, di, n);
         return Ok(());
     }
     let (s, d) = (Shape::of(&src.borrow()), Shape::of(&dst.borrow()));
@@ -71,7 +71,7 @@ pub fn copy_range(
             return copy_checked(ctx, src, si, dst, di, n, |v| check_reference(ctx, target, v, &key));
         }
     }
-    barrier_after_range_store(ctx, dst, di, n);
+    crate::object::barrier_array_range(ctx.heap(), dst, di, n);
     Ok(())
 }
 
@@ -103,22 +103,6 @@ pub fn check_untyped_store(ctx: &VmContext, arr: &ArrayObj, v: &Value) -> OpResu
             if matches!(v, Value::Null) || accepts_any(ctx, &elem) { return Ok(()); }
             check_reference(ctx, type_name(&elem), v, &TypeKeyCell::new())
         }
-    }
-}
-
-/// 批量写入 `dst[di..di+n]` **之后**的写屏障：区间内每个引用槽（REF / MIXED / FROZEN 的元素、
-/// struct[] 元素的每个引用叶子）里的堆引用各发一次 `write_barrier_array_elem`——槽里实际落下的引用，
-/// 装箱的值给盒子（`ArrayObj::visit_elem_refs`；只收集真正的引用，`List<int>` 的扩容拷贝不分配）。
-/// 并发模式要逐个染色新值，所以不能只发一次。调用时数组的借用必须已经放掉。
-pub fn barrier_after_range_store(ctx: &VmContext, dst: &ArrRef, di: usize, n: usize) {
-    let mut hits: Vec<(usize, Value)> = Vec::new();
-    dst.borrow().visit_elem_refs(di, n, |i, v| hits.push((i, *v)));
-    if hits.is_empty() {
-        return;
-    }
-    let owner = Value::Array(*dst);
-    for (i, v) in &hits {
-        ctx.heap().write_barrier_array_elem(&owner, *i, v);
     }
 }
 
@@ -274,8 +258,7 @@ fn box_into(
             .ok_or_else(|| OpError::internal("Array.CopyRange: struct[] source is not a value-struct array".into()))?;
         let boxed = box_struct(ctx, s.elem, &bytes, &refs)?;
         // 下一个盒子的分配可能触发回收：这一个先发屏障，不等整段写完。
-        let wrote = dst.borrow().set_boxed(di + k, boxed);
-        super::array::barrier_elem(ctx, dst, di + k, wrote, &boxed);
+        crate::object::store_array_element(ctx.heap(), dst, di + k, &boxed);
     }
     Ok(())
 }
@@ -310,13 +293,12 @@ fn copy_checked(
     }
     if direct_refs {
         dst.borrow().copy_elems_from(&values.borrow(), 0, di, n);
-        barrier_after_range_store(ctx, dst, di, n);
+        crate::object::barrier_array_range(ctx.heap(), dst, di, n);
         return Ok(());
     }
     for (i, value) in values.borrow().iter_boxed().enumerate() {
-        let wrote = dst.borrow().try_set_boxed(di + i, value)
+        crate::object::try_store_array_element(ctx.heap(), dst, di + i, &value)
             .map_err(|e| OpError::throw(INVALID_CAST_EXC, e.to_string()))?;
-        super::array::barrier_elem(ctx, dst, di + i, wrote, &value);
     }
     Ok(())
 }

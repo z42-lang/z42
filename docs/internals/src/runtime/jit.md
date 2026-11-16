@@ -571,7 +571,7 @@ MIXED 数组）步长 0。不 hoist 的访问（`List<T>` 里每次重新取的 
 取数 helper 不比 `jit_array_get` 便宜，数组装的是基元时还要再调一次（实测 `List<int>` 遍历慢 12%）。内联码：步长 0 或越界 → `jit_array_get`（同一异常）；否则
 `raw = atomic_load(基址 + i·步长)`，按 `KIND_TO_VALUE_TAG[raw & 7]` 打 tag；种类 7 盒子与 MIXED 的基元标记字
 （低 3 位 0、整字非 0：`PRIM(k)` / `NULL(k)`）回落同一 helper。数组元素写一律走 `jit_array_set`（要写屏障），
-PRIM 数组的读写内联（`packed_data`）不变。
+PRIM 数组的读写内联（`object::packed_array_data`）不变。
 
 ## 静态字段：内联的 `StaticGet` / `StaticSet`
 

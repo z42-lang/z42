@@ -197,6 +197,22 @@ impl ScriptObject {
         anyhow::anyhow!("struct ref leaf at byte offset {off} not in the layout of `{}`", self.type_desc.name)
     }
 
+    /// Read a primitive or reference leaf using its declared representation tag.
+    pub fn struct_leaf(&self, off: u32, kind: u8) -> anyhow::Result<Value> {
+        if is_ref_tag(kind) { self.struct_ref_leaf(off) }
+        else { self.prim_leaf(off as usize, prim_width(kind)?, kind) }
+    }
+
+    /// Store a leaf and report its new heap edge. Stack owners need no insertion
+    /// barrier; heap owners use object::store_struct_leaf to complete the write.
+    pub fn store_struct_leaf(&self, off: u32, kind: u8, value: &Value) -> anyhow::Result<FieldWrite> {
+        if is_ref_tag(kind) { self.set_struct_ref_leaf(off, value) }
+        else {
+            self.set_prim_leaf(off as usize, prim_width(kind)?, kind, value)?;
+            Ok(FieldWrite::NotRef)
+        }
+    }
+
     /// Read the struct reference leaf at byte `off` — a composed offset for an inline struct of a
     /// class instance, a blob offset for a boxed struct.
     pub fn struct_ref_leaf(&self, off: u32) -> anyhow::Result<Value> {

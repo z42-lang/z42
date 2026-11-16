@@ -6,7 +6,7 @@
 //! 下标越界（含负数）→ `IndexOutOfRangeException`；长度为负 → `OverflowException`。
 
 use crate::object::{
-    default_value_for_tag, ArrayMode, ArrayObj, ElemKind, ElemType, FieldWrite, StructArrayElem,
+    default_value_for_tag, ArrayMode, ArrayObj, ElemKind, ElemType, StructArrayElem,
     StructTypeLayout,
 };
 use crate::object::Value;
@@ -79,16 +79,16 @@ fn array_get_rare(ctx: &VmContext, arr: &Value, idx: &Value) -> OpResult<Value> 
 #[inline(always)]
 pub fn array_set(ctx: &VmContext, arr: &Value, idx: &Value, v: &Value) -> OpResult<()> {
     if let Value::Array(rc) = arr {
-        let (i, wrote) = {
+        let i = {
             let a = rc.borrow();
             let i = checked_index(ArrayOp::Set, idx, a.len())?;
             // Erased default(T) in existing bytecode can be Null for a value struct.
             if matches!(v, Value::Null) && a.mode() == ArrayMode::Struct {
                 return Ok(a.clear_struct_elem(i)?);
             }
-            (i, a.set_boxed(i, *v))   // 打包基元在这里拆箱；引用编成引用字 / 型参单元
+            i
         };
-        barrier_elem(ctx, rc, i, wrote, v);
+        crate::object::store_array_element(ctx.heap(), rc, i, v);
         return Ok(());
     }
     array_set_rare(ctx, arr, idx, v)
@@ -118,30 +118,6 @@ pub fn array_len(ctx: &VmContext, arr: &Value) -> OpResult<i64> {
     }
 }
 
-/// JIT 打包快路：`int[]` / `long[]` / `double[]` 的 `(数据基址, 长度, 槽宽 4|8)`。
-/// 其它一切（非打包 backing / 栈数组 / 非数组 / null）→ 宽度 0 = 「无快路」，内联码回落到
-/// `array_get` / `array_set`，由它们给出与 interp 相同的异常。不抛。
-///
-/// 指针在帧内有效：数组定长不重分配、GC 不移动。
-#[inline]
-pub fn packed_data(arr: &Value) -> (*const u8, i64, i64) {
-    match arr {
-        Value::Array(rc) => rc.borrow().jit_packed(),
-        _ => (std::ptr::null(), 0, 0),
-    }
-}
-
-/// JIT 引用读快路：REF / MIXED 数组的 `(元素基址, 长度, 步长 | zero << 8)`（步长 8|16，`zero` 是 MIXED 数组
-/// 未写过的单元读作的基元种类）；其它一切 → 0 = 「无快路」，内联码回落到 `array_get`。不抛。
-/// 指针在帧内有效（同 [`packed_data`]）。
-#[inline]
-pub fn ref_data(arr: &Value) -> (*const u8, i64, i64) {
-    match arr {
-        Value::Array(rc) => rc.borrow().jit_refs(),
-        _ => (std::ptr::null(), 0, 0),
-    }
-}
-
 /// `LoadElemAddr` 的检查：只有堆数组能取元素地址，下标此刻就校验（与读写同一规则）。
 pub fn check_elem_addr(arr: &Value, idx: &Value) -> OpResult<(ArrRef, usize)> {
     match arr {
@@ -162,28 +138,10 @@ pub fn elem_load(gc: &ArrRef, i: usize) -> OpResult<Value> {
 
 /// 经 `ref` 写元素：与 `ArraySet` 同一条写入 + 写屏障规则。
 pub fn elem_store(ctx: &VmContext, gc: &ArrRef, i: usize, v: &Value) -> OpResult<()> {
-    let wrote = {
-        let a = gc.borrow();
-        if i >= a.len() { return Err(OpError::index_out_of_range(i as i64, a.len())); }
-        a.set_boxed(i, *v)
-    };
-    barrier_elem(ctx, gc, i, wrote, v);
+    let len = gc.borrow().len();
+    if i >= len { return Err(OpError::index_out_of_range(i as i64, len)); }
+    crate::object::store_array_element(ctx.heap(), gc, i, v);
     Ok(())
-}
-
-/// 元素写入**之后**的写屏障（卡表 / 并发 shade；SATB 删除屏障在写原语里）：落进单元的引用
-/// （`wrote`——装不进 8 B 的值是它的盒子）。`ArraySet`、经 `ref` 写元素、`Std.Array.SetValue` 共用这一份。
-/// 调用时数组的借用必须已经放掉。
-///
-/// **装箱 struct 写进 `struct[]` 是例外**：写入把盒子的 blob **拷进**数组，数组持有的是那些引用叶子、
-/// 不是盒子。拿盒子判龄的话，老盒子、年轻叶子就漏了卡（叶子此后只靠数组可达，下一次 minor 把它扫掉），
-/// 所以这种写入对元素的每个引用叶子发屏障（`array_bulk::barrier_after_range_store`）。
-#[inline]
-pub fn barrier_elem(ctx: &VmContext, arr: &ArrRef, i: usize, wrote: FieldWrite, v: &Value) {
-    if matches!(v, Value::BoxedStruct(_)) && arr.borrow().struct_layout().is_some() {
-        return super::array_bulk::barrier_after_range_store(ctx, arr, i, 1);
-    }
-    wrote.with_barrier_value(v, |s| ctx.heap().write_barrier_array_elem(&Value::Array(*arr), i, s));
 }
 
 // ── 分配 ─────────────────────────────────────────────────────────────────────

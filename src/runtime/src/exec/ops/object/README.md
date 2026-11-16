@@ -4,7 +4,7 @@
 
 字段、数组、静态字段、值 struct 叶子的读写语义只在这里实现一次；interp（`interp/ops/exec_*`）与 JIT（`jit/helpers/*`）
 都是薄适配层：从寄存器取 `&Value`、调本模块、写回寄存器，再把 `OpError` 映射到各自的异常通道。
-对象与数组单元格的存储表示（字节布局、8 B 引用字、型参字段的 16 B 单元、打包基元、写屏障）对引擎不可见；对象字段单元的读写本身在 `object/fields.rs`。
+对象与数组单元格的存储表示（字节布局、8 B 引用字、型参字段的 16 B 单元、打包基元、写屏障）对引擎不可见；对象字段单元的读写本身在 `object/fields.rs`。堆写入与屏障、装箱与快照、数组地址查询由 object 根接口提供；本模块保留 IL 校验、类型解析和帧适配。
 不管对象分配与构造器解析（`exec/ops/obj_new.rs`）、虚调用解析（`exec/ops/vcall.rs`）、类型判定（`exec/ops/stringify.rs::isa_td`）。
 
 ## 功能索引
@@ -17,13 +17,13 @@
 | `FieldGet` / `FieldSet`（FieldIC、栈对象、`Length` 伪字段、`PinnedView`、装箱 struct、写屏障） | `field.rs` 的 `field_get` / `field_set` |
 | JIT 提升快路的字段槽解析（不抛） | `field.rs` 的 `inline_prim_slot` / `inline_ref_slot` |
 | `ref obj.f` 的接收者检查与经 ref 读写 | `field.rs` 的 `check_field_addr` / `load_named` / `store_named` |
-| VM 自己按槽位写已存在对象的字段（throw 点 `StackTrace`、反射 `SetValue`、反射 `Type`），带写屏障 | `field.rs` 的 `store_slot` |
+| VM 自己按槽位写已存在对象的字段（throw 点 `StackTrace`、反射 `SetValue`、反射 `Type`），带写屏障 | `object::store_field_slot` |
 | `ArrayGet` / `ArraySet` / `ArrayLen`（堆 / 栈数组、struct 数组元素句柄、写屏障） | `array.rs` 的 `array_get` / `array_set` / `array_len` |
 | `ArrayNew` / `ArrayNewLit`（数组模式判定、struct 数组、栈分配、OOM） | `array.rs` 的 `array_new` / `array_new_lit` / `elem_mode` |
-| JIT 打包数组 / 引用读快路取数（不抛） | `array.rs` 的 `packed_data` / `ref_data` |
-| `Std.Array` 无类型 / 批量原生：`CopyRange`（任意 backing 间，含 struct[] 的装箱 / 拆箱 / 类型检查）、`GetValue` 的元素装箱、`SetValue` 的校验、批量写入后的逐引用槽写屏障 | `array_bulk.rs` 的 `copy_range` / `elem_get_boxed` / `check_untyped_store` / `barrier_after_range_store` |
+| JIT 打包数组 / 引用读快路取数（不抛） | `object::packed_array_data` / `reference_array_data` |
+| `Std.Array` 无类型 / 批量原生：`CopyRange`（任意 backing 间，含 struct[] 的装箱 / 拆箱 / 类型检查）、`GetValue` 的元素装箱、`SetValue` 的校验、批量写入后的逐引用槽写屏障 | `array_bulk.rs` 的 `copy_range` / `elem_get_boxed` / `check_untyped_store` / `object::barrier_array_range` |
 | `ref arr[i]` 的检查与经 ref 读写 | `array.rs` 的 `check_elem_addr` / `elem_load` / `elem_store` |
-| 元素写入后的写屏障（`ArraySet` / 经 ref 写 / `Std.Array.SetValue` 共用，按写原语返回的 `FieldWrite`；装箱 struct 拷进 `struct[]` 按叶子发） | `array.rs` 的 `barrier_elem` |
+| 元素写入后的写屏障（`ArraySet` / 经 ref 写 / `Std.Array.SetValue` 共用，按写原语返回的 `FieldWrite`；装箱 struct 拷进 `struct[]` 按叶子发） | `object::barrier_array_element` |
 | `StaticGet` / `StaticSet`（初始化屏障、惰性零值、缺符号确证） | `statics.rs` 的 `static_get` / `static_set` |
 | `StructFieldGetPrim` / `StructFieldSetPrim` 的核心与 struct 快照 | `struct_leaf.rs` 的叶子读写、装箱与按名读取；布局查询在 `object/types/named_struct_layout.rs` |
 
@@ -59,7 +59,7 @@ match objops::field::field_get(vm_ctx_ref(ctx), recv, name, ic) {
 
 ## 待办
 
-- `obj_new`、闭包环境数组、反射的普通对象字段读取仍直接读槽；装箱 struct 读取和写屏障在本模块共享（`SetValue` 走 `store_slot` / `barrier_elem`，批量拷贝走 `barrier_after_range_store`）。
+- `obj_new`、闭包环境数组、反射的普通对象字段读取仍直接读槽；装箱 struct 读取和写屏障在本模块共享（`SetValue` 走 `object::store_field_slot` / `object::try_store_array_element`，批量拷贝走 `object::barrier_array_range`）。
 - `Std.Array` 的脚本泛型算法（`Fill` / `Reverse` / `IndexOf` …）在 struct[] 上不可用：擦除体里 `ArrayGet` 给的是元素句柄
   （别名），见 internals `struct-value-semantics.md` 的「待办」。
 
