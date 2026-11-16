@@ -60,6 +60,7 @@ fn c_host_jit_mode_uses_the_shared_engine_and_returns_values() {
     use std::{ffi::{c_char, c_void, CString}, ptr, sync::Mutex};
     use z42::host::{self, config::{Z42HostConfig, Z42ExecMode, Z42_HOST_ABI_VERSION}, error::Z42HostStatus, Z42Host, Z42Module, Z42Entry, Z42Value, Z42_VALUE_TAG_I64};
     unsafe extern "C" fn sink(bytes: *const c_char, len: usize, data: *mut c_void) {
+        if data.is_null() || bytes.is_null() || len == 0 { return; }
         let output = unsafe { &*(data as *const Mutex<Vec<u8>>) };
         output.lock().unwrap().extend_from_slice(unsafe { std::slice::from_raw_parts(bytes.cast(), len) });
     }
