@@ -140,6 +140,8 @@ fn packaged_c_embedding_host_loads_components_and_shuts_down() {
         let mut result = Z42Value { tag: 0, reserved: 0, payload: 0 };
         assert_eq!(invoke(entry, &arg, 1, &mut result), Z42HostStatus::Ok);
         assert_eq!((result.tag, result.payload), (Z42_VALUE_TAG_I64, 41));
+        assert_eq!(invoke(entry, &arg, 1, &mut result), Z42HostStatus::Ok);
+        assert_eq!((result.tag, result.payload), (Z42_VALUE_TAG_I64, 42), "the C host reuses the same JIT-backed VM state");
         assert_eq!(shutdown(host), Z42HostStatus::Ok);
     }
 }

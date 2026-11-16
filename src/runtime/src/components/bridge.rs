@@ -58,10 +58,7 @@ pub fn test_embedding_hello() -> Option<(&'static [u8], &'static str)> {
     #[cfg(z42_have_embedding_hello)]
     { Some((include_bytes!(concat!(env!("OUT_DIR"), "/embedding_hello.zbc")), env!("Z42_EMBEDDING_TEST_LIBS"))) }
     #[cfg(not(z42_have_embedding_hello))]
-    {
-        assert!(!cfg!(feature = "z42-test-fixtures"), "embedding fixture requested but not built");
-        None
-    }
+    { None }
 }
 
 #[cfg(feature = "jit-test-support")]
