@@ -424,34 +424,30 @@ CLI 启动分为加载 Core、准备程序、调用入口三个阶段。嵌入�
 
 ```mermaid
 sequenceDiagram
-    participant Main as z42vm / main.rs
-    participant CLI as Core / main_command
+    participant CLI as z42vm / Core 入口
     participant Host as host
     participant Loader as loader
-    participant VM as vm::assembly
-    participant Components as components::api
-    participant Exec as exec / EngineRegistry
-    Main->>Main: 定位 Core，dlopen / LoadLibrary
-    Main->>CLI: z42_main_v1()
-    CLI->>CLI: 解析配置、libs 与搜索路径
-    CLI->>Host: run_app / LoadedProgram::load_file
-    Host->>Loader: 读取入口和 corelib，准备依赖与索引
-    Loader-->>Host: 合并模块与依赖候选
-    Host->>VM: build(module, inputs, options)
-    VM->>VM: 可用性裁剪、Core 构造、主线程注册
-    VM->>VM: 登记入口类型的初始化事实
+    participant VM as vm
+    participant Components as components
+    CLI->>CLI: 装入 Core，调用 z42_main_v1
+    CLI->>CLI: 解析配置与搜索路径
+    CLI->>Host: 加载程序
+    Host->>Loader: 读取入口、corelib 与依赖
+    Loader-->>Host: 合并模块与索引
+    Host->>VM: assembly::build
+    VM->>VM: 裁剪、构造 Core、注册主线程
+    VM->>VM: 登记初始化事实
     VM->>Loader: 安装并播种 LazyLoader
-    VM->>VM: 配置原生来源策略、准备 token
-    VM->>Components: prepare_program
-    Components->>Loader: 按来源许可获取组件代码
-    Components->>Components: 校验契约，创建实例，绑定执行角色
-    Components->>Exec: 附着执行引擎
-    Components-->>VM: 装配成功
-    VM-->>Host: 重放加载事件，发布 LoadedProgram
-    Host->>Exec: run_entry / invoke_mode
-    Exec-->>Host: 结果或异常
+    VM->>VM: 配置来源策略，准备 token
+    VM->>Components: api::prepare_program
+    Components->>Loader: 获取获准的组件代码
+    Components->>Components: 校验与绑定，再创建实例
+    Components->>VM: 附着引擎、保留代码租约
+    VM-->>Host: 重放事件，发布 LoadedProgram
+    Host->>VM: 经 EngineRegistry 调用入口
+    VM-->>Host: 结果或异常
     Host-->>CLI: 执行结果与退出报告
-    CLI-->>Main: 退出码
+    CLI->>CLI: 返回退出码
 ```
 
 `main.rs` 只保留一个 `z42vm` 启动器，通过 `Z42_RUNTIME_LIBRARY` 或部署相对路径定位 Core，
@@ -479,11 +475,11 @@ flowchart TD
     body --> kind{"调用目标"}
     kind -->|托管函数| lookup["查询 token / 已链接函数"]
     lookup --> hit{"已解析？"}
-    hit -->|是| call["经已绑定引擎调用"]
+    hit -->|是| managedCall["经已绑定引擎调用"]
     hit -->|否| lazy["loader 按候选加载 zpkg"]
     lazy --> link["注册 metadata、登记初始化事实、解析并发布 token"]
-    link --> call
-    call --> barrier
+    link --> managedCall
+    managedCall --> barrier
     kind -->|核心 builtin| builtin["corelib 提供方执行"]
     kind -->|独立原生模块| native{"interop 已登记目标？"}
     native -->|否| code["loader 检查来源许可并解析模块入口"]
