@@ -239,14 +239,14 @@ public class HttpServer : IDisposable {
 
     private void _tryEmitErrorResponse(NetworkStream stream, int code, string reason, string body) {
         try {
+            byte[] bb = Utf8.GetBytes(body);
             string head = "HTTP/1.1 " + Int32.ToString(code) + " " + reason + "\r\n"
                 + "Content-Type: text/plain; charset=utf-8\r\n"
-                + "Content-Length: " + Int32.ToString(body.Length) + "\r\n"
+                + "Content-Length: " + Int32.ToString(bb.Length) + "\r\n"
                 + "Connection: close\r\n"
                 + "\r\n";
             byte[] hb = Utf8.GetBytes(head);
             stream.Write(hb, 0, hb.Length);
-            byte[] bb = Utf8.GetBytes(body);
             stream.Write(bb, 0, bb.Length);
         } catch (Exception e) {
             // 尽力而为 —— 连接可能已断开。
