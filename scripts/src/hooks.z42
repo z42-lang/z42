@@ -77,7 +77,7 @@ public class ProjectHooks : BuildHooks {
         } else {
             ctx.Warn("xtask hooks: embed apphost (static) cc failed (rc=" + r2.ExitCode.ToString() + ")");
         }
-        // embed-libs = **只有 stdlib** 的 flat（`xtask layout intermediate/libraries/flat/release`）：含编译器包的目录
+        // embed-libs = **只有 stdlib** 的 flat（`xtask flow layout intermediate/libraries/flat/release`）：含编译器包的目录
         // 会让 self-contained app 把整套 z42c 一起嵌进去。flat 在任何 build 之后都在。
         // ⚠️ 路径与 xtask 的 `_libsFlatDist`（common/layout.z42）同步：hooks 工程调不到它。
         string flat = Path.Join(repo, "artifacts/intermediate/libraries/flat/release");

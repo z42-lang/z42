@@ -63,11 +63,11 @@ xtask 自己发明、没有 toml 归属的路径，**全部在 `scripts/src/comm
 `xtask check layout` 守着镜像：`build/` 的一级目录、`build/{compiler,libraries,toolchain}/` 的二级目录、
 `intermediate/` 的一级目录，出现 `src/` 里没有的即红（例外：`intermediate/xtask`）。
 
-### 查询：`xtask layout`
+### 查询：`xtask flow layout`
 
 ```bash
-xtask layout                                # artifacts/ 的目录树：首行是 artifacts/ 的绝对路径，其余相对它、按层级缩进
-xtask layout intermediate/libraries/flat/release   # 只打印一条的绝对路径，给脚本用
+xtask flow layout                                # artifacts/ 的目录树：首行是 artifacts/ 的绝对路径，其余相对它、按层级缩进
+xtask flow layout intermediate/libraries/flat/release   # 只打印一条的绝对路径，给脚本用
 ```
 
 树里的名字就是磁盘上的目录名（`build/` 下的子目录直接枚举 `src/` 的一级目录），查询参数就是树里显示的

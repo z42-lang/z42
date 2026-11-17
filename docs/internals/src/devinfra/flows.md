@@ -14,6 +14,7 @@
 ./xtask flow plan --full                  # 完整策略
 ./xtask flow graph --format mermaid       # 输出目录与流程关系图
 ./xtask flow check                        # 校验配置并执行离线回归
+./xtask flow layout                       # 打印 artifacts/ 布局树；带路径参数打印该条目的绝对路径
 ```
 
 `flow plan` 打印所选节点、命中规则和前置依赖；`--format json` 提供结构化结果。保存与执行可分离：

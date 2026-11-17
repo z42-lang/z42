@@ -119,10 +119,10 @@ CI 调度使用 `ci supersede` 按资产差异取消旧 main 运行，`ci check-
 | `test compiler [--no-build]` | z42c 编译器变动 | 自建工具链，或通过 `--no-build` 使用已构建的工具链 | 全成员自举不动点（gen1==gen2）+ [Test] units + e2e |
 | `check docs` / `check release-archives` | 文档契约 / 发布归档实现或自检改动 | 种子 SDK，归档检查另需系统归档工具 | 链接、诊断码、布局 / 全 RID 归档与真实解包，不构建产品 |
 | `package sdk --verify` | 改打包系统 / 发行版相关后，验证打包出的 SDK 能独立工作 | 组装出的这份 SDK（缺本机桌面 workload 就先打） | packages.toml 自检（解析 / 组件安装 / 发布归档）+ 发行包夹具 + packaged z42c/z42vm 跑 golden |
-| `flow plan / run / graph / check` | 本地与 CI 按改动选择流程 | `flows.toml` + Git | 可解释计划、JSON 与 Mermaid；详见[流程规划](../docs/internals/src/devinfra/flows.md) |
+| `flow plan / run / graph / check / layout` | 本地与 CI 按改动选择流程；`layout` 打印 `artifacts/` 树或某项绝对路径 | `flows.toml` + Git | 可解释计划、JSON 与 Mermaid；详见[流程规划](../docs/internals/src/devinfra/flows.md) |
 | `test changed [base]` | 增量自测（按改动文件挑 stage） | 上述各命令（in-process 调度） | 仅跑受影响的 stage |
 | `test docs` / `examples` / `targets` / `embedded` / `platform` / `packages` / `bootstrap` 等 | 各专项门（完整清单 `xtask test -h`） | 视 stage | 文档死链、学习手册示例、manifest target、设备嵌入测试、平台 3 段测试…… |
-| `clean [tests\|bench\|all]` / `layout [entry]` / `run <zpkg\|.z42>` | 清产物 / 打印 `artifacts/` 树或某项绝对路径 / 经 launcher 直跑 | — | — |
+| `clean [tests\|bench\|all]` / `run <zpkg\|.z42>` | 清产物 / 经 launcher 直跑 | — | — |
 
 > **构建输出约定**：
 > - `artifacts/build/` **只放编译产物**（含测试的编译产物，成员内 profile 在外、`tests` 在内）；
@@ -275,7 +275,7 @@ scripts/
     │   ├── logging.z42           verbosity 与流程的开始 / 结束 / 耗时标记
     │   ├── text.z42              通用的字符串 / 集合小工具
     │   ├── projects.z42          共享目录 / workspace 成员定位，复用项目模型并拒绝歧义 / 包名冲突
-    │   ├── layout.z42            构建树布局路径（per-member 读 workspace.toml 单源 + flat/runtime/build-root 约定 + 已建产物路径）+ `layout` 命令
+    │   ├── layout.z42            构建树布局路径（per-member 读 workspace.toml 单源 + flat/runtime/build-root 约定 + 已建产物路径）+ `flow layout` 命令
     │   ├── versions.z42          versions.toml 读取器 + RID / cargo target 映射 + 发布归档命名 + 版本号比较
     │   ├── packages_config.z42   packages.toml 读取器（package/component 注册表）
     │   ├── components.z42        workspace 成员、工具链组件与 TOML 产物/发布路径

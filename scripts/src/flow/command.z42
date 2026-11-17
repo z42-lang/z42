@@ -9,6 +9,7 @@ class FlowCommand : Command {
         this.AddCommand(new FlowPlanCommand("run"));
         this.AddCommand(new FlowGraphCommand());
         this.AddCommand(new FlowCheckCommand());
+        this.AddCommand(new LayoutCommand());
     }
 }
 
