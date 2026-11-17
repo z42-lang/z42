@@ -1,6 +1,6 @@
 # Compression 原生模块
 
-> 代码：`src/runtime/crates/z42-compression/`、`src/runtime/src/loader/native.rs`、`src/runtime/src/interop/native_call.rs`
+> 代码：`src/runtime/crates/z42-compression/`、`src/runtime/src/loader/native.rs`、`src/runtime/src/host/native/native_call.rs`
 
 ## 模块边界
 

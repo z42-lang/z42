@@ -111,7 +111,7 @@ fn str_with_interior_nul_returns_invalid_marshal() {
     // `MarshalErr::InvalidMarshal` carrying a plain-text diagnostic.
     // The caller (`exec_ffi::ffi_call`) wraps the message into a
     // `Std.InvalidMarshalException` instance for user-catchable throw.
-    use crate::interop::marshal::MarshalErr;
+    use crate::host::native::marshal::MarshalErr;
     let mut a = arena();
     let err = value_to_z42(&Value::Str("a\0b".into()), &SigType::CStr, &mut a)
         .expect_err("interior NUL rejected");

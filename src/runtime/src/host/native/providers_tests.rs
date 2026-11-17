@@ -143,7 +143,7 @@ fn reject_duplicate_provider_and_empty_names() {
 
 #[test]
 fn core_catalog_does_not_initialize_independent_native_modules() {
-    let registry = crate::interop::providers::registry();
+    let registry = crate::host::native::providers::registry();
     assert!(registry.resolve("z42.core", "__str_length").is_some());
     assert!(registry.resolve("z42.core", "__repl_member_names").is_some());
     assert!(registry.resolve("z42.core", "__repl_readline").is_none());

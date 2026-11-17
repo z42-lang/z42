@@ -14,7 +14,7 @@ use anyhow::anyhow;
 
 use crate::vm::VmContext;
 #[cfg(feature = "native-interop")]
-use crate::interop::error;
+use crate::host::native::error;
 
 /// Categorical error code mirrored into the last-error slot for native
 /// library load failures.  retire-z-codes: was `Z0910`; the
@@ -79,7 +79,7 @@ pub fn load_library(ctx: &VmContext, path: &Path) -> Result<()> {
     // Call the entry. The library is expected to invoke `z42_register_type`
     // for each of its types; those calls flow through `exports::z42_register_type`
     // → `interop::register_native_type` on the current thread.
-    let _guard = crate::interop::exports::VmGuard::enter(ctx);
+    let _guard = crate::host::native::exports::VmGuard::enter(ctx);
     unsafe { register() };
 
     Ok(())
@@ -208,7 +208,7 @@ pub fn load_native_module(ctx: &VmContext, path: &Path) -> Result<()> {
     let entry_name = format!("{}_module_v1", stem.strip_prefix("lib").unwrap_or(stem));
     let entry: z42_abi::module::ModuleEntry = unsafe { image.symbol(&entry_name)? };
     let descriptor = unsafe { entry() };
-    let module = unsafe { crate::interop::module::NativeModule::parse(descriptor)? };
+    let module = unsafe { crate::host::native::module::NativeModule::parse(descriptor)? };
     let libraries = ctx
         .ext::<Libraries>()
         .ok_or_else(|| anyhow!("missing native loader VM state"))?;
@@ -221,7 +221,7 @@ pub fn load_native_module(ctx: &VmContext, path: &Path) -> Result<()> {
             ));
         }
     }
-    unsafe { crate::interop::register_native_module(ctx, descriptor)? };
+    unsafe { crate::host::native::register_native_module(ctx, descriptor)? };
     named.insert(module.name.to_owned(), Ok(image));
     Ok(())
 }

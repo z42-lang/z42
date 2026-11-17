@@ -1,6 +1,6 @@
 # 原生模块注册与调用
 
-> 代码：`src/runtime/src/interop/`、`src/runtime/src/loader/native.rs`、`src/runtime/crates/z42-abi/src/module.rs`、`src/runtime/crates/z42-rs/src/module.rs`
+> 代码：`src/runtime/src/host/native/`、`src/runtime/src/loader/native.rs`、`src/runtime/crates/z42-abi/src/module.rs`、`src/runtime/crates/z42-rs/src/module.rs`
 
 ## 职责与装配
 

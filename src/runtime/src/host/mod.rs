@@ -43,6 +43,7 @@ pub mod signal;
 pub mod error;
 /// C embedding adapter (`z42_host` ABI): config, session, marshaling and the
 /// `extern "C"` entry points. Reached only through this module's re-exports.
+pub mod native;
 pub(crate) mod c;
 mod app;
 mod load;

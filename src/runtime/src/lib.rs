@@ -25,7 +25,7 @@ pub mod corelib;
 #[cfg(test)]
 #[path = "../crates/z42-profiler/src/profiler/mod.rs"]
 pub mod profiler;
-pub mod interop;
+
 pub mod host;
 pub mod config;
 pub use exec::ops::object as objops;

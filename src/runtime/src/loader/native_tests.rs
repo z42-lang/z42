@@ -88,7 +88,7 @@ fn actual_dynamic_module_registers_calls_isolates_vms_and_retains_code() {
     load_native_module(&first, &library).unwrap();
     load_native_module(&second, &library).unwrap();
     let call = |ctx: &VmContext| {
-        crate::interop::invoke_export(ctx, Some("z42_fixture"), "__fixture_native_count", &[])
+        crate::host::native::invoke_export(ctx, Some("z42_fixture"), "__fixture_native_count", &[])
             .unwrap()
             .unwrap()
     };
@@ -119,13 +119,13 @@ fn dynamic_abi_failure_does_not_publish_and_good_retry_can_register() {
     let error = load_native_module(&ctx, &bad).unwrap_err();
     assert!(error.to_string().contains("ABI mismatch"), "{error}");
     assert!(
-        crate::interop::resolve_native_module(&ctx, "z42_fixture")
+        crate::host::native::resolve_native_module(&ctx, "z42_fixture")
             .unwrap()
             .is_none()
     );
     load_native_module(&ctx, &good).unwrap();
     assert!(
-        crate::interop::resolve_native_module(&ctx, "z42_fixture")
+        crate::host::native::resolve_native_module(&ctx, "z42_fixture")
             .unwrap()
             .is_some()
     );

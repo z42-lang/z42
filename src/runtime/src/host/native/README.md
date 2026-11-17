@@ -1,4 +1,4 @@
-# interop — 原生能力注册与调用桥接
+# host/native — 原生能力注册与调用桥接
 
 ## 职责
 
@@ -25,7 +25,7 @@ Tier 1 外部类型仍按 `(module, name)` 在每 VM 注册。`loader::native::l
 
 ## 如何测试验证
 
-在 `src/runtime/` 运行 `cargo test -p z42 --lib interop::`，完整验证运行 `./xtask test`。
+在 `src/runtime/` 运行 `cargo test -p z42 --lib host::native::`，完整验证运行 `./xtask test`。
 
 ## 关联文档
 

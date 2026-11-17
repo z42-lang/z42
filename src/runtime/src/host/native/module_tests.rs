@@ -14,7 +14,7 @@ fn competing_state_destructors_run_outside_the_instance_registry_lock() {
         Box::into_raw(Box::new(0_u8)).cast()
     }
     unsafe extern "C" fn destroy(value: *mut c_void) {
-        let pointer = WATCH.load(Ordering::SeqCst) as *const crate::interop::state::State;
+        let pointer = WATCH.load(Ordering::SeqCst) as *const crate::host::native::state::State;
         if let Some(state) = unsafe { pointer.as_ref() } {
             if state.instances.try_read().is_none() { LOCKED.fetch_add(1, Ordering::SeqCst); }
         }
@@ -25,8 +25,8 @@ fn competing_state_destructors_run_outside_the_instance_registry_lock() {
     static RACE: abi::Module = abi::Module { name: abi::Text::new("native.race"), functions: ENTRIES.as_ptr(),
         function_count: 1, create_state: Some(create), destroy_state: Some(destroy), ..MODULE };
     let ctx = VmContext::new();
-    unsafe { crate::interop::register_native_module(&ctx, &RACE) }.unwrap();
-    WATCH.store(crate::interop::state::state(&ctx).unwrap() as *const _ as usize, Ordering::SeqCst);
+    unsafe { crate::host::native::register_native_module(&ctx, &RACE) }.unwrap();
+    WATCH.store(crate::host::native::state::state(&ctx).unwrap() as *const _ as usize, Ordering::SeqCst);
     let workers: Vec<_> = (0..2).map(|_| {
         let core = ctx.core_arc();
         std::thread::spawn(move || {
@@ -129,7 +129,7 @@ static MODULE: abi::Module = abi::Module {
 #[test]
 fn crate_module_registers_and_marshals_without_a_runtime_wrapper() {
     let ctx = VmContext::new();
-    unsafe { crate::interop::register_native_module(&ctx, &MODULE) }.unwrap();
+    unsafe { crate::host::native::register_native_module(&ctx, &MODULE) }.unwrap();
     let result = invoke_export(
         &ctx,
         Some("native.test"),
@@ -157,7 +157,7 @@ fn crate_module_registers_and_marshals_without_a_runtime_wrapper() {
             .is_err()
     );
     assert!(invoke_export(&ctx, Some("other"), "__native_echo", &[]).unwrap().is_err());
-    assert!(!crate::interop::state::state(&ctx).unwrap().instances.read().contains_key("native.test"));
+    assert!(!crate::host::native::state::state(&ctx).unwrap().instances.read().contains_key("native.test"));
     let error = invoke_export(&ctx, None, "__native_error", &[])
         .unwrap()
         .unwrap_err();
@@ -173,7 +173,7 @@ fn module_state_is_per_vm_shared_with_workers_and_destroyed_once() {
     let first = VmContext::new();
     let second = VmContext::new();
     for ctx in [&first, &second] {
-        unsafe { crate::interop::register_native_module(ctx, &COUNT) }.unwrap();
+        unsafe { crate::host::native::register_native_module(ctx, &COUNT) }.unwrap();
     }
     let call = |ctx: &VmContext| {
         invoke_export(ctx, Some("native.count"), "__native_count", &[])
@@ -184,7 +184,7 @@ fn module_state_is_per_vm_shared_with_workers_and_destroyed_once() {
     let worker = VmContext::new_with_core(first.core_arc());
     assert_eq!(call(&worker), Some(Value::I64(2)));
     assert_eq!(call(&second), Some(Value::I64(1)));
-    unsafe { crate::interop::register_native_module(&first, &COUNT) }.unwrap();
+    unsafe { crate::host::native::register_native_module(&first, &COUNT) }.unwrap();
     assert_eq!(call(&first), Some(Value::I64(3)));
     drop(first);
     assert_eq!(DROPPED.load(Ordering::SeqCst), dropped);
@@ -205,16 +205,16 @@ fn malformed_registration_does_not_publish_partial_exports() {
         create_state: None,
         destroy_state: None,
     };
-    assert!(unsafe { crate::interop::register_native_module(&ctx, &bad) }.is_err());
+    assert!(unsafe { crate::host::native::register_native_module(&ctx, &bad) }.is_err());
     assert!(
-        crate::interop::resolve_native_module(&ctx, "native.test")
+        crate::host::native::resolve_native_module(&ctx, "native.test")
             .unwrap()
             .is_none()
     );
-    assert!(unsafe { crate::interop::module::NativeModule::parse(std::ptr::null()) }.is_err());
-    unsafe { crate::interop::register_native_module(&ctx, &MODULE) }.unwrap();
+    assert!(unsafe { crate::host::native::module::NativeModule::parse(std::ptr::null()) }.is_err());
+    unsafe { crate::host::native::register_native_module(&ctx, &MODULE) }.unwrap();
     assert!(
-        crate::interop::resolve_native_module(&ctx, "native.test")
+        crate::host::native::resolve_native_module(&ctx, "native.test")
             .unwrap()
             .is_some()
     );
@@ -223,7 +223,7 @@ fn malformed_registration_does_not_publish_partial_exports() {
 #[test]
 fn blocking_native_calls_park_and_restore_the_mutator() {
     let ctx = VmContext::new();
-    unsafe { crate::interop::register_native_module(&ctx, &MODULE) }.unwrap();
+    unsafe { crate::host::native::register_native_module(&ctx, &MODULE) }.unwrap();
     assert_eq!(
         invoke_export(&ctx, None, "__native_unparked", &[])
             .unwrap()
@@ -254,22 +254,22 @@ fn invalid_signatures_and_interface_conflicts_leave_registration_unchanged() {
             function_count: 1,
             ..MODULE
         };
-        assert!(unsafe { crate::interop::register_native_module(&ctx, &descriptor) }.is_err());
+        assert!(unsafe { crate::host::native::register_native_module(&ctx, &descriptor) }.is_err());
         assert!(
-            crate::interop::resolve_native_module(&ctx, "native.test")
+            crate::host::native::resolve_native_module(&ctx, "native.test")
                 .unwrap()
                 .is_none()
         );
     }
-    unsafe { crate::interop::register_native_module(&ctx, &MODULE) }.unwrap();
+    unsafe { crate::host::native::register_native_module(&ctx, &MODULE) }.unwrap();
     let incompatible = abi::Module {
         functions: std::ptr::null(),
         function_count: 0,
         ..MODULE
     };
-    assert!(unsafe { crate::interop::register_native_module(&ctx, &incompatible) }.is_err());
+    assert!(unsafe { crate::host::native::register_native_module(&ctx, &incompatible) }.is_err());
     assert_eq!(
-        crate::interop::resolve_native_module(&ctx, "native.test")
+        crate::host::native::resolve_native_module(&ctx, "native.test")
             .unwrap()
             .unwrap()
             .function_count(),
@@ -279,7 +279,7 @@ fn invalid_signatures_and_interface_conflicts_leave_registration_unchanged() {
 
 #[test]
 fn declaration_loads_once_on_first_call_and_rejects_mismatched_implementations_atomically() {
-    use crate::interop::providers::RegistryBuilder;
+    use crate::host::native::providers::RegistryBuilder;
     use std::sync::atomic::AtomicUsize;
     static LOOKUPS: AtomicUsize = AtomicUsize::new(0);
     static READY: AtomicUsize = AtomicUsize::new(0);
@@ -326,7 +326,7 @@ fn declaration_loads_once_on_first_call_and_rejects_mismatched_implementations_a
     let registry = Box::leak(Box::new(builder.freeze()));
     let mut extensions = crate::vm::VmExtensions::new();
     extensions
-        .register(crate::interop::state_for_vm(registry))
+        .register(crate::host::native::state_for_vm(registry))
         .unwrap();
     let ctx = crate::vm::defaults::with_config(
         None,
@@ -337,7 +337,7 @@ fn declaration_loads_once_on_first_call_and_rejects_mismatched_implementations_a
         crate::exec::EngineRegistry::new(None),
     );
     assert!(
-        crate::interop::resolve_native_module(&ctx, "native.lazy.test")
+        crate::host::native::resolve_native_module(&ctx, "native.lazy.test")
             .unwrap()
             .unwrap()
             .deferred
@@ -366,7 +366,7 @@ fn declaration_loads_once_on_first_call_and_rejects_mismatched_implementations_a
             .is_err()
     );
     assert!(
-        crate::interop::resolve_native_module(&ctx, "native.lazy.test")
+        crate::host::native::resolve_native_module(&ctx, "native.lazy.test")
             .unwrap()
             .unwrap()
             .deferred
@@ -390,7 +390,7 @@ fn declaration_loads_once_on_first_call_and_rejects_mismatched_implementations_a
         "successful materialization must replace the declaration"
     );
     assert!(
-        !crate::interop::resolve_native_module(&ctx, "native.lazy.test")
+        !crate::host::native::resolve_native_module(&ctx, "native.lazy.test")
             .unwrap()
             .unwrap()
             .deferred
@@ -473,7 +473,7 @@ fn blocking_provider_reenters_the_interpreter_and_copies_callback_results() {
         function_count: 1,
         ..MODULE
     };
-    unsafe { crate::interop::register_native_module(&ctx, &CALLBACK) }.unwrap();
+    unsafe { crate::host::native::register_native_module(&ctx, &CALLBACK) }.unwrap();
     let returned = invoke_export(&ctx, Some("native.callback"), "__callback", &[])
         .unwrap()
         .unwrap()
@@ -500,8 +500,8 @@ fn undeclared_linked_module_is_untouched_until_called_and_shared_only_within_its
     unsafe { crate::loader::linked::register_static_library("independent.auto.example", resolver) }.unwrap();
     let first = VmContext::new();
     let second = VmContext::new();
-    assert!(crate::interop::resolve_native_module(&first, "independent.auto.example").unwrap().is_none());
-    assert!(crate::interop::resolve_native_module(&second, "independent.auto.example").unwrap().is_none());
+    assert!(crate::host::native::resolve_native_module(&first, "independent.auto.example").unwrap().is_none());
+    assert!(crate::host::native::resolve_native_module(&second, "independent.auto.example").unwrap().is_none());
     assert_eq!(ENTRIES.load(Ordering::SeqCst), 0);
     let invoke = |ctx: &VmContext| invoke_export(ctx, Some("independent.auto.example"), "__native_echo", &[Value::Str("echo".into())]).unwrap().unwrap();
     assert_eq!(invoke(&first), Some(Value::Str("echo".into())));
@@ -509,7 +509,7 @@ fn undeclared_linked_module_is_untouched_until_called_and_shared_only_within_its
     let worker = VmContext::new_with_core(first.core_arc());
     assert_eq!(invoke(&worker), Some(Value::Str("echo".into())));
     assert_eq!(ENTRIES.load(Ordering::SeqCst), 1);
-    assert!(crate::interop::resolve_native_module(&second, "independent.auto.example").unwrap().is_none());
+    assert!(crate::host::native::resolve_native_module(&second, "independent.auto.example").unwrap().is_none());
     assert_eq!(invoke(&second), Some(Value::Str("echo".into())));
     assert_eq!(ENTRIES.load(Ordering::SeqCst), 2);
 }
@@ -529,7 +529,7 @@ fn automatic_module_rejects_bad_abi_or_name_without_publishing_any_module() {
         unsafe { crate::loader::linked::register_static_library(name, resolver) }.unwrap();
         let ctx = VmContext::new();
         assert!(invoke_export(&ctx, Some(name), "__native_echo", &[]).unwrap().is_err());
-        assert!(crate::interop::resolve_native_module(&ctx, name).unwrap().is_none());
-        assert!(crate::interop::resolve_native_module(&ctx, "native.test").unwrap().is_none());
+        assert!(crate::host::native::resolve_native_module(&ctx, name).unwrap().is_none());
+        assert!(crate::host::native::resolve_native_module(&ctx, "native.test").unwrap().is_none());
     }
 }

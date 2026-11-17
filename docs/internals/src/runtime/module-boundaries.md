@@ -67,10 +67,10 @@ vm/mod.rs 只负责共享 Core 与线程视图的组合、布局、构造和生�
 | 宿主仍可访问低层上下文 | LoadedProgram::context、host 的 VmCore/VmContext 再导出 | LoadOptions 已只保留功能请求；继续按真实低层消费者收口可达面 |
 | 组件协议中的依赖身份 | `components::abi::RuntimeApi` 的跨组件依赖查询 | VM 执行消费者按语义角色请求服务；按 ID 查询只在内部测试构建可见，生产 VM 经内部能力入口获取租约，协议内依赖 ID 由管理层拥有 |
 | 配置与装配输入仍未完全显式 | `config/availability.rs` 查询默认组件可用性；低层上下文默认构造仍使用进程配置 | 路径/许可已按 VM 捕获，JIT 参数由装配显式传入；继续区分默认进程能力查询与每 VM 请求 |
-| 普通宿主与 C 适配尚未分开 | `host/ffi.rs/config.rs/state.rs/ops.rs/marshal.rs` | CLI 已归 cli 适配且平台构建可排除；后续 C 适配/头文件归能力所有者，host 保留功能请求/环境服务契约 |
-| 初始化层级含混 | `host/state.rs` 的会话保存多个 LoadedProgram；`ops::build_host_module` 每次创建程序/VM；`LoadedProgram::invoke` 执行一次性托管初始化 | 区分会话、VM/包准备与托管初始化，不把 C initialize 当作所有模块已初始化；统一装配但保持隔离和失败终态 |
+| 普通宿主与 C 适配尚未分开 | C 适配五文件已归组 `host/c/`（经 host 根再导出），与 Rust 面分离 | CLI 已归 cli 适配且平台构建可排除；后续 C 适配/头文件归能力所有者，host 保留功能请求/环境服务契约 |
+| 初始化层级含混 | `host/c/state.rs` 的会话保存多个 LoadedProgram；`ops::build_host_module` 每次创建程序/VM；`LoadedProgram::invoke` 执行一次性托管初始化 | 区分会话、VM/包准备与托管初始化，不把 C initialize 当作所有模块已初始化；统一装配但保持隔离和失败终态 |
 | 进程策略混入每 VM 输入 | `config/vm_config.rs::process_loh_bytes` 在 Core 构造时修改进程级 LOH 设置 | 进程 bootstrap 与 VM 设置分开捕获，禁止任意 VM 构造改写其它 VM 可见的全局策略 |
-| loader 与 interop 混合机制和编排 | `loader/native.rs` 调 interop 注册/解析，`interop/module.rs` 反向调用 loader::native::resolve_symbol | loader 提供代码/符号来源，interop 负责描述符与编组；由装配协调器连接 |
+| loader 与 host/native 混合机制和编排 | `loader/native.rs` 调 host/native 注册/解析，`host/native/module.rs` 反向调用 loader::native::resolve_symbol | loader 提供代码/符号来源，host/native 负责描述符与编组；由装配协调器连接 |
 | 元数据解析直接驱动 VM 加载 | `metadata/resolve.rs` 接收 VmContext，enqueue_type_load/drain_pending_type_loads | 将解析事实与加载编排分开，用最小解析视图和待加载请求连接 |
 | 对象表示反向依赖执行和加载域 | `object/value/ref_word.rs::alloc_box_ambient` 访问 exec::ambient；`object/storage.rs::NativeData` 引用 loader 身份；`object/types/type_desc.rs` 引用 metadata TypeId | 抽出身份/布局词汇，分离编码与需堆的装箱操作；保留屏障协议，不把 object/GC 的必要协作当成可直接删除的依赖 |
 
@@ -89,7 +89,7 @@ flowchart TD
     M --> L[loader：代码来源/依赖/符号/保活]
     M --> P[最小同构建协议与适配器]
     P --> I[interp / JIT / profiler 实现]
-    V --> N[interop：描述符/编组/原生实例]
+    V --> N[host/native：描述符/编组/原生实例]
     N --> L
     V --> C[Core 与子系统状态]
 ```
@@ -130,7 +130,7 @@ C initialize 当前建立进程单例宿主会话，不等于创建一个承载�
 | components 管理实现 | 能力到提供方的绑定、工厂缓存、实例依赖闭包、每 VM 实例及 loader 代码句柄 | 内部 api 的准备/能力查询；不让消费者传实现 ID，不返回可修改的 OnceLock，不保存映像缓存 |
 | exec / diagnostics | 引擎与观察/采样的消费契约 | 装配时绑定的接口；不决定组件库路径或具体实现 |
 | 同构建协议层 | 描述符、版本、身份、接口表及最小桥接 | 仅给 VM 与组件适配器；不是普通宿主 SDK 扩展面 |
-| loader / interop | loader 拥有代码来源/装载依赖/符号/保活；interop 拥有描述符/编组/原生实例 | 窄接口与 VM 装配连接，不互相承担完整装入事务 |
+| loader / host/native | loader 拥有代码来源/装载依赖/符号/保活；host/native 拥有描述符/编组/原生实例 | 窄接口与 VM 装配连接，不互相承担完整装入事务 |
 | object / GC / threads | 表示、屏障、分配、暂停与根协议 | 共享必要数据契约，通过回调适配，逐步减少实现穿透 |
 
 ## 实现
@@ -145,7 +145,7 @@ C initialize 当前建立进程单例宿主会话，不等于创建一个承载�
 | 当前文件/文件组 | 实际职责 | 候选名称/拆分方向 |
 |---|---|---|
 | host/config.rs、corelib/core/config.rs、gc/config.rs、JIT config.rs | C 宿主配置、托管查询、GC 输入、JIT 输入 | host_abi_config.rs、runtime_config_builtins.rs、gc_config.rs、jit_config.rs |
-| host/state.rs、interop/state.rs | 宿主会话；原生模块/类型/buffer 状态 | host_session.rs、native_resources.rs |
+| host/c/state.rs、host/native/state.rs | 宿主会话；原生模块/类型/buffer 状态 | host_session.rs、native_resources.rs |
 | threads/state.rs、loader/state.rs、exec/state.rs、metadata/state.rs | mutator、加载、执行、链接状态 | mutator_state.rs、loader_state.rs、execution_state.rs、link_state.rs |
 | 四处 builtins.rs | 组装提供方、声明导出、名称目录、执行派发 | builtin_registry_builder.rs、core_builtin_descriptors.rs、builtin_symbol_catalog.rs、builtin_dispatch.rs |
 | components/backends.rs | 来源选择、平台发现、初始引擎注册表 | source/discovery 按职责拆分；装配协调由内部 api 拥有，同构建协议位于 components::abi |
@@ -185,7 +185,7 @@ SATB 删除屏障留在底层存储原语，插入屏障由对象写入接口补
 普通宿主 API 收口涉及 Rust 签名、C 静态装配头、launcher/workload 胶水与真实 SDK 消费者，需同轮迁移和验证。
 GC/对象、线程/执行及元数据共享的数据契约需要单独建模，不能通过把全部目录改为私有或抽一个万能 trait 修复。
 
-核心 builtin/provider 描述归 corelib，通用不可变目录归 interop，host 不再拥有 builtins 登记表。独立模块在首次限定调用时才经 loader 解析自描述入口，interop 校验并登记；lib.rs 的已链接入口清单仅表达链接事实，不在初始化时执行。动态 Core 不依赖 compression 的声明 crate，loader 的静态登记接受任意有效逻辑名，不写死库名单。
+核心 builtin/provider 描述归 corelib，通用不可变目录归 host/native，host 不再拥有 builtins 登记表。独立模块在首次限定调用时才经 loader 解析自描述入口，host/native 校验并登记；lib.rs 的已链接入口清单仅表达链接事实，不在初始化时执行。动态 Core 不依赖 compression 的声明 crate，loader 的静态登记接受任意有效逻辑名，不写死库名单。
 
 VM 组合和装配集中在 vm/，context 目录已删除。帧/arena/异常使用 ThreadExecState，包加载查找使用不持有 VmContext 的 RuntimeLoader，静态存储使用 StaticFields，初始化执行使用 Initialization。计数汇总归 DiagnosticsState，注册与注销归 ThreadState；vm/mod.rs 只提供组合、生命周期和借用。
 

@@ -25,11 +25,11 @@ native 安装器将其聚合成既有统一头，workload 不增加逐模块 inc
 |------|------|
 | `main.rs` | 唯一 z42vm 启动器；按部署路径动态加载 Core 的 z42_main_v1 入口 |
 | `main_startup.rs` | 命令行宿主的私有启动策略；main_command.rs 解析参数并消费 host 接口 |
-| `corelib/builtins.rs` | 核心库导出自身描述符，经 interop 的通用目录提供 builtin 查询与执行服务 |
+| `corelib/builtins.rs` | 核心库导出自身描述符，经 host/native 的通用目录提供 builtin 查询与执行服务 |
 | `corelib/mod.rs` | 核心库提供 GetType 和默认 ToString 的对象协议绑定；宿主将其注入 VM |
 | `loader/artifact.rs` | 门面在函数融合准备时读取进程配置，为公开加载入口与每 VM loader 提供同一惰性输入 |
 | `vm/defaults.rs` | 默认配置、内置服务与扩展输入；Core 构造、线程加入和 Drop 机制由 vm/mod.rs 负责 |
-| `vm/services.rs` | 门面装配 interop 与核心库每 VM 资源状态，保留库句柄到最后释放，所有构造入口共用 |
+| `vm/services.rs` | 门面装配 native 互操作与核心库每 VM 资源状态，保留库句柄到最后释放，所有构造入口共用 |
 | `threads/state.rs` | `ThreadState` 拥有每 VM 线程注册、暂停握手与 fatal 状态，VmCore 组合持有 |
 | `metadata/state.rs` | `RuntimeState` 组合入口 module 与运行时身份表，保留每 VM 链接隔离 |
 | `loader/state.rs` | `LoaderState` 组合每 VM 加载上下文、初始化队列与 VFS |
@@ -67,7 +67,7 @@ native 安装器将其聚合成既有统一头，workload 不增加逐模块 inc
 | `src/gc/` | 具体 Heap 与分代 / STW / 增量 major 回收，见 [`src/gc/README.md`](src/gc/README.md) |
 | `crates/z42-profiler/src/profiler/` | CPU 采样、堆摘要、V8 快照与保留链，见 [`crates/z42-profiler/README.md`](crates/z42-profiler/README.md) |
 | `src/vm/mod.rs` | `VmContext`（通过 host 提供嵌入入口）：固定地址的每线程视图，组合 exec/runtime/diagnostics/threads 状态并共享 Arc<VmCore> |
-| `src/interop/` | 原生提供方注册/查询与 Tier 1 C ABI 编组，见 [`src/interop/README.md`](src/interop/README.md) |
+| `src/host/native/` | 原生提供方注册/查询与 Tier 1 C ABI 编组，见 [`src/host/native/README.md`](src/host/native/README.md) |
 | `src/components/abi.rs` / `src/components/bridge.rs` | 独立组件共享的同构建协议及核心身份/布局桥，不经 host 转出 |
 | `src/components/` | 内部能力门面、角色绑定、工厂加载、后端选择与每 VM 生命周期，见 [`src/components/README.md`](src/components/README.md) |
 | `src/host/` | CLI 与外部宿主共用的 Rust 加载、调用及应用服务，C ABI 适配收在 `c/` 子目录，见 [embedding.md](../../docs/internals/src/runtime/embedding.md) |

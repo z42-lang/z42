@@ -61,7 +61,7 @@ fn qualified_dispatch_never_uses_a_bare_name_winner() {
 
 #[test]
 fn internal_descriptors_follow_their_declared_provider() {
-    let registry = crate::interop::providers::registry();
+    let registry = crate::host::native::providers::registry();
     for (provider, name) in [("z42_diagnostics", "__diag_counters"),
         ("z42_harness", "__test_io_take_stdout_buffer"), ("z42.core", "__println")] {
         assert!(registry.resolve(provider, name).is_some());

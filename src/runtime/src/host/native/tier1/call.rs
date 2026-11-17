@@ -8,7 +8,7 @@ pub(crate) fn call_registered(
     ctx: &VmContext, module_name: &str, type_name: &str, symbol: &str,
     registers: &[Value], args: &[u32],
 ) -> Result<Value, NativeCallError> {
-    let ty = crate::interop::resolve_native_type(ctx, module_name, type_name)?.ok_or_else(|| {
+    let ty = crate::host::native::resolve_native_type(ctx, module_name, type_name)?.ok_or_else(|| {
         anyhow::anyhow!(
             "CallNative: unknown native type {module_name}::{type_name}"
         )

@@ -36,8 +36,8 @@ static SECOND: abi::Module = abi::Module {
 };
 fn register(ctx: &VmContext) {
     unsafe {
-        crate::interop::register_native_module(ctx, &FIRST).unwrap();
-        crate::interop::register_native_module(ctx, &SECOND).unwrap();
+        crate::native::register_native_module(ctx, &FIRST).unwrap();
+        crate::native::register_native_module(ctx, &SECOND).unwrap();
     }
 }
 

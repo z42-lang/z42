@@ -8,13 +8,13 @@ pub(crate) fn freeze(extensions: VmExtensions) -> ExtensionState {
     #[cfg(any(feature = "native-interop", feature = "component-loading"))]
     add(&mut defaults, crate::loader::native::Libraries::default());
     // Interop providers must outlive heap, engines, user state and core-library resources.
-    add(&mut defaults, crate::interop::state_for_vm(crate::interop::providers::registry()));
-    add(&mut defaults, crate::exec::call::builtins::NativeProviderServices { invoke: crate::interop::invoke_export });
+    add(&mut defaults, crate::host::native::state_for_vm(crate::host::native::providers::registry()));
+    add(&mut defaults, crate::exec::call::builtins::NativeProviderServices { invoke: crate::host::native::invoke_export });
     #[cfg(feature = "native-interop")]
     add(&mut defaults, crate::exec::native::NativeServices {
-        call: crate::interop::call_registered,
-        pin_owned_buffer: crate::interop::pin_owned_buffer,
-        release_owned_buffer: crate::interop::release_owned_buffer,
+        call: crate::host::native::call_registered,
+        pin_owned_buffer: crate::host::native::pin_owned_buffer,
+        release_owned_buffer: crate::host::native::release_owned_buffer,
     });
     #[cfg(any(feature = "native-interop", feature = "component-loading"))]
     add(&mut defaults, crate::loader::native::SearchPaths(crate::loader::native_paths::candidates));

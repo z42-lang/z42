@@ -6,7 +6,7 @@
 //! H1 scope: lifecycle (initialize / shutdown / sinks / last_error).
 //! H2 scope: load_zbc / resolve_entry / invoke + stdout sink VM wiring.
 //!
-//! Sibling: `crate::interop` (interop — native code registering types into z42).
+//! Sibling: `crate::host::native` (interop — native code registering types into z42).
 
 use crate::host::*;
 use super::{config, ops, state};
@@ -112,7 +112,7 @@ pub unsafe extern "C" fn z42_host_initialize(
         // C embedding hosts may never touch the builtins registry; native
         // shim panic forwarding must be live before any invoke.
         #[cfg(feature = "native-interop")]
-        crate::interop::exports::install_panic_hook();
+        crate::host::native::exports::install_panic_hook();
 
         let resolved = match unsafe { config::validate(cfg) } {
             Ok(r) => r,
