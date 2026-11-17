@@ -1,36 +1,26 @@
-# include/ — Public C headers
+# include/ — 运行时 C 头文件
 
 ## 职责
 
-z42 runtime 对外暴露的 C ABI 公开头文件。供 host 应用 / native 库通过 `-I` include 路径引用。
+z42 runtime 对外的全部 C ABI 声明集中在本目录，供 host 应用 / native 库通过 `-I` 引用；不再在其他目录散落副本。Rust 侧镜像：Tier 1 类型 ABI 见 [`crates/z42-abi`](../crates/z42-abi)，宿主 C 适配见 [`src/host/c`](../src/host/c)，组件登记见 [`src/components/ffi.rs`](../src/components/ffi.rs)。
 
-## 核心文件
+## 文件
 
 | 文件 | 职责 |
 |------|------|
-| `z42_abi.h` | Tier 1 native interop ABI（`Z42TypeDescriptor_v1` + `z42_*` 函数声明）。Rust 镜像见 [`crates/z42-abi/`](../crates/z42-abi) |
-| `z42_host.h` | Tier 1 embedding / hosting ABI（`Z42HostConfig` + `z42_host_*` 函数声明）。`#include "z42_abi.h"` 复用 `Z42Value` / `Z42Args` / `Z42Error`。Spec 见 [`docs/internals/src/runtime/embedding.md`](../../../docs/internals/src/runtime/embedding.md) |
+| `z42_host.h` | 统一发布伞头：聚合下列全部声明，native SDK 的单一 include 入口 |
+| `z42_host_api.h` | Tier 1 嵌入 / 宿主 ABI（`Z42HostConfig` + `z42_host_*` 函数），经伞头发布 |
+| `z42_abi.h` | Tier 1 native interop ABI（`Z42TypeDescriptor_v1` + `z42_*` 函数），单独安装 |
+| `z42_native.h` | native 模块注册 ABI（`Z42NativeModule` + 登记/解析入口），单独安装 |
+| `z42_compression.h` | 压缩组件的 C 符号解析器声明，经伞头发布 |
+| `z42_components.h` | 最终链接组合的组件登记契约（`z42_component_register_static`），经伞头发布 |
 
-## 入口点
+## 发布规则
 
-`#include "z42_abi.h"`（native interop / 注册类型）：
+`z42_abi.h` / `z42_native.h` 作为独立头随 SDK 平铺安装；展开进伞头时 `z42_abi.h` 是唯一兄弟引用（设备宿主模板只随伞头暂存 `z42_abi.h`），`z42_native.h` / `z42_host_api.h` / `z42_compression.h` / `z42_components.h` 不单独装进伞头消费方，由安装器（`scripts/src/package/install.z42` 的 `_runtimeHeaderText`）内联，输出自包含的 `native/include/z42_host.h`。源码树与 SDK 共享同一伞头；workload 的 include 与 modulemap 不随实现目录变化。
 
-- 类型：`Z42TypeDescriptor_v1`、`Z42MethodDesc`、`Z42FieldDesc`、`Z42TraitImpl`
-- 常量：`Z42_ABI_VERSION` + `Z42_TYPE_FLAG_*` / `Z42_METHOD_FLAG_*` / `Z42_FIELD_FLAG_*`
-- 函数：`z42_register_type` / `z42_resolve_type` / `z42_invoke` / `z42_invoke_method` / `z42_last_error`
-
-`#include "z42_host.h"`（embedding / 启动 VM）：
-
-- 类型：`Z42HostConfig`、`Z42HostStatus`、`Z42ExecMode`、`Z42WriteSink`、`Z42ZpkgResolverFn`
-- 句柄：`Z42HostRef`、`Z42ModuleRef`、`Z42EntryRef`
-- 常量：`Z42_HOST_ABI_VERSION`
-- 函数：`z42_host_initialize` / `z42_host_load_zbc` / `z42_host_resolve_entry` / `z42_host_invoke` / `z42_host_set_stdout_sink` / `z42_host_set_stderr_sink` / `z42_host_last_error` / `z42_host_shutdown`
-
-## ABI 演进
-
-`abi_version` 字段永远在偏移 0；新字段只追加，major 版本升级 = 显式 break。两份头文件遵循同一规则（`z42_abi.h` 详见 `docs/reference/src/embedding/native-interop.md` §3.3；`z42_host.h` 详见 `docs/reference/src/embedding/c-abi.md`，另有 `struct_size` 门控追加字段）。
+ABI 演进：`abi_version` 永远在偏移 0；新字段只追加（宿主侧另有 `struct_size` 门控）；major 版本升级 = 显式 break（详见 [native interop](../../../docs/reference/src/embedding/native-interop.md) §3.3 与 [C ABI](../../../docs/reference/src/embedding/c-abi.md)）。
 
 ## 关联文档
 
-- 用法与规则（参考手册）：[嵌入](../../../docs/reference/src/embedding/README.md)
-- 设计 / 机制（实现内幕）：[嵌入宿主](../../../docs/internals/src/runtime/embedding.md) · [native ABI](../../../docs/internals/src/runtime/native-abi.md)
+- 设计 / 机制：[嵌入宿主](../../../docs/internals/src/runtime/embedding.md) · [native ABI](../../../docs/internals/src/runtime/native-abi.md) · [打包机制](../../../docs/internals/src/devinfra/packaging.md)

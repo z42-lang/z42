@@ -193,18 +193,28 @@ int _pkgBuildRuntime(string rid, string profile) {
     return _componentBuild(_root(), profile);
 }
 
-// Resolve owner-relative includes for distribution; ordinary public includes
-// remain unchanged. Source-tree and SDK consumers share the same umbrella.
+// Headers aggregated into the umbrella but not installed standalone are inlined
+// for distribution; z42_abi.h remains the umbrella's only sibling include
+// (device-host templates stage exactly z42_abi.h + z42_host.h — see
+// src/toolchain/workload/{ios,android} platform include dirs). All runtime C
+// declarations live in src/runtime/include/, so source-tree and SDK consumers
+// share the same directory shape.
+bool _runtimeHeaderAggregated(string name) {
+    return name == "z42_native.h" || name == "z42_compression.h"
+        || name == "z42_host_api.h" || name == "z42_components.h";
+}
+
 string _runtimeHeaderText(string source) {
     string text = File.ReadAllText(source);
     foreach (var line in text.Split("\n")) {
         string directive = line.Trim();
-        if (!directive.StartsWith("#include \"../")) { continue; }
+        if (!directive.StartsWith("#include \"")) { continue; }
         int end = directive.Substring(10).IndexOf("\"");
-        if (end < 0) { throw new Std.Cli.CliException("invalid owner header include: " + source); }
-        string relative = directive.Substring(10, end);
-        string owner = Path.Join(Path.GetDirectoryName(source), relative);
-        text = text.Replace(line, _runtimeHeaderText(owner));
+        if (end < 0) { throw new Std.Cli.CliException("invalid header include: " + source); }
+        string name = directive.Substring(10, end);
+        if (!_runtimeHeaderAggregated(name)) { continue; }
+        string part = Path.Join(Path.GetDirectoryName(source), name);
+        text = text.Replace(line, _runtimeHeaderText(part));
     }
     return text;
 }

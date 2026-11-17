@@ -92,7 +92,7 @@ public static class Console {
 
 ## 3. Tier 1：C ABI
 
-头文件：[`src/runtime/crates/z42-abi/z42_abi.h`](https://github.com/z42-lang/z42/blob/main/src/runtime/crates/z42-abi/z42_abi.h)。
+头文件：[`src/runtime/include/z42_abi.h`](https://github.com/z42-lang/z42/blob/main/src/runtime/include/z42_abi.h)。
 
 ### 3.1 类型描述符
 

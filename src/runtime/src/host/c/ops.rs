@@ -41,11 +41,11 @@ pub(crate) fn probe_corelib(config: &ResolvedConfig) -> Result<()> {
 }
 
 /// Load bytes through the same preparation service as file-based application runs.
-pub(crate) fn build_host_module(config: &ResolvedConfig, bytes: &[u8]) -> Result<super::LoadedProgram> {
-    super::LoadedProgram::load_bytes(bytes, super::LoadOptions {
+pub(crate) fn build_host_module(config: &ResolvedConfig, bytes: &[u8]) -> Result<crate::host::LoadedProgram> {
+    crate::host::LoadedProgram::load_bytes(bytes, crate::host::LoadOptions {
         native: Default::default(), allow_profiling: true,
         mode: match config.exec_mode {
-            super::config::Z42ExecMode::Default => super::default_mode(),
+            super::config::Z42ExecMode::Default => crate::host::default_mode(),
             super::config::Z42ExecMode::Interp => crate::zpkg::ExecMode::Interp,
             super::config::Z42ExecMode::Jit => crate::zpkg::ExecMode::Jit,
             super::config::Z42ExecMode::Aot => crate::zpkg::ExecMode::Aot,
@@ -87,7 +87,7 @@ impl Drop for HostSinkGuard {
 /// throw escaping the entry surfaces as `Z42_HOST_ERR_VM_EXCEPTION`
 /// via `classify_invoke_error`.
 pub(crate) fn invoke_impl(
-    host_module: &super::LoadedProgram,
+    host_module: &crate::host::LoadedProgram,
     entry: &HostEntry,
     args_bytes: &[Value],
 ) -> Result<Option<Value>> {

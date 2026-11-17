@@ -17,7 +17,8 @@ use std::os::raw::{c_char, c_void};
 use std::ptr;
 use std::sync::{Mutex, OnceLock};
 
-use super::config::{Z42HostConfig, Z42_HOST_ABI_VERSION};
+use super::c::config::{Z42HostConfig, Z42_HOST_ABI_VERSION};
+use super::c::{config, state};
 use super::error::Z42HostStatus;
 use super::*;
 use super::Z42Module;
@@ -104,7 +105,7 @@ fn initialize_twice_returns_already_init() {
 
 fn assert_host_sinks_receive_output(capture: &StdoutCapture) {
     let ctx = VmContext::new();
-    let _active = super::ops::HostSinkGuard::enter();
+    let _active = super::c::ops::HostSinkGuard::enter();
     let _ = crate::corelib::io::typed::println(&ctx, &Value::I64(17)).unwrap();
     let _ = crate::corelib::io::typed::eprintln(&ctx, &Value::I64(23)).unwrap();
     assert_eq!(&*capture.bytes.lock().unwrap(), b"17\n23\n");

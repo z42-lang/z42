@@ -11,7 +11,7 @@
 `LoadOptions` 只表达功能请求与加载环境；组件装配输入保持 VM 内部。
 VM 内部组件门面、跨库协议与普通宿主契约的区别及当前缺口见[运行时模块边界](../../../../docs/internals/src/runtime/module-boundaries.md)。
 
-普通宿主声明保存在本目录的 `z42_host.h`，native 发布入口负责聚合各模块声明；workload 不感知内部头文件位置。
+普通宿主的 C 声明位于 [`../../include/z42_host_api.h`](../../include/z42_host_api.h)，由 `include/z42_host.h` 统一聚合发布；C ABI 的 Rust 实现收在 `c/` 子目录，经 host 根再导出。
 
 ## 功能索引
 
@@ -23,8 +23,8 @@ VM 内部组件门面、跨库协议与普通宿主契约的区别及当前缺�
 | `execution_available` | 按执行模式查询可用性，不暴露组件身份，不装库或创建 VM |
 | `load.rs` | 宿主 resolver、依赖准备和统一 VM 装配请求；产物机制由 loader 提供 |
 | `run_app` / `RunOpts` | 一次性应用运行、应用参数、退出报告和进程退出时的释放策略 |
-| `ffi.rs` / `config.rs` / `state.rs` | C ABI 与不透明句柄定义、配置验证及句柄注册表；Rust 消费者从 host 根导入 Z42Host/Z42Module/Z42Entry |
-| `ops.rs` / `marshal.rs` | ABI 操作适配和参数、返回值转换 |
+| `c/ffi.rs` / `c/config.rs` / `c/state.rs` | C ABI 与不透明句柄定义、配置验证及句柄注册表；Rust 消费者从 host 根导入 Z42Host/Z42Module/Z42Entry |
+| `c/ops.rs` / `c/marshal.rs` | ABI 操作适配和参数、返回值转换 |
 | `ExecMode` / `PackageImage` | 由 z42-zpkg 拥有、通过宿主门面提供的执行模式和不可变包定义类型 |
 | `signal.rs` | 致命信号安装、VM 栈捕获和崩溃报告，底层信号原语由 PAL 提供 |
 | `resolver.rs` | 宿主包解析接口、C 回调适配和 `read_zpkg_namespaces` 包解析键查询 |
@@ -60,7 +60,7 @@ CLI 和 Rust 调用方使用 `host::run_app`，或用 `LoadedProgram::load_file`
 
 ## 核心文件
 
-`program.rs` 实现程序加载与调用服务，`ffi.rs` 实现 C ABI。`program_tests.rs` 覆盖输入来源、重复调用、初始化错误和执行模式；`host_tests.rs` 覆盖 ABI 契约。
+`program.rs` 实现程序加载与调用服务，`c/ffi.rs` 实现 C ABI。`program_tests.rs` 覆盖输入来源、重复调用、初始化错误和执行模式；`host_tests.rs` 覆盖 ABI 契约。
 
 核心 builtin 描述由 corelib/builtins.rs 提供，interop 通用注册器冻结匹配的查询目录和执行表；host 不列举或预登记独立库。extensions.rs 注入每 VM 状态和 loader 的按名称路径服务。独立库首次限定模块调用才经 loader 读取库自身描述并由 interop 校验登记，未使用时不加载或创建状态。
 

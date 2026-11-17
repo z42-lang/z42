@@ -1,12 +1,12 @@
 //! Host configuration: C ABI struct layout + validation.
 //!
 //! Mirrors `Z42HostConfig` / `Z42WriteSink` / `Z42ExecMode` from
-//! `src/runtime/include/z42_host.h`. Spec: docs/internals/src/runtime/embedding.md §4.2.
+//! `src/runtime/include/z42_host_api.h`. Spec: docs/internals/src/runtime/embedding.md §4.2.
 
 use std::os::raw::{c_char, c_void};
 use std::sync::Arc;
 
-use super::resolver::ZpkgResolver;
+use crate::host::resolver::ZpkgResolver;
 
 /// Wire-compatible version of `Z42_HOST_ABI_VERSION` from the C header.
 pub const Z42_HOST_ABI_VERSION: u32 = 2;
@@ -174,7 +174,7 @@ pub(crate) unsafe fn validate(cfg: *const Z42HostConfig) -> Result<ResolvedConfi
     let search_paths = unsafe { collect_search_paths(cfg.search_paths) }?;
 
     let zpkg_resolver =
-        super::resolver::arc_from_c_pair(cfg.zpkg_resolver, cfg.zpkg_resolver_user_data);
+        crate::host::resolver::arc_from_c_pair(cfg.zpkg_resolver, cfg.zpkg_resolver_user_data);
 
     Ok(ResolvedConfig {
         exec_mode,

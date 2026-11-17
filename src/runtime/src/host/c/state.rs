@@ -12,7 +12,7 @@ use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use super::config::ResolvedConfig;
 
-/// Resolved entry handle. Indexes into `super::LoadedProgram::module().functions`.
+/// Resolved entry handle. Indexes into `crate::host::LoadedProgram::module().functions`.
 #[derive(Clone, Copy)]
 pub(crate) struct HostEntry {
     pub module_idx: usize,
@@ -29,7 +29,7 @@ pub(crate) struct HostState {
     pub config: ResolvedConfig,
     /// `Arc` so `z42_host_invoke` can take its module out from under the
     /// `HOST` lock and run user code without holding it.
-    pub modules: Vec<std::sync::Arc<super::LoadedProgram>>,
+    pub modules: Vec<std::sync::Arc<crate::host::LoadedProgram>>,
     pub entries: Vec<HostEntry>,
 }
 
