@@ -114,6 +114,34 @@ pub struct Module {
 }
 pub type ModuleEntry = unsafe extern "C" fn() -> *const Module;
 
+/// A span failed validation: null or misaligned pointer, or a length that
+/// overflows `isize` when scaled by the element size. Produced by
+/// [`checked_span`]; callers map it to their own error vocabulary.
+#[derive(Debug)]
+pub struct InvalidSpan;
+
+/// Validate a C-provided `(pointer, length)` pair and borrow it as a slice.
+/// Empty spans are always valid (a null pointer with length zero is legal).
+///
+/// # Safety
+/// Nonempty spans must point to `len` initialized, readable elements that stay
+/// live for `'a`.
+pub unsafe fn checked_span<'a, T>(
+    data: *const T,
+    len: usize,
+) -> Result<&'a [T], InvalidSpan> {
+    if len == 0 {
+        return Ok(&[]);
+    }
+    if data.is_null()
+        || (data as usize) % core::mem::align_of::<T>() != 0
+        || len > isize::MAX as usize / core::mem::size_of::<T>()
+    {
+        return Err(InvalidSpan);
+    }
+    Ok(unsafe { core::slice::from_raw_parts(data, len) })
+}
+
 /// Host services never retain borrowed provider buffers. return_value copies data before
 /// returning; managed allocation happens after the native blocking span ends. invoke_script
 /// temporarily resumes the mutator and returns copied C-layout values in a call-owned arena.

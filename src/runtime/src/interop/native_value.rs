@@ -91,39 +91,11 @@ impl Arena {
     }
 }
 fn encode(value: &Owned, arrays: &mut Vec<Box<[abi::Value]>>) -> abi::Value {
-    let mut raw = abi::Value::null();
-    match value {
-        Owned::Void => raw.kind = abi::VOID,
-        Owned::Null => {}
-        Owned::I64(value) => raw = abi::Value::scalar(abi::I64, *value as u64),
-        Owned::F64(value) => raw = abi::Value::scalar(abi::F64, value.to_bits()),
-        Owned::Bool(value) => raw = abi::Value::scalar(abi::BOOL, u64::from(*value)),
-        Owned::Str(value) => {
-            raw.kind = abi::STR;
-            raw.data = value.as_ptr();
-            raw.len = value.len();
-        }
-        Owned::Bytes(value) => {
-            raw.kind = abi::BYTES;
-            raw.data = value.as_ptr();
-            raw.len = value.len();
-        }
-        Owned::Strings(values) => {
-            let span: Box<[_]> = values
-                .iter()
-                .map(|text| abi::Value {
-                    kind: abi::STR,
-                    reserved: 0,
-                    bits: 0,
-                    data: text.as_ptr(),
-                    len: text.len(),
-                })
-                .collect();
-            raw.kind = abi::STR_ARRAY;
-            raw.data = span.as_ptr().cast();
-            raw.len = span.len();
-            arrays.push(span);
-        }
+    // Encoder lives once in z42-rs; this side only keeps the backing alive.
+    let (raw, strings) = z42_rs::module::encode_parts(value);
+    if raw.kind == abi::STR_ARRAY {
+        arrays.push(strings.into_boxed_slice());
     }
     raw
 }
+

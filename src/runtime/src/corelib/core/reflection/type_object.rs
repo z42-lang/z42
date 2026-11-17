@@ -286,23 +286,10 @@ pub(super) fn reflected_type_key(ty: &Value) -> Option<ReflectedTypeKey> {
 }
 
 /// Normalize a VM primitive type tag to its C#-style alias. User/class names
-/// (anything not a known primitive tag) pass through unchanged.
+/// (anything not a known primitive tag) pass through unchanged. The mapping
+/// lives once in z42-zpkg (`index::type_names`) next to its other spellings.
 pub(super) fn canonical_type_name(tag: &str) -> String {
-    match tag {
-        "i8" => "sbyte",
-        "u8" => "byte",
-        "i16" => "short",
-        "u16" => "ushort",
-        "i32" => "int",
-        "u32" => "uint",
-        "i64" => "long",
-        "u64" => "ulong",
-        "f32" => "float",
-        "f64" => "double",
-        "str" => "string",
-        other => other,
-    }
-    .to_string()
+    crate::zpkg::index::type_names::tag_keyword(tag).unwrap_or(tag).to_string()
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────

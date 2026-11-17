@@ -118,15 +118,21 @@ const BUILTIN_TYPES: [(&str, &str); 14] = [
     ("string", "Std.String"), ("object", "Std.Object"),
 ];
 
+/// VM 原语标签（`i8` … `str`）→ 关键字；仅识别标签拼写，不含关键字与全名。
+/// 反射等只消费标签的场景用它，避免把全名 `Std.Int32` 也折叠成 `int`。
+pub fn tag_keyword(tag: &str) -> Option<&'static str> {
+    match tag {
+        "i8" => Some("sbyte"), "u8" => Some("byte"), "i16" => Some("short"), "u16" => Some("ushort"),
+        "i32" => Some("int"), "u32" => Some("uint"), "i64" => Some("long"), "u64" => Some("ulong"),
+        "f32" => Some("float"), "f64" => Some("double"), "str" => Some("string"),
+        _ => None,
+    }
+}
+
 /// 内建类型的任一拼写（关键字 `int`、VM 标签 `i32`、全名 `Std.Int32`）→ 关键字；不是内建类型 → `None`。
 pub fn builtin_keyword(name: &str) -> Option<&'static str> {
-    let kw = match name {
-        "i8" => "sbyte", "u8" => "byte", "i16" => "short", "u16" => "ushort",
-        "i32" => "int", "u32" => "uint", "i64" => "long", "u64" => "ulong",
-        "f32" => "float", "f64" => "double", "str" => "string",
-        _ => name,
-    };
-    BUILTIN_TYPES.iter().find(|(k, f)| *k == kw || *f == kw).map(|(k, _)| *k)
+    if let Some(keyword) = tag_keyword(name) { return Some(keyword); }
+    BUILTIN_TYPES.iter().find(|(k, f)| *k == name || *f == name).map(|(k, _)| *k)
 }
 
 /// 内建类型的任一拼写 → `Std` 全名；不是内建类型 → `None`。

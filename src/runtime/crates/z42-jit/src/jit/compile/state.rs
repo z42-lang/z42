@@ -132,7 +132,7 @@ unsafe impl Sync for JitRuntime {}
 /// The JIT is built without compiling any user function (compile-on-first-call).
 /// Racing installers build one each; the first published wins and the other is
 /// dropped unused.
-pub fn install<'a>(vm: &'a VmContext, module: &Module, config: crate::jit::config::JitConfig) -> Result<&'a JitRuntime> {
+pub fn install<'a>(vm: &'a VmContext, module: &Module, config: crate::exec::JitConfig) -> Result<&'a JitRuntime> {
     if vm.core().exec().engines.tier().is_none() {
         let _ = vm.core().exec().engines.install_tier(crate::exec::TierApi::new(JitRuntime::new(vm, module, config)?));
     }
@@ -173,7 +173,7 @@ fn publish_to(vm: &VmContext, rt: &JitRuntime) {
 }
 
 impl JitRuntime {
-    fn new(vm: &VmContext, module: &Module, config: crate::jit::config::JitConfig) -> Result<Self> {
+    fn new(vm: &VmContext, module: &Module, config: crate::exec::JitConfig) -> Result<Self> {
         Ok(JitRuntime {
             slots: SparseSegTable::new(),
             module: module as *const Module,
