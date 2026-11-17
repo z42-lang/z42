@@ -139,7 +139,7 @@ fn worker_reaching_the_tier_threshold_compiles_in_thread() {
     let module = module_of(vec![calls("A", "B"), returns("B", 7)]);
     let vm = VmContext::new();
     install_tuned(&vm, &module, |rt| rt.jit_threshold = 2);
-    crate::metadata::resolve::resolve_function_tokens(&module.functions[0], &module, &vm);
+    crate::components::bridge::resolve_function_tokens(&module.functions[0], &module, &vm);
     std::thread::scope(|s| {
         s.spawn(|| {
             let w = VmContext::new_with_core(vm.core_arc());

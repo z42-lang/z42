@@ -36,6 +36,17 @@ pub(super) fn validate_core(identity: crate::components::abi::ExecutionIdentity,
 /// Borrow object capabilities already bound to this VM. Execution components call
 /// this only after their same-core identity has been validated; no registry lookup.
 #[inline]
+/// Function token resolution entry for independent backends: assembles the
+/// minimal resolution view on this side of the bridge, so backends keep a
+/// typed one-liner while `metadata::resolve` stays VM-free.
+pub fn resolve_function_tokens(
+    func: &crate::metadata::Function,
+    module: &crate::metadata::Module,
+    ctx: &crate::vm::VmContext,
+) {
+    crate::metadata::resolve::resolve_function_tokens(func, module, &ctx.resolve_services())
+}
+
 pub fn object_protocol(ctx: &crate::vm::VmContext) -> &crate::object::ObjectProtocol<
     crate::vm::VmContext, crate::exec::call::builtin_abi::BuiltinError,
 > {

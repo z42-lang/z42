@@ -122,7 +122,7 @@ struct Jitted<'m> {
 
 impl Jitted<'_> {
     fn new<'m>(vm: &'m VmContext, m: &'m Module, idx: usize) -> Jitted<'m> {
-        crate::metadata::resolve::resolve_function_tokens(&m.functions[idx], m, vm);
+        crate::components::bridge::resolve_function_tokens(&m.functions[idx], m, vm);
         let rt = install(vm, m, z42::config::runtime_config().jit_config()).expect("install");
         let entry = rt.compile_with(&m.functions[idx], &Lookup(vm)).expect("compile");
         Jitted { vm, entry }
@@ -225,7 +225,7 @@ fn direct_reader_warms_before_getter_compilation_and_rechecks_its_guards() {
     let rt = install_tuned(&vm, &m, |rt| rt.jit_threshold = 1);
     let ambiguous = AtomicBool::new(false);
     let lookup = TestLookup { vm: CompileLookup { rt, vm: &vm }, ambiguous: &ambiguous };
-    crate::metadata::resolve::resolve_function_tokens(&m.functions[0], &m, &vm);
+    crate::components::bridge::resolve_function_tokens(&m.functions[0], &m, &vm);
     assert!(m.functions[1].resolved.get().is_none(), "getter starts without tokens");
     let entry = rt.compile_with(&m.functions[0], &lookup).expect("compile caller");
     let j = Jitted { vm: &vm, entry };

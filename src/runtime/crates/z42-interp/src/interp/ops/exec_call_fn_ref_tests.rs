@@ -225,7 +225,7 @@ fn resolver_prefills_and_first_execution_binds() {
     let g = register_lazy(&ctx, const_fn("Lazy.G$0", 7));
     let entry = Arc::clone(ctx.module().unwrap());
     let main = &entry.functions[0];
-    crate::metadata::resolve::resolve_function_tokens(main, &entry, &ctx);
+    crate::components::bridge::resolve_function_tokens(main, &entry, &ctx);
     assert_eq!(fn_ref_tokens(main), vec![g.id.get().unwrap().0, 1, UNRESOLVED]);
 
     let late = register_lazy(&ctx, const_fn("Late.F$0", 9));

@@ -322,7 +322,7 @@ impl JitRuntime {
         // the callee executes against (identity invariant). Outside the compiler
         // lock: resolution may load a package.
         if func.resolved.get().is_none() {
-            crate::metadata::resolve::resolve_function_tokens(func, self.module(), vm);
+            crate::components::bridge::resolve_function_tokens(func, self.module(), vm);
         }
         if crate::jit::translate::jit_unsupported_reason(func).is_some() {
             slot.state.store(SLOT_REJECTED, Ordering::Relaxed);
