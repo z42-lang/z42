@@ -213,7 +213,7 @@ impl VarGcRef {
     }
 
     /// Object model R6: whether the block's remembered-set bit is set.
-    #[cfg(all(test, z42_test_facade))]
+    #[cfg(any(all(test, z42_test_facade), feature = "jit-test-support"))]
     pub fn is_remembered(&self) -> bool {
         // SAFETY: the caller holds a live handle; the header address is valid.
         unsafe { self.header_ptr().as_ref() }.is_remembered()

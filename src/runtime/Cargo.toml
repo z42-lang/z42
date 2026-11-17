@@ -75,6 +75,7 @@ mimalloc-alloc       = ["dep:mimalloc"]
 dhat-heap            = ["dep:dhat"]
 profile-contention = []
 z42-test-fixtures    = []
+jit-test-support     = []
 static-embedding = []
 interp = []
 shared-core = ["component-loading"]
@@ -113,12 +114,6 @@ loom = "0.7"
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(loom)', 'cfg(z42_test_facade)'] }
 
 [target.'cfg(all(any(target_arch = "x86_64", target_arch = "aarch64"), any(target_os = "linux", target_os = "macos", target_os = "windows", target_os = "android", all(target_os = "ios", target_abi = "sim"))))'.dev-dependencies]
-# White-box backend tests compile the backend sources inside the runtime harness.
-cranelift-codegen = { version = "0.137", features = ["unwind"] }
-cranelift-frontend = { version = "0.137" }
-cranelift-jit      = { version = "0.137" }
-cranelift-module   = { version = "0.137" }
-cranelift-native = { version = "0.137" }
 
 z42-jit = { path = "crates/z42-jit", default-features = false }
 

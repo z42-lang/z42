@@ -9,7 +9,7 @@ use crate::jit::compile::lookup::ForwardLookup;
 use crate::jit::runtime::frame::JitFrame;
 use crate::jit::helpers::object_field::HELPER_CALLS;
 use crate::jit::runtime::invoke::{call_entry, NativeOutcome};
-use crate::jit::compile::state::install;
+use crate::jit::test_support::install;
 use crate::metadata::{Function, Module};
 use crate::zpkg::ir::{BasicBlock, FieldGetInsn, FieldSetInsn, Instruction, Terminator};
 use crate::metadata::ids::tokens::TypeId;
@@ -106,7 +106,7 @@ fn module(functions: Vec<Function>) -> Module {
 /// The production translator's view of the VM: no call forwarding, the heap's barrier gate.
 struct Lookup<'a>(&'a VmContext);
 impl ForwardLookup for Lookup<'_> {
-    fn builtins(&self) -> &crate::metadata::builtins::BuiltinCatalog { crate::interop::providers::catalog() }
+    fn builtins(&self) -> &crate::metadata::builtins::BuiltinCatalog { crate::interop::providers::test_catalog() }
     fn forward_of_id(&self, _: u32) -> Option<u32> { None }
     fn forward_of_name(&self, _: &str) -> Option<u32> { None }
     fn barrier_bytes(&self) -> Option<(*const std::sync::atomic::AtomicU8, *const std::sync::atomic::AtomicU8)> {
@@ -123,7 +123,7 @@ struct Jitted<'m> {
 impl Jitted<'_> {
     fn new<'m>(vm: &'m VmContext, m: &'m Module, idx: usize) -> Jitted<'m> {
         crate::metadata::resolve::resolve_function_tokens(&m.functions[idx], m, vm);
-        let rt = install(vm, m, crate::config::runtime_config().jit_config()).expect("install");
+        let rt = install(vm, m, z42::config::runtime_config().jit_config()).expect("install");
         let entry = rt.compile_with(&m.functions[idx], &Lookup(vm)).expect("compile");
         Jitted { vm, entry }
     }
@@ -157,7 +157,7 @@ impl Jitted<'_> {
 
 fn interp(m: &Module, idx: usize, args: &[Value]) -> Value {
     let vm = VmContext::new();
-    match crate::interp::run::exec_function(&vm, m, &m.functions[idx], args) {
+    match crate::interp::run_outcome(&vm, m, &m.functions[idx], args) {
         Ok(crate::exec::call::outcome::ExecOutcome::Returned(v)) => v.unwrap_or(Value::Null),
         other => panic!("interp: {other:?}"),
     }
@@ -249,7 +249,7 @@ fn direct_reader_warms_before_getter_compilation_and_rechecks_its_guards() {
     assert!(error.is_err());
     assert_eq!(calls, 1);
 
-    let cctors = &vm.core.runtime.cctors;
+    let cctors = &vm.core().runtime().cctors;
     let epoch = cctors.barrier_epoch();
     cctors.register("Other.Type", "Other.Type..cctor");
     assert_ne!(epoch, cctors.barrier_epoch());

@@ -389,3 +389,7 @@ impl VmContext {
 
 #[cfg(all(test, z42_test_facade))]
 mod tests;
+
+#[cfg(feature = "jit-test-support")]
+#[doc(hidden)]
+pub use defaults::jit_test_context;

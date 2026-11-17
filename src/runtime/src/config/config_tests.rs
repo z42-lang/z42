@@ -734,6 +734,7 @@ fn build_ctx_current_reports_a_normalized_os() {
 /// 只在测试里存在的 `Z42_*` 名字——不是运行时旋钮，不该进 `KNOWN_KNOBS`。
 const TEST_ONLY_ENV_NAMES: &[&str] = &[
     "Z42_CLEAR_TEST",
+    "Z42_EMBEDDING_TEST_LIBS", // build-time embedding fixture path
     "Z42_DEFINITELY_NOT_SET_XYZZY_KEY",
     "Z42_PARENT_VAR",
     "Z42_STRESS_SEED", // 压力测试种子，与 Z42_STRESS_ITERS 成对；仅测试代码消费

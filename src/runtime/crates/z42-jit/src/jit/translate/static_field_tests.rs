@@ -6,7 +6,7 @@
 use crate::jit::runtime::frame::JitFrame;
 use crate::jit::helpers::object::STATIC_HELPER_CALLS;
 use crate::jit::runtime::invoke::{call_entry, NativeOutcome};
-use crate::jit::compile::state::install;
+use crate::jit::test_support::install;
 use crate::metadata::{Function, Module};
 use crate::zpkg::ir::{BasicBlock, FieldDesc, Instruction, StaticGetInsn, StaticSetInsn, Terminator};
 use crate::metadata::ids::tokens::TypeId;
@@ -100,7 +100,7 @@ fn module(functions: Vec<Function>, types: Vec<Arc<TypeDesc>>) -> Module {
 fn vm_of(build: &dyn Fn() -> Module) -> std::pin::Pin<Box<VmContext>> {
     let vm = VmContext::with_module(build());
     let m = Arc::clone(vm.module().expect("entry module"));
-    install(&vm, &m, crate::config::runtime_config().jit_config()).expect("install");
+    install(&vm, &m, z42::config::runtime_config().jit_config()).expect("install");
     for td in m.type_registry.values() {
         vm.initialization().register_cctor_of(td);
     }
@@ -144,7 +144,7 @@ fn thrown_text(v: Option<Value>) -> String {
 fn interp(build: &dyn Fn() -> Module, idx: usize, args: &[Value]) -> Result<Value, String> {
     let vm = vm_of(build);
     let m = Arc::clone(vm.module().expect("entry module"));
-    match crate::interp::run::exec_function(&vm, &m, &m.functions[idx], args) {
+    match crate::interp::run_outcome(&vm, &m, &m.functions[idx], args) {
         Ok(crate::exec::call::outcome::ExecOutcome::Returned(v)) => Ok(v.unwrap_or(Value::Null)),
         Ok(crate::exec::call::outcome::ExecOutcome::Thrown(v)) => Err(thrown_text(Some(v))),
         Err(e) => panic!("interp: {e:#}"),
@@ -293,7 +293,7 @@ fn the_first_compiled_access_runs_the_static_constructor_exactly_once() {
     assert_eq!(interp(&build, 0, &[]), Ok(Value::I64(7)));
 
     // A newly registered static constructor elsewhere moves the epoch: one helper pass, then native.
-    vm.core.runtime.cctors.register("Other.D", "Other.D.$cctor");
+    vm.core().runtime().cctors.register("Other.D", "Other.D.$cctor");
     assert_eq!(run_on(&vm, 0, &[]), (Ok(Value::I64(7)), 1));
     assert_eq!(run_on(&vm, 0, &[]), (Ok(Value::I64(7)), 0));
 

@@ -120,3 +120,10 @@ pub(crate) fn with_config(
         },
     )
 }
+
+#[cfg(feature = "jit-test-support")]
+#[doc(hidden)]
+pub fn jit_test_context(config: crate::config::RuntimeConfig) -> std::pin::Pin<Box<VmContext>> {
+    with_config(None, crate::pal::fs::default_vfs(), crate::vm::services::freeze(Default::default()),
+        config.vm_config(), crate::corelib::object_protocol(), crate::components::api::engine_registry())
+}

@@ -141,7 +141,7 @@ pub unsafe extern "C" fn jit_fatal_pending(_frame: *mut JitFrame, ctx: *const Vm
     crate::exec::stack_guard::is_fatal(vm_ctx_ref(ctx)) as i8
 }
 
-#[cfg(all(test, z42_test_facade))]
+#[cfg(test)]
 mod check_safepoint_tests {
     //! add-gc-safepoint-jit : inline tests for the
     //! `jit_check_safepoint` trampoline. End-to-end JIT-compiled coverage
@@ -179,17 +179,32 @@ mod check_safepoint_tests {
         // add-gc-safepoint-counter-throttling : force the
         // first check_safepoint into the slow path (otherwise the
         // throttle counter would skip it).
-        ctx.threads.safepoint_skip.store(1, Ordering::Relaxed);
+        ctx.threads().safepoint_skip.store(1, Ordering::Relaxed);
         let cycles_before = ctx.heap().stats().gc_cycles;
-        ctx.core.threads.needs_auto_collect.store(true, Ordering::Release);
+        ctx.core().threads().needs_auto_collect.store(true, Ordering::Release);
 
         let mut frame = make_frame(&ctx);
         unsafe {
             jit_check_safepoint(&mut frame as *mut JitFrame, &*ctx as *const VmContext);
         }
-        assert!(!ctx.core.threads.needs_auto_collect.load(Ordering::Acquire),
+        assert!(!ctx.core().threads().needs_auto_collect.load(Ordering::Acquire),
             "trampoline should have drained the flag");
         assert!(ctx.heap().stats().gc_cycles > cycles_before,
             "trampoline should have run a real collect");
     }
+    #[test]
+    fn safepoint_policy_is_shared_by_worker_resets() {
+        for throttle in [1, 7, 1024] {
+            let mut settings = z42::config::RuntimeConfig::from_getter(|_| None);
+            settings.safepoint_throttle = throttle;
+            let ctx = z42::components::bridge::jit_test_context(settings);
+            let worker = VmContext::new_with_core(ctx.core().clone());
+            for view in [&ctx, &worker] {
+                view.threads().safepoint_skip.store(1, Ordering::Relaxed);
+                unsafe { jit_check_safepoint_slow(std::ptr::null_mut(), &**view); }
+                assert_eq!(view.threads().safepoint_skip.load(Ordering::Relaxed), throttle);
+            }
+        }
+    }
+
 }

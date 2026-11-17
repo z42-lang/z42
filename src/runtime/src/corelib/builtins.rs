@@ -55,6 +55,6 @@ pub(crate) const PROVIDERS: &[(&str, &[abi::BuiltinDesc])] = &[
     ("z42.core", DESCS),
     ("z42_diagnostics", crate::corelib::core::diagnostics::typed::DESCS),
     ("z42_harness", crate::corelib::io::harness::DESCS),
-    #[cfg(test)]
+    #[cfg(any(test, feature = "jit-test-support"))]
     ("z42.test", crate::exec::call::builtin_abi::test_builtins::DESCS),
 ];

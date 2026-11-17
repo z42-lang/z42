@@ -8,7 +8,7 @@ use crate::components::bridge::VmContext;
 use crate::jit::runtime::invoke::call_entry;
 use super::{set_exception, vm_ctx_ref};
 
-#[cfg(all(test, z42_test_facade))]
+#[cfg(test)]
 thread_local! {
     pub(crate) static CALL_HELPER_HITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
@@ -78,7 +78,7 @@ unsafe fn call_impl(
     caller_offset: u32,
     mta: &[String],
 ) -> u8 {
-    #[cfg(all(test, z42_test_facade))]
+    #[cfg(test)]
     CALL_HELPER_HITS.with(|hits| hits.set(hits.get() + 1));
     use crate::metadata::ids::tokens::UNRESOLVED;
     let rt        = super::jit_rt(ctx);

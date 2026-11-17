@@ -2,7 +2,8 @@
 //! slot table — a lazily loaded target is counted and compiled at the tier threshold like
 //! any `Call`, from native code and from an interpreter frame alike.
 
-use crate::jit::compile::state::{install, install_tuned};
+use crate::jit::compile::state::install_tuned;
+use crate::jit::test_support::install;
 use crate::metadata::{Function, Module};
 use crate::zpkg::ir::{BasicBlock, Instruction, LoadFnInsn, Terminator};
 use crate::metadata::resolve::ResolvedTokens;
@@ -61,7 +62,7 @@ fn vm_with_lazy_target(main: Function) -> (std::pin::Pin<Box<VmContext>>, Arc<Fu
     let vm = VmContext::with_module(module_of(vec![main]));
     vm.loader().install_lazy_loader(None, 0);
     let f = Arc::new(func("Lib.F", vec![]));
-    assert!(vm.core.loader.lazy_loader.write().as_mut().unwrap().insert_function(f.name.clone(), Arc::clone(&f)));
+    assert!(vm.core().loader().lazy_loader.write().as_mut().unwrap().insert_function(f.name.clone(), Arc::clone(&f)));
     (vm, f)
 }
 
@@ -113,7 +114,7 @@ fn undefined_target_throws_from_the_load_fn_helper() {
     ]);
     let vm = VmContext::with_module(module_of(vec![main]));
     vm.loader().install_lazy_loader(None, 0);
-    install(&vm, vm.module().unwrap(), crate::config::runtime_config().jit_config()).expect("install");
+    install(&vm, vm.module().unwrap(), z42::config::runtime_config().jit_config()).expect("install");
     let err = crate::jit::run_fn(&vm, "App.Main").expect_err("throws");
     assert!(err.to_string().contains("undefined function `Nowhere.F`"), "{err}");
 }
@@ -129,7 +130,7 @@ fn interp_call_indirect_routes_to_the_jit_slot() {
     let main = &module.functions[0];
     crate::metadata::resolve::resolve_function_tokens(main, &module, &vm);
     let before = vm.counters().jit_native_from_interp.load(Ordering::Relaxed);
-    let r = crate::interp::run::exec_function(&vm, &module, main, &[]);
+    let r = crate::interp::run_outcome(&vm, &module, main, &[]);
     assert!(matches!(r, Ok(crate::exec::call::outcome::ExecOutcome::Returned(_))));
     assert_eq!(rt.slot_probe(id), (2, false));
     assert_eq!(vm.counters().jit_native_from_interp.load(Ordering::Relaxed) - before, 2,

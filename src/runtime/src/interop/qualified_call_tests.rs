@@ -105,24 +105,3 @@ fn interpreter_module_calls_preserve_provider_void_and_null_without_typed_ffi() 
         assert_eq!(ctx.counters().native_calls.load(std::sync::atomic::Ordering::Relaxed), 1);
     }
 }
-
-#[test]
-#[cfg(all(feature = "jit", z42_jit_supported))]
-fn jit_module_calls_compile_and_preserve_provider_void_and_null() {
-    use crate::jit::runtime::{frame::JitFrame, invoke::{call_entry, NativeOutcome}};
-    for (provider, name, expected) in [
-        ("qualified.first", "__qualified_same", Value::I64(11)),
-        ("qualified.second", "__qualified_same", Value::I64(22)),
-        ("qualified.first", "__qualified_void", Value::I64(99)),
-        ("qualified.first", "__qualified_null", Value::Null),
-    ] {
-        let ctx = VmContext::with_module(script(provider, name)); register(&ctx);
-        let rt = crate::jit::compile::state::install(&ctx, ctx.module().unwrap(),
-            crate::config::runtime_config().jit_config()).unwrap();
-        let entry = rt.resolve_fn_by_id(&ctx, 0).expect("module call must compile, not fall back");
-        match unsafe { call_entry(&ctx, entry, JitFrame::new(&ctx, entry.max_reg, &[])) } {
-            NativeOutcome::Returned(value) => assert_eq!(value, Some(expected)),
-            NativeOutcome::Threw => panic!("unexpected native throw: {:?}", ctx.exec().take_exception()),
-        }
-    }
-}

@@ -1,31 +1,6 @@
 use super::*;
 
-/// Error kind `k` for `__test_abi_fail`.
-pub(crate) fn kind(k: i64) -> BuiltinError {
-    let m = || format!("kind {k}");
-    match k {
-        0 => BuiltinError::Format(m()),
-        1 => BuiltinError::Argument(m()),
-        2 => BuiltinError::ArgumentNull(m()),
-        3 => BuiltinError::ArgumentOutOfRange(m()),
-        4 => BuiltinError::IndexOutOfRange(m()),
-        5 => BuiltinError::Overflow(m()),
-        6 => BuiltinError::InvalidOperation(m()),
-        7 => BuiltinError::NotSupported(m()),
-        8 => BuiltinError::InvalidCast(m()),
-        9 => BuiltinError::NullReference(m()),
-        10 => BuiltinError::KeyNotFound(m()),
-        11 => BuiltinError::Io(m()),
-        12 => BuiltinError::FileNotFound(m()),
-        13 => BuiltinError::DirectoryNotFound(m()),
-        14 => BuiltinError::PathTooLong(m()),
-        15 => BuiltinError::EndOfStream(m()),
-        16 => BuiltinError::UnauthorizedAccess(m()),
-        17 => BuiltinError::Timeout(m()),
-        _ => BuiltinError::Exception { class: "Std.Threading.ThreadException", message: m() },
-    }
-}
-
+use super::test_builtins::kind;
 
 use crate::exec::call::builtins::invoke_builtin;
 use crate::metadata::ids::tokens::TypeId;

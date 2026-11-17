@@ -1386,20 +1386,3 @@ fn package_resolver_can_shutdown_the_host_during_load() {
     assert_eq!(status, Z42HostStatus::NotInit);
     assert!(module.is_null());
 }
-
-#[test]
-#[cfg(all(z42_have_embedding_hello, feature = "jit"))]
-fn c_host_jit_mode_uses_the_shared_engine_and_returns_values() {
-    let _g = test_lock();
-    reset_host();
-    let capture = Mutex::new(Vec::new());
-    with_hello_session_mode(&capture, config::Z42ExecMode::Jit, |host, module| {
-        let first = invoke_hello_fn(host, module, "UserStatic");
-        let second = invoke_hello_fn(host, module, "UserStatic");
-        assert_eq!((first.tag, first.payload), (z42_abi::Z42_VALUE_TAG_I64, 42));
-        assert_eq!(second.payload, first.payload);
-        assert!(state::with_state_read(|s| s.modules[0].context().core().diagnostics().snapshot(s.modules[0].context().core().threads()).jit_methods_compiled).unwrap() > 0);
-        invoke_hello_fn(host, module, "Main");
-    });
-    assert!(String::from_utf8(capture.into_inner().unwrap()).unwrap().contains("Hello, World!"));
-}

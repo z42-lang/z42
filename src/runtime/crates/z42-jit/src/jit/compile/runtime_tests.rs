@@ -10,7 +10,8 @@ use std::sync::atomic::Ordering;
 use crate::exec::call::frames::VmFrame;
 use crate::jit::runtime::frame::JitFrame;
 use crate::jit::runtime::invoke::{call_entry, NativeOutcome};
-use crate::jit::compile::state::{install, install_tuned};
+use crate::jit::compile::state::install_tuned;
+use crate::jit::test_support::install;
 use crate::metadata::{Function, Module};
 use crate::zpkg::ir::{BasicBlock, CallInsn, Instruction, Terminator};
 use crate::zpkg::ir::ExecMode;
@@ -84,12 +85,12 @@ fn run(vm: &VmContext, entry: &crate::jit::runtime::frame::FnEntry) -> NativeOut
 fn every_context_of_a_vm_sees_the_same_jit() {
     let module = module_of(vec![returns("f", 1)]);
     let vm = VmContext::new();
-    let rt = install(&vm, &module, crate::config::runtime_config().jit_config()).expect("install");
+    let rt = install(&vm, &module, z42::config::runtime_config().jit_config()).expect("install");
     let w = VmContext::new_with_core(vm.core_arc());
     assert!(std::ptr::eq(crate::jit::compile::state::runtime(&w).expect("worker sees the JIT"), rt));
-    assert!(std::ptr::eq(install(&w, &module, crate::config::runtime_config().jit_config()).expect("reinstall is a no-op"), rt));
+    assert!(std::ptr::eq(install(&w, &module, z42::config::runtime_config().jit_config()).expect("reinstall is a no-op"), rt));
     let other = module_of(vec![returns("g", 2)]);
-    assert!(install(&w, &other, crate::config::runtime_config().jit_config()).is_err(), "one JIT per VM");
+    assert!(install(&w, &other, z42::config::runtime_config().jit_config()).is_err(), "one JIT per VM");
 }
 
 #[test]
@@ -97,7 +98,7 @@ fn a_context_older_than_the_install_picks_the_jit_up_at_its_next_entry() {
     let module = module_of(vec![returns("f", 5)]);
     let vm = VmContext::new();
     let w = VmContext::new_with_core(vm.core_arc());
-    install(&vm, &module, crate::config::runtime_config().jit_config()).expect("install");
+    install(&vm, &module, z42::config::runtime_config().jit_config()).expect("install");
     assert!(crate::jit::compile::state::runtime(&w).is_none(), "not until its next bottom frame push");
     let regs: Vec<Value> = Vec::new();
     w.exec().push_frame(&w, VmFrame::new(&module.functions[0], &regs));
@@ -109,7 +110,7 @@ fn a_context_older_than_the_install_picks_the_jit_up_at_its_next_entry() {
 fn function_compiled_on_one_thread_runs_natively_on_another() {
     let module = module_of(vec![returns("f", 42)]);
     let vm = VmContext::new();
-    let rt = install(&vm, &module, crate::config::runtime_config().jit_config()).expect("install");
+    let rt = install(&vm, &module, z42::config::runtime_config().jit_config()).expect("install");
     let code = rt.resolve_fn_by_id(&vm, 0).expect("compiles on the main thread").ptr as usize;
     assert_eq!(compiled_here(&vm), 1);
     std::thread::scope(|s| {
@@ -124,7 +125,7 @@ fn function_compiled_on_one_thread_runs_natively_on_another() {
                 NativeOutcome::Threw => panic!("threw {:?}", w.exec().take_exception()),
             }
             assert_eq!(compiled_here(&w), 0, "nothing compiled on the worker");
-            assert_eq!(w.exec.call_stack.depth(), 0, "the native frame was pushed on and popped off the worker's stack");
+            assert_eq!(w.exec().call_stack.depth(), 0, "the native frame was pushed on and popped off the worker's stack");
         }).join().expect("worker");
     });
     assert_eq!(vm.core().diagnostics().snapshot(vm.core().threads()).jit_methods_compiled, 1, "compiled exactly once VM-wide");
@@ -143,7 +144,7 @@ fn worker_reaching_the_tier_threshold_compiles_in_thread() {
         s.spawn(|| {
             let w = VmContext::new_with_core(vm.core_arc());
             for _ in 0..3 {
-                let r = crate::interp::run::exec_function(&w, &module, &module.functions[0], &[]);
+                let r = crate::interp::run_outcome(&w, &module, &module.functions[0], &[]);
                 assert!(matches!(r, Ok(crate::exec::call::outcome::ExecOutcome::Returned(_))), "{r:?}");
             }
             assert_eq!(compiled_here(&w), 1, "B compiled on the worker");
@@ -160,7 +161,7 @@ fn worker_reaching_the_tier_threshold_compiles_in_thread() {
 fn exception_thrown_in_jit_code_on_a_worker_stays_on_the_worker() {
     let module = module_of(vec![throws("f", 13)]);
     let vm = VmContext::new();
-    let rt = install(&vm, &module, crate::config::runtime_config().jit_config()).expect("install");
+    let rt = install(&vm, &module, z42::config::runtime_config().jit_config()).expect("install");
     rt.resolve_fn_by_id(&vm, 0).expect("compiles");
     std::thread::scope(|s| {
         s.spawn(|| {
@@ -168,7 +169,7 @@ fn exception_thrown_in_jit_code_on_a_worker_stays_on_the_worker() {
             let e = crate::jit::compile::state::runtime(&w).unwrap().resolve_fn_by_id(&w, 0).expect("compiled");
             assert!(matches!(run(&w, e), NativeOutcome::Threw));
             assert!(matches!(w.exec().take_exception(), Some(Value::I64(13))), "pending on the worker");
-            assert_eq!(w.exec.call_stack.depth(), 0, "unwound");
+            assert_eq!(w.exec().call_stack.depth(), 0, "unwound");
         }).join().expect("worker");
     });
     assert!(vm.exec().peek_exception().is_none(), "the main thread's pending slot is untouched");
@@ -181,7 +182,7 @@ fn compiled_prologue_checks_the_running_threads_stack_limit() {
     install_tuned(&vm, &module, |rt| rt.jit_threshold = 1);
     // Fatal already set: an overflow below still unwinds as one, but leaves the
     // process-wide report (which other tests read) alone.
-    vm.core.threads.fatal.store(true, Ordering::SeqCst);
+    vm.core().threads().fatal.store(true, Ordering::SeqCst);
     let main_limit = crate::exec::stack_guard::limit();
     let core = vm.core_arc();
     let (stored, own, forced, deep) = std::thread::Builder::new()
@@ -192,13 +193,13 @@ fn compiled_prologue_checks_the_running_threads_stack_limit() {
             let f = rt.resolve_fn_by_id(&w, 0).expect("compiled");
             // The bottom push stores this thread's limit; the call succeeds.
             assert!(matches!(run(&w, f), NativeOutcome::Returned(Some(Value::I64(1)))));
-            let stored = w.exec.jit_head.stack_limit.load(Ordering::Relaxed);
+            let stored = w.exec().jit_head.stack_limit.load(Ordering::Relaxed);
             // Under an outer frame (so no bottom push resets it), a limit above every
             // stack address makes the prologue report an overflow: it reads the
             // context's own head.
             let regs: Vec<Value> = Vec::new();
             w.exec().push_frame(&w, VmFrame::new(f.func, &regs));
-            w.exec.jit_head.stack_limit.store(usize::MAX, Ordering::Relaxed);
+            w.exec().jit_head.stack_limit.store(usize::MAX, Ordering::Relaxed);
             let forced = matches!(run(&w, f), NativeOutcome::Threw)
                 && matches!(w.exec().take_exception(), Some(Value::Str(s)) if s.as_str().contains("stack overflow"));
             w.exec().pop_frame();
@@ -217,11 +218,11 @@ fn compiled_prologue_checks_the_running_threads_stack_limit() {
 
 #[test]
 fn explicit_configs_drive_independent_vm_tier_thresholds() {
-    let fast_config = crate::config::RuntimeConfig::from_getter(|key| match key {
+    let fast_config = z42::config::RuntimeConfig::from_getter(|key| match key {
         "Z42_JIT_THRESHOLD" => Some("1".to_string()),
         _ => None,
     }).jit_config();
-    let slow_config = crate::config::RuntimeConfig::from_getter(|key| match key {
+    let slow_config = z42::config::RuntimeConfig::from_getter(|key| match key {
         "Z42_JIT_THRESHOLD" => Some("3".to_string()),
         _ => None,
     }).jit_config();
@@ -243,7 +244,7 @@ fn explicit_configs_drive_independent_vm_tier_thresholds() {
 
 #[test]
 fn reinstall_keeps_the_published_config_and_tier() {
-    let config = crate::config::RuntimeConfig::from_getter(|key| match key {
+    let config = z42::config::RuntimeConfig::from_getter(|key| match key {
         "Z42_JIT_THRESHOLD" => Some("3".to_string()),
         _ => None,
     }).jit_config();
@@ -263,7 +264,7 @@ fn reinstall_keeps_the_published_config_and_tier() {
 fn explicit_mixed_entry_config_counts_before_compiling() {
     use crate::exec::{TierBackend, TierTarget};
     use crate::exec::call::{args::CallArgs, outcome::ExecOutcome};
-    let config = crate::config::RuntimeConfig::from_getter(|key| match key {
+    let config = z42::config::RuntimeConfig::from_getter(|key| match key {
         "Z42_JIT_THRESHOLD" => Some("10".to_string()),
         "Z42_JIT_INTERP_TIERUP" => Some("2".to_string()),
         "Z42_OSR_THRESHOLD" => Some("7".to_string()),

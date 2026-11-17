@@ -1,6 +1,6 @@
 //! Terminator translation tests that need hand-built IR (shapes z42c never emits).
 
-use crate::jit::compile::state::install;
+use crate::jit::test_support::install;
 use crate::metadata::{Function, Module};
 use crate::zpkg::ir::{BasicBlock, Instruction, Terminator};
 use crate::zpkg::ir::ExecMode;
@@ -58,7 +58,7 @@ fn br_cond_on_int() -> Function {
 fn br_cond_on_non_bool_throws_instead_of_branching() {
     let module = module(br_cond_on_int());
     let vm = VmContext::new();
-    install(&vm, &module, crate::config::runtime_config().jit_config()).expect("install");
+    install(&vm, &module, z42::config::runtime_config().jit_config()).expect("install");
     let err = crate::jit::run_fn(&vm, "f").expect_err("a non-Bool condition must throw, not take a branch");
     assert!(err.to_string().contains("expected bool"), "unexpected error: {err}");
 }
@@ -71,11 +71,11 @@ fn safepoint_polls(f: Function, indexed: bool) -> u32 {
     let mut module = module(f);
     if indexed { z42::loader::build_block_indices(&mut module); }
     let vm = VmContext::new();
-    install(&vm, &module, crate::config::runtime_config().jit_config()).expect("install");
+    install(&vm, &module, z42::config::runtime_config().jit_config()).expect("install");
     const START: u32 = 1_000_000;
-    vm.threads.safepoint_skip.store(START, Ordering::Relaxed);
+    vm.threads().safepoint_skip.store(START, Ordering::Relaxed);
     crate::jit::run_fn(&vm, "f").expect("run");
-    START - vm.threads.safepoint_skip.load(Ordering::Relaxed)
+    START - vm.threads().safepoint_skip.load(Ordering::Relaxed)
 }
 
 /// `entry: br_cond true → yes / no` — both targets forward.

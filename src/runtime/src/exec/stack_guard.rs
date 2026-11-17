@@ -133,7 +133,7 @@ pub fn is_fatal(ctx: &crate::vm::VmContext) -> bool {
 
 /// Unit tests that raise a fatal error serialize on this: the report is process-wide,
 /// so two at once could take each other's.
-#[cfg(all(test, z42_test_facade))]
+#[cfg(any(all(test, z42_test_facade), feature = "jit-test-support"))]
 pub static FATAL_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// Snapshot the report while leaving it available to the process entry adapter.

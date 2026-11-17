@@ -35,9 +35,6 @@ pub mod components;
 #[cfg(test)]
 #[path = "../crates/z42-interp/src/interp/mod.rs"]
 pub mod interp;
-#[cfg(all(test, feature = "jit", z42_jit_supported))]
-#[path = "../crates/z42-jit/src/jit/mod.rs"]
-pub mod jit;
 
 #[cfg(all(feature = "shared-core", any(feature = "mimalloc-alloc", feature = "dhat-heap")))]
 compile_error!("shared-core runtime packs require the system allocator; custom allocators belong to a final static host");

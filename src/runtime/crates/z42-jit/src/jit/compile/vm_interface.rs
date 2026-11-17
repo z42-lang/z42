@@ -97,6 +97,6 @@ impl JitVm for Module {
     }
 }
 
-#[cfg(all(test, z42_test_facade))]
+#[cfg(test)]
 #[path = "vm_interface_tests.rs"]
 mod vm_interface_tests;

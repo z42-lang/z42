@@ -41,3 +41,28 @@ pub fn object_protocol(ctx: &crate::vm::VmContext) -> &crate::object::ObjectProt
 > {
     ctx.core().object_protocol()
 }
+
+#[cfg(feature = "jit-test-support")]
+#[doc(hidden)]
+pub use crate::vm::jit_test_context;
+
+#[cfg(feature = "jit-test-support")]
+#[doc(hidden)]
+pub fn test_loaded_program(ctx: std::pin::Pin<Box<VmContext>>, mode: crate::zpkg::ExecMode, entry: Option<String>) -> anyhow::Result<crate::host::LoadedProgram> {
+    crate::host::LoadedProgram::new(ctx, mode, entry)
+}
+
+#[cfg(feature = "jit-test-support")]
+#[doc(hidden)]
+pub fn test_embedding_hello() -> Option<(&'static [u8], &'static str)> {
+    #[cfg(z42_have_embedding_hello)]
+    { Some((include_bytes!(concat!(env!("OUT_DIR"), "/embedding_hello.zbc")), env!("Z42_EMBEDDING_TEST_LIBS"))) }
+    #[cfg(not(z42_have_embedding_hello))]
+    { None }
+}
+
+#[cfg(feature = "jit-test-support")]
+#[doc(hidden)]
+pub fn test_host_jit_compiled() -> bool {
+    crate::host::state::with_state_read(|s| s.modules[0].context().core().diagnostics().snapshot(s.modules[0].context().core().threads()).jit_methods_compiled).is_some_and(|n| n > 0)
+}
