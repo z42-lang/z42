@@ -822,11 +822,9 @@ int _writeExeTarget(ExeTarget ex, CompileArtifacts art, string distDir, bool isP
     } else {
         ZpkgWriteResult wresX = ZpkgWriterZ.WritePackedWithSidecar(z, isRelease);
         string outX = Path.Join(distDir, ex.Name + ".zpkg");
-        File.WriteAllBytes(outX, wresX.Main);
+        string symX = BuildSession.WriteZpkgDist(outX, wresX);
         BuildLog.Progress("wrote -> " + BuildLayout.Display(outX));
-        if (wresX.HasSidecar) {
-            string symX = Path.Join(distDir, ex.Name + ".zsym");
-            File.WriteAllBytes(symX, wresX.Sidecar);
+        if (symX.Length > 0) {
             BuildLog.Progress("wrote -> " + BuildLayout.Display(symX));
         }
     }
@@ -846,11 +844,9 @@ int _writeSingleOutput(ProjectManifest pm, CompileArtifacts art, string distDir,
         if (irc != 0) { return irc; }
     } else {
         ZpkgWriteResult wres = ZpkgWriterZ.WritePackedWithSidecar(art.Z, isRelease);
-        File.WriteAllBytes(outPath, wres.Main);
+        string symPath = BuildSession.WriteZpkgDist(outPath, wres);
         BuildLog.Progress("wrote -> " + BuildLayout.Display(outPath));
-        if (wres.HasSidecar) {
-            string symPath = Path.Join(distDir, pm.Project.Name + ".zsym");
-            File.WriteAllBytes(symPath, wres.Sidecar);
+        if (symPath.Length > 0) {
             BuildLog.Progress("wrote -> " + BuildLayout.Display(symPath));
         }
     }

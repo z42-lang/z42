@@ -145,7 +145,7 @@ public sealed class BuildSession {
         return SdkLibs.MergeTier(tier, sdk);
     }
 
-    [Suppress("style.fnLinesHard", "122 body lines；拆分见 code-organization.md")]
+    [Suppress("style.fnLinesHard", "114 body lines；拆分见 code-organization.md")]
     public BuildResult Run() {
         BuildOptions o = this._o;
         ProjectManifest pm = o.Manifest;
@@ -281,17 +281,26 @@ public sealed class BuildSession {
             outZpkg = Path.Join(BuildLayout.Resolve(pm, o.ProjectDir, o.IsRelease).DistDir, pm.Project.Name + ".zpkg");
         }
         ZpkgWriteResult wres = ZpkgWriterZ.WritePackedWithSidecar(art.Z, kn.Strip);
-        string outDir = Path.GetDirectoryName(outZpkg);
-        if (outDir.Length > 0) { Directory.Create(outDir); }
-        File.WriteAllBytes(outZpkg, wres.Main);
-        string zsym = "";
-        if (wres.HasSidecar) {
-            zsym = outZpkg.EndsWith(".zpkg") ? outZpkg.Substring(0, outZpkg.Length - 5) + ".zsym" : outZpkg + ".zsym";
-            File.WriteAllBytes(zsym, wres.Sidecar);
-        }
+        string zsym = BuildSession.WriteZpkgDist(outZpkg, wres);
         rep.Progress("wrote -> " + outZpkg);
         if (incremental != null) { incremental.Save(art, rep); }
         return new BuildResult(BuildExit.Ok, outZpkg, zsym);
+    }
+
+    // ⑧ 的落盘体：写主 zpkg；strip（release）同写 .zsym sidecar，非 strip（debug，主包无 BLID）
+    // 清掉同路径旧 release 留下的 .zsym——它与新主包永不成对（build_id 相等性，format/build_id.rs），
+    // 留着只会在 loader 侧整场 WARN。driver 的 exe / 单产物写点共用。返回 sidecar 路径（"" = 无）。
+    public static string WriteZpkgDist(string outZpkg, ZpkgWriteResult wres) {
+        string outDir = Path.GetDirectoryName(outZpkg);
+        if (outDir.Length > 0) { Directory.Create(outDir); }
+        File.WriteAllBytes(outZpkg, wres.Main);
+        string zsym = ZpkgWriterZ.SidecarPath(outZpkg);
+        if (wres.HasSidecar) {
+            File.WriteAllBytes(zsym, wres.Sidecar);
+            return zsym;
+        }
+        if (File.Exists(zsym)) { File.Delete(zsym); }
+        return "";
     }
 
     private static CompilationUnit[] _parseSources(string[] texts, string[] srcs, KnobResult kn) {
