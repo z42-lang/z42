@@ -70,7 +70,7 @@ native 安装器将其聚合成既有统一头，workload 不增加逐模块 inc
 | `src/interop/` | 原生提供方注册/查询与 Tier 1 C ABI 编组，见 [`src/interop/README.md`](src/interop/README.md) |
 | `src/components/abi.rs` / `src/components/bridge.rs` | 独立组件共享的同构建协议及核心身份/布局桥，不经 host 转出 |
 | `src/components/` | 内部能力门面、角色绑定、工厂加载、后端选择与每 VM 生命周期，见 [`src/components/README.md`](src/components/README.md) |
-| `src/host/` | CLI 与外部宿主共用的 Rust 加载、调用及应用服务，包含 `z42_host.h` 的 C ABI 适配，见 [embedding.md](../../docs/internals/src/runtime/embedding.md) |
+| `src/host/` | CLI 与外部宿主共用的 Rust 加载、调用及应用服务，C ABI 适配收在 `c/` 子目录，见 [embedding.md](../../docs/internals/src/runtime/embedding.md) |
 | `src/pal/` | 平台抽象层（OS 相关 `#[cfg]` 分支集中处），见 [`src/pal/README.md`](src/pal/README.md) |
 | `src/exec/exception.rs` | 异常对象布局、传播模型与栈迹捕获 |
 
@@ -140,7 +140,7 @@ GC 的 chunk 分配、代数与弱句柄 epoch 校验仍由 `gc/var_region` 管�
 > apphost 的**进程外**运行时解析在桌面 apphost 桩的 `hostrun` 模块
 > （`src/toolchain/workload/desktop/platform/apphost/src/hostrun.rs`），不是本 workspace 的 crate。
 
-C 头文件位于 [`include/z42_abi.h`](include/z42_abi.h)；`.z42abi` manifest schema 在 [`docs/internals/src/formats/manifest-schema.json`](../../docs/internals/src/formats/manifest-schema.json)。
+全部 C 头统一位于 [`include/`](include)，`z42_host.h` 为聚合发布入口；`.z42abi` manifest schema 在 [`docs/internals/src/formats/manifest-schema.json`](../../docs/internals/src/formats/manifest-schema.json)。
 
 ## 构建与测试
 

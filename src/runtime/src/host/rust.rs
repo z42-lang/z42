@@ -45,7 +45,7 @@ use std::sync::Arc;
 
 use z42_abi::{Z42Value, Z42_VALUE_TAG_BOOL, Z42_VALUE_TAG_F64, Z42_VALUE_TAG_I64, Z42_VALUE_TAG_NULL};
 
-use z42::host::config::{Z42HostConfig, Z42_HOST_ABI_VERSION};
+use z42::host::{Z42HostConfig, Z42_HOST_ABI_VERSION};
 use z42::host::error::Z42HostStatus;
 use z42::host::{
     install_vfs, install_zpkg_resolver, z42_host_initialize, z42_host_invoke, z42_host_last_error,

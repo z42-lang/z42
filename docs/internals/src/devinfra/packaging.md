@@ -49,12 +49,13 @@ SDK 的工具链编译和 apphost 发布使用本次 components 产物目录中�
 
 ### Native 统一头与模块所有权
 
-C 声明的源码归能力所有者：宿主声明位于 `src/runtime/src/host/z42_host.h`，组件链接声明位于
-`src/runtime/src/components/z42_components.h`。`src/runtime/include/z42_host.h` 是统一发布入口，
-只包含公共 ABI 和所有者头的 include，不保存这些领域的实现或重复声明。共享原生协议的 `z42_abi.h`、`z42_native.h` 由 `crates/z42-abi/` 维护，runtime/include 下的同名文件只提供分发入口；三份发布头都经同一个展开过程输出。
+C 声明统一位于 `src/runtime/include/`：宿主声明在 `z42_host_api.h`，组件链接声明在 `z42_components.h`，
+共享原生协议在 `z42_abi.h` / `z42_native.h`，压缩模块声明在 `z42_compression.h`；`include/z42_host.h` 是统一发布入口，
+只聚合这些声明，不保存领域的实现或重复声明。源码树与 SDK 消费方共享同一目录形态。
 
-`_copyAbiHeaders` 调用 `_runtimeHeaderText` 展开所有者的相对 include，形成平铺、自包含的
-`native/include/z42_host.h`；普通公共 include（例如 `z42_abi.h`）保持原样。
+`_copyAbiHeaders` 调用 `_runtimeHeaderText` 将只聚合、不单独安装的声明（`z42_host_api.h` / `z42_compression.h` /
+`z42_components.h`）内联进伞头，形成平铺、自包含的 `native/include/z42_host.h`；`z42_abi.h`、`z42_native.h`
+作为兄弟头保持原样发布。
 workload、Swift modulemap、JNI 与 C 调用方继续使用原有统一头，无需为每个内部模块增加 include 或转发文件。
 内部头文件移动只影响其聚合声明；原有 SDK 头名、分发位置和 workload 引用不受影响。
 

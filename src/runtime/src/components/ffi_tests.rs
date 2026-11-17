@@ -35,7 +35,6 @@ fn unified_native_header_exposes_host_and_linkage_without_extra_includes() {
         let mut child = Command::new("cc")
             .args(["-x", "c", "-std=c11", "-Werror", "-fsyntax-only"])
             .arg("-I").arg(root.join("include"))
-            .arg("-I").arg(root.join("src/components"))
             .arg("-").stdin(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
         child.stdin.take().unwrap().write_all(source.as_bytes()).unwrap();
         child.wait_with_output().unwrap()

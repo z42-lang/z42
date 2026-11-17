@@ -26,4 +26,4 @@ crate 类型：独立运行时库。算法和独立 C API 可脱离 VM 使用；
 
 `src/registration.rs` 是脚本描述符的唯一来源；`src/compression_tests.rs` 验证算法与传统 C API。C 值由接收方复制，流式句柄由算法后端释放。
 
-链接组合所需的 C 符号解析器声明位于本 crate 的 `z42_compression.h`，由 native 统一头聚合；普通宿主无需额外包含模块头。
+链接组合所需的 C 符号解析器声明位于 `include/z42_compression.h`，由 native 统一头聚合；普通宿主无需额外包含模块头。

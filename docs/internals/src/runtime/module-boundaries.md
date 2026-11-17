@@ -51,8 +51,8 @@ engine/init、counters/observer、protocol 实现模块私有；实现文件移�
 
 组件静态装配协议由 components 所有：Rust 最终组合根使用 `components::abi::register_static_component`，C 使用 `z42_component_register_static`。
 登记只保存进程寿命工厂，空指针/冲突以组件状态返回，不依赖 host 会话或错误槽。
-`src/host/z42_host.h` 与 `src/components/z42_components.h` 分别维护所属声明；`include/z42_host.h` 是 native 的统一聚合入口。
-打包展开所有者相对 include，输出平铺的 `native/include/z42_host.h`；workload 的 include 与 modulemap 不随实现目录变化。
+C 声明统一维护在 `include/`（宿主声明 `z42_host_api.h`、组件链接 `z42_components.h`）；`include/z42_host.h` 是 native 的统一聚合入口。
+打包将只聚合、不单独安装的声明内联进伞头，输出平铺的 `native/include/z42_host.h`；workload 的 include 与 modulemap 不随实现目录变化。
 这个发布聚合入口不等于 Rust host 的组件管理 API。
 
 ### 当前可核对的缺口

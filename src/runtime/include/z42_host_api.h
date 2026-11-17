@@ -1,10 +1,11 @@
-/* z42_host.h — Tier 1 Embedding / Hosting ABI
+/* z42_host_api.h — Tier 1 Embedding / Hosting ABI
  *
  * Stable C ABI for host applications to embed the z42 VM:
  *   initialize → load .zbc → resolve entry → invoke → shutdown.
  *
  * Sibling to z42_abi.h, which covers "native code registers types into z42".
  * This header covers the opposite direction: "host app drives the VM".
+ * Published through the z42_host.h umbrella (Rust mirror: src/host/c/ffi.rs).
  *
  * Spec: docs/design/runtime/embedding.md (Tier 1 C ABI §4)
  *       变更 add-embedding-api/

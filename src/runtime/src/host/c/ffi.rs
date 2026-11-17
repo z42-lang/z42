@@ -8,7 +8,8 @@
 //!
 //! Sibling: `crate::interop` (interop — native code registering types into z42).
 
-use super::*;
+use crate::host::*;
+use super::{config, ops, state};
 
 use std::os::raw::{c_char, c_void};
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -22,7 +23,7 @@ use crate::corelib::io;
 
 
 use super::config::Z42HostConfig;
-use super::error::{clear_error, set_error, snapshot_last_error, Z42HostStatus};
+use crate::host::error::{clear_error, set_error, snapshot_last_error, Z42HostStatus};
 use super::state::{is_valid_handle, HostEntry, HOST_SENTINEL};
 
 /// Opaque pointee for `Z42HostRef`. Pointers are sentinel values; the
@@ -735,7 +736,7 @@ pub unsafe extern "C" fn z42_host_run_app(
             let vfs = crate::pal::fs::default_vfs();
             let opts = crate::host::RunOpts {
                 mode: crate::host::default_mode(),
-                search_dirs: super::services::process_search_dirs(&app, libs.as_deref(), &*vfs),
+                search_dirs: crate::host::services::process_search_dirs(&app, libs.as_deref(), &*vfs),
                 vfs,
                 resolver: None,
                 program_args: prog_args,

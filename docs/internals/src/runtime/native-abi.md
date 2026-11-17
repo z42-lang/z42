@@ -86,7 +86,7 @@
 
 | 路径 | 内容 |
 |---|---|
-| [`src/runtime/crates/z42-abi/z42_abi.h`](https://github.com/z42-lang/z42/blob/main/src/runtime/crates/z42-abi/z42_abi.h) | Tier 1 C 头（与 `z42_host.h` 平行） |
+| [`src/runtime/include/z42_abi.h`](https://github.com/z42-lang/z42/blob/main/src/runtime/include/z42_abi.h) | Tier 1 C 头（与 `z42_host.h` 平行） |
 | [`src/runtime/src/interop/`](https://github.com/z42-lang/z42/tree/main/src/runtime/src/interop) | Tier 1 在 VM 内的实现（`providers` / `state` / `registry` / `marshal` / `dispatch` / `error` / `exports`） |
 | [`src/runtime/crates/z42-abi`](https://github.com/z42-lang/z42/tree/main/src/runtime/crates/z42-abi) | Tier 1 的 Rust 镜像（结构体 + 冻结 tag 常量 + `extern "C"` 声明） |
 | [`src/runtime/crates/z42-rs`](https://github.com/z42-lang/z42/tree/main/src/runtime/crates/z42-rs) | 面向用户的门面 crate（`Z42Type` trait + helper） |

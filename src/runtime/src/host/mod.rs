@@ -37,21 +37,20 @@
 //! use z42::host::module::Z42Module;
 //! ```
 pub use crate::{object::Value, pal::fs::Vfs, vm::{VmContext, VmCore}, metadata::Module};
-pub mod config;
 pub mod resolver;
 pub(crate) mod program;
 pub mod signal;
 pub mod error;
-pub mod marshal;
-pub mod ops;
-pub mod state;
-mod ffi;
+/// C embedding adapter (`z42_host` ABI): config, session, marshaling and the
+/// `extern "C"` entry points. Reached only through this module's re-exports.
+pub(crate) mod c;
 mod app;
 mod load;
 pub(crate) mod app_state;
 pub(crate) mod services;
 pub use z42_zpkg::{ExecMode, image::PackageImage};
-pub use ffi::{
+pub use c::config::{Z42ExecMode, Z42_HOST_ABI_VERSION, Z42HostConfig};
+pub use c::ffi::{
     Z42Host, Z42Module, Z42Entry, z42_host_initialize, z42_host_shutdown,
     z42_host_load_zbc, z42_host_resolve_entry, z42_host_invoke,
     z42_host_set_stdout_sink, z42_host_set_stderr_sink, z42_host_last_error,
@@ -78,6 +77,12 @@ pub mod rust;
 pub use crate::config::{RuntimeConfig, VmConfig};
 
 
-
-mod profiling;
-pub use profiling::{profiler_loaded, prepare_profiler, write_heap_snapshot};
+/// Optional analysis services exposed through the embedding facade.
+pub fn profiler_loaded(ctx: &VmContext) -> bool { ctx.core().diagnostics().sampler.is_loaded() }
+/// Resolve the configured profiler, validating its build/core identity first.
+pub fn prepare_profiler(ctx: &VmContext) -> anyhow::Result<()> {
+    crate::components::api::profiler_service(ctx).map(|_| ())
+}
+pub fn write_heap_snapshot(ctx: &VmContext, path: &str) -> anyhow::Result<i64> {
+    crate::components::api::profiler_service(ctx)?.write_heap_snapshot(ctx, path)
+}
