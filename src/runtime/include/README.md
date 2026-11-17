@@ -17,7 +17,7 @@ z42 runtime 对外的全部 C ABI 声明集中在本目录，供 host 应用 / n
 
 ## 发布规则
 
-`z42_abi.h` / `z42_native.h` 作为兄弟头随 SDK 平铺安装；`z42_host_api.h` / `z42_compression.h` / `z42_components.h` 不单独安装，由安装器（`scripts/src/package/install.z42` 的 `_runtimeHeaderText`）内联进伞头，输出自包含的 `native/include/z42_host.h`。源码树与 SDK 共享同一伞头；workload 的 include 与 modulemap 不随实现目录变化。
+`z42_abi.h` / `z42_native.h` 作为独立头随 SDK 平铺安装；展开进伞头时 `z42_abi.h` 是唯一兄弟引用（设备宿主模板只随伞头暂存 `z42_abi.h`），`z42_native.h` / `z42_host_api.h` / `z42_compression.h` / `z42_components.h` 不单独装进伞头消费方，由安装器（`scripts/src/package/install.z42` 的 `_runtimeHeaderText`）内联，输出自包含的 `native/include/z42_host.h`。源码树与 SDK 共享同一伞头；workload 的 include 与 modulemap 不随实现目录变化。
 
 ABI 演进：`abi_version` 永远在偏移 0；新字段只追加（宿主侧另有 `struct_size` 门控）；major 版本升级 = 显式 break（详见 [native interop](../../../docs/reference/src/embedding/native-interop.md) §3.3 与 [C ABI](../../../docs/reference/src/embedding/c-abi.md)）。
 

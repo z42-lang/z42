@@ -1,6 +1,6 @@
 /* Unified native embedding header. All runtime C declarations live in include/;
- * packaging inlines the aggregated-only parts (host_api / compression / components)
- * into this umbrella, while z42_abi.h / z42_native.h stay sibling includes. */
+ * packaging inlines the aggregated-only parts (native / host_api / compression /
+ * components) into this umbrella, leaving z42_abi.h as the only sibling include. */
 #ifndef Z42_HOST_H
 #define Z42_HOST_H
 #include "z42_abi.h"

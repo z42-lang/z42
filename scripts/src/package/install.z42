@@ -194,11 +194,14 @@ int _pkgBuildRuntime(string rid, string profile) {
 }
 
 // Headers aggregated into the umbrella but not installed standalone are inlined
-// for distribution; z42_abi.h / z42_native.h remain sibling includes. All runtime
-// C declarations live in src/runtime/include/, so source-tree and SDK consumers
+// for distribution; z42_abi.h remains the umbrella's only sibling include
+// (device-host templates stage exactly z42_abi.h + z42_host.h — see
+// src/toolchain/workload/{ios,android} platform include dirs). All runtime C
+// declarations live in src/runtime/include/, so source-tree and SDK consumers
 // share the same directory shape.
 bool _runtimeHeaderAggregated(string name) {
-    return name == "z42_compression.h" || name == "z42_host_api.h" || name == "z42_components.h";
+    return name == "z42_native.h" || name == "z42_compression.h"
+        || name == "z42_host_api.h" || name == "z42_components.h";
 }
 
 string _runtimeHeaderText(string source) {
