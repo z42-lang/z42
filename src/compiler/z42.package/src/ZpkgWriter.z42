@@ -86,6 +86,14 @@ public static class ZpkgWriterZ {
         return new ZpkgWriteResult(mainBytes, true, sidecar);
     }
 
+    // 主 zpkg 旁的 .zsym sidecar 兄弟路径（foo.zpkg → foo.zsym）。写盘方共用的单一定义；
+    // 无 sidecar 的构建（debug：主包内联 DBUG、无 BLID）写完主包后应删掉这里的旧文件——
+    // 旧 release 的 .zsym 与新主包永不成对（build_id 相等性配对，format/build_id.rs），
+    // 留着只会在 loader 侧整场 WARN。
+    public static string SidecarPath(string mainPath) {
+        return mainPath.EndsWith(".zpkg") ? mainPath.Substring(0, mainPath.Length - 5) + ".zsym" : mainPath + ".zsym";
+    }
+
     // 16 个零字节（BLID 占位）。
     private static ByteWriter _zeros(int count) {
         var w = new ByteWriter();

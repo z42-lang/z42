@@ -114,6 +114,23 @@ void test_release_strips_with_sidecar() {
     Assert.Equal(true, File.Exists(r.OutZsym));
 }
 
+// debug 重建同一 dist 必须清掉旧 release 留下的 .zsym：debug 主包无 BLID，旧 sidecar 与它
+// 永不成对（build_id 相等性，format/build_id.rs），loader 每次启动都 WARN 一场。曾因 debug
+// 写点只写主包、不动旧 .zsym，release→debug 重建 xtask 后每条命令都报 ignoring sidecar。
+[Test]
+void test_debug_rebuild_removes_stale_release_zsym() {
+    string dir = _mkProj("stale-zsym", _hdr("bs.stale", "lib"), "lib.z42", "int Helper() { return 1; }\n");
+    CollectingReporter rep = new CollectingReporter();
+    BuildResult rel = _run(dir, true, rep);
+    Assert.Equal(BuildExit.Ok, rel.Code);
+    Assert.Equal(true, rel.OutZsym != "" && File.Exists(rel.OutZsym));
+    BuildResult dbg = _run(dir, false, rep);
+    Assert.Equal(BuildExit.Ok, dbg.Code);
+    Assert.Equal("", dbg.OutZsym);
+    Assert.Equal(true, File.Exists(dbg.OutZpkg));
+    Assert.Equal(false, File.Exists(rel.OutZsym));   // 旧 sidecar 随 debug 重建清掉
+}
+
 // 声明了却找不到的依赖：失败且点名（与 `z42c build` 同一核验）。
 [Test]
 void test_missing_declared_dep_reported() {
