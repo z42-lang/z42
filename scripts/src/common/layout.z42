@@ -397,8 +397,8 @@ LayoutEntriesZ _layoutEntries(string root) {
     return e;
 }
 
-// `xtask layout [path]`：无参 = 打印 artifacts/ 的目录树（首行是 artifacts/ 的绝对路径，其余相对它、按层级缩进）；
-// 带参 = 该条目的绝对路径（给 CI / 脚本：`libs=$(xtask layout intermediate/libraries/flat/release)`）。
+// `xtask flow layout [path]`：无参 = 打印 artifacts/ 的目录树（首行是 artifacts/ 的绝对路径，其余相对它、按层级缩进）；
+// 带参 = 该条目的绝对路径（给 CI / 脚本：`libs=$(xtask flow layout intermediate/libraries/flat/release)`）。
 // 参数就是树里显示的相对路径，尾 / 可有可无。未知 → exit 2 并列出全部路径。
 class LayoutCommand : Command {
     [Argument(help: "an entry's path relative to artifacts/, e.g. intermediate/libraries/flat/release or reports/benches", name: "path")]
@@ -418,7 +418,7 @@ int _layoutCmd(string keyIn) {
             string rel = it.Rel.EndsWith("/") ? it.Rel.Substring(0, it.Rel.Length - 1) : it.Rel;
             if (rel == k) { Console.WriteLine(it.Abs); return 0; }
         }
-        ConsoleError.WriteLine("xtask layout: unknown path '" + key + "'. paths:");
+        ConsoleError.WriteLine("xtask flow layout: unknown path '" + key + "'. paths:");
         foreach (LayoutEntryZ it in e.Items) { ConsoleError.WriteLine("  " + it.Rel); }
         return 2;
     }
