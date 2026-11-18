@@ -34,6 +34,9 @@ pub struct VmCore {
     /// Instances stop before heap/engine teardown; their library leases outlive callbacks.
     pub(crate) components: std::sync::OnceLock<crate::components::api::VmComponents>,
     pub(crate) threads: crate::threads::ThreadState,
+    /// Captured at construction from `VmConfig` (worker-thread stack size;
+    /// runtime-audit P0-4). Spawns read this snapshot, never process config.
+    pub(crate) vm_thread_stack_size: usize,
     /// Shared execution state, including engine registrations and backend code lifetime.
     pub(crate) exec: crate::exec::ExecState,
     pub(crate) object_protocol: crate::object::ObjectProtocol<VmContext, crate::exec::builtin_abi::BuiltinError>,
@@ -199,6 +202,7 @@ impl VmContext {
             components: std::sync::OnceLock::new(),
             profiling: Default::default(),
             threads: crate::threads::ThreadState::new(config.safepoint_throttle),
+            vm_thread_stack_size: config.vm_thread_stack_size,
             loader: crate::loader::LoaderState::new(vfs, fusion),
             heap:                 Box::new(Heap::new(config.gc)),
             runtime: crate::metadata::RuntimeState::new(module, catalog),
