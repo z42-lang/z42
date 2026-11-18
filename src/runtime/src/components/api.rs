@@ -37,13 +37,6 @@ pub(crate) fn execution(ctx: &VmContext, role: ExecutionRole) -> Result<Option<C
     }
 }
 
-pub(crate) fn execution_supported(role: ExecutionRole) -> bool {
-    match role {
-        ExecutionRole::Baseline => true,
-        ExecutionRole::Optimizing => super::backends::jit_supported(),
-    }
-}
-
 /// Known source presence, not an ABI-validity guarantee. Preparation validates it.
 pub(crate) fn execution_available(role: ExecutionRole) -> bool {
     match role {
