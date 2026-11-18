@@ -346,11 +346,15 @@ class Ver {
 | `\|` | `op_BitwiseOr` | `<<` | `op_LeftShift` |
 | `^` | `op_ExclusiveOr` | `>>` | `op_RightShift` |
 
-- **这张表就是全部**：表外的符号（`!` / `~` / `&&` / …）与**一元形态**（`operator -(T a)` 只有一个
-  形参）都**不可重载**，写了报 [E0495](../appendix/error-codes.md)。这两种写法若不在声明处拦下，会**一句话
-  不说**：表外符号被造出一个非法名（`op_!`）、一元 `-` 撞进 `op_Subtract`，方法照样发进 zbc，
-  而派发侧永远查不到它 —— 你只会在**使用处**看到一句与真因无关的
-  `operator `-` requires numeric operand`。
+- **一元也可重载**（fix-unary-op-overload）：`-` `+` `!` `~` 的一元形态（一个形参）降低为
+  `op_UnaryNegation` / `op_UnaryPlus` / `op_LogicalNot` / `op_OnesComplement`，`-v` /
+  `!t` 派发规则与二元相同（先 `op_`、不命中回落原生表——数值 / bool 零行为变化）。同符号
+  二元与一元可并存（`operator -(Vec, Vec)` 与 `operator -(Vec)` 各自成立）。
+- **这张表就是全部**：二元 ∪ 一元表外的符号（`++` / `--` / `&&` / …）与错误形参个数
+  （如 `operator !(T a, T b)`）都**不可重载**，写了报 [E0495](../appendix/error-codes.md)。
+  这类写法若不在声明处拦下，会**一句话不说**：表外符号被造出一个非法名、一元 `-` 撞进
+  `op_Subtract`，方法照样发进 zbc，而派发侧永远查不到它 —— 你只会在**使用处**看到一句与
+  真因无关的 `operator `-` requires numeric operand`。
 - **不重载即回落**：没有对应 `op_X` 方法的类型，`==`/`!=` 回落引用相等、算术/比较回落原生数值表
   （裸 `int`/`double` 零开销）。
 - **`==` 与 `!=` 通常成对**定义（一个取反另一个）。

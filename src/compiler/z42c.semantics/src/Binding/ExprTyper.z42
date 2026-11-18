@@ -764,6 +764,23 @@ public sealed partial class ExprTyper : IExprVisitor<BoundExpr, TypeEnv> {
             this._tc._diags.Error(DiagnosticCodes.AssignTargetNotLvalue, "cannot modify a read-only size member", u.Span);
             return new BoundUnary(u.Op, operand, new Z42ErrorType(), u.Span);
         }
+        // fix-unary-op-overload：用户类型的一元重载（op_UnaryNegation / op_UnaryPlus /
+        // op_LogicalNot / op_OnesComplement）——镜像 BindBinaryBound 的次序：先 op_ 派发、
+        // 不命中回落原生表（数值 / bool 零行为变化）。`++`/`--` 不在一元表（`""`）天然跳过。
+        // 泛型型参的约束派发（二元有）刻意不做：现有协议未声明一元操作符。
+        if (ot is Z42ClassType && !ot.IsScalarType()) {
+            string unaryMethod = TypeFactsTc._unaryOperatorMethodNameTc(u.Op);
+            if (unaryMethod != "") {
+                Z42ClassType ct = ot as Z42ClassType;
+                BoundExpr[] opArgs = new BoundExpr[1];
+                opArgs[0] = operand;
+                MethodSymbol opMs = this._tc._overload._resolveOverload(env.Symbols, ct, unaryMethod, opArgs, 1, null, u.Span, null, env);
+                if (opMs != null) {
+                    // CallKey 而非裸 RegKey：同 BindBinaryBound 的 unify-blob-return-abi 纪律。
+                    return BoundCall.WithOwner(BoundCall.Marked(new BoundCall("static", false, null, ct.Name(), opMs.CallKey(), opArgs, 1, opMs.Signature.Ret, u.Span), opMs.Signature), ct);
+                }
+            }
+        }
         BinaryRule rule = BinaryTypeTable.LookupUnary(u.Op);
         if (!rule.Known) {
             return new BoundUnary(u.Op, operand, ot, u.Span);

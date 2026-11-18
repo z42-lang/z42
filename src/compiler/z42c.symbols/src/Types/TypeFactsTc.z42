@@ -4,7 +4,17 @@ namespace Z42.Symbols;
 
 public static class TypeFactsTc {
 
-    public static string _operatorMethodNameTc(string op) {
+    // fix-unary-op-overload：一元可重载表（与声明侧 MemberParser._unaryOperatorMethodName
+// 同一约定；`""` 表不可重载/不走派发）。消费点：ExprTyper._bindUnary 的 op_ 先行派发。
+public static string _unaryOperatorMethodNameTc(string op) {
+    if (op == "-") { return "op_UnaryNegation"; }
+    if (op == "+") { return "op_UnaryPlus"; }
+    if (op == "!") { return "op_LogicalNot"; }
+    if (op == "~") { return "op_OnesComplement"; }
+    return "";
+}
+
+public static string _operatorMethodNameTc(string op) {
         if (op == "+") { return "op_Add"; }
         if (op == "-") { return "op_Subtract"; }
         if (op == "*") { return "op_Multiply"; }

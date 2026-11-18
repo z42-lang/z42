@@ -485,11 +485,13 @@ void test_ternary_alone_still_ok() {
     Assert.Equal("", parseErrorCodes("class C { int M(bool c) { return c ? 1 : 2; } }"));
 }
 
-// ── 运算符重载：只有二元形态成立（E0495）─────────────────────────────────
+// ── 运算符重载：二元 16 条 + 一元 4 条（E0495）─────────────────────────────
 // 修前这两种不成立的写法在**声明处一句话不说**：表外符号回落 `"op_" + op` 造出非法名
-// `op_!`（`fn @Vec.op_!$1$Vec` 真的被发进 zbc），一元 `-` 撞进表里的 `op_Subtract` 产出
+// `op_++`，一元 `-` 撞进表里的 `op_Subtract` 产出
 // `op_Subtract$1$T`；派发侧 `TypeFactsTc._operatorMethodNameTc` 两者都查不到 ⇒ 用户只在
 // 使用处看到一句与真因无关的 `E0402: operator `-` requires numeric operand`。
+// fix-unary-op-overload：一元 `- + ! ~` 现已可重载（降低为 op_UnaryNegation 等 C# 名，
+// 派发侧 ExprTyper._bindUnary 先 op_ 后原生表）。
 //
 // ⭐ 判别力必须**成对**看：每条阴性都配一条只差一处的阳性。单看阴性没有分辨力 —— 一个
 // 「凡是 operator 都报错」的错误实现同样能让三条阴性全绿。
@@ -502,17 +504,33 @@ void test_binary_operator_overload_unchanged() {
                  parseUnit("class V { public static V operator +(V a, V b) { return a; } }"));
 }
 
-// 阴性①：符号不在 16 条表里 ⇒ 不可重载（此前造出非法名 op_!）。
+// 阴性①：符号不在二元 ∪ 一元表里 ⇒ 不可重载（`!` 已入一元表，换 `++` 作表外样本）。
 [Test]
 void test_unlisted_operator_symbol_rejected() {
-    Assert.Equal("E0495", parseErrorCodes("class V { public static bool operator !(V a) { return true; } }"));
+    Assert.Equal("E0495", parseErrorCodes("class V { public static V operator ++(V a) { return a; } }"));
 }
 
-// 阴性②：一元形态 ⇒ 形参不是两个（此前撞进 op_Subtract）。
-// 与下面那条阳性**只差一个形参**，两条必须一起读。
+// fix-unary-op-overload 阳性①：一元 `-` 现在合法，降低为 op_UnaryNegation（此前 E0495）。
+// 与下面的二元阳性**只差一个形参**，两条必须一起读。
 [Test]
-void test_unary_operator_overload_rejected() {
-    Assert.Equal("E0495", parseErrorCodes("class V { public static V operator -(V a) { return a; } }"));
+void test_unary_minus_overload_lowers_to_op_unary_negation() {
+    Assert.Equal("", parseErrorCodes("class V { public static V operator -(V a) { return a; } }"));
+    Assert.Equal("(unit (class V (method public static V op_UnaryNegation (V a) (block (return a)))))",
+                 parseUnit("class V { public static V operator -(V a) { return a; } }"));
+}
+
+// fix-unary-op-overload 阳性②：`!` 一元表名 op_LogicalNot（此前 E0495）。
+[Test]
+void test_unary_not_overload_lowers_to_op_logical_not() {
+    Assert.Equal("", parseErrorCodes("class V { public static bool operator !(V a) { return true; } }"));
+    Assert.Equal("(unit (class V (method public static bool op_LogicalNot (V a) (block (return true)))))",
+                 parseUnit("class V { public static bool operator !(V a) { return true; } }"));
+}
+
+// 阴性②：一元专用符号配两个形参 ⇒ arity 错（`!` 无二元形态）。
+[Test]
+void test_unary_only_symbol_with_two_params_rejected() {
+    Assert.Equal("E0495", parseErrorCodes("class V { public static bool operator !(V a, V b) { return true; } }"));
 }
 
 // 阳性：同一个符号的二元形态照旧成立 —— 证明阴性②拦的是 arity 而不是符号 `-`。
