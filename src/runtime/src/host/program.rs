@@ -88,14 +88,12 @@ impl LoadedProgram {
         super::load::prepare(artifact, None, &options, &components)
     }
 
-    #[cfg(not(feature = "jit-test-support"))]
-    pub(crate) fn context(&self) -> &VmContext {
-        &self.ctx
-    }
-    /// Test-support view (`jit-test-support` builds): compiled-code assertions
-    /// need the low-level context. Production hosts reach the VM only through
-    /// functional requests.
-    #[cfg(feature = "jit-test-support")]
+    /// Undocumented low-level channel for first-party verification harnesses
+    /// (the packaging pipeline's engine_components / z42-jit's cross tests):
+    /// they link the packaged production core and assert on compiled-code
+    /// diagnostics. Not part of the embedding API; closure of ordinary-host
+    /// access is tracked in module-boundaries.
+    #[doc(hidden)]
     pub fn context(&self) -> &VmContext {
         &self.ctx
     }

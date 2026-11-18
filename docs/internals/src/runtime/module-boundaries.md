@@ -49,9 +49,10 @@ main.rs 只依赖 std/libloading，加载 libz42 的 z42_main_v1。命令行参�
 engine/init、counters/observer、protocol 实现模块私有；实现文件移动只需调整所属模块的声明与显式导出。
 模块内的实现引用不做机械改写，也不建立总括所有领域的 prelude。正向 doctest 与私有路径 compile_fail 验证这条边界。
 
-宿主可达的低层上下文已收口：`z42::host` 不再转出 `VmCore` / `VmContext`（树内唯一消费者迁
-`z42::vm` 直达路径），`LoadedProgram::context` 收 `pub(crate)`——`jit-test-support` 测试构建保留
-feature 门控视图供编译产物断言；compile_fail doctest 锁定。
+宿主可达的低层上下文已收口：`z42::host` 不再转出 `VmCore` / `VmContext`（树内消费者迁
+`z42::vm` 直达路径），compile_fail doctest 锁定。`LoadedProgram::context` 保留为
+`#[doc(hidden)]` 通道——打包验证 harness（engine_components，链接生产 packaged core 断言
+JIT 编译数）与 z42-jit 跨测试是真实低层消费者；普通宿主的功能请求面不含它。
 
 LOH 进程策略与每 VM 输入已分离：`VmConfig` 不再携带 `process_loh_bytes`，旋钮在进程配置发布
 （`init_runtime_config` 成功一次或惰性首读）时经 `apply_process_policy` 恰好应用一次——任意后续 VM
