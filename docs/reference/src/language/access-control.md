@@ -1,6 +1,7 @@
 # 访问权限控制
 
-z42 的访问修饰符（`public` / `private` / `protected` / `internal`）语义与 C# 一致，并在**编译期强制**：
+z42 的访问修饰符（`public` / `private` / `protected` / `internal`）在**成员位**语义与 C# 一致；
+在**顶层位**按 z42 自己的作用域轴定义（文件 / 命名空间），并在**编译期强制**：
 违规的成员访问或类型引用报 **E0404**。
 
 ## 设计原则
@@ -9,7 +10,9 @@ z42 的访问修饰符（`public` / `private` / `protected` / `internal`）语�
 
 > 没有修饰符的声明，只对直接包含它的那层结构可见。
 
-- `namespace` 纯粹用于类型隔离和组织，不参与访问控制，不绑定物理路径。
+- 顶层声明的封闭层就是**文件**：`private` = 本文件（REPL 会话内各轮共享同一文件作用域）。
+- `namespace` 是 `protected` 的可见性边界（本包 ∩ 同名命名空间）；此外仍只用于类型隔离和组织，
+  不绑定物理路径。
 - `using` 只做名称解析（把类型名带入作用域），不授予任何访问权限。
 - 修饰符只能写一个，**不允许组合**（无 `protected internal`、`private protected` 等）。
 - 无 `friend` 关键字；需要模块内精细协作，通过拆分模块或 Capability Token 模式解决。
@@ -18,14 +21,14 @@ z42 的访问修饰符（`public` / `private` / `protected` / `internal`）语�
 
 ## 访问修饰符
 
-从窄到宽共四级：
+从窄到宽共四级——顶层位恰好构成良序包含链 **文件 ⊂ 命名空间 ⊂ 模块 ⊂ 全部**：
 
-| 修饰符 | 可见范围 |
-|--------|---------|
-| `private` | 仅当前类内部（含同类其它实例，以及嵌套在它里面的类型；**派生类不可**访问基类 private） |
-| `protected` | 当前类 + 所有直接/间接子类（跨包派生同样允许） |
-| `internal` | 同一程序集（模块 / zpkg）内 |
-| `public` | 所有人，无限制 |
+| 修饰符 | 成员位（C# 一致） | 顶层位（z42 作用域轴） |
+|--------|------------------|----------------------|
+| `private` | 仅当前类内部（含同类其它实例，以及嵌套在它里面的类型；**派生类不可**访问基类 private） | **本文件**（声明所在的编译单元；REPL 会话各轮共享） |
+| `protected` | 当前类 + 所有直接/间接子类（跨包派生同样允许） | **本包 ∩ 同名命名空间**（要求文件显式声明 `namespace`，否则 E0442） |
+| `internal` | 同一程序集（模块 / zpkg）内 | 同左（顶层默认） |
+| `public` | 所有人，无限制 | 同左 |
 
 ---
 
@@ -188,19 +191,55 @@ private protected int x;            // ❌ E0405
 
 ---
 
-## 顶层声明不接受 private / protected
+## 顶层作用域（access-top-scope）
 
-顶层 `class` / `interface` / `struct` / `record` / `enum` / 函数标 `private` / `protected` 在模块作用域
-无意义（默认已是 internal），**声明期即拒绝** → **E0442**：
+顶层 `class` / `struct` / `interface` 支持 `private` / `protected`，语义按声明位置的**封闭作用域**定义：
+
+- **`private class C { … }` = 文件作用域**：仅声明所在文件可引用（本命场景：单文件辅助类型——
+  builder / 状态机 / 生成器产物；也是 C# 11 `file` 修饰符的角色，z42 不引入新关键字，复用
+  「private = 最小封闭作用域」的统一语义，顶层的最小封闭层就是文件）。
+- **`protected class C { … }` = 命名空间作用域**：**本包内声明了相同命名空间的文件**可访问
+  （本命场景：partial 类跨文件碎片的共享 helper——各碎片 FQN 相同、必然同 ns）。判定是**本包 ∩
+  同名精确匹配**：跨包一律拒绝（即使依赖包有同名 ns）；子 ns（`App.Big.Sub`）**不**自动看到
+  `App.Big` 的 protected——与 internal 跨包「解析得到但拒绝」同形态，将来放宽为前缀域是非破坏升级。
 
 ```z42
-private class Foo { }       // ❌ E0442
-protected void bar() { }    // ❌ E0442
-internal class Ok { }       // ✅
-public class Ok2 { }        // ✅
+// ── 文件 a.z42 ──
+namespace App;
+private class FileHelper { }        // 仅 a.z42 可用
+protected class FamilyHelper { }    // App 内所有文件可用（含 partial 碎片所在文件）
+
+// ── 文件 b.z42（namespace App;）──
+var a = new FileHelper();           // ❌ E0404：file-scoped private，声明于另一文件
+var b = new FamilyHelper();         // ✅ 同包同 ns
+
+// ── 文件 c.z42（namespace Other;）──
+var c = new App.FamilyHelper();     // ❌ E0404：namespace-scoped protected，当前 ns 是 Other
 ```
 
-嵌套类型不走此路径，仍可 `private` / `protected`。
+**顶层 `protected` 要求文件显式声明 `namespace`**（空 ns 恰是「一切 ns 的全局域」，等价 internal，
+会静默骗过收窄意图）→ **E0442**：
+
+```z42
+protected class Foo { }             // ❌ E0442：本文件没有 namespace 声明
+namespace App;
+protected class Ok { }              // ✅（namespace 必须在文件顶部，见 namespaces）
+```
+
+配套规则：
+
+- **E0441 边界不变**：file-private / ns-protected 类型出现在**任何越出其作用域的签名**（含同文件
+  internal 类的 public 成员）→ E0441——模块元数据不得暴露别的文件不可名状的类型。同文件**体内**
+  引用（局部 / `var` / `new` / 私有字段）不受限。
+- **祖先链**：file-private 类的嵌套类型（哪怕自身 `public`）跨文件引用同样被拒——引用嵌套类型即引用
+  其家族容器。
+- **同名互斥**：两个文件各写一个同 ns 同名 file-private 类 → 既有 **E0458** 重复声明兜底。
+- **导出**：file-private 类型不进 zpkg 导出元数据；protected 照常导出、跨包在引用点拒绝（与 internal
+  同路径）。
+- **REPL**：各轮是独立「文件」（`repl_r0`、`repl_r1`…），但**会话内共享同一文件作用域**——第 2 轮可见
+  第 1 轮的 private 类；顶层 protected 在 REPL 无 ns，按 E0442 拒绝。
+- **`enum` / `delegate` / 顶层函数**仍不接受 `private` / `protected` → **E0442**（三处无对应的引用点
+  强制管线，不提供不设防的修饰符）。
 
 ---
 
@@ -301,6 +340,10 @@ public extern bool IsNested { get; }               // 顶层 vs 嵌套（正交�
 
 > 注意：**无修饰符成员**的可见性字节是 `internal`（不是 public），故对它反射 `IsPublic` 返回
 > `false`——与 C# 语义一致。
+
+access-top-scope 之后，`Visibility == Protected && !IsNested`（顶层 protected）与
+`Visibility == Private && !IsNested`（顶层 private，文件作用域）成为可达组合，`IsNotPublic` 均为
+`true`——反射只报告**声明档位**，不区分文件 / 命名空间作用域的边界细节（那是编译期判定）。
 
 ---
 

@@ -694,15 +694,24 @@ public sealed class Parser {
             int docAfterAttrs = this._pos;
             string mods = this._declP._parseModifiers();
             int dk = this._peek().Kind;
-            // complete-class-access-control ③：顶层声明（模块作用域）不得标 private/protected——
-            // 默认 internal，private/protected 在模块层无意义。嵌套类型/成员经 MemberParser 不走此路径。
-            // 覆盖 class/struct/interface/enum/delegate/顶层函数（impl 无可见性，排除）。
-            if (dk == TokenKind.Class || dk == TokenKind.Struct || dk == TokenKind.Interface
-                || dk == TokenKind.Enum || dk == TokenKind.Delegate
-                || this._isTypeKeyword(dk) || dk == TokenKind.Identifier || dk == TokenKind.LParen) {
-                if (Mod.Has(Mod.Parse(mods), Mod.Private) || Mod.Has(Mod.Parse(mods), Mod.Protected)) {
+            // access-top-scope：顶层 class/struct/interface 放行 private/protected——private=本文件、
+            // protected=本命名空间。protected 要求文件声明了 namespace：空 ns 等价 internal，会静默
+            // 骗过「收窄」意图，声明期拒绝（E0442 转生）。enum 即席合成（Z42ClassType.Enum）无可见性
+            // 管线、delegate 走函数类型、顶层函数无引用点强制，三者维持 E0442（complete-class-access-control ③
+            // 的收窄面）。嵌套类型/成员经 MemberParser 不走此路径。
+            int modsF = Mod.Parse(mods);
+            if (dk == TokenKind.Class || dk == TokenKind.Struct || dk == TokenKind.Interface) {
+                if (Mod.Has(modsF, Mod.Protected) && !hasNs) {
                     this._diags.Error(DiagnosticCodes.TopLevelAccessModifier,
-                        "top-level declaration cannot be private or protected (use internal or public)", this._peek().Span);
+                        "top-level `protected` is namespace-scoped: this file must declare a `namespace` first",
+                        this._peek().Span);
+                }
+            } else if (dk == TokenKind.Enum || dk == TokenKind.Delegate
+                || this._isTypeKeyword(dk) || dk == TokenKind.Identifier || dk == TokenKind.LParen) {
+                if (Mod.Has(modsF, Mod.Private) || Mod.Has(modsF, Mod.Protected)) {
+                    this._diags.Error(DiagnosticCodes.TopLevelAccessModifier,
+                        "only class/struct/interface accept top-level private/protected (here use internal or public)",
+                        this._peek().Span);
                 }
             }
             Decl d = new UsingDecl("<error>", this._peek().Span);

@@ -122,6 +122,7 @@ public sealed class StubCollector {
                             Z42InterfaceType itw = new Z42InterfaceType(c.Name);   // 均非 partial：维持既有 last-wins
                             itw.Namespace = cu.Namespace;   // unify-type-identity-fqn：声明 ns（供 Fqn()）
                             itw.Visibility = DeclFacts.classVis(c.ModFlags, c.Name.IndexOf('+') >= 0);   // complete-class-access-control ④
+                            itw.DeclFile = file;   // access-top-scope：顶层 private 接口的声明文件
                             StubCollector._setIfaceTypeParams(itw, c);   // add-associated-types PR-3
                             this._addIfaceBases(itw, c);
                             table.InterfacesByFqn.Put(itw.Fqn(), itw);   // unify-type-identity-fqn
@@ -132,6 +133,7 @@ public sealed class StubCollector {
                         it.Namespace = cu.Namespace;   // unify-type-identity-fqn：声明 ns（供 Fqn()）
                         if (c.IsPartial) { it.IsPartial = true; it.PartialMainFile = file; }
                         it.Visibility = DeclFacts.classVis(c.ModFlags, c.Name.IndexOf('+') >= 0);   // complete-class-access-control ④
+                        it.DeclFile = file;   // access-top-scope：顶层 private 接口的声明文件
                         StubCollector._setIfaceTypeParams(it, c);   // add-associated-types PR-3
                         this._addIfaceBases(it, c);
                         table.InterfacesByFqn.Put(it.Fqn(), it);   // unify-type-identity-fqn
@@ -444,6 +446,7 @@ public sealed class StubCollector {
         ct.IsSealed = Mod.Has(c.ModFlags, Mod.Sealed);   // impl-sealed-semantics-devirt：本地 sealed class
         ct.IsAbstract = Mod.Has(c.ModFlags, Mod.Abstract);   // add-internal-hierarchy-exhaustiveness：本地 abstract class（封闭层次穷尽性排除不可实例化类）
         ct.Visibility = DeclFacts.classVis(c.ModFlags, c.Name.IndexOf('+') >= 0);   // enforce-class-access：位置默认（嵌套→private / 顶层→internal，显式优先）
+        ct.DeclFile = file;   // access-top-scope：顶层 private（文件作用域）的声明文件；嵌套类型同文件即外层类，不消费
         ct.InterfaceNames = ifaces;
         ct.InterfaceCount = ifc;
         if (c.TypeParams.Count > 0) { ct.GenericParamNames = c.TypeParams.Names; ct.GenericParamCount = c.TypeParams.Count; }

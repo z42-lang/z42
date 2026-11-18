@@ -231,5 +231,5 @@ void Main() {
 
 ## 相关
 
-- [访问控制](access-control.md)——`public` / `internal` 与包边界
+- [访问控制](access-control.md)——`public` / `internal` 与包边界；顶层 `protected` 以**同名命名空间**为可见域
 - [错误码](../appendix/error-codes.md)

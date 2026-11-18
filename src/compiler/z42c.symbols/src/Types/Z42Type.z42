@@ -164,6 +164,10 @@ public sealed class Z42ClassType : Z42Type {
     // 供类级访问强制（AccessChecker.CheckTypeRef）判定「从当前上下文引用该类型是否允许」。位置默认：
     // 嵌套类（名含 '+'）→ private、顶层类 → internal；显式修饰符优先。
     public string Visibility;
+    // access-top-scope：**顶层 private**（文件作用域）声明所在文件（StubCollector 从 files[] 回填；
+    // 嵌套类型与导入类型为 ""）。引用点与声明点文件比对在 TypeRefAccess（两侧同经 _scopeKey 归一，
+    // REPL 各轮共享会话作用域）。仅顶层 private 消费；protected 走 Namespace 字段，无须此槽。
+    public string DeclFile;
     // add-deprecated-directive：类级 `[Deprecated]`。默认 false；本地由 SymbolCollector 从 attr 设置，
     // 导入由 ImportedSymbolLoader 从 CLASS_FLAG_DEPRECATED 还原。供 use-site（new/类型引用）告警。
     public bool   IsDeprecated;
@@ -558,6 +562,8 @@ public class Z42InterfaceType : Z42Type {
     // → internal 接口跨包引用 deny（CheckTypeRef 接口分支消费，镜像 Z42ClassType）。
     public string Visibility;
     public bool   IsImported;
+    // access-top-scope：顶层 private 接口声明文件（同 Z42ClassType.DeclFile；嵌套/导入为 ""）。
+    public string DeclFile;
     // 父接口**裸名**（`interface IDerived : IBase` 的 IBase；去 `<...>`）。
     // complete-where-constraints PR-1：`SymbolTable.Implements` 此前只扫类的**直接**接口名单、
     // 不走接口继承链 → `class C : IDerived` 问 `Implements("C","IBase")` 返回 false。传递闭包

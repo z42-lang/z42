@@ -4,6 +4,8 @@ namespace Z42.Semantics;
 
 using Z42.Core;
 using Z42.IR;
+using Z42.Syntax;
+using Z42.Symbols;
 
 public static class SemanticDump {
     // ── 诊断口径的单一来源（fix-semanticdump-drops-collector-diags）──────────────
@@ -167,5 +169,48 @@ public static class SemanticDump {
     public static int ErrorCount(string src) {
         DiagnosticBag diags = SemanticDump._diags(src);
         return diags.ErrorCount();
+    }
+
+    // ── access-top-scope：多文件（同包多 CU）口径 ──────────────────────────────────────────
+    // 跨文件可见性（顶层 private=文件作用域 / protected=命名空间作用域）的用例入口：单文件
+    // `<input>` 表达不了「另一个文件」。形状镜像 IrDump.BuildPackageCus 的语义段
+    // （CollectAll → per-CU 约束 Resolve → per-CU Infer），不做代码生成；诊断合并序与
+    // _diags 同（parse → 收集 → 类型检查，故首条仍是最早那条）。
+    private static DiagnosticBag _diagsMulti(string[] srcs, string[] files) {
+        int n = srcs.Length;
+        CompilationUnit[] cus = new CompilationUnit[n];
+        int i = 0;
+        while (i < n) {
+            var p = new Parser(srcs[i], files[i]);
+            cus[i] = HandlerRegistry.RunAst(p.ParseCompilationUnit());
+            i = i + 1;
+        }
+        var coll = new SymbolCollector();
+        SymbolTable symbols = coll.CollectAll(cus, files, n, null);
+        var diags = new DiagnosticBag();
+        int j = 0;
+        while (j < n) { cus[j].MergeParseDiags(diags); j = j + 1; }
+        diags.MergeFrom(coll.Diags);
+        ConstraintChecker cc = new ConstraintChecker(diags);
+        int k = 0;
+        while (k < n) { cc.Resolve(cus[k], symbols.WithCu(cus[k])); k = k + 1; }
+        int m = 0;
+        while (m < n) { new TypeChecker(diags).Infer(cus[m], symbols); m = m + 1; }
+        return diags;
+    }
+
+    public static int ErrorCountMulti(string[] srcs, string[] files) {
+        return SemanticDump._diagsMulti(srcs, files).ErrorCount();
+    }
+
+    // 多文件版 HasErrorCode：跨文件用例只锁「关心的码报没报」，不锁总条数（同 HasErrorCode 的理由）。
+    public static bool HasErrorCodeMulti(string[] srcs, string[] files, string code) {
+        DiagnosticBag diags = SemanticDump._diagsMulti(srcs, files);
+        int i = 0;
+        while (i < diags.Count()) {
+            if (diags.Get(i).Code == code) { return true; }
+            i = i + 1;
+        }
+        return false;
     }
 }

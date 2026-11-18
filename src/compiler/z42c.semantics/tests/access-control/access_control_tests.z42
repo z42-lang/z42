@@ -197,13 +197,14 @@ void test_class_internal_toplevel_same_package_ok() {
     Assert.Equal(0, SemanticDump.ErrorCount(src));
 }
 
-// ── 顶层声明拒绝 private/protected（complete-class-access-control ③，E0442，parser 声明期）──
+// ── 顶层声明修饰符（access-top-scope 后的形状：class/struct/interface 放行 private/protected；
+//    enum/delegate/顶层函数维持 E0442；protected 无 ns 声明期拒绝）──
 
 [Test]
-void test_toplevel_private_class_denied() {
-    // 顶层类标 private → E0442（模块作用域下 private 无意义）
-    string src = "private class Foo { }";
-    Assert.Equal("E0442", SemanticDump.FirstErrorCode(src));
+void test_toplevel_private_class_ok() {
+    // access-top-scope：顶层 private = 文件作用域，同文件（单测单一源）合法
+    string src = "private class Foo { public int F() { return 1; } } void f() { var x = new Foo(); }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
 }
 
 [Test]
@@ -394,4 +395,130 @@ void test_ctor_target_typed_and_object_initializer_checked() {
     Assert.Equal("E0404", SemanticDump.FirstErrorCode(tt));
     string oi = "class C { public int F; C(int a) { } } class U { void M() { var c = new C(1) { F = 2 }; } }";
     Assert.Equal("E0404", SemanticDump.FirstErrorCode(oi));
+}
+
+// ── access-top-scope：顶层 private=文件作用域 / protected=本包∩同名命名空间 ──────────────
+// 跨文件用例走 SemanticDump 多文件口径（同包多 CU）；单文件内（`<input>`）天然同文件/同 ns。
+
+[Test]
+void test_top_private_same_file_all_forms_ok() {
+    // 同文件体引用（局部/var/new/私有字段）放行；签名暴露另测（E0441 边界）
+    string src = "private class Node { public int V; } class Holder { Node n = new Node(); "
+               + "int Make() { var x = new Node(); Node y = x; return y.V; } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_top_private_same_file_signature_exposure_denied() {
+    // 同文件 internal 类的 public 成员签名暴露 file-private 类型 → E0441（设计裁决：越出文件的
+    // 签名一律拒，哪怕同文件声明——否则模块元数据暴露一个别的文件不可名状的类型）
+    string src = "private class Node { } class Holder { public Node Make() { return new Node(); } }";
+    Assert.Equal("E0441", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_top_private_cross_file_denied() {
+    // 跨文件引用 file-private 类 → E0404（引用点 sp.File 与声明 DeclFile 不同）
+    string[] srcs = new string[2];
+    srcs[0] = "private class Helper { public int F() { return 1; } }";
+    srcs[1] = "class User { void M() { var h = new Helper(); } }";
+    string[] files = new string[2]; files[0] = "a.z42"; files[1] = "b.z42";
+    Assert.True(SemanticDump.HasErrorCodeMulti(srcs, files, "E0404"));
+}
+
+[Test]
+void test_top_private_same_name_other_file_same_ns_denied_by_dup() {
+    // 两个文件各写一个同 ns 同名 file-private 类 → 既有 E0458 重复声明兜底（不静默 last-wins）
+    string[] srcs = new string[2];
+    srcs[0] = "namespace App; private class H { }";
+    srcs[1] = "namespace App; private class H { }";
+    string[] files = new string[2]; files[0] = "a.z42"; files[1] = "b.z42";
+    Assert.True(SemanticDump.HasErrorCodeMulti(srcs, files, "E0458"));
+}
+
+[Test]
+void test_top_private_static_member_cross_file_denied() {
+    // 跨文件走静态属主路径（X.M()）同样过门（CheckTopScopeOwner）
+    string[] srcs = new string[2];
+    srcs[0] = "private class Cfg { public static int V = 1; }";
+    srcs[1] = "class User { int M() { return Cfg.V; } }";
+    string[] files = new string[2]; files[0] = "a.z42"; files[1] = "b.z42";
+    Assert.True(SemanticDump.HasErrorCodeMulti(srcs, files, "E0404"));
+}
+
+[Test]
+void test_top_private_nested_public_leak_denied() {
+    // file-private 外层类 + public 嵌套类：跨文件引用 Outer.Inner 经祖先链门拒绝
+    string[] srcs = new string[2];
+    srcs[0] = "private class Outer { public class Inner { } }";
+    srcs[1] = "class User { void M() { var x = new Outer.Inner(); } }";
+    string[] files = new string[2]; files[0] = "a.z42"; files[1] = "b.z42";
+    Assert.True(SemanticDump.HasErrorCodeMulti(srcs, files, "E0404"));
+}
+
+[Test]
+void test_top_private_repl_session_shared() {
+    // REPL 各轮（repl_r0/repl_r1）折叠为同一会话作用域：跨轮引用放行
+    string[] srcs = new string[2];
+    srcs[0] = "private class SessionHelper { public int F() { return 1; } }";
+    srcs[1] = "class User { void M() { var h = new SessionHelper(); } }";
+    string[] files = new string[2]; files[0] = "repl_r0"; files[1] = "repl_r1";
+    Assert.Equal(0, SemanticDump.ErrorCountMulti(srcs, files));
+}
+
+[Test]
+void test_top_protected_requires_namespace() {
+    // protected 是命名空间作用域：无 ns 声明的文件写顶层 protected → E0442（空 ns 等价 internal，声明期拒绝）
+    string src = "protected class Foo { }";
+    Assert.Equal("E0442", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_top_protected_same_ns_ok() {
+    // 同 ns 跨文件引用 protected 类 → 放行（partial 类碎片场景的本命用例）
+    string[] srcs = new string[2];
+    srcs[0] = "namespace App; protected class Helper { public int F() { return 1; } }";
+    srcs[1] = "namespace App; class Big { int M() { return new Helper().F(); } }";
+    string[] files = new string[2]; files[0] = "a.z42"; files[1] = "b.z42";
+    Assert.Equal(0, SemanticDump.ErrorCountMulti(srcs, files));
+}
+
+[Test]
+void test_top_protected_other_ns_denied() {
+    // 异 ns（同包）引用 protected 类 → E0404
+    string[] srcs = new string[2];
+    srcs[0] = "namespace App; protected class Helper { public int F() { return 1; } }";
+    srcs[1] = "namespace Other; class User { void M() { var h = new App.Helper(); } }";
+    string[] files = new string[2]; files[0] = "a.z42"; files[1] = "b.z42";
+    Assert.True(SemanticDump.HasErrorCodeMulti(srcs, files, "E0404"));
+}
+
+[Test]
+void test_top_protected_global_ns_user_denied() {
+    // 使用点在全局 ns（无 namespace 声明）→ 不同 ns → E0404
+    string[] srcs = new string[2];
+    srcs[0] = "namespace App; protected class Helper { }";
+    srcs[1] = "class User { void M() { var h = new App.Helper(); } }";
+    string[] files = new string[2]; files[0] = "a.z42"; files[1] = "b.z42";
+    Assert.True(SemanticDump.HasErrorCodeMulti(srcs, files, "E0404"));
+}
+
+[Test]
+void test_top_protected_interface_same_ns_ok() {
+    // 接口对称：同 ns 引用 protected 接口放行；异 ns 拒
+    string[] srcs = new string[3];
+    srcs[0] = "namespace App; protected interface IHelper { int F(); }";
+    srcs[1] = "namespace App; class C : IHelper { public int F() { return 1; } }";
+    srcs[2] = "namespace Other; class D { void M() { App.IHelper x = null; } }";
+    string[] files = new string[3]; files[0] = "a.z42"; files[1] = "b.z42"; files[2] = "c.z42";
+    Assert.True(SemanticDump.HasErrorCodeMulti(srcs, files, "E0404"));
+}
+
+[Test]
+void test_top_private_not_exported_protected_exported() {
+    // 导出面：file-private 类不进 zpkg 导出；protected 照常导出（DumpExports 只看本包声明）
+    string src = "namespace App; private class Hidden { } protected class Shared { public int F() { return 1; } }";
+    string dump = SemanticDump.DumpExports(src);
+    Assert.False(dump.Contains("Hidden"));
+    Assert.True(dump.Contains("Shared"));
 }
