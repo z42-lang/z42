@@ -82,8 +82,12 @@ use crate::object::header::block::payload_ptr_of;
 pub(crate) use chunk::{class_for, dedicated_free_count, may_be_dedicated, OVERSIZED_CLASS};
 use crate::object::header::block::{ALIVE_GEN_BIT, FIRST_GEN};
 use chunk::payload_class;
-pub use chunk::{loh_bytes, set_loh_bytes};
-pub use chunk::{VarChunkClaim, VarChunkReclaim};
+pub use chunk::set_loh_bytes;
+#[cfg(test)]
+pub use chunk::loh_bytes;
+pub use chunk::VarChunkClaim;
+#[cfg(test)]
+pub use chunk::VarChunkReclaim;
 pub use holes::VarHoleStash;
 pub(crate) use holes::prefetch_write;
 use crate::object::header::var_ref::VarGcRef;
