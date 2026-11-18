@@ -33,6 +33,7 @@
 
 mod protocol;
 pub use protocol::ObjectProtocol;
+pub mod identity;
 pub mod value;
 pub mod types;
 pub mod header;

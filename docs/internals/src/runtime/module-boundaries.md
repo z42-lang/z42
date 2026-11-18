@@ -49,6 +49,10 @@ main.rs 只依赖 std/libloading，加载 libz42 的 z42_main_v1。命令行参�
 engine/init、counters/observer、protocol 实现模块私有；实现文件移动只需调整所属模块的声明与显式导出。
 模块内的实现引用不做机械改写，也不建立总括所有领域的 prelude。正向 doctest 与私有路径 compile_fail 验证这条边界。
 
+对象表示的两条反向边已收口：环境堆附着（HeapGuard / current_heap / epoch）归 `gc::ambient`——它是 GC 分配服务
+的线程级形态；载荷身份词汇 `ContextId` / `AssemblyId` 由 `object::identity` 拥有，loader 经再导出保持注册表路径。
+`TypeDesc.id` 的 TypeId 仍指 metadata（见缺口表）。
+
 元数据解析已按最小视图运行：`metadata::resolve::ResolveServices` 只暴露函数/builtin/静态字段身份查询与
 类型加载查询/结算，`vm::VmResolveServices` 提供实现并拥有入队与排空时序（「可观察的已解析函数其类型已登记」
 次序保持不变）；独立后端经 `components::bridge::resolve_function_tokens` 装配视图，resolve 模块不再接收 VmContext。
@@ -71,11 +75,12 @@ vm/mod.rs 只负责共享 Core 与线程视图的组合、布局、构造和生�
 | 宿主仍可访问低层上下文 | LoadedProgram::context、host 的 VmCore/VmContext 再导出 | LoadOptions 已只保留功能请求；继续按真实低层消费者收口可达面 |
 | 组件协议中的依赖身份 | `components::abi::RuntimeApi` 的跨组件依赖查询 | VM 执行消费者按语义角色请求服务；按 ID 查询只在内部测试构建可见，生产 VM 经内部能力入口获取租约，协议内依赖 ID 由管理层拥有 |
 | 配置与装配输入仍未完全显式 | `config/availability.rs` 查询默认组件可用性；低层上下文默认构造仍使用进程配置 | 路径/许可已按 VM 捕获，JIT 参数由装配显式传入；继续区分默认进程能力查询与每 VM 请求 |
-| 普通宿主与 C 适配尚未分开 | `host/ffi.rs/config.rs/state.rs/ops.rs/marshal.rs` | CLI 已归 cli 适配且平台构建可排除；后续 C 适配/头文件归能力所有者，host 保留功能请求/环境服务契约 |
+| 普通宿主与 C 适配尚未分开 | C 适配五文件已归组 `host/c/`（经 host 根再导出），尚未归能力所有者 | CLI 已归 cli 适配且平台构建可排除；后续 C 适配/头文件归能力所有者，host 保留功能请求/环境服务契约 |
 | 初始化层级含混 | `host/state.rs` 的会话保存多个 LoadedProgram；`ops::build_host_module` 每次创建程序/VM；`LoadedProgram::invoke` 执行一次性托管初始化 | 区分会话、VM/包准备与托管初始化，不把 C initialize 当作所有模块已初始化；统一装配但保持隔离和失败终态 |
 | 进程策略混入每 VM 输入 | `config/vm_config.rs::process_loh_bytes` 在 Core 构造时修改进程级 LOH 设置 | 进程 bootstrap 与 VM 设置分开捕获，禁止任意 VM 构造改写其它 VM 可见的全局策略 |
 | loader 与 interop 混合机制和编排 | `loader/native.rs` 调 interop 注册/解析，`interop/module.rs` 反向调用 loader::native::resolve_symbol | loader 提供代码/符号来源，interop 负责描述符与编组；由装配协调器连接 |
-| 对象表示反向依赖执行和加载域 | `object/value/ref_word.rs::alloc_box_ambient` 访问 exec::ambient；`object/storage.rs::NativeData` 引用 loader 身份；`object/types/type_desc.rs` 引用 metadata TypeId | 抽出身份/布局词汇，分离编码与需堆的装箱操作；保留屏障协议，不把 object/GC 的必要协作当成可直接删除的依赖 |
+| TypeDesc 引用 metadata 的 TypeId | `object/types/type_desc.rs` 的 `pub id`（原缺口三边中的其余两边已收口：ambient 堆附着迁 `gc::ambient`，`ContextId`/`AssemblyId` 身份词汇归 `object::identity`） | TypeId 属 `define_token!` token 家族（IMPORT_BASE/import_idx 语义一体），单独抽出会撕裂词汇一致性；抽出需整族设计裁决 |
+
 
 这些是源码中的具体依赖，不是 Cargo 生产依赖环的证明。生产 core 不依赖具体后端，测试 dev-dependency 和
 测试门面的内联路径另行统计。Rust import 的简单文本扫描还会漏掉分组导入、别名和宏，并误收测试/注释；

@@ -1,7 +1,7 @@
 //! `ScriptObject`'s cold metadata word (`ObjMeta`): interned type-arguments + boxed native.
 
 use super::*;
-use crate::loader::contexts::ContextId;
+use crate::object::identity::ContextId;
 
 fn td(name: &str) -> Arc<TypeDesc> {
     Arc::new(TypeDesc {

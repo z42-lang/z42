@@ -2,7 +2,7 @@
 //! it has frames on its stack.
 //!
 //! Two thread-locals must name the running VM while z42 code runs:
-//! `exec::ambient`'s heap (heap-less `Str::new` / `.into()` allocate from it) and,
+//! `gc::ambient`'s heap (heap-less `Str::new` / `.into()` allocate from it) and,
 //! with `native-interop`, `exec::active_vm`'s `CURRENT_VM` (`z42_*` exports find
 //! the VM through it). Both stay the same for a whole activation chain, so they
 //! are installed when the **bottom** frame is pushed (`ThreadExecState::push_frame`,
@@ -27,7 +27,7 @@
 
 use std::cell::UnsafeCell;
 
-use crate::exec::ambient::HeapGuard;
+use crate::gc::ambient::HeapGuard;
 
 use crate::vm::VmContext;
 

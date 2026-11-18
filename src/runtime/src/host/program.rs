@@ -129,7 +129,7 @@ impl LoadedProgram {
         let ctx = self.context();
         #[cfg(feature = "native-interop")]
         let _vm_guard = crate::exec::active_vm::VmGuard::enter(ctx);
-        let _heap_guard = crate::exec::ambient::HeapGuard::enter(ctx.heap());
+        let _heap_guard = crate::gc::ambient::HeapGuard::enter(ctx.heap());
         struct Roots<'a>(&'a crate::gc::Heap, Vec<crate::gc::RootHandle>);
         impl Drop for Roots<'_> {
             fn drop(&mut self) {
