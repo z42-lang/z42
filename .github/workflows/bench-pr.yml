@@ -81,7 +81,9 @@ jobs:
   bench-regression:
     name: bench-regression(linux-x64)
     if: github.event_name == 'pull_request'
-    # Two cold toolchains plus three complete micro captures must fit the job.
+    # Two cold toolchains plus the round-1 micro sweep must fit the job; suspect
+    # resample rounds only recapture the flagged packages, so the worst case
+    # stays bounded even with noise.
     timeout-minutes: 90
     runs-on: ubuntu-latest
 
