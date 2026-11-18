@@ -27,6 +27,11 @@ pub(crate) struct HostState {
     /// originally-supplied options.
     #[allow(dead_code)]
     pub config: ResolvedConfig,
+    /// Session-shared zpkg decode cache: every `load_zbc` of this session
+    /// resolves artifacts through it, so a dependency (the stdlib above all)
+    /// already loaded by an earlier module is shared by definition instead of
+    /// decoded and retained again. The C# ALC "already loaded ⇒ shared" rule.
+    pub image_cache: std::sync::Arc<crate::loader::ImageCache>,
     /// `Arc` so `z42_host_invoke` can take its module out from under the
     /// `HOST` lock and run user code without holding it.
     pub modules: Vec<std::sync::Arc<crate::host::LoadedProgram>>,
@@ -69,6 +74,7 @@ pub(crate) fn try_initialize(
     publish_sinks(&config);
     *guard = Some(HostState {
         config,
+        image_cache: std::sync::Arc::new(crate::loader::ImageCache::default()),
         modules: Vec::new(),
         entries: Vec::new(),
     });

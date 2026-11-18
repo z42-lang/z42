@@ -73,19 +73,35 @@ impl LoadedProgram {
 
     pub fn load_file(path: &str, options: LoadOptions) -> Result<Self> {
         let artifact = crate::loader::load_artifact(&*options.vfs, path)?;
-        super::load::prepare(artifact, Some(path), &options, &crate::vm::assembly::ComponentInputs::for_request(&options))
+        super::load::prepare(artifact, Some(path), &options, &crate::vm::assembly::ComponentInputs::for_request(&options), None)
     }
 
     pub fn load_bytes(bytes: &[u8], options: LoadOptions) -> Result<Self> {
         let artifact = crate::loader::load_artifact_from_bytes(bytes)?;
-        super::load::prepare(artifact, None, &options, &crate::vm::assembly::ComponentInputs::for_request(&options))
+        super::load::prepare(artifact, None, &options, &crate::vm::assembly::ComponentInputs::for_request(&options), None)
+    }
+
+    /// Session-flavoured [`load_bytes`](Self::load_bytes): every artifact of
+    /// the load (the entry bytes included) is resolved through `image_cache`,
+    /// so a zpkg already loaded by an earlier program of the same session is
+    /// shared by definition instead of decoded and retained again — the C#
+    /// ALC "already loaded ⇒ shared" rule. Per-VM linkage state stays per VM.
+    pub fn load_bytes_with_cache(
+        bytes: &[u8],
+        options: LoadOptions,
+        image_cache: &crate::loader::ImageCache,
+    ) -> Result<Self> {
+        let artifact = image_cache.artifact_for(&crate::loader::content_id(bytes), || {
+            crate::loader::load_artifact_from_bytes(bytes)
+        })?;
+        super::load::prepare(artifact, None, &options, &crate::vm::assembly::ComponentInputs::for_request(&options), Some(image_cache))
     }
 
     #[cfg(test)]
     pub(crate) fn load_bytes_with_components(bytes: &[u8], options: LoadOptions,
         components: crate::vm::assembly::ComponentInputs) -> Result<Self> {
         let artifact = crate::loader::load_artifact_from_bytes(bytes)?;
-        super::load::prepare(artifact, None, &options, &components)
+        super::load::prepare(artifact, None, &options, &components, None)
     }
 
     /// Undocumented low-level channel for first-party verification harnesses
