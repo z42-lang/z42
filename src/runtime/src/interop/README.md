@@ -8,6 +8,7 @@
 
 | 入口 | 职责 |
 |---|---|
+| `install.rs` | 装载事务：开库 → 校验描述符 → 注册 → 记入 loader 映像缓存（interop→loader 单向） |
 | `providers.rs` | `NativeProvider`、事务式 `RegistryBuilder` 与不可变 `NativeRegistry`；统一生成 builtin 查询目录和执行表 |
 | `module.rs`、`native_call.rs`、`native_value.rs` | 通用模块描述符校验、每 VM 实例、C 值复制及脚本回调 |
 | `state.rs` | 每 VM 的模块实例、native 类型与 pin buffer；worker 共享所属 VM 的状态 |
