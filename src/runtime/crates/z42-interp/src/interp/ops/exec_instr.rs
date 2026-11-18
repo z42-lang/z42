@@ -103,7 +103,11 @@ pub fn exec_instr(
         // A user `ToString` that throws during string concatenation comes back as
         // `Err` + the exception in `pending_thrown` (see `dispatch::tostring_threw`).
         Instruction::Add { dst, a, b } => {
-            if let Err(e) = exec_value::add(ctx, module, frame, *dst, *a, *b) {
+            // fix-u64-semantics（Add-string 补丁）：静态 U64 操作数参与字符串拼接时按
+            // u64 格式化（`"k" + hi`）；纯数值加不受影响。
+            let a_u64 = crate::exec::ops::scalar::reg_is_u64(&func.reg_types, *a);
+            let b_u64 = crate::exec::ops::scalar::reg_is_u64(&func.reg_types, *b);
+            if let Err(e) = exec_value::add(ctx, module, frame, *dst, *a, *b, a_u64, b_u64) {
                 return ctx.exec().take_pending_thrown().map(Some).ok_or(e);
             }
         }

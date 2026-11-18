@@ -52,6 +52,17 @@ void test_u64_interpolation_and_tostring() {
 }
 
 [Test]
+void test_u64_string_concat_formats_unsigned() {
+    // Add-string 补丁：`"k" + hi` 此前与插值同病打 -1（interp/JIT 一致 signed）；
+    // 现按静态 U64 走 u64 格式化（与 ToStr/插值同口径）。
+    ulong hi = 0xFFFFFFFFFFFFFFFFul;
+    Assert.Equal("hi=18446744073709551615", "hi=" + hi);
+    Assert.Equal("18446744073709551615!", hi + "!");
+    ulong mid = 0x8000000000000000ul;   // 2^63，i64 位模式 MIN
+    Assert.Equal("mid=9223372036854775808", "mid=" + mid);
+}
+
+[Test]
 void test_u64_cast_widening_is_unsigned() {
     ulong hi = 0xFFFFFFFFFFFFFFFFul;
     // (double)hi：u64→f64（1.844e19 而非 -1.0）。

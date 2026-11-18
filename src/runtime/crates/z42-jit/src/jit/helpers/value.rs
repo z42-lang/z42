@@ -119,7 +119,7 @@ pub unsafe extern "C" fn jit_to_str_u64(
 ) -> u8 {
     let heap = super::vm_ctx_ref(ctx).heap();
     match &*psrc {
-        Value::I64(n) => {
+        Value::I64(_) => {
             *pdst = Value::Str(crate::object::value::format::with_value_str_u64(&*psrc, |t| heap.alloc_str(t)));
         }
         other => {
