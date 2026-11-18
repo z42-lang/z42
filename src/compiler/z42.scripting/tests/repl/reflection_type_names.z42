@@ -1,0 +1,28 @@
+// REPL 里 typeof(X) / x.GetType() 的反射属性链（repl-intrinsic-type-models）：
+// 编译器为这两条链合成的隐式类型引用（Std.Type 结果类型 / Object 基类链）不产生 E0401，
+// 错误驱动的按需 reconcile 兜不到 —— 此前惰性世界首轮无 stdlib 模型，成员解析静默松绑成
+// FieldGet，`.FullName`（属性，无同名字段）读回 null（`.Name` 恰有同名字段而侥幸正确）。
+// 门面现已每轮幂等 EnsurePackageLoaded("Std")，且 typeof 结果类型短名解析失败时按 FQ
+// `Std.Type` 兜底 —— 与正常程序同口径。
+namespace Z42ScriptingTests;
+
+using Z42.Scripting;
+using Std.Harness;
+
+[Test]
+void test_reflection_full_name() {
+    ScriptState s = Script.Create();
+    Assert.Equal("ok", _step(s, "struct Point { public int X; public int Y; }"));
+    Assert.Equal("Point", _step(s, "var p = new Point();"));
+    // 轮次号是进程级单调的（别的测试可能已加载过轮），只断言限定名的 ns 后缀 + 简单名。
+    // typeof 链：结果类型的成员按 Std.Type 模型解析（属性 → VCall get_FullName）。
+    Assert.True(_step(s, "typeof(Point).FullName").EndsWith(".Point"));
+    Assert.Equal("Point", _step(s, "typeof(Point).Name"));
+    // GetType 链：Object 基类链模型在，返回类型不再 Unknown。
+    Assert.True(_step(s, "p.GetType().FullName").EndsWith(".Point"));
+    Assert.Equal("Point", _step(s, "p.GetType().Name"));
+    Assert.Equal("true", _step(s, "(typeof(Point) == p.GetType()).ToString()"));
+    // stdlib 类型与基元同口径。
+    Assert.Equal("Std.Int32", _step(s, "typeof(int).FullName"));
+    Assert.Equal("Std.String", _step(s, "typeof(string).FullName"));
+}

@@ -49,6 +49,13 @@ public class Z42cReplCompiler : IReplCompiler {
             string[] d = new string[1]; d[0] = "error: repl world not initialized";
             return new ReplCompileResult(new byte[0], 1, d, 1);
         }
+        // repl-intrinsic-type-models：编译器为 `typeof(X)` / `x.GetType()` 合成的**隐式**类型引用
+        // （Std.Type 结果类型、Object 基类链）不产生 E0401，下方「错误驱动」的按需 reconcile 兜不到
+        // 它们 —— 惰性骨架首轮无 stdlib 基础模型，这些链路的成员解析静默松绑成 FieldGet
+        // （`typeof(X).FullName` / `x.GetType().FullName` 属性无同名字段 → null）。故每轮先幂等
+        // EnsurePackageLoaded("Std")（首轮后 no-op）：z42.core 的 Object/Type 模型进符号表，
+        // 两条链与正常程序同口径。显式引用仍走原 E0401 回退不动。
+        DepScan.EnsurePackageLoaded(w.Scan, "Std");
         CompileArtifacts art = Z42cReplCompiler._compileOnce(w, name, src);
         if (art.ErrorCount > 0) {
             // 全限定写法（`Std.Toml.TomlValue.Parse(…)`）不需要 using：源码里点分链的各级前缀也当候选 ns

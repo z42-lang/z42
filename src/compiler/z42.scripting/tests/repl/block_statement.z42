@@ -1,0 +1,25 @@
+// 块语句轮（fix-repl-block-statement-tail）：语句以 `}` 结尾（while/if/for/try 块）时，
+// 语句体拼 `return null;` 的分隔符必须是空白而非 `;` —— 块自终止，再拼分号是空语句
+// （parser 拒 E0201），整轮编译失败、循环体副作用丢失（跨轮 var 不再前进）。
+namespace Z42ScriptingTests;
+
+using Z42.Scripting;
+using Std.Harness;
+
+[Test]
+void test_block_statement_round() {
+    ScriptState s = Script.Create();
+    Assert.Equal("0", _step(s, "var a = 0;"));
+    Assert.Equal("ok", _step(s, "while (a < 3) { a = a + 1; }"));
+    Assert.Equal("3", _step(s, "a"));
+    Assert.Equal("0", _step(s, "var b = 0;"));
+    Assert.Equal("ok", _step(s, "if (b == 0) { b = 7; }"));
+    Assert.Equal("7", _step(s, "b"));
+    // 用户带尾分号的块语句（`};`）等价：fix-repl-trailing-semicolon 先剥尾分号。
+    Assert.Equal("ok", _step(s, "while (a < 5) { a = a + 1; };"));
+    Assert.Equal("5", _step(s, "a"));
+    // for 块 + 跨轮累积（真实写法）。
+    Assert.Equal("0", _step(s, "var sum = 0;"));
+    Assert.Equal("ok", _step(s, "for (int k = 1; k <= 4; k = k + 1) { sum = sum + k; }"));
+    Assert.Equal("10", _step(s, "sum"));
+}

@@ -94,6 +94,14 @@ public sealed class TypeOpTyper {
             this._tc.ChkAmbiguousBareNameT(env.Symbols, tox.Type, tox.Type.Span);   // add-bare-name-ambiguity-diagnostic：E0456
             // 结果类型 = Std.Type（反射 Type 类；Name/GetFields/FullName 等成员据此解析）。
             Z42Type toType = env.ResolveType(NamedType.Synth("Type", new TypeExpr[0], 0, tox.Span));
+            // typeof 的结果类型是编译器**隐式合成**的类型引用，不应随 using 环境漂移：短名 `Type`
+            // 解析不出（REPL 惰性依赖世界默认 using 无 Std）时按 FQ `Std.Type` 兜底 —— 对齐
+            // methodof 的 `Std.Reflection.MethodInfo` 先例（反射结果类型无需 using / 声明依赖，
+            // 标准库既定设计）。缺此兜底时 toType=Unknown，链式成员（`typeof(X).FullName` 这类
+            // **属性**，无同名字段）静默松绑成 FieldGet → 运行期读不到 → null。
+            if (toType is Z42UnknownType) {
+                toType = env.ResolveType(NamedType.Synth("Std.Type", new TypeExpr[0], 0, tox.Span));
+            }
             // AST 原始名（typeof-delegate）：delegate 目标解析成结构化 Z42FuncType 丢 FQ 名，
             // 发射时用它 QualifyClass 回 FQ delegate 名。
             string targetName = (tox.Type is NamedType) ? (tox.Type as NamedType).Name : "";

@@ -196,6 +196,13 @@ public static class Script {
         if (rewritten.EndsWith(";")) { rewritten = rewritten.Substring(0, rewritten.Length - 1).Trim(); }
         if (trimmed.EndsWith(";")) { trimmed = trimmed.Substring(0, trimmed.Length - 1).Trim(); }
 
+        // fix-repl-block-statement-tail：语句体的 `return null;` 拼接分隔符。语句以 `}` 结尾
+        // （while/if/for/try 的**块语句**，REPL 常见写法）时块自终止，再拼 `;` 是空语句
+        // （parser 拒，E0201「unexpected token in expression」）——整轮编译失败、循环体副作用
+        // 丢失（`int a = 0` + `while (a < 3) { a = a + 1; }` 两轮后 a 仍为 0）。块尾改用空白
+        // 分隔；其余语句维持 `;`。多语句中段以分号相隔、块语句后跟下一语句本就不需要分号。
+        string tailSep = rewritten.EndsWith("}") ? " " : "; ";
+
         // ── 编译 ──
         ReplCompileResult art;
         bool hasValue = true;
@@ -203,13 +210,13 @@ public static class Script {
             art = Script._compileBody(state, n, prelude, efn, "return (" + cls + "." + p.VarName + ");");
         } else if (Script._isStatement(trimmed)) {
             // perf ③：明确是语句（赋值 / 语句关键字）→ 直接编语句，不试表达式（省一次编译）。
-            art = Script._compileBody(state, n, prelude, efn, rewritten + "; return null;");
+            art = Script._compileBody(state, n, prelude, efn, rewritten + tailSep + "return null;");
             hasValue = false;
         } else {
             // 表达式优先；失败 → 回退纯语句（副作用调用等）。
             art = Script._compileBody(state, n, prelude, efn, "return (" + rewritten + ");");
             if (art.ErrorCount > 0) {
-                ReplCompileResult artS = Script._compileBody(state, n, prelude, efn, rewritten + "; return null;");
+                ReplCompileResult artS = Script._compileBody(state, n, prelude, efn, rewritten + tailSep + "return null;");
                 if (artS.ErrorCount == 0) { art = artS; hasValue = false; }
             }
         }
