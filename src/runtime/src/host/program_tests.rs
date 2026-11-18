@@ -287,8 +287,9 @@ fn no_eager_merge_track_registers_packages_and_runs() {
         "stdlib functions must live in their own packages, not the entry module"
     );
     let outcome = program.invoke("Embedding.Hello.Main", &[]);
-    let value = outcome.expect("entry runs on the per-package track").expect("a return value");
-    assert_eq!(value, crate::host::Value::I64(0), "embedding hello returns 0");
+    let value = outcome.expect("entry runs on the per-package track");
+    // The fixture's Main is void: a clean Ok(None) IS the success proof here.
+    assert!(value.is_none(), "embedding hello Main is void; got {value:?}");
 }
 
 /// Unit-level repro: drive `register_decoded_artifact` directly against a
