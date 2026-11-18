@@ -487,7 +487,22 @@ static RUNTIME_CONFIG: OnceLock<RuntimeConfig> = OnceLock::new();
 /// read already raced the init in (leaving the env-only fallback installed) —
 /// the caller may warn but must not retry.
 pub fn init_runtime_config(cfg: RuntimeConfig) -> Result<(), RuntimeConfig> {
-    RUNTIME_CONFIG.set(cfg)
+    match RUNTIME_CONFIG.set(cfg) {
+        Ok(()) => { apply_process_policy(RUNTIME_CONFIG.get().expect("just set")); Ok(()) }
+        Err(cfg) => Err(cfg),
+    }
+}
+
+/// Process-wide policy bound to the resolved config (not to any one VM's
+/// construction): the LOH threshold is read from a static on the lock-free
+/// TLAB fast path, so it is applied eagerly exactly once when the process
+/// config is published — never re-written by a later VM.
+fn apply_process_policy(config: &RuntimeConfig) {
+    // add-loh-bytes-knob : process-global, not per-heap — `class_for` is
+    // called from the lock-free TLAB fast path, which has no heap reference.
+    if let Some(bytes) = config.gc_loh_bytes {
+        crate::gc::var_region::set_loh_bytes(bytes as usize);
+    }
 }
 
 /// Read the process-wide [`RuntimeConfig`]. Returns the value installed by
@@ -496,7 +511,11 @@ pub fn init_runtime_config(cfg: RuntimeConfig) -> Result<(), RuntimeConfig> {
 /// any subsystem that needs a `Z42_*` knob without threading it through.
 #[inline]
 pub fn runtime_config() -> &'static RuntimeConfig {
-    RUNTIME_CONFIG.get_or_init(RuntimeConfig::from_env)
+    RUNTIME_CONFIG.get_or_init(|| {
+        let config = RuntimeConfig::from_env();
+        apply_process_policy(&config);
+        config
+    })
 }
 
 /// Inspect effective settings without publishing defaults ahead of the host.

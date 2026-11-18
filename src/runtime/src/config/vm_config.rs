@@ -11,6 +11,4 @@ pub struct VmConfig {
     pub gc_trace: bool,
     pub sample_hz: Option<u32>,
     pub trace_timeline: bool,
-    /// Construction still applies this override to the process-wide LOH policy.
-    pub process_loh_bytes: Option<u64>,
 }
