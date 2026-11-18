@@ -1,0 +1,18 @@
+# REPL 惰性世界（lazy-repl-depscan）语义单测：EnsurePackageLoaded 的多包共享 ns
+# 非 first-wins 语义 + Z42cReplCompiler.IntrinsicNs 的隐式 ns 覆盖。
+[project]
+name    = "z42c.pipeline.test.replworld"
+version = "0.1.0"
+kind    = "lib"
+
+[sources]
+include = ["**/*.z42"]
+
+[dependencies]
+"z42c.pipeline" = "0.1.0"
+"z42.package"   = "0.1.0"   # ZpkgWriterZ / ExportedModuleZ
+
+[build]
+# Build output → artifacts mirror (mirror-build-output-per-component):
+# src/compiler/z42c.pipeline/tests/replworld → artifacts/build/compiler/z42c.pipeline/${profile}/tests/replworld
+output_dir = "../../../../../artifacts/build/compiler/z42c.pipeline/${profile}/tests/replworld"
