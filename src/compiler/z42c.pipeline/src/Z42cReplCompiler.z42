@@ -25,6 +25,18 @@ public sealed class ReplWorld {
 
 public class Z42cReplCompiler : IReplCompiler {
 
+    // 编译器**隐式**合成的类型引用所落的 ns —— 单一真相清单。加新的隐式合成类型时同步这里：
+    //   typeof(X)            → Std.Type                 （TypeOpTyper._bindTypeofExpr）
+    //   methodof / fieldof / propertyof → Std.Reflection.{MethodInfo,FieldInfo,PropertyInfo}
+    //                                                    （TypeOpTyper._bindMethodOfExpr / _bindFieldOfExpr）
+    //   List / Dict 字面量   → Std.Collections.{List,Dictionary}（CollectionTyper；显式构造的
+    //                          报错路径有 E0401 回退兜底，列上使首轮即与全量一致）
+    // 这些引用不产生 E0401，错误驱动的按需 reconcile 兜不到它们（惰性骨架下模型缺席 →
+    // 成员解析静默松绑）。CompileRound 对清单逐 ns 幂等 EnsurePackageLoaded —— 声明同一 ns 的
+    // **全部**包都会 reconcile（多包共享 ns 非 first-wins，见 EnsurePackageLoaded），与全量
+    // ScanDirs 同口径。
+    public static readonly string[] IntrinsicNs = new string[]{ "Std", "Std.Reflection", "Std.Collections" };
+
     // ── 世界生命周期 ────────────────────────────────────────────────────────────
     public object CreateWorld(string[] libsDirs, int libsDirsN, string[] declaredDeps, int depCount) {
         // 惰性 scan 骨架（路由 nsMap + LazyReconWorld，不预 reconcile）——原 Script.Prewarm。
@@ -49,13 +61,16 @@ public class Z42cReplCompiler : IReplCompiler {
             string[] d = new string[1]; d[0] = "error: repl world not initialized";
             return new ReplCompileResult(new byte[0], 1, d, 1);
         }
-        // repl-intrinsic-type-models：编译器为 `typeof(X)` / `x.GetType()` 合成的**隐式**类型引用
-        // （Std.Type 结果类型、Object 基类链）不产生 E0401，下方「错误驱动」的按需 reconcile 兜不到
-        // 它们 —— 惰性骨架首轮无 stdlib 基础模型，这些链路的成员解析静默松绑成 FieldGet
-        // （`typeof(X).FullName` / `x.GetType().FullName` 属性无同名字段 → null）。故每轮先幂等
-        // EnsurePackageLoaded("Std")（首轮后 no-op）：z42.core 的 Object/Type 模型进符号表，
-        // 两条链与正常程序同口径。显式引用仍走原 E0401 回退不动。
-        DepScan.EnsurePackageLoaded(w.Scan, "Std");
+        // repl-intrinsic-type-models：见 IntrinsicNs 清单 —— 编译器为 typeof / x.GetType() /
+        // methodof 族 / 集合字面量合成的**隐式**类型引用不产生 E0401，下方「错误驱动」的按需
+        // reconcile 兜不到它们 —— 惰性骨架首轮无对应 stdlib 模型，这些链路的成员解析静默松绑
+        // 成 FieldGet（`typeof(X).FullName` 属性无同名字段 → null）。故每轮先按清单幂等
+        // EnsurePackageLoaded（首轮后 no-op），与正常程序同口径。显式引用仍走原 E0401 回退不动。
+        int ni = 0;
+        while (ni < Z42cReplCompiler.IntrinsicNs.Length) {
+            DepScan.EnsurePackageLoaded(w.Scan, Z42cReplCompiler.IntrinsicNs[ni]);
+            ni = ni + 1;
+        }
         CompileArtifacts art = Z42cReplCompiler._compileOnce(w, name, src);
         if (art.ErrorCount > 0) {
             // 全限定写法（`Std.Toml.TomlValue.Parse(…)`）不需要 using：源码里点分链的各级前缀也当候选 ns
