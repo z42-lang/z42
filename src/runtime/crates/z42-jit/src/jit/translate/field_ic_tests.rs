@@ -158,7 +158,7 @@ impl Jitted<'_> {
 fn interp(m: &Module, idx: usize, args: &[Value]) -> Value {
     let vm = VmContext::new();
     match crate::interp::run_outcome(&vm, m, &m.functions[idx], args) {
-        Ok(crate::exec::call::outcome::ExecOutcome::Returned(v)) => v.unwrap_or(Value::Null),
+        Ok(crate::exec::outcome::ExecOutcome::Returned(v)) => v.unwrap_or(Value::Null),
         other => panic!("interp: {other:?}"),
     }
 }

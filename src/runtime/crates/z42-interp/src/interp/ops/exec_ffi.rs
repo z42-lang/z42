@@ -85,7 +85,7 @@ pub(super) fn pin_ptr(
     // the register holds only an 8B `{idx, frame_id}` handle.
     let mk_view = |ctx: &VmContext, data: crate::object::PinnedViewData| {
         let idx = ctx.exec().transient_arena.lock()
-            .alloc(fid, crate::exec::call::transient_arena::TransientPayload::PinView(data));
+            .alloc(fid, crate::exec::transient_arena::TransientPayload::PinView(data));
         Value::PinnedView { idx, frame_id: fid }
     };
     let view = match frame.get(src)? {
@@ -148,7 +148,7 @@ pub(super) fn unpin_ptr(ctx: &VmContext, frame: &Frame, pinned: u32) -> Result<(
         // make-value-copy: resolve the PinnedView handle → (kind, ptr) via the arena.
         &Value::PinnedView { idx, frame_id } => {
             let (kind, ptr) = ctx.exec().transient_arena.lock().with(idx, frame_id, |p| match p {
-                crate::exec::call::transient_arena::TransientPayload::PinView(pv) => (pv.kind, pv.ptr),
+                crate::exec::transient_arena::TransientPayload::PinView(pv) => (pv.kind, pv.ptr),
                 _ => (crate::object::PinSourceKind::Str, 0),
             })?;
             if kind == crate::object::PinSourceKind::ArrayU8 {

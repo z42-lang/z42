@@ -2,7 +2,7 @@
 //! (add-struct-value-semantics Phase A).
 use super::*;
 use crate::object::Value;
-use crate::exec::call::struct_arena::StructArena;
+use crate::exec::struct_arena::StructArena;
 use crate::object::StructTypeLayout;
 use std::sync::Arc;
 
@@ -203,7 +203,7 @@ fn struct_array_element_leaf_access_via_handle() {
     let mk_sr = |idx: u32| {
         let hidx = ctx.exec().transient_alloc(
             7,
-            crate::exec::call::transient_arena::TransientPayload::StructElem(
+            crate::exec::transient_arena::TransientPayload::StructElem(
                 StructArrayElem { arr: arr_gc, index: idx },
             ),
         );

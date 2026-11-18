@@ -8,7 +8,7 @@
 //! the same members end to end through the real compiler and stdlib.
 
 use crate::jit::compile::lookup::{ForwardLookup, StrIntrinsic};
-use crate::exec::call::forward::{builtin_forward, chained_forward};
+use crate::exec::forward::{builtin_forward, chained_forward};
 use crate::jit::runtime::frame::JitFrame;
 use crate::jit::runtime::invoke::{call_entry, NativeOutcome};
 use crate::jit::test_support::install;
@@ -147,8 +147,8 @@ fn run_jit(m: &Module, idx: usize, args: &[Value], init_pending: bool) -> (Strin
 fn run_interp(m: &Module, idx: usize, args: &[Value]) -> String {
     let vm = VmContext::new();
     match crate::interp::run_outcome(&vm, m, &m.functions[idx], args) {
-        Ok(crate::exec::call::outcome::ExecOutcome::Returned(v)) => show(v.unwrap_or(Value::Null)),
-        Ok(crate::exec::call::outcome::ExecOutcome::Thrown(v)) => show(v),
+        Ok(crate::exec::outcome::ExecOutcome::Returned(v)) => show(v.unwrap_or(Value::Null)),
+        Ok(crate::exec::outcome::ExecOutcome::Thrown(v)) => show(v),
         Err(e) => thrown(&e.to_string()),
     }
 }

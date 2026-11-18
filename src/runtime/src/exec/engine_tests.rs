@@ -1,6 +1,6 @@
 use super::*;
 use crate::zpkg::ir::{BasicBlock, Terminator};
-use crate::exec::call::frames::VmFrame;
+use crate::exec::frames::VmFrame;
 use std::sync::{Arc, Barrier, atomic::{AtomicUsize, Ordering}};
 
 fn module(throws: bool) -> Module {

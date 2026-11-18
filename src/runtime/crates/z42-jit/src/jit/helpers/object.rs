@@ -3,7 +3,7 @@
 //! generic `default(T)` runtime helper.
 
 use crate::metadata::dispatch::ctor::{site_for, instance_type_args};
-use crate::exec::call::type_param_env::{method_default_value, method_type_value};
+use crate::exec::type_param_env::{method_default_value, method_type_value};
 use crate::exec::ops::cast::isa_object;
 use crate::exec::ops::cast::isa_td;
 use crate::metadata::dispatch::ic::ObjNewSite;
@@ -79,7 +79,7 @@ pub unsafe extern "C" fn jit_obj_new(
     // SAFETY: `type_args` was baked from `TypeArgs::as_raw` at translate time.
     let site_args = unsafe { crate::object::TypeArgs::from_raw(type_args) };
     // `new List<T>()` in a generic class body: class-level markers bound from the receiver.
-    let site_args = crate::exec::call::type_param_env::TypeParamEnv::new(&[], frame_ref.regs.first())
+    let site_args = crate::exec::type_param_env::TypeParamEnv::new(&[], frame_ref.regs.first())
         .instantiate(vm, site_args);
     let inst_args = instance_type_args(site_args, &type_desc);
     let obj_val = vm.heap().alloc_instance(type_desc, inst_args);
@@ -102,8 +102,8 @@ pub unsafe extern "C" fn jit_obj_new(
                 ctor_args.push(obj_val.clone());
                 ctor_args.extend(arg_regs.iter().map(|&r| frame_ref.regs[r as usize].clone()));
                 match crate::exec::invoke(vm, module, func, &ctor_args) {
-                    Ok(crate::exec::call::outcome::ExecOutcome::Returned(_)) => {} // ctor mutated `this` in place
-                    Ok(crate::exec::call::outcome::ExecOutcome::Thrown(val)) => { set_exception(vm, val); return 1; }
+                    Ok(crate::exec::outcome::ExecOutcome::Returned(_)) => {} // ctor mutated `this` in place
+                    Ok(crate::exec::outcome::ExecOutcome::Thrown(val)) => { set_exception(vm, val); return 1; }
                     Err(e) => { set_exception(vm, Value::Str(e.to_string().into())); return 1; }
                 }
             }
@@ -239,7 +239,7 @@ pub(super) unsafe fn dynamic_target(frame: *mut JitFrame, ctx: *const VmContext,
     if !crate::zpkg::index::type_param_markers::has_markers(class_name) {
         return None;
     }
-    let env = crate::exec::call::type_param_env::TypeParamEnv::new(&[], (*frame).regs.first());
+    let env = crate::exec::type_param_env::TypeParamEnv::new(&[], (*frame).regs.first());
     Some(env.test_target(vm_ctx_ref(ctx), class_name))
 }
 
@@ -250,7 +250,7 @@ pub(super) unsafe fn bind_forwarded_mta(frame: *mut JitFrame, ctx: *const VmCont
         return None;
     }
     let frame = &*frame;
-    let env = crate::exec::call::type_param_env::TypeParamEnv::new(frame.method_type_args, frame.regs.first());
+    let env = crate::exec::type_param_env::TypeParamEnv::new(frame.method_type_args, frame.regs.first());
     Some(mta.iter().map(|s| env.substitute(vm_ctx_ref(ctx), s)).collect())
 }
 

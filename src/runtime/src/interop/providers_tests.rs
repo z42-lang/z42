@@ -1,5 +1,5 @@
 use super::*;
-use crate::exec::call::builtin_abi::{BuiltinFlags, CallResult, ParamKind, RetKind};
+use crate::exec::builtin_abi::{BuiltinFlags, CallResult, ParamKind, RetKind};
 use crate::{vm::VmContext, object::Value};
 
 fn slice(_: &VmContext, _: &[Value]) -> CallResult {

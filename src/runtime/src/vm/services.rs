@@ -9,7 +9,7 @@ pub(crate) fn freeze(extensions: VmExtensions) -> ExtensionState {
     add(&mut defaults, crate::loader::native::Libraries::default());
     // Interop providers must outlive heap, engines, user state and core-library resources.
     add(&mut defaults, crate::interop::state_for_vm(crate::interop::providers::registry()));
-    add(&mut defaults, crate::exec::call::builtins::NativeProviderServices { invoke: crate::interop::invoke_export });
+    add(&mut defaults, crate::exec::builtins::NativeProviderServices { invoke: crate::interop::invoke_export });
     #[cfg(feature = "native-interop")]
     add(&mut defaults, crate::exec::native::NativeServices {
         call: crate::interop::call_registered,

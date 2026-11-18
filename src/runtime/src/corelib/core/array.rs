@@ -70,7 +70,7 @@ fn type_name_of(v: &Value) -> Option<String> {
 #[z42_macros::builtins]
 pub mod typed {
     use super::*;
-    use crate::exec::call::builtin_abi::BuiltinError;
+    use crate::exec::builtin_abi::BuiltinError;
 
     /// Conservative storage query: only packed primitive arrays are known reference-free.
     #[builtin(name = "__array_may_contain_refs", pure)]

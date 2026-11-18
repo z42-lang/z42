@@ -31,7 +31,7 @@ pub(crate) struct State {
     pub(super) slots: crate::corelib::resource_registry::ResourceRegistry<std::sync::Arc<TlsSlot>>,
 }
 
-pub(super) fn state(ctx: &crate::vm::VmContext) -> Result<&State, crate::exec::call::builtin_abi::BuiltinError> {
+pub(super) fn state(ctx: &crate::vm::VmContext) -> Result<&State, crate::exec::builtin_abi::BuiltinError> {
     crate::corelib::resource_registry::state(ctx)
 }
 
@@ -44,7 +44,7 @@ pub(crate) struct TlsSlot {
 }
 
 /// Process-wide rustls client config (root store + ring provider), built once.
-pub(crate) fn client_config() -> Result<std::sync::Arc<rustls::ClientConfig>, crate::exec::call::builtin_abi::BuiltinError> {
+pub(crate) fn client_config() -> Result<std::sync::Arc<rustls::ClientConfig>, crate::exec::builtin_abi::BuiltinError> {
     use std::sync::{Arc, OnceLock};
     static CONFIG: OnceLock<Arc<rustls::ClientConfig>> = OnceLock::new();
     if let Some(c) = CONFIG.get() {
@@ -55,7 +55,7 @@ pub(crate) fn client_config() -> Result<std::sync::Arc<rustls::ClientConfig>, cr
     let provider = Arc::new(rustls::crypto::ring::default_provider());
     let config = rustls::ClientConfig::builder_with_provider(provider)
         .with_safe_default_protocol_versions()
-        .map_err(|e| crate::exec::call::builtin_abi::BuiltinError::Internal(format!("tls config: {e}")))?
+        .map_err(|e| crate::exec::builtin_abi::BuiltinError::Internal(format!("tls config: {e}")))?
         .with_root_certificates(roots)
         .with_no_client_auth();
     // First writer wins; a concurrent racer just discards its identical copy.
@@ -64,7 +64,7 @@ pub(crate) fn client_config() -> Result<std::sync::Arc<rustls::ClientConfig>, cr
 
 mod imp {
     use super::TlsSlot;
-    use crate::exec::call::builtin_abi::BuiltinError;
+    use crate::exec::builtin_abi::BuiltinError;
     use crate::corelib::net::error::{closed, describe, slot_id, timeout_message};
     use crate::vm::VmContext;
     use std::sync::Arc;
@@ -122,7 +122,7 @@ mod imp {
 pub mod typed {
     use super::imp::{handshake_error, slot, still_open, stream_error};
     use super::{client_config, TlsSlot};
-    use crate::exec::call::builtin_abi::{Blocking, BuiltinError, Then};
+    use crate::exec::builtin_abi::{Blocking, BuiltinError, Then};
     use crate::corelib::io::buffer::{byte_array, check_buffer_range, read_byte_range, write_byte_range};
     use crate::corelib::net::error::{check_port, resolve, slot_id, socket_error, timeout};
     use crate::object::Value;

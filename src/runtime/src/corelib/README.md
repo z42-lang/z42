@@ -64,7 +64,7 @@ Monitor 状态定义在 `object/monitor.rs`，核心库实现持有者检查、�
    ```rust
    #[z42_macros::builtins]
    pub mod typed {
-       use crate::exec::call::builtin_abi::BuiltinError;
+       use crate::exec::builtin_abi::BuiltinError;
        #[builtin(name = "__foo_bar", pure)]
        pub fn foo_bar(s: &str, n: i64) -> Result<String, BuiltinError> { … }
    }

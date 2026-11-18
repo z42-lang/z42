@@ -207,7 +207,7 @@ fn class_type_arg_of(recv: &Value, idx: usize) -> Option<String> {
 /// (`exec::call::type_param_env::class_type_arg`), shared with `o is T` / `new List<T>()` in the
 /// same class body — so those and `typeof(T)` read one argument.
 fn resolve_class_type_arg(ctx: &VmContext, recv: &Value, idx: usize, owner: Option<&str>) -> Option<String> {
-    crate::exec::call::type_param_env::class_type_arg(ctx, recv, idx, owner)
+    crate::exec::type_param_env::class_type_arg(ctx, recv, idx, owner)
 }
 
 /// The pure name-selection half of `builtin_class_type_arg`: `(receiver, index)`

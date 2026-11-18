@@ -148,7 +148,7 @@ fn read_resolved_field(
     ctx: &VmContext, func: &Function, this: &Value, args: &[u32], mta: &[String], ic: Option<&VCallIC>,
 ) -> Option<Value> {
     if !args.is_empty() || !mta.is_empty() { return None; }
-    crate::exec::call::forward::try_field_read_cached(ctx, func, this, ic.map(|site| &site.field_reader))
+    crate::exec::forward::try_field_read_cached(ctx, func, this, ic.map(|site| &site.field_reader))
 }
 
 /// Run a compiled entry: receiver in reg 0, args read straight from the caller's
@@ -181,16 +181,16 @@ unsafe fn invoke_interp(
     let vm_ctx  = vm_ctx_ref(ctx);
     // A cold `[Native]` wrapper folds too (`exec::call::forward`); not on a generic site.
     if mta.is_empty() && arg_regs.len() + 1 == func.param_count {
-        if let Some(id) = crate::exec::call::forward::forward_of(vm_ctx, module, func) {
+        if let Some(id) = crate::exec::forward::forward_of(vm_ctx, module, func) {
             return unsafe { crate::jit::runtime::forward::call_forward(frame_ref, ctx, dst, func, id, Some(this), arg_regs) };
         }
     }
-    match crate::exec::invoke_args(vm_ctx, module, func, crate::exec::call::args::CallArgs::Receiver { receiver: this, regs: &frame_ref.regs, indices: arg_regs }, mta)
+    match crate::exec::invoke_args(vm_ctx, module, func, crate::exec::args::CallArgs::Receiver { receiver: this, regs: &frame_ref.regs, indices: arg_regs }, mta)
     {
-        Ok(crate::exec::call::outcome::ExecOutcome::Returned(ret)) => {
+        Ok(crate::exec::outcome::ExecOutcome::Returned(ret)) => {
             frame_ref.regs[dst as usize] = ret.unwrap_or(Value::Null); 0
         }
-        Ok(crate::exec::call::outcome::ExecOutcome::Thrown(val)) => { set_exception(vm_ctx, val); 1 }
+        Ok(crate::exec::outcome::ExecOutcome::Thrown(val)) => { set_exception(vm_ctx, val); 1 }
         Err(e) => { set_exception(vm_ctx, Value::Str(e.to_string().into())); 1 }
     }
 }

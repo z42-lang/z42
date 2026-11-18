@@ -165,7 +165,7 @@ unsafe fn call_compiled(
         }
     }
     if mta.is_empty() {
-        if let Some(value) = crate::exec::call::forward::try_jit_direct_field_read(vm, callee, &frame_ref.regs, arg_regs) {
+        if let Some(value) = crate::exec::forward::try_jit_direct_field_read(vm, callee, &frame_ref.regs, arg_regs) {
             frame_ref.regs[dst as usize] = value;
             return 0;
         }
@@ -200,22 +200,22 @@ unsafe fn call_interp(
     // A cold `[Native]` wrapper (no compiled entry yet) folds too (`exec::call::forward`);
     // not for a generic site, as the interpreter's `try_fold`.
     if mta.is_empty() && arg_regs.len() == callee.param_count {
-        if let Some(id) = crate::exec::call::forward::forward_of(vm, module, callee) {
+        if let Some(id) = crate::exec::forward::forward_of(vm, module, callee) {
             return crate::jit::runtime::forward::call_forward(frame_ref, ctx, dst, callee, id, None, arg_regs);
         }
     }
     if mta.is_empty() {
-        if let Some(value) = crate::exec::call::forward::try_jit_direct_field_read(vm, callee, &frame_ref.regs, arg_regs) {
+        if let Some(value) = crate::exec::forward::try_jit_direct_field_read(vm, callee, &frame_ref.regs, arg_regs) {
             frame_ref.regs[dst as usize] = value;
             return 0;
         }
     }
-    match crate::exec::invoke_args(vm, module, callee, crate::exec::call::args::CallArgs::Registers { regs: &frame_ref.regs, indices: arg_regs }, mta) {
-        Ok(crate::exec::call::outcome::ExecOutcome::Returned(ret)) => {
+    match crate::exec::invoke_args(vm, module, callee, crate::exec::args::CallArgs::Registers { regs: &frame_ref.regs, indices: arg_regs }, mta) {
+        Ok(crate::exec::outcome::ExecOutcome::Returned(ret)) => {
             frame_ref.regs[dst as usize] = ret.unwrap_or(Value::Null);
             0
         }
-        Ok(crate::exec::call::outcome::ExecOutcome::Thrown(val)) => { set_exception(vm, val); 1 }
+        Ok(crate::exec::outcome::ExecOutcome::Thrown(val)) => { set_exception(vm, val); 1 }
         Err(e) => { set_exception(vm, Value::Str(e.to_string().into())); 1 }
     }
 }
@@ -254,13 +254,13 @@ pub unsafe extern "C" fn jit_builtin(
     let name = if builtin_id != crate::metadata::ids::tokens::UNRESOLVED { "" } else {
         std::str::from_utf8(std::slice::from_raw_parts(name_ptr, name_len)).unwrap_or("<invalid>")
     };
-    match crate::exec::call::builtins::invoke_builtin(vm, builtin_id, name, None, &frame_ref.regs, arg_regs) {
+    match crate::exec::builtins::invoke_builtin(vm, builtin_id, name, None, &frame_ref.regs, arg_regs) {
         Ok(Some(v)) => { frame_ref.regs[dst as usize] = v; 0 }
         Ok(None)    => 0,
         Err(e) => {
             let module = super::jit_module(ctx);
             let who = if name.is_empty() { vm.core().runtime().builtins.name(builtin_id, "?") } else { name };
-            raised_into_exception(vm, crate::exec::call::builtin_abi::error::raise(vm, module, who, *e, &[]))
+            raised_into_exception(vm, crate::exec::builtin_abi::error::raise(vm, module, who, *e, &[]))
         }
     }
 }
@@ -278,10 +278,10 @@ pub unsafe extern "C" fn jit_native_module(
     let provider = std::str::from_utf8_unchecked(std::slice::from_raw_parts(module_ptr, module_len));
     let name = std::str::from_utf8_unchecked(std::slice::from_raw_parts(name_ptr, name_len));
     let args = std::slice::from_raw_parts(args_ptr, argc);
-    match crate::exec::call::builtins::invoke_module(vm, provider, name, &frame.regs, args) {
+    match crate::exec::builtins::invoke_module(vm, provider, name, &frame.regs, args) {
         Ok(Some(value)) => { frame.regs[dst as usize] = value; 0 }
         Ok(None) => 0,
-        Err(error) => raised_into_exception(vm, crate::exec::call::builtin_abi::error::raise(
+        Err(error) => raised_into_exception(vm, crate::exec::builtin_abi::error::raise(
             vm, super::jit_module(ctx), &format!("{provider}::{name}"), *error, &[],
         )),
     }
@@ -293,9 +293,9 @@ pub unsafe extern "C" fn jit_native_module(
 /// leaves the error text: while the fatal flag is set the catch dispatch declines every
 /// handler, so it unwinds to the entry, which reports it.
 pub(crate) fn raised_into_exception(
-    vm: &crate::components::bridge::VmContext, r: crate::exec::call::builtin_abi::error::Raised,
+    vm: &crate::components::bridge::VmContext, r: crate::exec::builtin_abi::error::Raised,
 ) -> u8 {
-    use crate::exec::call::builtin_abi::error::Raised;
+    use crate::exec::builtin_abi::error::Raised;
     let exc = match r {
         Raised::Throw(v) => v,
         Raised::Fatal(e) | Raised::Raw(e) => Value::Str(e.to_string().into()),

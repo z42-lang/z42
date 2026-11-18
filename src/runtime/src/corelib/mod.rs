@@ -39,7 +39,7 @@ mod native_decl_tests;   // [Native] declarations ↔ BUILTINS consistency
 
 pub(crate) mod builtins;
 
-pub(crate) fn object_protocol() -> crate::object::ObjectProtocol<crate::vm::VmContext, crate::exec::call::builtin_abi::BuiltinError> {
+pub(crate) fn object_protocol() -> crate::object::ObjectProtocol<crate::vm::VmContext, crate::exec::builtin_abi::BuiltinError> {
     crate::object::ObjectProtocol {
         get_type: crate::corelib::core::object::obj_get_type,
         default_to_string: crate::corelib::core::object::obj_to_str,

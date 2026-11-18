@@ -4,8 +4,8 @@
 //! POSIX coreutils assumed (`sh` / `true` / `cat` / `sleep`).
 
 use super::*;
-use crate::exec::call::builtin_abi::{BuiltinError, FieldInit};
-use crate::exec::call::builtins::{exec_builtin, exec_builtin_value};
+use crate::exec::builtin_abi::{BuiltinError, FieldInit};
+use crate::exec::builtins::{exec_builtin, exec_builtin_value};
 
 fn s(v: &str) -> Value { Value::Str(v.into()) }
 fn i(n: i64) -> Value { Value::I64(n) }

@@ -3,7 +3,7 @@
 use crate::metadata::{Function, statics::StaticCell};
 use crate::components::bridge::VmContext;
 use super::state::JitRuntime;
-use crate::exec::call::forward::{builtin_forward, chained_forward};
+use crate::exec::forward::{builtin_forward, chained_forward};
 
 // ── Translate-time view (perf-str-jit-intrinsics) ────────────────────────────
 
@@ -109,7 +109,7 @@ impl CompileLookup<'_> {
 impl ForwardLookup for CompileLookup<'_> {
     fn direct_field_reader(&self, id: u32) -> Option<DirectFieldReader> {
         let func = self.rt.fn_of(id as usize)?;
-        let entry = crate::exec::call::forward::direct_reader_site(func)?;
+        let entry = crate::exec::forward::direct_reader_site(func)?;
         Some(DirectFieldReader {
             entry,
             ready: &func.call_init_ready,

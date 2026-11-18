@@ -58,8 +58,8 @@ pub fn run_fn(ctx: &VmContext, entry_name: &str) -> Result<()> {
             }
         };
         return match crate::exec::invoke(ctx, module, func, &[])? {
-            crate::exec::call::outcome::ExecOutcome::Returned(_) => Ok(()),
-            crate::exec::call::outcome::ExecOutcome::Thrown(val) =>
+            crate::exec::outcome::ExecOutcome::Returned(_) => Ok(()),
+            crate::exec::outcome::ExecOutcome::Thrown(val) =>
                 Err(anyhow::anyhow!("{}", crate::exec::exception::format_uncaught(&val, ctx, module))),
         };
     };
@@ -125,7 +125,7 @@ pub fn run(ctx: &VmContext, module: &Module, entry_name: &str, config: JitConfig
 
 /// Execute a host call with arguments and a returned value on this VM's JIT.
 pub fn invoke_host(ctx: &VmContext, module: &Module, func: &crate::metadata::Function,
-    args: &[crate::object::Value], config: JitConfig) -> Result<crate::exec::call::outcome::ExecOutcome> {
+    args: &[crate::object::Value], config: JitConfig) -> Result<crate::exec::outcome::ExecOutcome> {
     let first_install = crate::jit::compile::state::runtime(&ctx).is_none();
     let start = std::time::Instant::now();
     compile::state::install(ctx, module, config)?;

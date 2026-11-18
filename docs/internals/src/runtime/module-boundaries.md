@@ -49,6 +49,11 @@ main.rs 只依赖 std/libloading，加载 libz42 的 z42_main_v1。命令行参�
 engine/init、counters/observer、protocol 实现模块私有；实现文件移动只需调整所属模块的声明与显式导出。
 模块内的实现引用不做机械改写，也不建立总括所有领域的 prelude。正向 doctest 与私有路径 compile_fail 验证这条边界。
 
+exec 的激活与调用机制词汇已上收到根：`exec::{frames, frame_stack, reg_pool, stack_alloc, struct_arena,
+transient_arena, args, outcome, forward, indirect_return, type_param_env, builtin_abi, builtins}` 为稳定消费契约
+（`call` 目录收 `pub(crate)`，engine_guards 等实现文件不再转出）；后端与集成测试的深路径
+`exec::call::*` 全部迁移，compile_fail doctest 锁定。
+
 loader 与 interop 的双向引用已收口为单向：装载事务（Tier 1 类型库 `load_library` 与自描述模块
 `load_native_module`：开库 → 校验描述符 → 注册 → 记入每 VM 映像缓存）整体归 `interop::install`，
 loader/native 只留纯代码来源服务（开库、路径策略、映像缓存、符号解析），不再引用 interop；

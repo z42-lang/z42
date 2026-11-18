@@ -13,7 +13,7 @@ pub(crate) mod exec_vcall;
 use super::frame::Frame;
 use super::run::{exec_function, exec_function_from_regs, exec_function_from_receiver_regs};
 use super::run::exec_support::{has_forwarded_mta, resolve_forwarded_mta};
-use crate::exec::call::outcome::ExecOutcome;
+use crate::exec::outcome::ExecOutcome;
 use crate::metadata::dispatch::receiver::prim_isa;
 
 /// Register-level helper operations for the interpreter execution loop.

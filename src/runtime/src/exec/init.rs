@@ -339,10 +339,10 @@ impl Initialization<'_> {
         let run = |f: &crate::metadata::Function,
                    module: &crate::metadata::Module| -> Option<String> {
             match crate::exec::engine::invoke(self.ctx, module, f, &[]) {
-                Ok(crate::exec::call::outcome::ExecOutcome::Returned(_)) => None,
+                Ok(crate::exec::outcome::ExecOutcome::Returned(_)) => None,
                 // 取异常对象的 Message 字段；非异常值（裸抛）才回落到值的文本形式。
                 // 直接 value_to_str 会得到 `Std.Exception{...}` 这种对象转储，不是消息。
-                Ok(crate::exec::call::outcome::ExecOutcome::Thrown(v)) => Some(
+                Ok(crate::exec::outcome::ExecOutcome::Thrown(v)) => Some(
                     crate::exec::exception::read_message(&v, self.ctx, module)
                         .unwrap_or_else(|| crate::object::value::format::value_to_str(&v))),
                 Err(e) => Some(format!("{e:#}")),

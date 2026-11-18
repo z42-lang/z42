@@ -5,7 +5,7 @@ use crate::objops::struct_leaf::box_struct_blob;
 use crate::zpkg::index::well_known_names::int_wrapper_scalar_spec;
 use crate::vm::VmContext;
 use anyhow::{bail, Result};
-use crate::exec::call::builtin_abi as abi;
+use crate::exec::builtin_abi as abi;
 
 /// unify Phase 2 R3：把整数标量装箱进堆 `ScriptObject`（D1-B：标量 LE 字节存 `struct_bytes`，
 /// 尺寸 = wrapper 标量宽度，与 struct 装箱完全同构）→ `Value::BoxedStruct`。`class` = FQ wrapper
@@ -290,7 +290,7 @@ fn hex_str(bytes: &[u8]) -> String {
 #[z42_macros::builtins]
 pub mod typed {
     use super::{parse_double, parse_int, try_int, try_store, value_to_str};
-    use crate::exec::call::builtin_abi::{BuiltinError, RefArg};
+    use crate::exec::builtin_abi::{BuiltinError, RefArg};
     use crate::object::Value;
     use crate::vm::VmContext;
 

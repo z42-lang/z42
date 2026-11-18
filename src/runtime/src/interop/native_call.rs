@@ -3,7 +3,7 @@ use super::{
     module::{self, ModuleInstance, NativeModule},
     native_value::{self, Arena, Owned},
 };
-use crate::exec::call::builtin_abi::{BuiltinError, CallResult};
+use crate::exec::builtin_abi::{BuiltinError, CallResult};
 use crate::{vm::VmContext, object::Value};
 use std::{ffi::c_void, sync::Arc};
 use z42_abi::module as abi;
@@ -358,14 +358,14 @@ unsafe extern "C" fn invoke_script(
             match crate::exec::invoke(frame.ctx, module, function, &values)
                 .map_err(BuiltinError::Legacy)?
             {
-                crate::exec::call::outcome::ExecOutcome::Returned(value) => {
+                crate::exec::outcome::ExecOutcome::Returned(value) => {
                     let owned = match value {
                         Some(value) => native_value::from_callback(&value)?,
                         None => Owned::Void,
                     };
                     Ok(frame.arena.insert(owned))
                 }
-                crate::exec::call::outcome::ExecOutcome::Thrown(value) => {
+                crate::exec::outcome::ExecOutcome::Thrown(value) => {
                     frame.ctx.exec().set_pending_thrown(value);
                     Err(BuiltinError::Thrown(value))
                 }

@@ -1,7 +1,7 @@
 //! Application policy supplied by the facade, without retaining a VM or managed values.
 use std::{path::PathBuf, sync::Arc};
 use crate::{pal::fs::Vfs, vm::VmContext};
-use crate::exec::call::builtin_abi::BuiltinError;
+use crate::exec::builtin_abi::BuiltinError;
 
 pub(crate) type RunIsolated = fn(&str, Option<&str>, Option<PathBuf>, &Arc<dyn Vfs>) -> anyhow::Result<()>;
 

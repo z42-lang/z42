@@ -245,7 +245,7 @@ fn write_thread_header(fd: i32, ctx_idx: usize, depth: usize, crashing: bool) {
 /// allocating: the precomputed `frame_meta` strings are written in place, and
 /// a function without them has its name written piece by piece; `line_col`
 /// is a binary search over the line table.
-fn write_frame(fd: i32, frame: &crate::exec::call::frames::VmFrame) {
+fn write_frame(fd: i32, frame: &crate::exec::frames::VmFrame) {
     let func = frame.func();
     match &func.frame_meta {
         Some((name, file)) => {

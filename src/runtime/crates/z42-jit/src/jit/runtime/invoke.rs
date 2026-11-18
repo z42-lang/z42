@@ -37,11 +37,11 @@ impl NativeOutcome {
     }
 
     /// Interpreter shape: a throw takes the pending exception off the context.
-    pub(crate) fn into_exec(self, vm: &VmContext) -> crate::exec::call::outcome::ExecOutcome {
+    pub(crate) fn into_exec(self, vm: &VmContext) -> crate::exec::outcome::ExecOutcome {
         match self {
-            NativeOutcome::Returned(ret) => crate::exec::call::outcome::ExecOutcome::Returned(ret),
+            NativeOutcome::Returned(ret) => crate::exec::outcome::ExecOutcome::Returned(ret),
             NativeOutcome::Threw =>
-                crate::exec::call::outcome::ExecOutcome::Thrown(vm.exec().take_exception().unwrap_or(Value::Null)),
+                crate::exec::outcome::ExecOutcome::Thrown(vm.exec().take_exception().unwrap_or(Value::Null)),
         }
     }
 }
@@ -71,7 +71,7 @@ pub(crate) unsafe fn enter_compiled(
     vm: &VmContext, code: *const u8, func: *const Function, mut frame: JitFrame,
 ) -> NativeOutcome {
     let jit_fn: JitFn = unsafe { std::mem::transmute(code) };
-    vm.exec().push_frame(&vm, crate::exec::call::frames::VmFrame::new(func, &frame.regs as *const _));
+    vm.exec().push_frame(&vm, crate::exec::frames::VmFrame::new(func, &frame.regs as *const _));
     let r = unsafe { jit_fn(&mut frame, vm) };
     vm.exec().pop_frame();
     if r != 0 {

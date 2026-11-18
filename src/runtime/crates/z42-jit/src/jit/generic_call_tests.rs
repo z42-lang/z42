@@ -1,7 +1,7 @@
 //! Generic call sites pass the bound method arguments to both tiers.
 //! Direct reads and forwarded method arguments both compile.
 
-use crate::exec::call::outcome::ExecOutcome;
+use crate::exec::outcome::ExecOutcome;
 use crate::metadata::{Function, Module};
 use crate::zpkg::ir::{BasicBlock, CallInsn, Instruction, Terminator, VCallInsn};
 use crate::zpkg::ir::ExecMode;

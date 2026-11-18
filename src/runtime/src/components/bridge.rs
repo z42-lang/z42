@@ -48,7 +48,7 @@ pub fn resolve_function_tokens(
 }
 
 pub fn object_protocol(ctx: &crate::vm::VmContext) -> &crate::object::ObjectProtocol<
-    crate::vm::VmContext, crate::exec::call::builtin_abi::BuiltinError,
+    crate::vm::VmContext, crate::exec::builtin_abi::BuiltinError,
 > {
     ctx.core().object_protocol()
 }

@@ -56,11 +56,11 @@ enum ToStringResult {
 }
 
 fn tostring_result(ctx: &VmContext, module: &Module, val: &Value) -> Result<ToStringResult> {
-    fn outcome(ctx: &VmContext, o: crate::exec::call::outcome::ExecOutcome) -> Result<ToStringResult> {
+    fn outcome(ctx: &VmContext, o: crate::exec::outcome::ExecOutcome) -> Result<ToStringResult> {
         match o {
-            crate::exec::call::outcome::ExecOutcome::Returned(Some(v)) => Ok(ToStringResult::Value(v)),
-            crate::exec::call::outcome::ExecOutcome::Returned(None)    => Ok(ToStringResult::Empty),
-            crate::exec::call::outcome::ExecOutcome::Thrown(v)         => Err(tostring_threw(ctx, v)),
+            crate::exec::outcome::ExecOutcome::Returned(Some(v)) => Ok(ToStringResult::Value(v)),
+            crate::exec::outcome::ExecOutcome::Returned(None)    => Ok(ToStringResult::Empty),
+            crate::exec::outcome::ExecOutcome::Thrown(v)         => Err(tostring_threw(ctx, v)),
         }
     }
     if let Value::Object(rc) = val {

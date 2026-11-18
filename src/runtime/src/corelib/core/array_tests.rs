@@ -8,7 +8,7 @@ fn ctx() -> std::pin::Pin<Box<VmContext>> {
 }
 
 fn may_contain_refs(ctx: &VmContext, array: &Value) -> anyhow::Result<Value> {
-    crate::exec::call::builtins::exec_builtin_value(ctx, "__array_may_contain_refs", std::slice::from_ref(array))
+    crate::exec::builtins::exec_builtin_value(ctx, "__array_may_contain_refs", std::slice::from_ref(array))
 }
 
 #[test]
@@ -44,7 +44,7 @@ fn reference_probe_rejects_wrong_kind() {
 // The builtin surface is driven through the table like the stdlib does, so these tests
 // also cover the typed registration (null / wrong-kind / arity errors come from the ABI).
 fn clone(ctx: &VmContext, this: &Value) -> anyhow::Result<Value> {
-    crate::exec::call::builtins::exec_builtin_value(ctx, "__array_clone", std::slice::from_ref(this))
+    crate::exec::builtins::exec_builtin_value(ctx, "__array_clone", std::slice::from_ref(this))
 }
 
 #[test]
@@ -137,14 +137,14 @@ fn read(v: &Value) -> Vec<i64> {
 }
 
 fn copy(ctx: &VmContext, src: &Value, si: i64, dst: &Value, di: i64, n: i64) -> anyhow::Result<()> {
-    crate::exec::call::builtins::exec_builtin(
+    crate::exec::builtins::exec_builtin(
         ctx, "__array_copy",
         &[src.clone(), Value::I64(si), dst.clone(), Value::I64(di), Value::I64(n)],
     ).map(|_| ())
 }
 
 fn set(ctx: &VmContext, arr: &Value, value: &Value, i: i64) -> anyhow::Result<()> {
-    crate::exec::call::builtins::exec_builtin(ctx, "__array_set", &[arr.clone(), value.clone(), Value::I64(i)]).map(|_| ())
+    crate::exec::builtins::exec_builtin(ctx, "__array_set", &[arr.clone(), value.clone(), Value::I64(i)]).map(|_| ())
 }
 
 #[test]

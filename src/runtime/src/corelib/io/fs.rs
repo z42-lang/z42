@@ -24,7 +24,7 @@
 //!   every FileStream read / write in the process serialized on it, and a thread blocked
 //!   in a read held it while unparked, stalling every collection).
 //!
-//! [`Blocking`]: crate::exec::call::builtin_abi::Blocking
+//! [`Blocking`]: crate::exec::builtin_abi::Blocking
 
 /// Application data supplied by the facade. Returning owned Rust strings releases
 /// the provider's lock before the builtin allocates managed values.
@@ -43,11 +43,11 @@ impl State {
     }
 }
 
-pub(super) fn state(ctx: &crate::vm::VmContext) -> Result<&State, crate::exec::call::builtin_abi::BuiltinError> {
+pub(super) fn state(ctx: &crate::vm::VmContext) -> Result<&State, crate::exec::builtin_abi::BuiltinError> {
     crate::corelib::resource_registry::state(ctx)
 }
 
-use crate::exec::call::builtin_abi::{Blocking, BuiltinError};
+use crate::exec::builtin_abi::{Blocking, BuiltinError};
 use crate::pal::fs::Vfs;
 use crate::vm::VmContext;
 use std::io::ErrorKind;
@@ -222,7 +222,7 @@ fn open_file(ctx: &crate::vm::VmContext, slot: i64) -> Result<Arc<std::fs::File>
 pub mod typed {
     use crate::corelib::io::buffer::{byte_array, check_buffer_range, read_byte_range, write_byte_range};
     use super::{check_path, fs_error, on_vfs, open_file, two_path_error, vfs_error, FileHandleSlot, PathRole};
-    use crate::exec::call::builtin_abi::{Blocking, BuiltinError, Then};
+    use crate::exec::builtin_abi::{Blocking, BuiltinError, Then};
     use crate::object::Value;
     use crate::vm::VmContext;
     use std::io::{Read, Seek, SeekFrom, Write};

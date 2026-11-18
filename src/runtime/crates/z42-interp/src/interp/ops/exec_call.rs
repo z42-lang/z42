@@ -33,7 +33,7 @@ fn try_native_static_call(
     let tier = ctx.exec().tier(&ctx.core().exec().engines)?;
     if args.iter().any(|&r| matches!(frame.regs.get(r as usize), Some(Value::Ref { .. }))) { return None; }
     tier.invoke(ctx, crate::exec::TierTarget::Site(id),
-        crate::exec::call::args::CallArgs::Registers { regs: &frame.regs, indices: args }, method_type_args)
+        crate::exec::args::CallArgs::Registers { regs: &frame.regs, indices: args }, method_type_args)
         .map(|result| result.map(|outcome| native_result_to_dst(frame, dst, outcome)))
 }
 
@@ -132,7 +132,7 @@ pub(super) fn call(
     }
     // runtime-audit P1-8: a `[Native]` forwarder runs its builtin directly.
     if method_type_args.is_empty() {
-        if let Some(value) = crate::exec::call::forward::try_direct_field_read(ctx, target, &frame.regs, args) {
+        if let Some(value) = crate::exec::forward::try_direct_field_read(ctx, target, &frame.regs, args) {
             frame.set(dst, value);
             return Ok(None);
         }
@@ -171,13 +171,13 @@ pub(super) fn builtin(
     builtin_id: Option<u32>,
 ) -> Result<Option<Value>> {
     let id = builtin_id.unwrap_or(crate::metadata::ids::tokens::UNRESOLVED);
-    match crate::exec::call::builtins::invoke_builtin(ctx, id, name, None, &frame.regs, args) {
+    match crate::exec::builtins::invoke_builtin(ctx, id, name, None, &frame.regs, args) {
         Ok(Some(v)) => {
             frame.set(dst, v);
             Ok(None)
         }
         Ok(None) => Ok(None),
-        Err(e) => raised(crate::exec::call::builtin_abi::error::raise(ctx, module, name, *e, &[])),
+        Err(e) => raised(crate::exec::builtin_abi::error::raise(ctx, module, name, *e, &[])),
     }
 }
 
@@ -185,12 +185,12 @@ pub(super) fn builtin(
 pub(super) fn native_module(
     ctx: &VmContext, module: &Module, frame: &mut Frame, insn: &crate::zpkg::CallNativeInsn,
 ) -> Result<Option<Value>> {
-    match crate::exec::call::builtins::invoke_module(
+    match crate::exec::builtins::invoke_module(
         ctx, &insn.module, &insn.symbol, &frame.regs, &insn.args,
     ) {
         Ok(Some(value)) => { frame.set(insn.dst, value); Ok(None) }
         Ok(None) => Ok(None),
-        Err(error) => raised(crate::exec::call::builtin_abi::error::raise(
+        Err(error) => raised(crate::exec::builtin_abi::error::raise(
             ctx, module, &format!("{}::{}", insn.module, insn.symbol), *error, &[],
         )),
     }
@@ -198,8 +198,8 @@ pub(super) fn native_module(
 
 /// `raise`'s verdict in the interpreter's channels: a thrown value, or an `Err`.
 #[cold]
-pub(super) fn raised(r: crate::exec::call::builtin_abi::error::Raised) -> Result<Option<Value>> {
-    use crate::exec::call::builtin_abi::error::Raised;
+pub(super) fn raised(r: crate::exec::builtin_abi::error::Raised) -> Result<Option<Value>> {
+    use crate::exec::builtin_abi::error::Raised;
     match r {
         Raised::Throw(v) => Ok(Some(v)),
         Raised::Fatal(e) | Raised::Raw(e) => Err(e),
@@ -218,7 +218,7 @@ pub(super) fn try_fold(
     target: &Function, this: Option<Value>, args: &[u32],
 ) -> Option<Result<Option<Value>>> {
     if args.len() + this.is_some() as usize != target.param_count { return None; }
-    let id = crate::exec::call::forward::forward_of(ctx, module, target)?;
+    let id = crate::exec::forward::forward_of(ctx, module, target)?;
     Some(run_fold(ctx, module, frame, dst, target, id, this, args))
 }
 
@@ -226,7 +226,7 @@ fn run_fold(
     ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32,
     target: &Function, id: u32, this: Option<Value>, args: &[u32],
 ) -> Result<Option<Value>> {
-    match crate::exec::call::forward::run_folded(ctx, target, id, this, &frame.regs, args, || module) {
+    match crate::exec::forward::run_folded(ctx, target, id, this, &frame.regs, args, || module) {
         Ok(Some(v)) => { frame.set(dst, v); Ok(None) }
         Ok(None) => { frame.set(dst, Value::Null); Ok(None) }
         Err(f) => raised(f.raise(ctx, module, target)),
@@ -259,8 +259,8 @@ fn try_native_indirect_call(
     let tier = ctx.exec().tier(&ctx.core().exec().engines)?;
     if args.iter().any(|&r| matches!(frame.regs.get(r as usize), Some(Value::Ref { .. }))) { return None; }
     let view = match env {
-        Some(receiver) => crate::exec::call::args::CallArgs::Receiver { receiver, regs: &frame.regs, indices: args },
-        None => crate::exec::call::args::CallArgs::Registers { regs: &frame.regs, indices: args },
+        Some(receiver) => crate::exec::args::CallArgs::Receiver { receiver, regs: &frame.regs, indices: args },
+        None => crate::exec::args::CallArgs::Registers { regs: &frame.regs, indices: args },
     };
     tier.invoke(ctx, crate::exec::TierTarget::Site(id), view, &[])
         .map(|result| result.map(|outcome| native_result_to_dst(frame, dst, outcome)))
@@ -317,16 +317,16 @@ pub(super) fn call_indirect(
         bail!("CallIndirect: function id {} is not registered in this VM", id.0);
     };
     let physical_count = args.len() + usize::from(env_val_opt.is_some());
-    if crate::exec::call::indirect_return::needs_boxed_return(cfn, physical_count)
-        || crate::exec::call::indirect_return::has_caller_return_slot(cfn, physical_count)
+    if crate::exec::indirect_return::needs_boxed_return(cfn, physical_count)
+        || crate::exec::indirect_return::has_caller_return_slot(cfn, physical_count)
         || args.iter().enumerate().any(|(position, &index)| frame.regs.get(index as usize)
-            .is_some_and(|value| crate::exec::call::indirect_return::has_declared_boxed_argument(
+            .is_some_and(|value| crate::exec::indirect_return::has_declared_boxed_argument(
                 cfn, position + usize::from(env_val_opt.is_some()), value,
             )))
     {
         let mut values = collect_args(&frame.regs, args)?;
         if let Some(environment) = env_val_opt { values.insert(0, environment); }
-        let outcome = crate::exec::call::indirect_return::invoke(
+        let outcome = crate::exec::indirect_return::invoke(
             ctx, module, cfn, id.0 as usize, frame.frame_id(ctx), values.into_vec(),
         )?;
         return Ok(native_result_to_dst(frame, dst, outcome));

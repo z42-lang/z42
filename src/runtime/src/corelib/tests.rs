@@ -1,4 +1,4 @@
-use crate::exec::call::builtins::{exec_builtin, exec_builtin_value};
+use crate::exec::builtins::{exec_builtin, exec_builtin_value};
 use crate::object::{NativeData, TypeDesc, Value};
 use crate::vm::VmContext;
 use std::sync::Arc;
