@@ -150,6 +150,10 @@ public sealed class SymbolCollector {
                 table.NoteEnumKey(efq[i]);
                 int dot = efq[i].LastIndexOf('.');
                 table.EnumTypeNs.Put(efq[i], new StrBox(dot > 0 ? efq[i].Substring(0, dot) : ""));
+                // access-top-scope：导入 enum 的显式 private/protected 以 "imp:" 前缀并入（EnumType()
+                // 合成时据此置 IsImported——private 文件比对恒不中、protected 跨包一律拒，同名 ns 也不放行）。
+                string ivis = imported.EnumTypeVisByFqn.Get(efq[i]) as string;
+                if (ivis != null && ivis != "") { table.EnumTypeVis.Put(efq[i], "imp:" + ivis); }
             }
             i = i + 1;
         }

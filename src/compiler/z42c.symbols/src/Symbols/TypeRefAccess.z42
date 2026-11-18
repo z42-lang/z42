@@ -129,7 +129,30 @@ public static class TypeRefAccess {
             }
             return;
         }
-        // 其余（prim/泛型形参/func）一律放行，绝不误报。
+        // access-top-scope：命名 delegate 的顶层作用域强制（与类同规则：private=本文件、
+        // protected=本包 ∩ 同名 ns）。DeclVis 仅**本地显式** private/protected 时非空——匿名函数
+        // 类型与导入重建实例恒空 ⇒ 放行，与既有行为逐字一致（跨包 protected delegate 的拒需
+        // 导出携带可见性，v1 未做，见 access-control.md Deferred）。
+        if (resolved is Z42FuncType) {
+            Z42FuncType ft = resolved as Z42FuncType;
+            if (ft.DeclVis == "private") {
+                // 导入（DeclImported）无文件可比，一律拒；本地走文件比对。
+                if (ft.DeclImported || TypeRefAccess._scopeKey(ft.DeclFile) != TypeRefAccess._scopeKey(sp.File)) {
+                    diags.Error(DiagnosticCodes.AccessViolation,
+                        "cannot access file-scoped private delegate `" + ft.DeclName + "`"
+                        + (ft.DeclImported ? " (declared in another package)" : " (declared in another file)"), sp);
+                }
+            } else if (ft.DeclVis == "protected") {
+                if (ft.DeclImported || ft.DeclNs != curNs) {
+                    string hint = ft.DeclImported ? " from another package"
+                        : " from " + (curNs == "" ? "the global namespace" : "namespace `" + curNs + "`");
+                    diags.Error(DiagnosticCodes.AccessViolation,
+                        "cannot access namespace-scoped protected delegate `" + ft.DeclName + "`" + hint, sp);
+                }
+            }
+            return;
+        }
+        // 其余（prim/泛型形参/匿名 func）一律放行，绝不误报。
     }
 
     // 类/接口共用的可见性引用校验。kind："class"/"interface"（仅诊断措辞）。isImported=声明自依赖 zpkg（跨包）。
@@ -232,6 +255,13 @@ public static class TypeRefAccess {
             exVis = ct.Visibility; exName = ct.Name(); exKind = "class";
         }
         else if (exposed is Z42InterfaceType) { Z42InterfaceType ift = exposed as Z42InterfaceType; exVis = ift.Visibility; exName = ift.Name(); exKind = "interface"; }
+        // access-top-scope：命名 delegate 的暴露面——仅 DeclVis 非空（本地显式 private/protected）
+        // 才按其 rank 判；匿名/导入函数类型维持「视作 public 不触发」的既有口径。
+        else if (exposed is Z42FuncType) {
+            Z42FuncType ft = exposed as Z42FuncType;
+            if (ft.DeclVis == "") { return; }
+            exVis = ft.DeclVis; exName = ft.DeclName; exKind = "delegate";
+        }
         else { return; }
         if (TypeRefAccess._visRank(exVis) >= TypeRefAccess._visRank(declVis)) { return; }
         string disp = exName.Replace("+", ".");

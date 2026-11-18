@@ -238,8 +238,10 @@ protected class Ok { }              // ✅（namespace 必须在文件顶部，�
   同路径）。
 - **REPL**：各轮是独立「文件」（`repl_r0`、`repl_r1`…），但**会话内共享同一文件作用域**——第 2 轮可见
   第 1 轮的 private 类；顶层 protected 在 REPL 无 ns，按 E0442 拒绝。
-- **`enum` / `delegate` / 顶层函数**仍不接受 `private` / `protected` → **E0442**（三处无对应的引用点
-  强制管线，不提供不设防的修饰符）。
+- **`enum` / `delegate` 与类一致**：顶层 `private enum` / `private delegate` = 文件作用域、
+  `protected` = 本包 ∩ 同名命名空间（protected 同样要求 ns，否则 E0442）；嵌套 enum 显式
+  `private` / `protected` 按嵌套类同语义强制。**顶层函数**仍不接受 `private` / `protected` →
+  **E0442**（函数无引用点强制管线，不提供不设防的修饰符）。
 
 ---
 

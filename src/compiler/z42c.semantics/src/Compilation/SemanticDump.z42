@@ -213,4 +213,16 @@ public static class SemanticDump {
         }
         return false;
     }
+
+    // access-top-scope：带导入符号的口径——跨包 private/protected（delegate/enum）用例**免 zpkg 文件**，
+    // 直接构造 ImportedSymbols（镜像 ImportedSymbolLoader 重建后的形态：DeclImported / "imp:"）喂进来。
+    public static bool HasErrorCodeImp(string src, ImportedSymbols imported, string code) {
+        DiagnosticBag diags = FrontEnd.Check(src, "<input>", imported).Diags;
+        int i = 0;
+        while (i < diags.Count()) {
+            if (diags.Get(i).Code == code) { return true; }
+            i = i + 1;
+        }
+        return false;
+    }
 }

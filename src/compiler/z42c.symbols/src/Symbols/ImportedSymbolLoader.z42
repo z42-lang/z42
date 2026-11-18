@@ -45,6 +45,10 @@ public sealed class ImportedSymbols {
     public StrMap FuncOriginAll;
     public StrMap InterfacesByFqn;
     public StrMap EnumTypeNamesByFqn;   // FQN → "enum"
+    // access-top-scope：显式 private/protected 的导入 enum（FQN → vis）。仅新档位时记录，
+    // `_mergeImportedEnums` 并进 SymbolTable.EnumTypeVis（"imp:" 前缀标记导入身份，
+    // EnumType() 合成时据此置 IsImported——跨包 protected 同名 ns 也拒）。
+    public StrMap EnumTypeVisByFqn;
     public StrMap EnumConsts;       // "EnumFqn.Member" → StrBox(long 值)（镜像 SymbolTable.EnumConsts，键同为 FQN）
     public StrMap DelegatesByFqn;   // FQN → Z42FuncType（导入的用户 delegate；SymbolCollector 并进 SymbolTable.Delegates）
     // add-associated-types PR-1：导入类的 where 约束（键 = 类的 FQN 键，即 ClassesByFqn 的键，
@@ -69,6 +73,7 @@ public sealed class ImportedSymbols {
         this.FuncOriginAll = new StrMap();         // report-crosspkg-duplicate-function
         this.InterfacesByFqn = new StrMap();       // unify-type-identity-fqn
         this.EnumTypeNamesByFqn = new StrMap();    // unify-type-identity-fqn
+        this.EnumTypeVisByFqn = new StrMap();      // access-top-scope
         this.EnumConsts = new StrMap();
         this.DelegatesByFqn = new StrMap();
     }

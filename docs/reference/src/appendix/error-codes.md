@@ -87,7 +87,7 @@
 
 | 码 | 含义 | 状态 | 触发示例 |
 |---|---|---|---|
-| E0442 | ① 顶层 `protected` 但文件没声明 `namespace`（`protected`=命名空间作用域，空 ns 恰是「一切 ns 的全局域」、等价 internal，声明期拒绝）；② `enum` / `delegate` / 顶层函数标 `private`/`protected`（三处无文件/ns 强制管线，仍不适用）。顶层 `class`/`struct`/`interface` 的 `private`/`protected` 已合法（文件/命名空间作用域，见[访问权限控制](../language/access-control.md)） | ✅ Parser.z42（顶层修饰符检查） | 无 ns 文件里 `protected class C { }` |
+| E0442 | ① 顶层 `protected` 但文件没声明 `namespace`（`protected`=命名空间作用域，空 ns 恰是「一切 ns 的全局域」、等价 internal，声明期拒绝）；② 顶层**函数**标 `private`/`protected`（函数无引用点强制管线）。顶层 `class`/`struct`/`interface`/`enum`/`delegate` 的 `private`/`protected` 均已合法（文件/命名空间作用域，见[访问权限控制](../language/access-control.md)） | ✅ Parser.z42（顶层修饰符检查） | 无 ns 文件里 `protected class C { }` |
 | E0457 | 一个文件里写了**多个**文件级 `namespace X;`，或把 `namespace` 写在类型/函数声明**之后**。不会静默 last-wins（那会导致限定名解析到错误的类型）。恢复策略：保留**第一个** ns | ✅ Parser.z42（`_expectSemi`） | `namespace A; class C { } namespace B;` |
 | E0462 | `methodof(...)` 括号内**签名语法**形态错：缺 `Type.Member`、owner 带类型实参、方法带类型实参 | ✅ MethodOfParser.z42（`_parseTarget`） | `methodof(Logger)` |
 

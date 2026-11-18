@@ -200,6 +200,10 @@ public static partial class ImportedSymbolLoader {
             // 第二个 enum 连 FQN 都进不来（引用它的源码解析不到 / 常量读到第一个的值）。
             if (!r.EnumTypeNamesByFqn.ContainsKey(efqn)) {
                 r.EnumTypeNamesByFqn.Put(efqn, "enum");   // unify-type-identity-fqn
+                // access-top-scope：显式 private/protected 的导入 enum 记可见性（消费端拒跨包引用）。
+                if (ez.Visibility == "private" || ez.Visibility == "protected") {
+                    r.EnumTypeVisByFqn.Put(efqn, ez.Visibility);
+                }
                 int emi = 0;
                 while (emi < ez.MemberCount) {
                     ExportedEnumMemberZ emem = ez.Members[emi];
@@ -227,7 +231,15 @@ public static partial class ImportedSymbolLoader {
                     dp = dp + 1;
                 }
                 Z42Type dret = ImportedSymbolLoader._resolve(r, dz.ReturnType, dz.TypeParams, dz.TpCount);
-                r.DelegatesByFqn.Put(dfqn, new Z42FuncType(dps, dz.ParamCount, dret));
+                Z42FuncType dft = new Z42FuncType(dps, dz.ParamCount, dret);
+                r.DelegatesByFqn.Put(dfqn, dft);
+                // access-top-scope：显式 private/protected 的导入 delegate 记声明事实（消费端拒跨包引用）。
+                if (dz.Visibility == "private" || dz.Visibility == "protected") {
+                    dft.DeclVis = dz.Visibility;
+                    dft.DeclNs = em.Namespace;
+                    dft.DeclName = dz.Name;
+                    dft.DeclImported = true;
+                }
             }
             dg = dg + 1;
         }

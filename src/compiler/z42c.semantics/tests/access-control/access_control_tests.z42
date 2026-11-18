@@ -4,6 +4,7 @@
 namespace Z42cSemanticsAccessControlTests;
 
 using Z42.Semantics;
+using Z42.Symbols;   // access-top-scope：ImportedSymbols / Z42FuncType / Z42ClassType / StrBox（跨包直构用例）
 using Std.Harness;
 
 // ── private ──
@@ -521,4 +522,128 @@ void test_top_private_not_exported_protected_exported() {
     string dump = SemanticDump.DumpExports(src);
     Assert.False(dump.Contains("Hidden"));
     Assert.True(dump.Contains("Shared"));
+}
+
+// ── access-top-scope ②：enum / delegate 与类一致（private=文件、protected=本包∩同名 ns）──
+
+[Test]
+void test_top_private_enum_same_file_ok() {
+    string src = "private enum Hue { Red, Green } class U { int M() { Hue h = Hue.Red; return (int)h; } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_top_private_enum_cross_file_denied() {
+    string[] srcs = new string[2];
+    srcs[0] = "private enum Hue { Red, Green }";
+    srcs[1] = "class U { void M() { Hue h = Hue.Red; } }";
+    string[] files = new string[2]; files[0] = "a.z42"; files[1] = "b.z42";
+    Assert.True(SemanticDump.HasErrorCodeMulti(srcs, files, "E0404"));
+}
+
+[Test]
+void test_top_private_enum_signature_exposure_denied() {
+    // internal 类的 public 成员签名暴露 file-private enum → E0441（同 file-private 类的边界）
+    string src = "private enum Hue { Red } class U { public Hue Get() { return Hue.Red; } }";
+    Assert.Equal("E0441", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_top_protected_enum_same_ns_ok_other_ns_denied() {
+    string[] srcs = new string[3];
+    srcs[0] = "namespace App; protected enum Tone { Low, High }";
+    srcs[1] = "namespace App; class Ok { void M() { Tone t = Tone.Low; } }";
+    srcs[2] = "namespace Other; class Bad { void M() { App.Tone t = App.Tone.Low; } }";
+    string[] files = new string[3]; files[0] = "a.z42"; files[1] = "b.z42"; files[2] = "c.z42";
+    Assert.True(SemanticDump.HasErrorCodeMulti(srcs, files, "E0404"));
+}
+
+[Test]
+void test_nested_private_enum_denied() {
+    // 嵌套显式 private enum：外部类文本之外引用 → E0404（与嵌套 private 类同语义）
+    string src = "class Outer { private enum E { A } } void g() { Outer.E x = Outer.E.A; }";
+    Assert.Equal("E0404", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_top_private_delegate_same_file_ok() {
+    string src = "private delegate int Op(int x); class U { int M(Op f) { return f(1); } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_top_private_delegate_cross_file_denied() {
+    string[] srcs = new string[2];
+    srcs[0] = "private delegate int Op(int x);";
+    srcs[1] = "class U { int M(Op f) { return 0; } }";
+    string[] files = new string[2]; files[0] = "a.z42"; files[1] = "b.z42";
+    Assert.True(SemanticDump.HasErrorCodeMulti(srcs, files, "E0404"));
+}
+
+[Test]
+void test_top_private_delegate_signature_exposure_denied() {
+    string src = "private delegate void Op(); public class U { public Op Get() { return null; } }";
+    Assert.Equal("E0441", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_top_protected_delegate_same_ns_ok_other_ns_denied() {
+    string[] srcs = new string[3];
+    srcs[0] = "namespace App; protected delegate int Op(int x);";
+    srcs[1] = "namespace App; class Ok { int M(Op f) { return f(1); } }";
+    srcs[2] = "namespace Other; class Bad { int M(App.Op f) { return 0; } }";
+    string[] files = new string[3]; files[0] = "a.z42"; files[1] = "b.z42"; files[2] = "c.z42";
+    Assert.True(SemanticDump.HasErrorCodeMulti(srcs, files, "E0404"));
+}
+
+[Test]
+void test_top_protected_delegate_requires_namespace() {
+    string src = "protected delegate void Op();";
+    Assert.Equal("E0442", SemanticDump.FirstErrorCode(src));
+}
+
+// ── access-top-scope ③：跨包（经 ImportedSymbols 直构，免 zpkg 文件；镜像 TsigReconcile 重建形态）──
+
+[Test]
+void test_top_private_delegate_cross_pkg_denied() {
+    // 依赖包重建的 file-private delegate（DeclImported）：跨包引用 → E0404（同名 ns 也不放行）
+    var imp = new ImportedSymbols();
+    Z42FuncType dft = new Z42FuncType(new Z42Type[0], 0, Z42ClassType.Builtin("void"));
+    dft.DeclVis = "private"; dft.DeclName = "Op"; dft.DeclNs = ""; dft.DeclImported = true;
+    imp.DelegatesByFqn.Put("Op", dft);
+    string src = "class U { void M(Op f) { } }";
+    Assert.True(SemanticDump.HasErrorCodeImp(src, imp, "E0404"));
+}
+
+[Test]
+void test_top_protected_delegate_cross_pkg_denied() {
+    // 依赖包重建的 ns-protected delegate：即使消费文件声明**同名 ns**，跨包仍拒（IsImported 判据）
+    var imp = new ImportedSymbols();
+    Z42FuncType dft = new Z42FuncType(new Z42Type[0], 0, Z42ClassType.Builtin("void"));
+    dft.DeclVis = "protected"; dft.DeclName = "Op"; dft.DeclNs = "App"; dft.DeclImported = true;
+    imp.DelegatesByFqn.Put("App.Op", dft);
+    string src = "namespace App; class U { void M(Op f) { } }";
+    Assert.True(SemanticDump.HasErrorCodeImp(src, imp, "E0404"));
+}
+
+[Test]
+void test_top_private_enum_cross_pkg_denied() {
+    // 依赖包重建的 file-private enum（"imp:" 前缀 → IsImported）：跨包引用 → E0404
+    var imp = new ImportedSymbols();
+    imp.EnumTypeNamesByFqn.Put("Hue", "enum");
+    imp.EnumTypeVisByFqn.Put("Hue", "private");
+    imp.EnumConsts.Put("Hue.Red", new StrBox("0"));
+    string src = "class U { void M(Hue h) { } }";
+    Assert.True(SemanticDump.HasErrorCodeImp(src, imp, "E0404"));
+}
+
+[Test]
+void test_imported_public_enum_still_ok() {
+    // 无显式新档位的导入 enum（无 EnumTypeVis 条目）→ 合成默认 public，行为与修前逐字一致
+    var imp = new ImportedSymbols();
+    imp.EnumTypeNamesByFqn.Put("Hue", "enum");
+    imp.EnumConsts.Put("Hue.Red", new StrBox("0"));
+    string src = "class U { void M(Hue h) { } }";
+    var diags = Z42.Semantics.FrontEnd.Check(src, "<input>", imp).Diags;
+    Assert.Equal(0, diags.ErrorCount());
 }

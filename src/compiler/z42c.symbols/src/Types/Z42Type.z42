@@ -727,6 +727,18 @@ public sealed class Z42FuncType : Z42Type {
     // 空数组 / false = 未标 = 不强制，故不需要 ParamIsRef 那样的「已知」位。
     public bool[] ParamIsNullable;
     public bool   RetIsNullable;
+    // access-top-scope：**命名 delegate** 的声明事实（`delegate void D();`），仅本地 _passDelegates
+    // 在显式 private/protected 时填（"" = 未标 / 匿名函数类型 / 导入重建——一律放行，绝不误报）。
+    // **不进 Name()/Dump()**——可见性不参与结构相等的类型身份。DeclVis 为 "private"（文件作用域）
+    // 或 "protected"（本包 ∩ DeclNs 同名命名空间），由 TypeRefAccess 的 Z42FuncType 分支消费。
+    public string DeclVis;
+    public string DeclFile;
+    public string DeclNs;
+    public string DeclName;
+    // access-top-scope：true = 从依赖 zpkg 重建（发射端可见性字节经 TsigReconcile 还原）。
+    // 跨包 private/protected 一律拒（private 无文件可比、protected 跨包不可见），消费点位见
+    // TypeRefAccess 的 Z42FuncType 分支。本地声明恒 false。
+    public bool   DeclImported;
 
     public bool IsNullableParam(int i) {
         if (this.ParamIsNullable == null) { return false; }

@@ -353,6 +353,7 @@ public static class TsigReconcile {
                     if (dc == dels.Length) { ExportedDelegateZ[] b = new ExportedDelegateZ[dels.Length * 2]; int k = 0; while (k < dc) { b[k] = dels[k]; k = k + 1; } dels = b; }
                     dels[dc] = new ExportedDelegateZ(dbare, inv.RetType, dps, dps.Length, dtp, cd.TypeParamCount,
                                                      plus > 0, plus > 0 ? dbare.Substring(0, plus) : "");
+                    dels[dc].Visibility = TsigReconcile._visStr(cd.Visibility);   // access-top-scope：跨包可见性还原
                     dc = dc + 1;
                 }
                 i = i + 1;
@@ -364,6 +365,7 @@ public static class TsigReconcile {
                 while (em < cd.EnumMemberCount) { mems[em] = new ExportedEnumMemberZ(cd.EnumMemberNames[em], cd.EnumMemberValues[em]); em = em + 1; }
                 if (ec == enums.Length) { ExportedEnumZ[] b = new ExportedEnumZ[enums.Length * 2]; int k = 0; while (k < ec) { b[k] = enums[k]; k = k + 1; } enums = b; }
                 enums[ec] = new ExportedEnumZ(TsigReconcile._bare(cd.Name, ns), mems, cd.EnumMemberCount);
+                enums[ec].Visibility = TsigReconcile._visStr(cd.Visibility);   // access-top-scope：跨包可见性还原
                 ec = ec + 1;
                 i = i + 1;
                 continue;
