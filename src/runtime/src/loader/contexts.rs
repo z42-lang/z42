@@ -28,29 +28,10 @@ use std::sync::Arc;
 use crate::metadata::Module;
 use crate::object::{NativeData, TypeDesc};
 
-/// Identifies one load context in [`ContextRegistry`]. `ContextId(0)` is always
-/// the永驻 root. Stable for the lifetime of one `VmContext`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[repr(transparent)]
-pub struct ContextId(pub u32);
-
-impl ContextId {
-    /// The永驻 root context — core/stdlib/main program. Never collectible.
-    pub const ROOT: ContextId = ContextId(0);
-}
-
-/// Identifies one loaded assembly (zpkg runtime projection) in
-/// [`ContextRegistry`]. `AssemblyId(0)` is the synthetic root assembly (the
-/// merged root `Module`); it carries no owned arena.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[repr(transparent)]
-pub struct AssemblyId(pub u32);
-
-impl AssemblyId {
-    /// The synthetic root assembly — every `typeof(T)` for a root type reports
-    /// this. Not collectible; owns no private arena.
-    pub const ROOT: AssemblyId = AssemblyId(0);
-}
+// Payload identity vocabulary (`ContextId` / `AssemblyId`) is owned by
+// `object::identity` — the representation carrying it — and re-exported here as
+// the registry owner's stable path.
+pub use crate::object::identity::{AssemblyId, ContextId};
 
 /// Lifecycle state of a load context (add-lazy-context-unload).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -1,5 +1,5 @@
 use crate::exec::call::frames::VmFrame;
-use crate::exec::ambient::current_heap_epoch;
+use crate::gc::ambient::current_heap_epoch;
 use crate::vm::VmContext;
 
 fn frame() -> VmFrame {

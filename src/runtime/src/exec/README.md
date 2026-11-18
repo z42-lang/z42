@@ -17,7 +17,6 @@
 | `state.rs` | `ExecState` 组合每 VM 引擎注册表、builtin 目录与栈分配策略；对象协议由 Core 单独持有 |
 | `native.rs` | native 调用与 owned pin 提供方契约；门面在创建 VM 前登记，worker 共享 |
 | `active_vm.rs` | native-interop 回调的活动 VM TLS 与激活 guard；底帧与宿主重入共用，退出时恢复前一上下文 |
-| `ambient.rs` | 执行期当前堆 TLS、HeapGuard 嵌套恢复和堆 epoch |
 | `engine.rs` | Engine / TierApi 注册、共享调用边界和 OSR 交接；门面按 feature 装配，后端持有代码及激活；corelib 的反射、attribute 和线程回调也经此入口 |
 | `ops/call.rs` / `ops/stringify.rs` | 冷 Call/FnRef 绑定及 ToString 协议执行，调用经已注册 Engine |
 | `call/engine_guards.rs` | 栈底激活安装 VM / heap TLS，最后一帧退出恢复；支持嵌套宿主重入 |

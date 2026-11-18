@@ -3,6 +3,7 @@
 pub mod config;
 pub use config::GcConfig;
 pub mod to_vm;
+pub mod ambient;
 pub mod heap;
 pub mod walk;
 pub mod mode;

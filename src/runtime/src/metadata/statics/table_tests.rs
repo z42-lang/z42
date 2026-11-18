@@ -39,7 +39,7 @@ fn ids_are_dense_stable_and_lazily_allocated() {
 #[test]
 fn every_value_kind_round_trips_and_a_kind_change_is_boxed() {
     let ctx = VmContext::new();
-    let _heap = crate::exec::ambient::HeapGuard::enter(ctx.heap());
+    let _heap = crate::gc::ambient::HeapGuard::enter(ctx.heap());
     let obj = ctx.heap().alloc_object(td("O"), vec![Value::Null], NativeData::None);
     let arr = ctx.heap().alloc_array(vec![Value::I64(1)]);
     let values = [
@@ -152,7 +152,7 @@ fn concurrent_writers_never_tear_and_stay_rooted_across_collections() {
 fn jit_layout_matches_the_accessors() {
     use crate::object::{ref_word, tparam_cell};
     let ctx = VmContext::new();
-    let _heap = crate::exec::ambient::HeapGuard::enter(ctx.heap());
+    let _heap = crate::gc::ambient::HeapGuard::enter(ctx.heap());
     let t = StaticTable::default();
     let raw64 = |c: &StaticCell, off: i32| unsafe { *((c as *const StaticCell as *const u8).add(off as usize) as *const u64) };
     let raw32 = |c: &StaticCell, off: i32| unsafe { *((c as *const StaticCell as *const u8).add(off as usize) as *const u32) };

@@ -11,6 +11,7 @@ observers / allocation sampling / weak refs / finalizers / strict OOM / ...）�
 | 文件 | 职责 |
 |------|------|
 | `config.rs` | `GcConfig`：显式传入堆的不可变策略值，GC 不解析全局运行时设置 |
+| `ambient.rs` | 执行期当前堆 TLS、HeapGuard 嵌套恢复和堆 epoch；无堆上下文回退 |
 | `to_vm.rs` | `GcRoots` / `GcToVm` / `GcPause`，以及不透明的上下文回收快照；VM 提供实现 |
 | `heap.rs` | 具体 `Heap` 的状态、身份、句柄表与 concern 声明 |
 | `mode.rs` | `GcMode`：`GenerationalMarkSweep`（默认）/ `StwMarkSweep`，`Z42_GC_MODE` 选择 |

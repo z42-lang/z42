@@ -3,7 +3,7 @@
 use crate::gc::Heap;
 use super::*;
 use crate::object::ArrRef;
-use crate::exec::ambient::HeapGuard;
+use crate::gc::ambient::HeapGuard;
 use std::sync::atomic::Ordering;
 
 fn heap() -> Heap {

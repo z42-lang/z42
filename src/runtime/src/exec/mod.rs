@@ -15,7 +15,6 @@ pub mod exception;
 pub mod symbol_resolution;
 pub mod stack_guard;
 pub mod ops;
-pub mod ambient;
 #[cfg(feature = "native-interop")]
 pub mod native;
 #[cfg(feature = "native-interop")]
