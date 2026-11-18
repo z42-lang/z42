@@ -49,6 +49,12 @@ main.rs 只依赖 std/libloading，加载 libz42 的 z42_main_v1。命令行参�
 engine/init、counters/observer、protocol 实现模块私有；实现文件移动只需调整所属模块的声明与显式导出。
 模块内的实现引用不做机械改写，也不建立总括所有领域的 prelude。正向 doctest 与私有路径 compile_fail 验证这条边界。
 
+gc / object / metadata 的实现子模块可见性棘轮第一档：零 crate 外消费者的子模块（gc×12——heap 内部/
+epoch/footprint/tlab/var_region/side_bits/soft_registry/trace/types/mode/to_vm/config，metadata 的 types/
+reflection_types，object 的 types/header）收 `pub(crate)`，跨引擎词汇（gc 的 walk/satb 与根再导出、
+metadata 的 ids/dispatch/resolve/statics/builtins、object 的 value/string/array 与根再导出）保持公开；
+三域各加 compile_fail doctest 门，后续新增 pub 子模块须先证明外部消费者。
+
 exec 的激活与调用机制词汇已上收到根：`exec::{frames, frame_stack, reg_pool, stack_alloc, struct_arena,
 transient_arena, args, outcome, forward, indirect_return, type_param_env, builtin_abi, builtins}` 为稳定消费契约
 （`call` 目录收 `pub(crate)`，engine_guards 等实现文件不再转出）；后端与集成测试的深路径
