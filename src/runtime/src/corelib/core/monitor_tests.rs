@@ -5,7 +5,7 @@
 
 use super::*;
 use crate::vm::VmContext;
-use crate::exec::call::builtin_abi::IntoRet;
+use crate::exec::builtin_abi::IntoRet;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
@@ -21,12 +21,12 @@ fn new_monitor(c: &VmContext) -> (Value, Arc<Monitor>) {
 }
 
 fn builtin_monitor_new(c: &VmContext) -> Value {
-    crate::exec::call::builtins::exec_builtin_value(c, "__monitor_new", &[]).unwrap()
+    crate::exec::builtins::exec_builtin_value(c, "__monitor_new", &[]).unwrap()
 }
 
 /// The builtins by name, as the engines call them (typed errors come back as `BuiltinError`).
 fn call(c: &VmContext, name: &str, args: &[Value]) -> Result<(), BuiltinError> {
-    crate::exec::call::builtins::exec_builtin(c, name, args).map(|_| ()).map_err(|e| e.downcast::<BuiltinError>().expect("typed error"))
+    crate::exec::builtins::exec_builtin(c, name, args).map(|_| ()).map_err(|e| e.downcast::<BuiltinError>().expect("typed error"))
 }
 fn builtin_monitor_enter(c: &VmContext, args: &[Value]) -> Result<(), BuiltinError> { call(c, "__monitor_enter", args) }
 fn builtin_monitor_exit(c: &VmContext, args: &[Value]) -> Result<(), BuiltinError> { call(c, "__monitor_exit", args) }
@@ -375,7 +375,7 @@ fn a_collection_completes_while_a_thread_waits_on_the_monitor() {
 }
 
 fn timed_wait(c: &VmContext, h: &Value, millis: i64) -> Result<Value, BuiltinError> {
-    crate::exec::call::builtins::exec_builtin_value(c, "__monitor_wait_for", &[h.clone(), Value::I64(millis)])
+    crate::exec::builtins::exec_builtin_value(c, "__monitor_wait_for", &[h.clone(), Value::I64(millis)])
         .map_err(|e| e.downcast::<BuiltinError>().expect("typed error"))
 }
 

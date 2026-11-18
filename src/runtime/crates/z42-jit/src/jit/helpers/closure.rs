@@ -151,10 +151,10 @@ pub unsafe extern "C" fn jit_call_indirect(
     let user_regs = std::slice::from_raw_parts(args_ptr, args_len);
     if let Some(function) = rt.fn_of(id.0 as usize) {
         let count = args_len + usize::from(env_val_opt.is_some());
-        if crate::exec::call::indirect_return::needs_boxed_return(function, count)
-            || crate::exec::call::indirect_return::has_caller_return_slot(function, count)
+        if crate::exec::indirect_return::needs_boxed_return(function, count)
+            || crate::exec::indirect_return::has_caller_return_slot(function, count)
             || user_regs.iter().enumerate().any(|(position, &index)| frame_ref.regs.get(index as usize)
-                .is_some_and(|value| crate::exec::call::indirect_return::has_declared_boxed_argument(
+                .is_some_and(|value| crate::exec::indirect_return::has_declared_boxed_argument(
                     function, position + usize::from(env_val_opt.is_some()), value,
                 )))
         {
@@ -162,13 +162,13 @@ pub unsafe extern "C" fn jit_call_indirect(
             values.extend(env_val_opt);
             values.extend(user_regs.iter().map(|&register| frame_ref.regs[register as usize].clone()));
             vm_ctx.exec().set_top_frame_pc(caller_offset);
-            return match crate::exec::call::indirect_return::invoke(
+            return match crate::exec::indirect_return::invoke(
                 vm_ctx, super::jit_module(ctx), function, id.0 as usize, frame_ref.frame_id, values,
             ) {
-                Ok(crate::exec::call::outcome::ExecOutcome::Returned(value)) => {
+                Ok(crate::exec::outcome::ExecOutcome::Returned(value)) => {
                     frame_ref.regs[dst as usize] = value.unwrap_or(Value::Null); 0
                 }
-                Ok(crate::exec::call::outcome::ExecOutcome::Thrown(value)) => { set_exception(vm_ctx, value); 1 }
+                Ok(crate::exec::outcome::ExecOutcome::Thrown(value)) => { set_exception(vm_ctx, value); 1 }
                 Err(error) => { set_exception(vm_ctx, Value::Str(error.to_string().into())); 1 }
             };
         }
@@ -194,10 +194,10 @@ pub unsafe extern "C" fn jit_call_indirect(
             args.extend(user_regs.iter().map(|&r| frame_ref.regs[r as usize].clone()));
             vm_ctx.exec().set_top_frame_pc(caller_offset);
             return match crate::exec::invoke(vm_ctx, module, callee, &args) {
-                Ok(crate::exec::call::outcome::ExecOutcome::Returned(ret)) => {
+                Ok(crate::exec::outcome::ExecOutcome::Returned(ret)) => {
                     frame_ref.regs[dst as usize] = ret.unwrap_or(Value::Null); 0
                 }
-                Ok(crate::exec::call::outcome::ExecOutcome::Thrown(val)) => { set_exception(vm_ctx, val); 1 }
+                Ok(crate::exec::outcome::ExecOutcome::Thrown(val)) => { set_exception(vm_ctx, val); 1 }
                 Err(e) => { set_exception(vm_ctx, Value::Str(e.to_string().into())); 1 }
             };
         }

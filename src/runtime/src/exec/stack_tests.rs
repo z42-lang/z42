@@ -1,6 +1,6 @@
 use super::*;
 use crate::metadata::Function;
-use crate::exec::call::frames::{VmFrame, PC_UNSET};
+use crate::exec::frames::{VmFrame, PC_UNSET};
 
 use crate::zpkg::ir::FunctionCold;
 use crate::zpkg::debug::LineEntry;

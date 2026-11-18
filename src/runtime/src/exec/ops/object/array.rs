@@ -11,7 +11,7 @@ use crate::object::{
 };
 use crate::object::Value;
 use crate::object::ArrRef;
-use crate::exec::call::transient_arena::TransientPayload;
+use crate::exec::transient_arena::TransientPayload;
 use crate::vm::VmContext;
 
 use super::error::{ArrayOp, OpError, OpResult};
@@ -221,7 +221,7 @@ pub fn class_type_param_array_args(
     }
     // A derived receiver carries its own arguments. Resolve the parameter at the
     // base level whose code issued ArrayNew.
-    let arg = crate::exec::call::type_param_env::class_type_arg(ctx, receiver, index, owner);
+    let arg = crate::exec::type_param_env::class_type_arg(ctx, receiver, index, owner);
     let kind = arg.as_deref().map(ElemKind::of_type_param).unwrap_or(ElemKind::Mixed);
     type_param_array_args(arg.as_deref(), kind)
 }
@@ -285,7 +285,7 @@ fn alloc(arr: Value, what: impl FnOnce() -> String) -> OpResult<Value> {
 }
 
 fn stack_array(ctx: &VmContext, frame_id: u32, elems: Vec<Value>) -> Value {
-    let idx = ctx.exec().stack_alloc_arr(frame_id, crate::exec::call::stack_alloc::StackArray::new(elems));
+    let idx = ctx.exec().stack_alloc_arr(frame_id, crate::exec::stack_alloc::StackArray::new(elems));
     Value::StackArray { idx, frame_id }
 }
 

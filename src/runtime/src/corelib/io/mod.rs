@@ -1,7 +1,7 @@
 pub(crate) mod buffer;
 pub mod fs;
 
-use crate::exec::call::builtin_abi::Blocking;
+use crate::exec::builtin_abi::Blocking;
 use std::cell::{Cell, RefCell};
 use std::os::raw::{c_char, c_void};
 use std::sync::RwLock;
@@ -178,7 +178,7 @@ fn read_line_from(r: &mut impl std::io::BufRead) -> std::io::Result<String> {
 #[z42_macros::builtins]
 pub mod typed {
     use super::{route, Stream};
-    use crate::exec::call::builtin_abi::{Blocking, BuiltinError};
+    use crate::exec::builtin_abi::{Blocking, BuiltinError};
     use crate::object::Value;
     use crate::vm::VmContext;
 

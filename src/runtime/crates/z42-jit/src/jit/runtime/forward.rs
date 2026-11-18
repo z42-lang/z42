@@ -20,7 +20,7 @@ pub(crate) unsafe fn call_forward(
     let vm = unsafe { vm_ctx_ref(ctx) };
     let wrapper = unsafe { &*wrapper };
     let module = || unsafe { crate::jit::helpers::jit_module(ctx) };
-    match crate::exec::call::forward::run_folded(vm, wrapper, token, this, &frame.regs, arg_regs, module) {
+    match crate::exec::forward::run_folded(vm, wrapper, token, this, &frame.regs, arg_regs, module) {
         Ok(Some(v)) => { frame.regs[dst as usize] = v; 0 }
         Ok(None) => { frame.regs[dst as usize] = Value::Null; 0 }
         Err(f) => crate::jit::helpers::call::raised_into_exception(vm, f.raise(vm, module(), wrapper)),

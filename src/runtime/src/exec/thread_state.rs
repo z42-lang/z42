@@ -162,7 +162,7 @@ impl ThreadExecState {
     // pairs. Atomic push of one VmFrame holds GC roots + trace metadata
     // together — caller cannot "forget half".
 
-    /// Push one [`crate::exec::call::frames::VmFrame`] onto the active script frame
+    /// Push one [`crate::exec::frames::VmFrame`] onto the active script frame
     /// chain. Pop is the caller's responsibility (typically via the
     /// interp `FrameGuard` RAII or the explicit pair in JIT helpers).
     // ── perf interp-frame-lock-slim: arena-alloc funnel ─────────────────────────
@@ -183,7 +183,7 @@ impl ThreadExecState {
     }
 
     /// Allocate a stack array; publishes the new `arrs` length. See `stack_arr_len`.
-    pub fn stack_alloc_arr(&self, frame_id: u32, arr: crate::exec::call::stack_alloc::StackArray) -> u32 {
+    pub fn stack_alloc_arr(&self, frame_id: u32, arr: crate::exec::stack_alloc::StackArray) -> u32 {
         use std::sync::atomic::Ordering::Relaxed;
         let mut a = self.stack_arena.lock();
         let idx = a.alloc_arr(frame_id, arr);
@@ -205,7 +205,7 @@ impl ThreadExecState {
 
     /// Allocate a transient payload; publishes the new length. See `transient_len`.
     pub fn transient_alloc(
-        &self, frame_id: u32, payload: crate::exec::call::transient_arena::TransientPayload,
+        &self, frame_id: u32, payload: crate::exec::transient_arena::TransientPayload,
     ) -> u32 {
         use std::sync::atomic::Ordering::Relaxed;
         let mut a = self.transient_arena.lock();
@@ -214,7 +214,7 @@ impl ThreadExecState {
         idx
     }
 
-    pub fn push_frame(&self, ctx: &crate::vm::VmContext, mut frame: crate::exec::call::frames::VmFrame) {
+    pub fn push_frame(&self, ctx: &crate::vm::VmContext, mut frame: crate::exec::frames::VmFrame) {
         use std::sync::atomic::Ordering::Relaxed;
         // perf interp-frame-lock-slim: capture each arena's truncation base from its
         // published-length atomic — a lock-free `Relaxed` load — instead of locking
@@ -326,10 +326,10 @@ impl ThreadExecState {
     /// collection (`collector_active`).
     ///
     /// # Safety
-    /// As [`crate::exec::call::frame_stack::FrameStack::scan_parked`]: the caller is the
+    /// As [`crate::exec::frame_stack::FrameStack::scan_parked`]: the caller is the
     /// owner thread, or the owner is parked for the whole call.
     pub(crate) unsafe fn scan_frames_parked<R>(
-        &self, collector_active: bool, f: impl FnOnce(&[crate::exec::call::frames::VmFrame]) -> R,
+        &self, collector_active: bool, f: impl FnOnce(&[crate::exec::frames::VmFrame]) -> R,
     ) -> R {
         debug_assert!(
             self.call_stack.published_depth() == 0

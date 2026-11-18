@@ -15,7 +15,7 @@ use crate::zpkg::ir::ExecMode;
 use crate::object::{FieldSlot, TypeDesc};
 use crate::object::Value;
 use crate::components::bridge::VmContext;
-use crate::exec::call::outcome::ExecOutcome;
+use crate::exec::outcome::ExecOutcome;
 
 fn func(name: &str, params: usize, instructions: Vec<Instruction>, terminator: Terminator) -> Function {
     Function::new(crate::zpkg::ir::Function {

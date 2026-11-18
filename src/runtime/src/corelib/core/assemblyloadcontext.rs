@@ -16,7 +16,7 @@
 
 use anyhow::{bail, Result};
 
-use crate::exec::call::builtin_abi::BuiltinError;
+use crate::exec::builtin_abi::BuiltinError;
 
 use super::reflection::make_type_object;
 use crate::loader::contexts::{AssemblyId, ContextId, ContextState, UnloadOutcome};

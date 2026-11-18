@@ -1,7 +1,7 @@
 //! Views of the active frame chain for roots, traces, profiling and crash reports.
 //! Callers retain the owner-thread or parked-owner read scope of FrameStack.
 use crate::object::Value;
-use crate::exec::call::frames::VmFrame;
+use crate::exec::frames::VmFrame;
 
 /// Frozen view of a [`VmFrame`] suitable for formatting / passing across
 /// borrow scopes.

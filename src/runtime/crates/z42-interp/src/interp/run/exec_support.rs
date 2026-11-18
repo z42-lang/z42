@@ -48,7 +48,7 @@ impl Drop for FrameGuard<'_> {
 /// the Rust call stack, and `func` is borrowed by the caller for the whole
 /// activation — both outlive the guard.
 pub(super) fn enter_frame<'a>(ctx: &'a VmContext, func: &Function, frame: &mut Frame) -> Result<FrameGuard<'a>> {
-    ctx.exec().push_frame(&ctx, crate::exec::call::frames::VmFrame::new(
+    ctx.exec().push_frame(&ctx, crate::exec::frames::VmFrame::new(
         func as *const Function,
         &frame.regs as *const Vec<Value>,
     ));
@@ -141,7 +141,7 @@ pub(super) fn try_native_exec(ctx: &VmContext, func: &Function, args: &[Value], 
     let tier = ctx.exec().tier(&ctx.core().exec().engines)?;
     if args.iter().any(|a| matches!(a, Value::Ref { .. })) { return None; }
     tier.invoke(ctx, crate::exec::TierTarget::Existing(func),
-        crate::exec::call::args::CallArgs::Values(args), method_type_args)
+        crate::exec::args::CallArgs::Values(args), method_type_args)
 }
 
 #[cfg(not(feature = "jit"))]
@@ -311,7 +311,7 @@ pub(super) fn find_handler(
     type_registry: &rustc_hash::FxHashMap<String, std::sync::Arc<crate::object::TypeDesc>>,
     thrown: &Value,
     // Binds the type-parameter markers of a `catch (Err<T> e)` in a shared generic body.
-    tp_env: crate::exec::call::type_param_env::TypeParamEnv<'_>,
+    tp_env: crate::exec::type_param_env::TypeParamEnv<'_>,
 ) -> Option<usize> {
     // A fatal VM error (stack overflow) unwinds past every handler.
     if crate::exec::stack_guard::is_fatal(ctx) { return None; }

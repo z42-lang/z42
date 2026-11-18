@@ -31,7 +31,7 @@ fn try_native_method_call(
     if matches!(receiver, Value::Ref { .. })
         || args.iter().any(|&r| matches!(frame.regs.get(r as usize), Some(Value::Ref { .. }))) { return None; }
     tier.invoke(ctx, crate::exec::TierTarget::Site(id),
-        crate::exec::call::args::CallArgs::Receiver { receiver: receiver.clone(), regs: &frame.regs, indices: args }, method_type_args)
+        crate::exec::args::CallArgs::Receiver { receiver: receiver.clone(), regs: &frame.regs, indices: args }, method_type_args)
         .map(|result| result.map(|outcome| super::exec_call::native_result_to_dst(frame, dst, outcome)))
 }
 
@@ -119,7 +119,7 @@ fn invoke(
 ) -> Result<Option<Value>> {
     if method_type_args.is_empty() {
         if args.is_empty() {
-            if let Some(value) = crate::exec::call::forward::try_field_read_cached(ctx, func, this, reader_site) {
+            if let Some(value) = crate::exec::forward::try_field_read_cached(ctx, func, this, reader_site) {
                 frame.set(dst, value);
                 return Ok(None);
             }

@@ -7,7 +7,7 @@
 
 use std::sync::atomic::Ordering;
 
-use crate::exec::call::frames::VmFrame;
+use crate::exec::frames::VmFrame;
 use crate::jit::runtime::frame::JitFrame;
 use crate::jit::runtime::invoke::{call_entry, NativeOutcome};
 use crate::jit::compile::state::install_tuned;
@@ -145,7 +145,7 @@ fn worker_reaching_the_tier_threshold_compiles_in_thread() {
             let w = VmContext::new_with_core(vm.core_arc());
             for _ in 0..3 {
                 let r = crate::interp::run_outcome(&w, &module, &module.functions[0], &[]);
-                assert!(matches!(r, Ok(crate::exec::call::outcome::ExecOutcome::Returned(_))), "{r:?}");
+                assert!(matches!(r, Ok(crate::exec::outcome::ExecOutcome::Returned(_))), "{r:?}");
             }
             assert_eq!(compiled_here(&w), 1, "B compiled on the worker");
             assert_eq!(w.counters().jit_native_from_interp.load(Ordering::Relaxed), 2,
@@ -263,7 +263,7 @@ fn reinstall_keeps_the_published_config_and_tier() {
 #[test]
 fn explicit_mixed_entry_config_counts_before_compiling() {
     use crate::exec::{TierBackend, TierTarget};
-    use crate::exec::call::{args::CallArgs, outcome::ExecOutcome};
+    use crate::exec::{args::CallArgs, outcome::ExecOutcome};
     let config = z42::config::RuntimeConfig::from_getter(|key| match key {
         "Z42_JIT_THRESHOLD" => Some("10".to_string()),
         "Z42_JIT_INTERP_TIERUP" => Some("2".to_string()),

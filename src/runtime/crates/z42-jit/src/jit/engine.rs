@@ -1,6 +1,6 @@
 //! Optimized-tier registration. Only this backend constructs native activations.
 use anyhow::Result;
-use crate::exec::call::{args::CallArgs, outcome::ExecOutcome};
+use crate::exec::{args::CallArgs, outcome::ExecOutcome};
 use crate::exec::{OsrState, TierBackend, TierTarget};
 use crate::metadata::Function;
 use crate::components::bridge::VmContext;

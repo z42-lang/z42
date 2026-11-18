@@ -60,7 +60,7 @@ fn actual_dynamic_engines_preserve_vm_isolation_worker_gc_and_exceptions() {
             let module = ctx.module().unwrap();
             let hot = module.functions.iter().find(|f| f.name == "EngineComponentProbe.HotLoop").unwrap();
             let result = ctx.core().exec().engines.invoke_mode(ExecMode::Interp, ctx, module, hot, &[Value::I64(20_000)]).unwrap();
-            assert!(matches!(result, z42::exec::call::outcome::ExecOutcome::Returned(Some(Value::I64(199_990_000)))));
+            assert!(matches!(result, z42::exec::outcome::ExecOutcome::Returned(Some(Value::I64(199_990_000)))));
             assert!(ctx.core().diagnostics().snapshot(ctx.core().threads()).jit_native_from_interp > before, "dynamic interpreter must hand its hot loop to the dynamic JIT");
         } else {
             assert_eq!(first.context().core().diagnostics().snapshot(first.context().core().threads()).jit_methods_compiled, 0);
@@ -80,7 +80,7 @@ fn worker_retains_dynamic_execution_after_host_release() {
     assert!(weak.upgrade().is_some());
     let function = module.functions.iter().find(|f| f.name == "EngineComponentProbe.Echo").unwrap();
     let result = worker.core().exec().engines.invoke_mode(ExecMode::Jit, &worker, &module, function, &[Value::I64(5)]).unwrap();
-    assert!(matches!(result, z42::exec::call::outcome::ExecOutcome::Returned(Some(Value::I64(7)))));
+    assert!(matches!(result, z42::exec::outcome::ExecOutcome::Returned(Some(Value::I64(7)))));
     drop(worker);
     assert!(weak.upgrade().is_none(), "backend state must not form a Core cycle");
 }
@@ -149,7 +149,7 @@ fn packaged_c_embedding_host_loads_components_and_shuts_down() {
 #[test]
 fn dynamic_interpreter_preserves_native_pin_instructions() {
     use z42_zpkg::{BasicBlock, FieldGetInsn, Instruction, Terminator};
-    use z42::{metadata::Function, exec::call::outcome::ExecOutcome};
+    use z42::{metadata::Function, exec::outcome::ExecOutcome};
     let module = z42::host::Module::new(z42_zpkg::image::ModuleData {
         name: "PinProbe".into(), string_pool: vec!["shared-core".into()],
         classes: vec![], func_index: Default::default(),

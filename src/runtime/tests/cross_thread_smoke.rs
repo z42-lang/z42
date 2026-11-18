@@ -116,7 +116,7 @@ fn spawn_via_builtin_then_join_runs_action_on_worker_thread() {
     // P1-2 PR 8: a `FuncRef` holds its target's `FnId` — the entry module's index 0.
     let action = Value::FuncRef(z42::metadata::ids::tokens::FnId(0));
     // Drive the builtin through the table, as the stdlib's `[Native]` wrapper does.
-    let spawn_result = z42::exec::call::builtins::exec_builtin_value(&ctx, "__thread_spawn", &[action])
+    let spawn_result = z42::exec::builtins::exec_builtin_value(&ctx, "__thread_spawn", &[action])
         .expect("__thread_spawn should succeed for a valid FuncRef");
     let slot_id = match spawn_result {
         Value::I64(n) => n,
@@ -126,16 +126,16 @@ fn spawn_via_builtin_then_join_runs_action_on_worker_thread() {
 
     // `__thread_wait` is a void builtin: success is the absence of an error; a
     // worker that threw / panicked surfaces as a `Std.Threading.ThreadException`.
-    z42::exec::call::builtins::exec_builtin(&ctx, "__thread_wait", &[Value::I64(slot_id)])
+    z42::exec::builtins::exec_builtin(&ctx, "__thread_wait", &[Value::I64(slot_id)])
         .expect("__thread_wait should not error for a known slot");
 
     // Second wait on the same slot → ThreadException (handle consumed).
-    let second = z42::exec::call::builtins::exec_builtin(&ctx, "__thread_wait", &[Value::I64(slot_id)])
+    let second = z42::exec::builtins::exec_builtin(&ctx, "__thread_wait", &[Value::I64(slot_id)])
         .expect_err("second wait on the same slot must fail");
-    let err = second.downcast::<z42::exec::call::builtin_abi::BuiltinError>()
+    let err = second.downcast::<z42::exec::builtin_abi::BuiltinError>()
         .expect("a typed builtin error");
     match err {
-        z42::exec::call::builtin_abi::BuiltinError::Exception { class, message } => {
+        z42::exec::builtin_abi::BuiltinError::Exception { class, message } => {
             assert_eq!(class, "Std.Threading.ThreadException");
             assert_eq!(message, "thread already joined");
         }

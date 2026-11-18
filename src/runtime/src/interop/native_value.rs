@@ -1,5 +1,5 @@
 //! Copies at the native boundary keep all provider buffers independent of GC movement.
-use crate::exec::call::builtin_abi::{ArgAt, BuiltinError, CallResult, FromArg, IntoRet};
+use crate::exec::builtin_abi::{ArgAt, BuiltinError, CallResult, FromArg, IntoRet};
 use crate::{vm::VmContext, object::Value};
 use z42_abi::module as abi;
 pub(crate) use z42_rs::module::Value as Owned;

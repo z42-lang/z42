@@ -131,7 +131,7 @@ fn interp_call_indirect_routes_to_the_jit_slot() {
     crate::components::bridge::resolve_function_tokens(main, &module, &vm);
     let before = vm.counters().jit_native_from_interp.load(Ordering::Relaxed);
     let r = crate::interp::run_outcome(&vm, &module, main, &[]);
-    assert!(matches!(r, Ok(crate::exec::call::outcome::ExecOutcome::Returned(_))));
+    assert!(matches!(r, Ok(crate::exec::outcome::ExecOutcome::Returned(_))));
     assert_eq!(rt.slot_probe(id), (2, false));
     assert_eq!(vm.counters().jit_native_from_interp.load(Ordering::Relaxed) - before, 2,
         "calls 2 and 3 ran natively");

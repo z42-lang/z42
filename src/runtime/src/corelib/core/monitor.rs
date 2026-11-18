@@ -42,7 +42,7 @@
 
 use std::sync::Arc;
 
-use crate::exec::call::builtin_abi::BuiltinError;
+use crate::exec::builtin_abi::BuiltinError;
 use crate::object::{NativeData, TypeDesc};
 use crate::object::Value;
 
@@ -82,7 +82,7 @@ fn not_a_monitor(h: &Value) -> BuiltinError {
 #[z42_macros::builtins]
 pub mod typed {
     use super::{monitor_handle_type_desc, monitor_ref, Monitor};
-    use crate::exec::call::builtin_abi::{Blocking, BuiltinError};
+    use crate::exec::builtin_abi::{Blocking, BuiltinError};
     use crate::object::NativeData;
     use crate::object::Value;
     use crate::vm::VmContext;

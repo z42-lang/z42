@@ -9,9 +9,9 @@ impl RuntimeConfig {
         crate::config::VmConfig {
             safepoint_throttle: self.safepoint_throttle,
             stack_alloc: match self.stackalloc.as_deref() {
-                Some("off" | "0" | "heap") => crate::exec::call::stack_alloc::StackAllocPolicy::Off,
-                Some("stats") => crate::exec::call::stack_alloc::StackAllocPolicy::Stats,
-                _ => crate::exec::call::stack_alloc::StackAllocPolicy::On,
+                Some("off" | "0" | "heap") => crate::exec::stack_alloc::StackAllocPolicy::Off,
+                Some("stats") => crate::exec::stack_alloc::StackAllocPolicy::Stats,
+                _ => crate::exec::stack_alloc::StackAllocPolicy::On,
             },
             gc: self.gc_config(),
             gc_max_bytes: self.gc_max_bytes,

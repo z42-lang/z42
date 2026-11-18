@@ -1,5 +1,5 @@
 //! Native providers publish immutable descriptors; lookup never loads or executes code.
-use crate::exec::call::builtin_abi::BuiltinDesc;
+use crate::exec::builtin_abi::BuiltinDesc;
 use crate::metadata::{
     builtins::{BuiltinCatalog, BuiltinInfo},
     ids::tokens::BuiltinId,

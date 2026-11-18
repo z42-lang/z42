@@ -1,5 +1,5 @@
 //! Core-library descriptors and their logical provider ownership.
-use crate::exec::call::builtin_abi as abi;
+use crate::exec::builtin_abi as abi;
 
 const TYPED: &[&[abi::BuiltinDesc]] = &[
     crate::corelib::core::convert::typed::DESCS,
@@ -56,5 +56,5 @@ pub(crate) const PROVIDERS: &[(&str, &[abi::BuiltinDesc])] = &[
     ("z42_diagnostics", crate::corelib::core::diagnostics::typed::DESCS),
     ("z42_harness", crate::corelib::io::harness::DESCS),
     #[cfg(any(test, feature = "jit-test-support"))]
-    ("z42.test", crate::exec::call::builtin_abi::test_builtins::DESCS),
+    ("z42.test", crate::exec::builtin_abi::test_builtins::DESCS),
 ];

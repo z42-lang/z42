@@ -58,7 +58,7 @@ fn empty_stack_produces_no_row() {
 
 #[test]
 fn maybe_sample_snapshots_call_stack() {
-    use crate::exec::call::frames::VmFrame;
+    use crate::exec::frames::VmFrame;
     let ctx = VmContext::new();
     let mut main = test_function("Main");
     main.frame_meta = Some((Arc::from("Main"), Arc::from("t.z42")));

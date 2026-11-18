@@ -164,7 +164,7 @@ fn declared_natives_full() -> Vec<(String, bool, String)> {
 fn registered_functions() -> Vec<(&'static str, bool)> {
     let registry = crate::interop::providers::registry();
     let mut functions: Vec<_> = registry.functions().iter()
-        .map(|function| (function.name, function.ret == crate::exec::call::builtin_abi::RetKind::Void)).collect();
+        .map(|function| (function.name, function.ret == crate::exec::builtin_abi::RetKind::Void)).collect();
     for module in registry.modules() {
         functions.extend(module.functions().map(|(name, function)| (name, function.result == z42_abi::module::VOID)));
     }

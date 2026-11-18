@@ -99,7 +99,7 @@ pub(crate) fn with_config(
     vfs: Arc<dyn crate::pal::fs::Vfs>,
     extensions: crate::vm::ExtensionState,
     config: crate::config::VmConfig,
-    protocol: crate::object::ObjectProtocol<VmContext, crate::exec::call::builtin_abi::BuiltinError>,
+    protocol: crate::object::ObjectProtocol<VmContext, crate::exec::builtin_abi::BuiltinError>,
     engines: crate::exec::EngineRegistry,
 ) -> std::pin::Pin<Box<VmContext>> {
     let sampler = crate::diagnostics::sampling::Sampling::with_config(

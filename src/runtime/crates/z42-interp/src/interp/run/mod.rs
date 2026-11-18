@@ -9,7 +9,7 @@ use crate::metadata::{Function, Module};
 use crate::{zpkg::{BranchTargets, Terminator}, object::Value};
 use crate::components::bridge::VmContext;
 use anyhow::{bail, Context, Result};
-use crate::exec::call::outcome::ExecOutcome;
+use crate::exec::outcome::ExecOutcome;
 use exec_body_cold::{callee_threw, copy_in_ref_param, label_target, locate_error, throw_here, Unwind};
 pub use entry::{run, run_returning, run_outcome, init_static_fields, run_with_static_init};
 pub(crate) use exec_support::{exec_function, exec_function_with_type_args, exec_function_from_regs, exec_function_from_receiver_regs};

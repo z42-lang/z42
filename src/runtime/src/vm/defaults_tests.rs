@@ -59,7 +59,7 @@ fn worker_retains_facade_resources_until_last_context_drop() {
 }
 
 use crate::object::{NativeData, TypeDesc, Value};
-use crate::exec::call::builtin_abi::BuiltinError;
+use crate::exec::builtin_abi::BuiltinError;
 use crate::object::ObjectProtocol;
 use crate::exec::ops::{stringify::with_obj_str, vcall::{resolve_vcall, VCallTarget}};
 use std::{cell::Cell, sync::Arc};
@@ -220,7 +220,7 @@ fn method_type_materialization_uses_registered_providers_on_primary_and_worker()
         ..crate::corelib::object_protocol()
     });
     let args = vec!["Demo.Named".to_string()];
-    use crate::exec::call::type_param_env::method_type_value;
+    use crate::exec::type_param_env::method_type_value;
     assert!(matches!(method_type_value(&primary, &args, 0), Value::I64(41)));
     assert!(matches!(method_type_value(&primary, &args, 1), Value::I64(42)));
     let worker = VmContext::new_with_core(primary.core_arc());
@@ -232,7 +232,7 @@ fn method_type_materialization_uses_registered_providers_on_primary_and_worker()
 
 #[test]
 fn stack_allocation_policy_is_per_vm_and_shared_with_workers() {
-    use crate::exec::call::stack_alloc::{stack_alloc_enabled, stats_enabled};
+    use crate::exec::stack_alloc::{stack_alloc_enabled, stats_enabled};
     let mut contexts = Vec::new();
     for (value, enabled, stats) in [("on", true, false), ("off", false, false), ("stats", true, true)] {
         let mut settings = RuntimeConfig::from_getter(|_| None);
