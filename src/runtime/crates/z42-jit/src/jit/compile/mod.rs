@@ -45,7 +45,7 @@ impl LazyCompiler {
     /// Build the JIT infrastructure (JITModule + helper symbols) **without**
     /// translating any user function; functions are translated later, on
     /// demand, by [`compile_fn`](Self::compile_fn).
-    pub fn setup(config: super::config::JitConfig) -> Result<Self> {
+    pub fn setup(config: crate::exec::JitConfig) -> Result<Self> {
         // NB(perf-vm-iteration Phase 4)：实测 `opt_level=speed` 对本 VM 无收益——
         // 紧循环/派发的成本在 opaque helper call + 每 op 一次 Value（16B）load/store，
         // Cranelift 无法跨 op 去箱来消除,故 speed 档零计算提升却多 ~4-5ms 冷编译

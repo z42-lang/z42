@@ -187,6 +187,47 @@ pub unsafe fn dispatch(
     }
 }
 
+/// Encode a value into its ABI wire form plus the backing STR_ARRAY elements.
+/// The returned vector must stay alive while `raw` is read (its buffer must not
+/// be dropped or reallocated); `raw` borrows from both the input and it.
+pub fn encode_parts(value: &Value) -> (abi::Value, Vec<abi::Value>) {
+    let mut strings = Vec::new();
+    let mut raw = abi::Value::null();
+    match value {
+        Value::Void => raw.kind = abi::VOID,
+        Value::Null => {}
+        Value::I64(value) => raw = abi::Value::scalar(abi::I64, *value as u64),
+        Value::F64(value) => raw = abi::Value::scalar(abi::F64, value.to_bits()),
+        Value::Bool(value) => raw = abi::Value::scalar(abi::BOOL, u64::from(*value)),
+        Value::Str(value) => {
+            raw.kind = abi::STR;
+            raw.data = value.as_ptr();
+            raw.len = value.len();
+        }
+        Value::Bytes(value) => {
+            raw.kind = abi::BYTES;
+            raw.data = value.as_ptr();
+            raw.len = value.len();
+        }
+        Value::Strings(values) => {
+            strings = values
+                .iter()
+                .map(|value| abi::Value {
+                    kind: abi::STR,
+                    reserved: 0,
+                    bits: 0,
+                    data: value.as_ptr(),
+                    len: value.len(),
+                })
+                .collect();
+            raw.kind = abi::STR_ARRAY;
+            raw.data = strings.as_ptr().cast();
+            raw.len = strings.len();
+        }
+    }
+    (raw, strings)
+}
+
 struct Encoded {
     raw: abi::Value,
     // Keep the C array backing alive while the host copies it.
@@ -194,58 +235,13 @@ struct Encoded {
 }
 impl Encoded {
     fn new(value: &Value) -> Self {
-        let mut strings = Vec::new();
-        let mut raw = abi::Value::null();
-        match value {
-            Value::Void => raw.kind = abi::VOID,
-            Value::Null => {}
-            Value::I64(value) => raw = abi::Value::scalar(abi::I64, *value as u64),
-            Value::F64(value) => raw = abi::Value::scalar(abi::F64, value.to_bits()),
-            Value::Bool(value) => raw = abi::Value::scalar(abi::BOOL, u64::from(*value)),
-            Value::Str(value) => {
-                raw.kind = abi::STR;
-                raw.data = value.as_ptr();
-                raw.len = value.len();
-            }
-            Value::Bytes(value) => {
-                raw.kind = abi::BYTES;
-                raw.data = value.as_ptr();
-                raw.len = value.len();
-            }
-            Value::Strings(values) => {
-                strings = values
-                    .iter()
-                    .map(|value| abi::Value {
-                        kind: abi::STR,
-                        reserved: 0,
-                        bits: 0,
-                        data: value.as_ptr(),
-                        len: value.len(),
-                    })
-                    .collect();
-                raw.kind = abi::STR_ARRAY;
-                raw.data = strings.as_ptr().cast();
-                raw.len = strings.len();
-            }
-        }
-        Self {
-            raw,
-            _strings: strings,
-        }
+        let (raw, _strings) = encode_parts(value);
+        Self { raw, _strings }
     }
 }
 
 unsafe fn span<'a, T>(data: *const T, len: usize) -> Result<&'a [T]> {
-    if len == 0 {
-        return Ok(&[]);
-    }
-    if data.is_null()
-        || (data as usize) % std::mem::align_of::<T>() != 0
-        || len > isize::MAX as usize / std::mem::size_of::<T>()
-    {
-        return Err(Error::invalid("invalid native value span"));
-    }
-    Ok(unsafe { std::slice::from_raw_parts(data, len) })
+    unsafe { abi::checked_span(data, len) }.map_err(|_| Error::invalid("invalid native value span"))
 }
 
 /// Copy a host value during the synchronous call that owns its spans.

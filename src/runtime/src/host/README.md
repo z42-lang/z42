@@ -62,6 +62,6 @@ CLI 和 Rust 调用方使用 `host::run_app`，或用 `LoadedProgram::load_file`
 
 `program.rs` 实现程序加载与调用服务，`c/ffi.rs` 实现 C ABI。`program_tests.rs` 覆盖输入来源、重复调用、初始化错误和执行模式；`host_tests.rs` 覆盖 ABI 契约。
 
-核心 builtin 描述由 corelib/builtins.rs 提供，interop 通用注册器冻结匹配的查询目录和执行表；host 不列举或预登记独立库。extensions.rs 注入每 VM 状态和 loader 的按名称路径服务。独立库首次限定模块调用才经 loader 读取库自身描述并由 interop 校验登记，未使用时不加载或创建状态。
+核心 builtin 描述由 corelib/builtins.rs 提供，interop 通用注册器冻结匹配的查询目录和执行表；host 不列举或预登记独立库。vm/extensions.rs 注入每 VM 状态和 loader 的按名称路径服务。独立库首次限定模块调用才经 loader 读取库自身描述并由 interop 校验登记，未使用时不加载或创建状态。
 
 profiler 默认按需装配。CPU 采样开启时在 VM 发布前验证，堆分析首次使用时验证；实例与来源归 components，diagnostics 通过 VM 注入的准备回调消费分析能力。缺失时明确报错，不返回空分析结果。

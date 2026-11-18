@@ -252,16 +252,7 @@ impl Drop for ModuleInstance {
 }
 
 pub(crate) unsafe fn span<'a, T>(data: *const T, len: usize) -> Result<&'a [T]> {
-    if len == 0 {
-        return Ok(&[]);
-    }
-    if data.is_null()
-        || data as usize % std::mem::align_of::<T>() != 0
-        || len > isize::MAX as usize / std::mem::size_of::<T>()
-    {
-        bail!("invalid native descriptor span");
-    }
-    Ok(unsafe { std::slice::from_raw_parts(data, len) })
+    unsafe { abi::checked_span(data, len) }.map_err(|_| anyhow!("invalid native descriptor span"))
 }
 pub(crate) unsafe fn text<'a>(value: abi::Text) -> Result<&'a str> {
     std::str::from_utf8(unsafe { span(value.data, value.len)? }).map_err(|error| anyhow!(error))

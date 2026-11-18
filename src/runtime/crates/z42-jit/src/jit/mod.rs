@@ -14,6 +14,7 @@ mod lazy_load_tests;
 #[path = "generic_call_tests.rs"]
 mod generic_call_tests;
 
+use crate::exec::JitConfig;
 use crate::metadata::Module;
 use compile::vm_interface::JitVm;
 use anyhow::Result;
@@ -104,7 +105,7 @@ fn run_with_static_init(ctx: &VmContext, entry_name: &str) -> Result<()> {
 /// module **size** (`functions().len()`) and the **setup** time (not a
 /// whole-module compile time). Per-function compile events are deferred to a
 /// future observability spec (avoids one event per function).
-pub fn run(ctx: &VmContext, module: &Module, entry_name: &str, config: config::JitConfig) -> Result<()> {
+pub fn run(ctx: &VmContext, module: &Module, entry_name: &str, config: JitConfig) -> Result<()> {
     // E1.P2 Phase 1 : metadata reads routed through `JitVm`.
     let function_count = module.functions().len() as u32;
     let start = std::time::Instant::now();
@@ -121,11 +122,10 @@ pub fn run(ctx: &VmContext, module: &Module, entry_name: &str, config: config::J
     run_with_static_init(ctx, entry_name)
 }
 
-pub mod config;
 
 /// Execute a host call with arguments and a returned value on this VM's JIT.
 pub fn invoke_host(ctx: &VmContext, module: &Module, func: &crate::metadata::Function,
-    args: &[crate::object::Value], config: config::JitConfig) -> Result<crate::exec::call::outcome::ExecOutcome> {
+    args: &[crate::object::Value], config: JitConfig) -> Result<crate::exec::call::outcome::ExecOutcome> {
     let first_install = crate::jit::compile::state::runtime(&ctx).is_none();
     let start = std::time::Instant::now();
     compile::state::install(ctx, module, config)?;
