@@ -1,21 +1,28 @@
 //! Heap allocation, tracing, barriers, references and collection policy.
+//!
+//! Implementation submodules (heap internals, epochs, SATB/TLS state, region
+//! layout, tracing) stay crate-internal; cross-engine vocabulary is the root
+//! re-exports plus `walk` / `satb`.
+//! ```compile_fail
+//! use z42::gc::footprint;
+//! ```
 
-pub mod config;
+pub(crate) mod config;
 pub use config::GcConfig;
-pub mod to_vm;
+pub(crate) mod to_vm;
 pub mod ambient;
-pub mod heap;
+pub(crate) mod heap;
 pub mod walk;
-pub mod mode;
-pub mod footprint;
-pub mod phase_timer;
+pub(crate) mod mode;
+pub(crate) mod footprint;
+pub(crate) mod phase_timer;
 pub mod satb;
-pub mod side_bits;
-pub mod tlab;
-pub mod var_region;
-pub mod soft_registry;
-pub mod trace;
-pub mod types;
+pub(crate) mod side_bits;
+pub(crate) mod tlab;
+pub(crate) mod var_region;
+pub(crate) mod soft_registry;
+pub(crate) mod trace;
+pub(crate) mod types;
 
 pub use heap::Heap;
 pub use mode::GcMode;

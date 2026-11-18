@@ -5,6 +5,9 @@
 //! let _: Option<ObjectProtocol<(), ()>> = None;
 //! ```
 //! ```compile_fail
+//! use z42::object::header;
+//! ```
+//! ```compile_fail
 //! use z42::object::protocol::ObjectProtocol;
 //! ```
 //! Storage consumers use the owning object contract:
@@ -35,8 +38,8 @@ mod protocol;
 pub use protocol::ObjectProtocol;
 pub mod identity;
 pub mod value;
-pub mod types;
-pub mod header;
+pub(crate) mod types;
+pub(crate) mod header;
 mod storage;
 mod fields;
 mod heap_access;
