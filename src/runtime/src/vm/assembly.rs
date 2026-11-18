@@ -35,7 +35,7 @@ pub(crate) fn build(
     initial_events: Vec<(String, Option<u64>)>,
 ) -> Result<LoadedProgram> {
     let jit_config = crate::config::runtime_config_snapshot().jit_config();
-    let ctx = build_context(module, inputs);
+    let ctx = build_context(module, inputs)?;
     ctx.core().loader().configure_native(options.native.clone())?;
     if let Some(module) = ctx.module() {
         resolve_tokens(&ctx, module);
@@ -67,10 +67,13 @@ pub(crate) struct ProgramInputs {
     /// precise-pkg-refs: DEPS lists of the eagerly merged artifacts (user module included) —
     /// their symbol lists seed the lazy loader's "which package defines this name" table.
     pub eager_deps: Vec<crate::zpkg::format::ZpkgDep>,
+    /// M1 no-eager-merge track: decoded dep artifacts registered per-package
+    /// through the lazy loader after construction (empty on the merged track).
+    pub eager_packages: Vec<crate::loader::LoadedArtifact>,
 }
 
 /// Build the context for a fully merged module (type registry / indices already built).
-fn build_context(mut module: Module, inputs: ProgramInputs) -> Pin<Box<VmContext>> {
+fn build_context(mut module: Module, inputs: ProgramInputs) -> anyhow::Result<Pin<Box<VmContext>>> {
     // Availability needs built type/function indices and a mutable module. Fold
     // before Core takes ownership and before any token is resolved, so unavailable
     // branches never expose unresolved call sites to execution preparation.
@@ -114,7 +117,7 @@ fn build_context(mut module: Module, inputs: ProgramInputs) -> Pin<Box<VmContext
     }
     ctx.loader().seed_lazy_loader_impls(&inputs.eager_impl_pairs);
     ctx.loader().seed_lazy_loader_symbol_owners(&inputs.eager_deps);
-    ctx
+    Ok(ctx)
 }
 
 /// Pre-fill execution tokens after loader setup and before component attachment.

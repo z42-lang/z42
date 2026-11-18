@@ -254,3 +254,39 @@ fn session_cache_shares_definitions_between_programs() {
     assert_eq!(second.import_namespaces, vec!["Shared".to_string()]);
     assert_eq!(second.package_name.as_deref(), Some("shared_fixture"));
 }
+
+/// merge-retirement M1 (design §4): the no-eager-merge track registers the
+/// decoded dependency packages per-package through the lazy loader instead of
+/// merging them into the entry module — and the program still runs. The
+/// fixture carries real stdlib dependencies (embedding hello), exercised on
+/// the interp tier.
+#[test]
+#[cfg(z42_have_embedding_hello)]
+fn no_eager_merge_track_registers_packages_and_runs() {
+    use std::sync::Arc;
+    let bytes: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/embedding_hello.zbc"));
+    let libs = std::path::PathBuf::from(env!("Z42_EMBEDDING_TEST_LIBS"));
+    let artifact = crate::loader::load_artifact_from_bytes(bytes).expect("fixture decodes");
+    let options = crate::host::LoadOptions {
+        mode: crate::host::ExecMode::Interp,
+        search_dirs: vec![libs],
+        ..Default::default()
+    };
+    let program = super::load::prepare_with_eager_mode(
+        artifact, None, &options,
+        &crate::vm::assembly::ComponentInputs::for_request(&options),
+        None, super::load::EagerMerge::Off,
+    )
+    .expect("no-eager-merge track loads");
+    // The stdlib must NOT be merged into the entry module on this track: the
+    // entry's own functions stay, cross-package calls resolve through the
+    // global FuncTable on first dispatch.
+    let module = program.module();
+    assert!(
+        !module.functions.iter().any(|f| f.name.starts_with("Std.")),
+        "stdlib functions must live in their own packages, not the entry module"
+    );
+    let outcome = program.invoke("Embedding.Hello.Main", &[]);
+    let value = outcome.expect("entry runs on the per-package track").expect("a return value");
+    assert_eq!(value, crate::host::Value::I64(0), "embedding hello returns 0");
+}
