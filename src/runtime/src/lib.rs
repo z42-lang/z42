@@ -28,7 +28,6 @@ pub mod profiler;
 pub mod interop;
 pub mod host;
 pub mod config;
-pub use exec::ops::object as objops;
 /// Same-build component contracts; VM management remains crate-private.
 #[doc(hidden)]
 pub mod components;

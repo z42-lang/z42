@@ -42,7 +42,7 @@ pub(super) fn load_local_addr(ctx: &VmContext, frame: &mut Frame, dst: u32, slot
 pub(super) fn load_elem_addr(
     ctx: &VmContext, module: &crate::metadata::Module, frame: &mut Frame, dst: u32, arr: u32, idx: u32,
 ) -> Result<Option<Value>> {
-    match crate::objops::array::check_elem_addr(frame.get(arr)?, frame.get(idx)?) {
+    match crate::exec::ops::object::array::check_elem_addr(frame.get(arr)?, frame.get(idx)?) {
         Ok((gc_ref, idx)) => {
             let r = mk_ref(ctx, frame.frame_id(ctx), RefKind::Array { gc_ref, idx });
             frame.set(dst, r);
@@ -57,7 +57,7 @@ pub(super) fn load_elem_addr(
 pub(super) fn load_field_addr(
     ctx: &VmContext, module: &crate::metadata::Module, frame: &mut Frame, dst: u32, obj: u32, field_name: &str,
 ) -> Result<Option<Value>> {
-    match crate::objops::field::check_field_addr(frame.get(obj)?, field_name) {
+    match crate::exec::ops::object::field::check_field_addr(frame.get(obj)?, field_name) {
         Ok(gc_ref) => {
             let r = mk_ref(ctx, frame.frame_id(ctx), RefKind::Field {
                 gc_ref, field_name: field_name.to_string(),

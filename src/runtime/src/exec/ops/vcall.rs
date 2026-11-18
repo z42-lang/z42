@@ -148,13 +148,13 @@ pub(crate) fn resolve_iface_slot(
     }
 }
 
-/// `VCall` on a null receiver → `objops::OpError::null_call`, materialised as the target's
+/// `VCall` on a null receiver → `exec::ops::object::OpError::null_call`, materialised as the target's
 /// `Thrown` (both engines already propagate that arm as a catchable throw). Without the stdlib
 /// exception classes (bare-module unit tests) it is the shared `<class>: <msg>` internal error.
 #[cold]
 #[inline(never)]
 fn null_receiver<'a>(ctx: &VmContext, module: &Module, method: &str) -> Result<ResolvedVCall<'a>> {
-    let exc = crate::objops::OpError::null_call(method).into_exception(ctx, Some(module))?;
+    let exc = crate::exec::ops::object::OpError::null_call(method).into_exception(ctx, Some(module))?;
     Ok(ResolvedVCall { target: VCallTarget::Thrown(exc), this: Value::Null })
 }
 

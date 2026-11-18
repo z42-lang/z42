@@ -1,7 +1,7 @@
 pub use crate::object::value::format::{FmtBuf, value_to_str, with_value_str};
 
 use crate::object::Value;
-use crate::objops::struct_leaf::box_struct_blob;
+use crate::exec::ops::object::struct_leaf::box_struct_blob;
 use crate::zpkg::index::well_known_names::int_wrapper_scalar_spec;
 use crate::vm::VmContext;
 use anyhow::{bail, Result};
@@ -57,7 +57,7 @@ pub(crate) fn box_prim_to_heap(ctx: &VmContext, class: &str, raw: i64) -> Result
 pub fn arg_str<'a>(args: &'a [Value], idx: usize, ctx: &str) -> Result<&'a str> {
     match args.get(idx) {
         Some(Value::Str(s)) => Ok(&s),
-        Some(Value::Null) => Err(crate::objops::OpError::null_arg(ctx, idx).into_builtin_error()),
+        Some(Value::Null) => Err(crate::exec::ops::object::OpError::null_arg(ctx, idx).into_builtin_error()),
         Some(other) => bail!("{}: arg {} expected string, got {:?}", ctx, idx, other),
         None => bail!("{}: missing arg {}", ctx, idx),
     }
@@ -70,7 +70,7 @@ pub fn arg_str<'a>(args: &'a [Value], idx: usize, ctx: &str) -> Result<&'a str> 
 pub fn this_str<'a>(args: &'a [Value], member: &str) -> Result<&'a str> {
     match args.first() {
         Some(Value::Str(s)) => Ok(&s),
-        Some(Value::Null) => Err(crate::objops::OpError::null_call(member).into_builtin_error()),
+        Some(Value::Null) => Err(crate::exec::ops::object::OpError::null_call(member).into_builtin_error()),
         Some(other) => bail!("String.{}: expected a string receiver, got {:?}", member, other),
         None => bail!("String.{}: missing receiver", member),
     }

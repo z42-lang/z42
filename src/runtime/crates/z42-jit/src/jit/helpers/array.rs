@@ -1,6 +1,6 @@
 #![allow(dangerous_implicit_autorefs)]
 //! Array allocation, element access, length — thin adapters over
-//! [`crate::objops::array`] (shared with the interpreter): register read/write plus
+//! [`crate::exec::ops::object::array`] (shared with the interpreter): register read/write plus
 //! mapping `OpError` to the pending-exception channel ([`super::raise`]).
 
 use crate::object::{ElemType, ElemTypeInfo};
@@ -23,14 +23,14 @@ pub unsafe extern "C" fn jit_array_new(
     let frame = &mut *frame;
     let len = frame.regs[size as usize];
     let (tp_prim, bound) = match (tp_kind, usize::try_from(tp_index)) {
-        (1, Ok(index)) => crate::objops::array::method_type_param_array_args(frame.method_type_args, index),
+        (1, Ok(index)) => crate::exec::ops::object::array::method_type_param_array_args(frame.method_type_args, index),
         (2, Ok(index)) => {
             let owner = (owner_len != 0).then(|| std::str::from_utf8_unchecked(std::slice::from_raw_parts(owner_ptr, owner_len)));
-            crate::objops::array::class_type_param_array_args(vm_ctx_ref(ctx), frame.regs.first(), index, owner)
+            crate::exec::ops::object::array::class_type_param_array_args(vm_ctx_ref(ctx), frame.regs.first(), index, owner)
         }
         _ => (None, None),
     };
-    let r = crate::objops::array::array_new(
+    let r = crate::exec::ops::object::array::array_new(
         vm_ctx_ref(ctx), &len, elem_tag, element_type, tp_kind != 0, tp_prim, bound, None::<fn() -> u32>);
     match r {
         Ok(arr) => { frame.regs[dst as usize] = arr; 0 }
@@ -48,7 +48,7 @@ pub unsafe extern "C" fn jit_array_new_lit(
     let regs = &(*frame).regs;
     let vals = elems.iter().map(|&r| regs[r as usize]);
     let element_type = ElemType::from_raw(et);
-    let r = crate::objops::array::array_new_lit(vm_ctx_ref(ctx), vals, element_type, None::<fn() -> u32>);
+    let r = crate::exec::ops::object::array::array_new_lit(vm_ctx_ref(ctx), vals, element_type, None::<fn() -> u32>);
     match r {
         Ok(arr) => { (*frame).regs[dst as usize] = arr; 0 }
         Err(e) => raise(ctx, e),
@@ -96,7 +96,7 @@ pub unsafe extern "C" fn jit_array_get(
     let (a, i) = ((*frame).regs[arr as usize], (*frame).regs[idx as usize]);
     // A value-struct element becomes a `StructRefHeap` handle in the transient arena,
     // stamped with this frame's (lazily assigned) id.
-    match crate::objops::array::array_get(vm_ctx_ref(ctx), &a, &i, erased != 0, || super::struct_ops::frame_id_of(frame, ctx)) {
+    match crate::exec::ops::object::array::array_get(vm_ctx_ref(ctx), &a, &i, erased != 0, || super::struct_ops::frame_id_of(frame, ctx)) {
         Ok(v) => { (*frame).regs[dst as usize] = v; 0 }
         Err(e) => raise(ctx, e),
     }
@@ -109,7 +109,7 @@ pub unsafe extern "C" fn jit_array_set(
     arr: u32, idx: u32, val: u32,
 ) -> u8 {
     let regs = &(*frame).regs;
-    match crate::objops::array::array_set(
+    match crate::exec::ops::object::array::array_set(
         vm_ctx_ref(ctx), &regs[arr as usize], &regs[idx as usize], &regs[val as usize],
     ) {
         Ok(()) => 0,
@@ -123,7 +123,7 @@ pub unsafe extern "C" fn jit_array_len(
     dst: u32, arr: u32,
 ) -> u8 {
     let a = (*frame).regs[arr as usize];
-    match crate::objops::array::array_len(vm_ctx_ref(ctx), &a) {
+    match crate::exec::ops::object::array::array_len(vm_ctx_ref(ctx), &a) {
         Ok(n) => { (*frame).regs[dst as usize] = Value::I64(n); 0 }
         Err(e) => raise(ctx, e),
     }

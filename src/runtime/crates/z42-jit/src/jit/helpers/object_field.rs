@@ -1,5 +1,5 @@
 #![allow(dangerous_implicit_autorefs)]
-//! JIT field-access helpers — thin adapters over [`crate::objops::field`]:
+//! JIT field-access helpers — thin adapters over [`crate::exec::ops::object::field`]:
 //! register read/write plus mapping `OpError` to the pending-exception channel
 //! ([`super::raise`]). The semantics (FieldIC, stack objects, `Length` pseudo-fields,
 //! boxed structs, write barrier, null → `NullReferenceException`) live in objops,
@@ -43,7 +43,7 @@ pub unsafe extern "C" fn jit_field_get(
     note_helper_call();
     let field_name = super::baked_str(field_name_ptr, field_name_len);
     let recv = &(*frame).regs[obj as usize];
-    match crate::objops::field::field_get(vm_ctx_ref(ctx), recv, field_name, ic_ref(ic_ptr)) {
+    match crate::exec::ops::object::field::field_get(vm_ctx_ref(ctx), recv, field_name, ic_ref(ic_ptr)) {
         Ok(v) => { (*frame).regs[dst as usize] = v; 0 }
         Err(e) => raise(ctx, e),
     }
@@ -60,7 +60,7 @@ pub unsafe extern "C" fn jit_field_set(
     note_helper_call();
     let field_name = super::baked_str(field_name_ptr, field_name_len);
     let regs = &(*frame).regs;
-    match crate::objops::field::field_set(
+    match crate::exec::ops::object::field::field_set(
         vm_ctx_ref(ctx), &regs[obj as usize], field_name, &regs[val as usize], ic_ref(ic_ptr),
     ) {
         Ok(()) => 0,

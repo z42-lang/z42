@@ -30,9 +30,9 @@ pub fn deref_ref(
         }
         // 元素 / 字段的读取走 objops（与 ArrayGet / FieldGet 同一份存储访问）。
         RefKind::Array { gc_ref, idx } =>
-            crate::objops::array::elem_load(gc_ref, *idx).map_err(crate::objops::OpError::into_anyhow),
+            crate::exec::ops::object::array::elem_load(gc_ref, *idx).map_err(crate::exec::ops::object::OpError::into_anyhow),
         RefKind::Field { gc_ref, field_name } =>
-            crate::objops::field::load_named(gc_ref, field_name).map_err(crate::objops::OpError::into_anyhow),
+            crate::exec::ops::object::field::load_named(gc_ref, field_name).map_err(crate::exec::ops::object::OpError::into_anyhow),
     }
 }
 
@@ -63,9 +63,9 @@ pub fn store_thru_ref(
         // 经 ref 写元素 / 字段与 ArraySet / FieldSet 是同一种写入：同一份 objops 原语，
         // 写屏障与基元槽类型检查都在里面（fix-missing-array-write-barriers / fix-ref-field-write-barrier）。
         RefKind::Array { gc_ref, idx } =>
-            crate::objops::array::elem_store(ctx, gc_ref, *idx, &val).map_err(crate::objops::OpError::into_anyhow),
+            crate::exec::ops::object::array::elem_store(ctx, gc_ref, *idx, &val).map_err(crate::exec::ops::object::OpError::into_anyhow),
         RefKind::Field { gc_ref, field_name } =>
-            crate::objops::field::store_named(ctx, gc_ref, field_name, &val).map_err(crate::objops::OpError::into_anyhow),
+            crate::exec::ops::object::field::store_named(ctx, gc_ref, field_name, &val).map_err(crate::exec::ops::object::OpError::into_anyhow),
     }
 }
 

@@ -12,7 +12,6 @@ use crate::corelib::core::reflection::read_obj_slot;
 use crate::object::ArrRef;
 use crate::object::{default_value_for, ArrayObj};
 use crate::object::Value;
-use crate::objops;
 use crate::vm::VmContext;
 
 /// Normalize any element-type spelling (short alias / VM tag / FQ wrapper) to the
@@ -94,9 +93,9 @@ pub mod typed {
         let heap = ctx.heap();
         let et = crate::object::ElemType::intern(tag);
         // Same mode choice as `ArrayNew` (REF for a class / interface element type, …).
-        Ok(match crate::objops::array::elem_mode(ctx, et, false) {
-            crate::objops::array::ElemMode::Struct(layout) => ArrayObj::alloc_struct(heap, et, n, layout),
-            crate::objops::array::ElemMode::Kind(kind) => ArrayObj::alloc_filled(heap, et, kind, n, default),
+        Ok(match crate::exec::ops::object::array::elem_mode(ctx, et, false) {
+            crate::exec::ops::object::array::ElemMode::Struct(layout) => ArrayObj::alloc_struct(heap, et, n, layout),
+            crate::exec::ops::object::array::ElemMode::Kind(kind) => ArrayObj::alloc_filled(heap, et, kind, n, default),
         })
     }
 
@@ -114,7 +113,7 @@ pub mod typed {
             elem_tag(&a.element_type()).to_string()
         };
         // 值 struct 数组的元素装箱成快照（`get_boxed` 没有堆，装不了箱）。
-        let raw = objops::array_bulk::elem_get_boxed(ctx, &this, i)?;
+        let raw = crate::exec::ops::object::array_bulk::elem_get_boxed(ctx, &this, i)?;
         match (int_wrapper_fqn(&tag), &raw) {
             (Some(fqn), Value::I64(n)) => box_prim_to_heap(ctx, fqn, *n).map_err(|e| BuiltinError::Internal(format!(
                 "__array_get: boxing element {i} as `{fqn}`: {e}"))),
@@ -147,7 +146,7 @@ pub mod typed {
                 _ => *value,
             }
         };
-        objops::array_bulk::check_untyped_store(ctx, &this.borrow(), &raw)?;
+        crate::exec::ops::object::array_bulk::check_untyped_store(ctx, &this.borrow(), &raw)?;
         // Untyped callers reject representation mismatches before mutating storage.
         crate::object::try_store_array_element(ctx.heap(), &this, i, &raw)
             .map_err(|e| BuiltinError::InvalidCast(format!("Array.SetValue: {e}")))?;
@@ -163,7 +162,7 @@ pub mod typed {
     ///
     /// The element semantics — every backing incl. value-struct arrays, boxing / unboxing,
     /// type checks (`ArrayTypeMismatchException` / `InvalidCastException`), overlap, write
-    /// barrier — live in `objops::array_bulk::copy_range`; this only parses the arguments.
+    /// barrier — live in `crate::exec::ops::object::array_bulk::copy_range`; this only parses the arguments.
     #[builtin(name = "__array_copy")]
     pub fn copy(
         ctx: &VmContext, src: ArrRef, src_index: i64, dst: ArrRef, dst_index: i64, length: i64,
@@ -171,7 +170,7 @@ pub mod typed {
         let si = non_negative("__array_copy", "sourceIndex", src_index)?;
         let di = non_negative("__array_copy", "destinationIndex", dst_index)?;
         let n = non_negative("__array_copy", "length", length)?;
-        objops::array_bulk::copy_range(ctx, &src, si, &dst, di, n)?;
+        crate::exec::ops::object::array_bulk::copy_range(ctx, &src, si, &dst, di, n)?;
         Ok(())
     }
 

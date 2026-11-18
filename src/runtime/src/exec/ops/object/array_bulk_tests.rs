@@ -4,8 +4,8 @@
 use super::*;
 use crate::gc::GcMode;
 use crate::object::{StructTypeLayout, STRUCT_REF_GCREF};
-use crate::objops::error::{ARRAY_TYPE_MISMATCH_EXC, INVALID_CAST_EXC};
-use crate::objops::Throw;
+use crate::exec::ops::object::error::{ARRAY_TYPE_MISMATCH_EXC, INVALID_CAST_EXC};
+use crate::exec::ops::object::Throw;
 use std::sync::Arc;
 
 /// `struct S { int N; object O; }`：`N` 打包在字节（offset 0），`O` 是引用叶子（offset 8）。

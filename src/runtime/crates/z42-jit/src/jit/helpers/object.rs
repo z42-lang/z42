@@ -376,7 +376,7 @@ fn note_static_helper_call() {
     STATIC_HELPER_CALLS.with(|c| c.set(c.get() + 1));
 }
 
-/// `StaticGet` helper — adapter over [`crate::objops::statics::static_get`] (init
+/// `StaticGet` helper — adapter over [`crate::exec::ops::object::statics::static_get`] (init
 /// barrier, lazy zero-init, missing-symbol check; shared with the interpreter). The slow path of
 /// the native access (`translate::static_field`).
 /// `field_id` = pre-resolved `StaticFieldId`, or `UNRESOLVED` for a lazily-loaded
@@ -391,13 +391,13 @@ pub unsafe extern "C" fn jit_static_get(
     note_static_helper_call();
     let field = super::baked_str(field_ptr, field_len);
     let id = (field_id != crate::metadata::ids::tokens::UNRESOLVED).then_some(field_id);
-    match crate::objops::statics::static_get(vm_ctx_ref(ctx), super::jit_module(ctx), field, id) {
+    match crate::exec::ops::object::statics::static_get(vm_ctx_ref(ctx), super::jit_module(ctx), field, id) {
         Ok(v) => { (*frame).regs[dst as usize] = v; 0 }
         Err(e) => super::raise(ctx, e) as i32,
     }
 }
 
-/// `StaticSet` helper — adapter over [`crate::objops::statics::static_set`].
+/// `StaticSet` helper — adapter over [`crate::exec::ops::object::statics::static_set`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_static_set(
     frame: *mut JitFrame, ctx: *const VmContext,
@@ -408,7 +408,7 @@ pub unsafe extern "C" fn jit_static_set(
     let field = super::baked_str(field_ptr, field_len);
     let id = (field_id != crate::metadata::ids::tokens::UNRESOLVED).then_some(field_id);
     let v = (*frame).regs[val as usize];
-    match crate::objops::statics::static_set(vm_ctx_ref(ctx), super::jit_module(ctx), field, id, v) {
+    match crate::exec::ops::object::statics::static_set(vm_ctx_ref(ctx), super::jit_module(ctx), field, id, v) {
         Ok(()) => 0,
         Err(e) => super::raise(ctx, e) as i32,
     }
