@@ -36,7 +36,10 @@ public sealed class OperatorEmitter {
             }
             return this._emitCompare(op, a, c);   // → bool
         }
-        TypedReg d = this._ctx.Alloc(this._ctx.ToIrType(b.Type()));
+        // fix-enum-bitwise：enum 结果的**载荷域**是 i64（z42 每个枚举 long 背书）——
+        // ToIrType(enum)=Ref 是引用语义，位运算产物是标量，须 Alloc I64。
+        int dIr = Z42.Symbols.TypeFacts.IsEnum(b.Type()) ? IrType.I64 : this._ctx.ToIrType(b.Type());
+        TypedReg d = this._ctx.Alloc(dIr);
         if (op == "-") { this._ctx.Emit(new SubInstr(d, a, c)); }
         else if (op == "*") { this._ctx.Emit(new MulInstr(d, a, c)); }
         else if (op == "/") { this._ctx.Emit(new DivInstr(d, a, c)); }
@@ -108,7 +111,8 @@ public sealed class OperatorEmitter {
         string op = u.Op;
         if (op == "!") { TypedReg d = this._ctx.Alloc(IrType.Bool); this._ctx.Emit(new NotInstr(d, x)); return d; }
         if (op == "-") { TypedReg d = this._ctx.Alloc(this._ctx.ToIrType(u.Type())); this._ctx.Emit(new NegInstr(d, x)); return d; }
-        if (op == "~") { TypedReg d = this._ctx.Alloc(this._ctx.ToIrType(u.Type())); this._ctx.Emit(new BitNotInstr(d, x)); return d; }
+        // fix-enum-bitwise：enum 结果载荷域 i64（ToIrType(enum)=Ref 是引用语义）。
+        if (op == "~") { int nIr = Z42.Symbols.TypeFacts.IsEnum(u.Type()) ? IrType.I64 : this._ctx.ToIrType(u.Type()); TypedReg d = this._ctx.Alloc(nIr); this._ctx.Emit(new BitNotInstr(d, x)); return d; }
         if (op == "+") { return x; }
         // 前置 ++/--（"pre++"/"pre--"）：x = x ± 1，返回**新值**（区别于后置返回旧值）。
         // BoundIdent（`++i`）与非-ident（`++arr[i]`/`++obj.f`）都经通用 store 写回。

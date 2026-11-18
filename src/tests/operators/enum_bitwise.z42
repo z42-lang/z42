@@ -1,0 +1,49 @@
+// fix-enum-bitwise：同 enum 的 `&` `|` `^` `~`（[Flags] 位标志场景）。
+// z42 每个枚举 long 背书（底层 i64），逐位运算直通、结果类型是该 enum（C# 同款）；
+// 单侧 enum 单侧整数须显式 cast（同 C#）。此前 `flags & mask` 报 E0402
+// "requires integral operand"——位运算的主消费场景（位标志）整个不可用。
+enum Permissions {
+    None = 0,
+    Read = 1,
+    Write = 2,
+    Execute = 4,
+    ReadWrite = 3,      // 组合值
+}
+
+void Main() {
+    Permissions r = Permissions.Read;
+    Permissions w = Permissions.Write;
+
+    // 或：组标志
+    Permissions rw = r | w;
+    Assert.Equal(Permissions.ReadWrite, rw);
+    Assert.True(rw == Permissions.ReadWrite);
+
+    // 与：测标志（结果 0 = None）
+    Assert.Equal(Permissions.Read, rw & Permissions.Read);
+    Assert.Equal(Permissions.None, rw & Permissions.Execute);
+
+    // 异或：清标志
+    Permissions justWrite = rw ^ Permissions.Read;
+    Assert.Equal(Permissions.Write, justWrite);
+
+    // 按位取反（全集补集惯用法；底层 i64，~0 == -1 位模式 == 无名组合值）
+    Permissions notRead = ~Permissions.Read;
+    Assert.Equal(-2L, (long)notRead);
+    // 补集再与回全集（受控域惯用法）：全集 7 = Read|Write|Execute，~3 & 7 = 4
+    Permissions all = Permissions.ReadWrite | Permissions.Execute;
+    Permissions inverse = ~rw & all;
+    Assert.Equal(Permissions.Execute, inverse);
+
+    // 复合赋值（AssignTyper 脱糖复用同一漏斗）
+    Permissions flags = Permissions.Read;
+    flags |= Permissions.Write;
+    Assert.Equal(Permissions.ReadWrite, flags);
+    flags &= ~Permissions.Write;
+    Assert.Equal(Permissions.Read, flags);
+    flags ^= Permissions.Execute;
+    Assert.Equal(5L, (long)flags);
+
+    // 比较照旧（同 enum）
+    Assert.True(Permissions.Read < Permissions.Write);
+}
