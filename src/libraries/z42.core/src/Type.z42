@@ -115,6 +115,10 @@ public sealed class Type : MemberInfo, IEquatable {
     [Native("__type_declaring_type")]
     public extern Type GetDeclaringType();
 
+    /// 嵌套语义同 `GetDeclaringType()`——覆写 `MemberInfo.DeclaringType`（vtable 同名
+    /// getter 槽）：Type 自身也是 MemberInfo，声明者按嵌套外围类型口径而非 `__qualified`。
+    public Type? DeclaringType { get { return this.GetDeclaringType(); } }
+
     /// 直接嵌套于本类型的类型（不含更深层 / 继承），有序。
     [Native("__type_nested_types")]
     public extern Type[] GetNestedTypes();
