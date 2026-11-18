@@ -67,8 +67,13 @@ mobile 端拿到的是 host 端 `z42c` 编出来的 `.zbc` / `.zpkg`，由平台
 
 参照 CoreCLR `coreclrhost.h`、JNI `JavaVM`、Lua `lua_State` 三家的经验，定了五条：
 
-1. **单实例** —— 每进程一份 VM 状态，`Z42HostRef` 是占位 sentinel。多实例要求把 VM 全局状态
-   per-handle 化，工作量与收益不成比例，先不做。
+1. **单会话、每加载单元一 VM** —— `z42_host_initialize` 建立进程会话（配置、输出与共享解码缓存），
+   `Z42HostRef` 是占位 sentinel。每次 `z42_host_load_zbc` 返回一个**独立加载单元**：入口产物与其
+   依赖闭包合并为一个链接模块，独占一个 VM（类型表 / 静态字段 / 派发缓存互不可见）。同一加载单元
+   内的多个 zpkg 天然共享（装载时已合并）；**依赖的 zpkg 若已被会话内任一加载单元装入，则按内容
+   共享解码定义**（C# ALC「已加载即共享」规则，`loader::ImageCache`）——函数 IR 等定义数据在会话
+   内只保留一份，每 VM 状态不共享（对应不同 ALC 各自的 RuntimeTypes）。多 VM 句柄化仍按
+   docs/design/runtime/embedding.md §12 Deferred 跟踪。
 2. **三层 ABI** —— 与 [native-abi.md](native-abi.md) 同构：Tier 1 稳定 C ABI；Tier 2 Rust 人因工程；Tier 3 平台 facade。
 3. **AOT 友好** —— 入口按 FQN 字符串查找，运行时不依赖反射元数据生成器。iOS 禁 JIT 的场景下走 interp。
 4. **零拷贝优先** —— 标量值通过 `Z42Value` 直接传递，不做自动编组。
