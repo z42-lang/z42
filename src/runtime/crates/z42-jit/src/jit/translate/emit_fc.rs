@@ -107,9 +107,10 @@ pub(super) fn emit_int_to_f64(
 /// `fcvt_to_uint_sat` reproduce that byte-for-byte (same clamp-to-range, same
 /// NaN→0). Every narrow int lives as a `Value::I64` payload, so the saturated
 /// low-width result is sign/zero-extended back to i64 — matching interp's
-/// `(f as i8) as i64` / `(f as u8) as i64` etc. `T_U64` deliberately mirrors
-/// interp's `f as i64` (signed saturation to i64 range, NOT an unsigned cast —
-/// see `convert_from_f64`). Result discriminant `TAG_I64`.
+/// `(f as i8) as i64` / `(f as u8) as i64` etc. fix-u64-semantics: `T_U64`
+/// now saturates into the **u64** range (`fcvt_to_uint_sat`), matching interp's
+/// `convert_from_f64` `f as u64`（C# `(ulong)f`：负 → 0、超上限 → u64::MAX）.
+/// Result discriminant `TAG_I64`.
 ///
 /// Reads `src` (F64) straight from memory: the Phase 2C promotion whitelist
 /// disqualifies any F64 reg used as a float→int `Convert` src, so `src` is never
@@ -118,7 +119,7 @@ pub(super) fn emit_int_to_f64(
 /// accumulator stays unboxed.
 ///
 /// SEMANTICS: `scalar::convert_value` → `convert_from_f64` float→int arm
-/// (F2I = saturate + NaN→0; `T_U64` uses signed i64 saturation). Inline mirror
+/// (F2I = saturate + NaN→0; `T_U64` uses unsigned u64 saturation). Inline mirror
 /// via `fcvt_to_sint_sat` / `fcvt_to_uint_sat`.
 pub(super) fn emit_f64_to_int(
     builder: &mut FunctionBuilder,
@@ -142,9 +143,9 @@ pub(super) fn emit_f64_to_int(
         T_I8  => { let v = builder.ins().fcvt_to_sint_sat(types::I8,  f); builder.ins().sextend(types::I64, v) }
         T_I16 => { let v = builder.ins().fcvt_to_sint_sat(types::I16, f); builder.ins().sextend(types::I64, v) }
         T_I32 => { let v = builder.ins().fcvt_to_sint_sat(types::I32, f); builder.ins().sextend(types::I64, v) }
-        // I64 and U64 both use signed saturation to the i64 range (interp uses
-        // `f as i64` for T_U64 too).
-        T_I64 | T_U64 => builder.ins().fcvt_to_sint_sat(types::I64, f),
+        T_I64 => builder.ins().fcvt_to_sint_sat(types::I64, f),
+        // fix-u64-semantics: u64 饱和（负 → 0、超上限 → u64::MAX、NaN → 0）。
+        T_U64 => builder.ins().fcvt_to_uint_sat(types::I64, f),
         // Unsigned narrow widths: saturating fcvt to width, zero-extend to i64.
         T_U8  => { let v = builder.ins().fcvt_to_uint_sat(types::I8,  f); builder.ins().uextend(types::I64, v) }
         T_U16 => { let v = builder.ins().fcvt_to_uint_sat(types::I16, f); builder.ins().uextend(types::I64, v) }

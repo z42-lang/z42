@@ -138,6 +138,12 @@
 
 确实需要"两边都求值"时，把右边先算进一个局部变量再用 `&&`。
 
+> **无符号 `ulong` 的运算域**：任一侧是 `ulong` 时，比较、`/`、`%`、`>>` 与
+> `$"{…}"` 格式化都按无符号执行——`ulong hi = 0xFFFFFFFFFFFFFFFFul;` 时
+> `hi % 10ul` 是 `5`（不是 `-1`）、`hi >> 1ul` 零填充、`hi > 10ul` 为 `true`。
+> 完整规则（含与带符号混合的按位模式语义）见
+> [运算符](https://z42-lang.github.io/z42/reference/language/operators.html)。
+
 ## 处理"可能是空"
 
 ### 取不到就用备用值

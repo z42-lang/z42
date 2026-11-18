@@ -97,15 +97,20 @@ public static class TypeFacts {
         return true;
     }
 
-    // 二元算术「更宽」类型：double > float > long > int（双拼写）。镜像 C# ArithmeticResult。
+    // 二元算术「更宽」类型：double > float > **ulong** > long > int（双拼写）。镜像 C# ArithmeticResult。
     // unify-value-types Phase 1：经 _asPrimName 归一（翻转后操作数为 Z42ClassType(Int32…)，其
     // Name()="Int32"，须映射回 keyword "int" 才命中下方 _isXxxName；Z42PrimType 分支返 Name() 不变 →
     // 翻转前逐字节同义）。
+    // fix-u64-semantics：新增 ulong 档——此前 `_isLongName` 精确匹配 "long" 不认 "ulong"，
+    // `ulong op ulong` 的结果类型被推成 int（值仍以 I64 载荷流动，但静态类型错）。对齐 C#
+    // （ulong 参与即 ulong）；ulong 与 signed 混合时 z42 放行（谓词宽于 C# 的编译期拒绝），
+    // 结果 ulong、运行期按 u64 位域（见运行时 scalar::pair_u64）。
     public static Z42Type ArithmeticResult(Z42Type l, Z42Type r) {
         string a = TypeFacts._asPrimName(l);
         string b = TypeFacts._asPrimName(r);
         if (TypeFacts._isDoubleName(a) || TypeFacts._isDoubleName(b)) { return Z42ClassType.Builtin("double"); }
         if (TypeFacts._isFloatOnly(a)  || TypeFacts._isFloatOnly(b))  { return Z42ClassType.Builtin("float"); }
+        if (TypeFacts._isULongName(a)  || TypeFacts._isULongName(b))  { return Z42ClassType.Builtin("ulong"); }
         if (TypeFacts._isLongName(a)   || TypeFacts._isLongName(b))   { return Z42ClassType.Builtin("long"); }
         return Z42ClassType.Builtin("int");
     }
@@ -122,6 +127,7 @@ public static class TypeFacts {
     }
     public static bool _isDoubleName(string n) { return n == "double"; }
     public static bool _isFloatOnly(string n)  { return n == "float"; }
+    public static bool _isULongName(string n)  { return n == "ulong"; }
     public static bool _isLongName(string n)   { return n == "long"; }
 }
 

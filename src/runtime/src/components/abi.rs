@@ -148,7 +148,9 @@ pub struct InterfaceSpan {
 }
 
 /// Services live until every instance receiving this table has been destroyed.
-/// query_component grants access only to declared, already-initialized dependencies.
+/// Production components resolve dependencies through the descriptor's
+/// dependency closure (owned by the management layer); by-ID queries are an
+/// internal test-build facility and return UNAVAILABLE otherwise.
 #[repr(C)]
 pub struct RuntimeApi {
     pub header: ApiHeader,

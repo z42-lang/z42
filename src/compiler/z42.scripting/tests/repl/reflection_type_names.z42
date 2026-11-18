@@ -25,4 +25,16 @@ void test_reflection_full_name() {
     // stdlib 类型与基元同口径。
     Assert.Equal("Std.Int32", _step(s, "typeof(int).FullName"));
     Assert.Equal("Std.String", _step(s, "typeof(string).FullName"));
+    // fix-prim-gettype-width：非 int 整数的 GetType 折叠（运行期裸 I64 辨不了宽度）。
+    Assert.Equal("Std.Int64", _step(s, "(5L).GetType().FullName"));
+    Assert.Equal("5", _step(s, "var lv = 5L;"));
+    Assert.Equal("Std.Int64", _step(s, "lv.GetType().FullName"));
+    // member-of 族的隐式结果类型在 Std.Reflection ns（z42.core 与 Std 分属同包的不同 ns——
+    // IntrinsicNs 清单按 ns 逐个加载，与包布局解耦）。属性链走 VCall getter，不再松绑。
+    Assert.Equal("ok", _step(s, "class Box { public int W; public string Nm() { return \"n\"; } public int P { get; } }"));
+    Assert.Equal("Int32", _step(s, "fieldof(Box.W).FieldType.Name"));
+    Assert.Equal("Std.Int32", _step(s, "fieldof(Box.W).FieldType.FullName"));
+    Assert.Equal("Nm", _step(s, "methodof(Box.Nm).Name"));
+    Assert.Equal("Std.String", _step(s, "methodof(Box.Nm).ReturnType.FullName"));
+    Assert.Equal("P", _step(s, "propertyof(Box.P).Name"));
 }

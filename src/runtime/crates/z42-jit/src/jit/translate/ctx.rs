@@ -79,6 +79,7 @@ pub(super) struct TxCtx<'a, 'b> {
     pub(super) hr_shr: FuncRef,
     pub(super) hr_eq_str: FuncRef,
     pub(super) hr_add_str: FuncRef,
+    pub(super) hr_to_str_u64: FuncRef,
     pub(super) hr_str_concat: FuncRef,
     pub(super) hr_to_str: FuncRef,
     pub(super) hr_call: FuncRef,
@@ -250,13 +251,21 @@ impl<'a, 'b> TxCtx<'a, 'b> {
     /// to the scalar helper (former `emit_int_divrem!`). `hr_fn` is `hr_div` or
     /// `hr_rem`. SEMANTICS anchor: see mod.rs / `crate::exec::ops::scalar` (INT_DIV_ZERO,
     /// INT_DIV_GUARD).
-    pub(super) fn emit_int_divrem(&mut self, dst: u32, a: u32, b: u32, hr_fn: FuncRef, is_div: bool) {
+    pub(super) fn emit_int_divrem(&mut self, dst: u32, a: u32, b: u32, hr_fn: FuncRef, is_div: bool, unsigned: bool) {
         let a_addr = reg_addr(self.builder, self.regs_base, a);
         let b_addr = reg_addr(self.builder, self.regs_base, b);
         let ai = load_payload_i64(self.builder, a_addr);
         let bi = load_payload_i64(self.builder, b_addr);
-        let bp1 = self.builder.ins().iadd_imm_s(bi, 1);
-        let danger = self.builder.ins().icmp_imm_s(IntCC::UnsignedLessThanOrEqual, bp1, 1);
+        // fix-u64-semantics: u64 域除法没有 `MIN / -1` 问题（u64::MAX / u64::MAX
+        // wrapping 无溢出），危险 divisor 只剩 `0`；signed 域维持 `b ∈ {0,-1}`
+        // （`b + 1 <=u 1` 一条比较覆盖两值）。冷路由都交给 helper（u64 域除零
+        // 由 `jit_div`/`jit_rem` 的零检查抛同一 `Std.DivideByZeroException`）。
+        let danger = if unsigned {
+            self.builder.ins().icmp_imm_s(IntCC::Equal, bi, 0)
+        } else {
+            let bp1 = self.builder.ins().iadd_imm_s(bi, 1);
+            self.builder.ins().icmp_imm_s(IntCC::UnsignedLessThanOrEqual, bp1, 1)
+        };
         let cold_blk = self.builder.create_block();
         let fast_blk = self.builder.create_block();
         let done_blk = self.builder.create_block();
@@ -268,12 +277,15 @@ impl<'a, 'b> TxCtx<'a, 'b> {
         let cret = self.builder.inst_results(cinst)[0];
         self.check(cret);
         self.builder.ins().jump(done_blk, &[]);
-        // fast: native sdiv/srem at i64 width.
+        // fast: native div/rem at i64 width — SEMANTICS: `scalar::int_div` /
+        // `int_rem`（signed）或 `scalar::uint_div` / `uint_rem`（fix-u64-semantics，
+        // u64 位域）。
         self.builder.switch_to_block(fast_blk);
-        let q = if is_div {
-            self.builder.ins().sdiv(ai, bi)
-        } else {
-            self.builder.ins().srem(ai, bi)
+        let q = match (is_div, unsigned) {
+            (true,  false) => self.builder.ins().sdiv(ai, bi),
+            (false, false) => self.builder.ins().srem(ai, bi),
+            (true,  true)  => self.builder.ins().udiv(ai, bi),
+            (false, true)  => self.builder.ins().urem(ai, bi),
         };
         let d_addr = reg_addr(self.builder, self.regs_base, dst);
         store_const_tag(self.builder, d_addr, TAG_I64, q);

@@ -22,6 +22,7 @@
 | `locate/` | namespace 候选索引、依赖定位及 probing 展开 |
 | `lazy/` | 惰性包加载、符号路由、注册和调试符号 |
 | `context_gc.rs` | 持有上下文身份与关联快照，适配 GC 的标记后观察和清扫后回收 |
+| `image_cache.rs` | 会话级 zpkg 解码缓存（内容哈希键）：已加载即共享定义 Arc，未命中才解码冻结 |
 | `contexts.rs` | ContextRegistry、assembly 身份和惰性卸载关联 |
 | `availability.rs` | 加载期可用性折叠 |
 

@@ -65,6 +65,8 @@ unsafe extern "C" fn get_service(
     }
     ComponentStatus::OK
 }
+/// Internal test builds only: by-ID lookup over the instance's allowed set.
+#[cfg(test)]
 unsafe extern "C" fn query_component(
     vm: VmHandle,
     component: ComponentId,
@@ -93,10 +95,30 @@ unsafe extern "C" fn query_component(
         _ => ComponentStatus::UNAVAILABLE,
     }
 }
+/// Production components never query peers by ID: dependencies are resolved
+/// through the descriptor's dependency closure by the management layer, so the
+/// protocol slot answers UNAVAILABLE outside internal test builds.
+unsafe extern "C" fn query_component_unavailable(
+    _vm: VmHandle,
+    _component: ComponentId,
+    _interface: InterfaceId,
+    _version: u32,
+    out: *mut InterfaceRef,
+) -> ComponentStatus {
+    if out.is_null() {
+        return ComponentStatus::INVALID_ARGUMENT;
+    }
+    unsafe { *out = InterfaceRef::NONE; }
+    ComponentStatus::UNAVAILABLE
+}
+
 static RUNTIME_API: RuntimeApi = RuntimeApi {
     header: ApiHeader::of::<RuntimeApi>(COMPONENT_ABI_VERSION),
     get_service,
+    #[cfg(test)]
     query_component,
+    #[cfg(not(test))]
+    query_component: query_component_unavailable,
 };
 
 struct Instance {

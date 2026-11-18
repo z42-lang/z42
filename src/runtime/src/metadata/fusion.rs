@@ -24,6 +24,11 @@ pub enum SuperInstr {
     /// confirm both operands are `I64` — the interpreter then compares via
     /// unchecked i64 extraction (no discriminant branch). This is the loop
     /// condition (`i < n`) fast path.
+    ///
+    /// fix-u64-semantics: `unsigned` is set when either operand is statically
+    /// `U64` — the typed compare then runs in the u64 domain (mirrors the
+    /// standalone handlers' `scalar::pair_u64` dispatch; without it a fused
+    /// `while (hi > limit)` loop would silently bypass the unsigned fix).
     CmpBr {
         op: CmpOp,
         a: Reg,
@@ -32,6 +37,7 @@ pub enum SuperInstr {
         t_blk: usize,
         f_blk: usize,
         typed: bool,
+        unsigned: bool,
     },
 }
 
@@ -66,7 +72,12 @@ impl SuperInstr {
                     // untyped path so the typed win can be measured on the same
                     // binary without a rebuild.
                     let typed = typing_enabled && is_int(reg_types, a) && is_int(reg_types, b);
-                    return Some(SuperInstr::CmpBr { op, a, b, dst, t_blk: *t, f_blk: *f, typed });
+                    // fix-u64-semantics: 任一侧 U64 ⇒ u64 位域（判据与 exec_instr 分派点/
+                    // scalar::pair_u64 同源）。typed=false 时本字段无消费方（untyped 路径
+                    // 无静态信息，signed 回落）。
+                    let unsigned = typed
+                        && (is_u64(reg_types, a) || is_u64(reg_types, b));
+                    return Some(SuperInstr::CmpBr { op, a, b, dst, t_blk: *t, f_blk: *f, typed, unsigned });
                 }
             }
         }
@@ -80,6 +91,13 @@ impl SuperInstr {
 #[inline]
 fn is_int(reg_types: &[IrType], r: Reg) -> bool {
     reg_types.get(r as usize).copied().map(|t| t.is_integer()).unwrap_or(false)
+}
+
+/// fix-u64-semantics: `reg_types[r]` 静态为 `U64`（判据与
+/// `exec::ops::scalar::reg_is_u64` 同源；融合器在 metadata，不便反向依赖 exec）。
+#[inline]
+fn is_u64(reg_types: &[IrType], r: Reg) -> bool {
+    reg_types.get(r as usize).copied() == Some(IrType::U64)
 }
 
 /// If `ins` is a comparison, return `(op, dst, a, b)` (all `Reg` = `u32`).

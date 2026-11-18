@@ -41,8 +41,8 @@ pub(crate) fn probe_corelib(config: &ResolvedConfig) -> Result<()> {
 }
 
 /// Load bytes through the same preparation service as file-based application runs.
-pub(crate) fn build_host_module(config: &ResolvedConfig, bytes: &[u8]) -> Result<crate::host::LoadedProgram> {
-    crate::host::LoadedProgram::load_bytes(bytes, crate::host::LoadOptions {
+pub(crate) fn build_host_module(config: &ResolvedConfig, bytes: &[u8], image_cache: &crate::loader::ImageCache) -> Result<crate::host::LoadedProgram> {
+    crate::host::LoadedProgram::load_bytes_with_cache(bytes, crate::host::LoadOptions {
         native: Default::default(), allow_profiling: true,
         mode: match config.exec_mode {
             super::config::Z42ExecMode::Default => crate::host::default_mode(),
@@ -54,7 +54,7 @@ pub(crate) fn build_host_module(config: &ResolvedConfig, bytes: &[u8]) -> Result
         search_dirs: config.search_paths.iter().map(PathBuf::from).collect(),
         resolver: config.zpkg_resolver.clone(),
         eager_dependencies: true,
-    })
+    }, image_cache)
 }
 
 /// RAII guard that toggles the per-thread "host sink active" flag.

@@ -188,6 +188,69 @@ fn malformed_selected_eager_dependency_fails_during_load() {
     });
     let options = LoadOptions { mode: ExecMode::Interp, vfs: fs,
         search_dirs: vec!["/libs".into()], eager_dependencies: true, resolver: None, native: Default::default(), allow_profiling: true };
-    let error = super::load::prepare(artifact, None, &options, &Default::default()).err().expect("must reject a corrupt dependency");
+    let error = super::load::prepare(artifact, None, &options, &Default::default(), None).err().expect("must reject a corrupt dependency");
     assert!(format!("{error:#}").contains("broken.zpkg"));
+}
+
+/// The session image cache shares decoded definitions across programs (the
+/// C# ALC "already loaded ⇒ shared" rule): identical artifact content loaded
+/// twice through one cache decodes exactly once and hands every program a
+/// shallow view whose function-definition `Arc`s are pointer-equal.
+#[test]
+fn session_cache_shares_definitions_between_programs() {
+    use crate::zpkg::ir::{self, Instruction};
+    fn artifact() -> crate::loader::LoadedArtifact {
+        let module = crate::metadata::Module::from_ir(ir::Module {
+            name: "Shared".into(),
+            string_pool: vec!["constant".into()],
+            classes: Vec::new(),
+            functions: vec![ir::Function {
+                name: "Shared.Main".into(),
+                param_count: 0,
+                ret_type: "void".into(),
+                exec_mode: ir::ExecMode::Interp,
+                blocks: vec![ir::BasicBlock {
+                    label: "entry".into(),
+                    instructions: vec![Instruction::ConstI64 { dst: 0, val: 7 }],
+                    terminator: ir::Terminator::Ret { reg: Some(0) },
+                }],
+                is_static: true,
+                visibility: 0,
+                method_flags: 0,
+                min_arg: 0,
+                params_from: 0xff,
+                max_reg: 0,
+                cold: None,
+                reg_types: Box::new([]),
+                block_index: Default::default(),
+                branch_targets: Vec::new(),
+                frame_meta: None,
+            }],
+            func_index: Default::default(),
+        });
+        crate::loader::LoadedArtifact {
+            module,
+            entry_hint: None,
+            dependencies: Vec::new(),
+            import_namespaces: vec!["Shared".into()],
+            impl_pairs: Vec::new(),
+            package_name: Some("shared_fixture".into()),
+        }
+    }
+    let cache = crate::loader::ImageCache::default();
+    let id = crate::loader::content_id(b"identical-bytes");
+    let decode = || Ok::<_, anyhow::Error>(artifact());
+    let first = cache.artifact_for(&id, decode).expect("first decode");
+    let second = cache.artifact_for(&id, decode).expect("second load shares the decode");
+    assert_eq!(cache.len(), 1, "identical content decodes exactly once per session");
+    assert_eq!(first.module.functions.len(), second.module.functions.len());
+    for (fa, fb) in first.module.functions.iter().zip(second.module.functions.iter()) {
+        assert!(
+            std::sync::Arc::ptr_eq(&fa.shared_definition(), &fb.shared_definition()),
+            "definitions must be Arc-shared between programs of one session"
+        );
+    }
+    // Metadata survives the hit path intact (resolver/dep loops depend on it).
+    assert_eq!(second.import_namespaces, vec!["Shared".to_string()]);
+    assert_eq!(second.package_name.as_deref(), Some("shared_fixture"));
 }

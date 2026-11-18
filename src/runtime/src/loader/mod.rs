@@ -16,6 +16,7 @@ pub mod fusion_inputs;
 mod state;
 pub use state::LoaderState;
 
+pub mod image_cache;
 pub mod native;
 pub mod linked;
 #[cfg(any(feature = "native-interop", feature = "component-loading"))]
@@ -31,6 +32,7 @@ pub(crate) use artifact::FUSION_INPUTS;
 
 mod native_policy;
 pub use native_policy::NativeLoading;
+pub use image_cache::{ImageCache, content_id};
 pub(crate) use native_policy::NativeOrigin;
 
 mod ffi;
