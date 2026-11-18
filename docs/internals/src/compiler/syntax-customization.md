@@ -16,7 +16,7 @@
 >
 > 🔴 **但「接线了」≠「每个名字都生效了」**：16 个特性名里今天真的关得掉东西的是 **6 个**
 > —— `control_flow`（if/while/for/foreach/do/switch + break/continue）、`exceptions`（try + throw）、
-> `bitwise`（`| ^ & << >>`）、`ternary`（`?:`）、`pattern_match`（进模式引擎的那几条路）。
+> `bitwise`（`| ^ & << >> >>>` 及其复合赋值）、`ternary`（`?:`）、`pattern_match`（进模式引擎的那几条路）。
 > `using_stmt`（`using` **语句**四形态）。**其余 10 个仍是死旋钮**：它们描述的是「将来可裁剪的语法面」，不是今天生效的配置。
 > 特性表只能列真实存在的语法构造：宣告**不存在**的特性而无人发现，是这类表的原罪。
 >
@@ -80,7 +80,7 @@
 | `oop` | `class` / `interface` / `struct` / `record` / `new` |
 | `generics` | 泛型类型与方法 |
 | `arrays` | 数组创建与下标 |
-| `bitwise` | `&` `\|` `^` `~` `<<` `>>` 及其复合赋值 |
+| `bitwise` | `&` `\|` `^` `~` `<<` `>>` `>>>` 及其复合赋值 |
 | `nullable` | `T?` 空检查标记（引用类型；值类型 `int?` 报 E0476）|
 | `ternary` | `? :` 三目运算符 |
 | `cast` | `(Type)expr` 显式转换 |
@@ -162,7 +162,7 @@ using syntax bitwise = true;
 下表是 `ExprParser.z42` 中**当前实际生效**的数值（`_infixBp()` 的 `if` 链，加上 `_parseExpr()` 内联的 `minBp <= N` 判断）。第 2 层不改变这些数值，只是把它们搬进表里。层级之间留 10 的间隔，便于插入：
 
 ```
-10  赋值 / 复合赋值      =  += -= *= /= %= &= |= ^=   （右结合）
+10  赋值 / 复合赋值      =  += -= *= /= %= &= |= ^= <<= >>= >>>=   （右结合）
 20  三目                ? :                          （右结合）
 30  逻辑或              ||
 40  逻辑与              &&
@@ -171,7 +171,7 @@ using syntax bitwise = true;
 48  按位与              &        [feat:bitwise]
 50  相等                == !=
 60  比较 / 类型测试      < <= > >= is as
-65  移位                << >>    [feat:bitwise]
+65  移位                << >> >>>    [feat:bitwise]
 70  加减                + -
 80  乘除模              * / %
 85  后缀 switch / with  subject switch { ... } / target with { ... }

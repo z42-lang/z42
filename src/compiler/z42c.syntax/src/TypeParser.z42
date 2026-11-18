@@ -282,6 +282,10 @@ public sealed class TypeParser {
         if (this._p._pendingGt > 0) { this._p._pendingGt = this._p._pendingGt - 1; return true; }
         if (this._p._peek().Kind == TokenKind.Gt) { this._p._advance(); return true; }
         if (this._p._peek().Kind == TokenKind.GtGt) { this._p._advance(); this._p._pendingGt = 1; return true; }
+        // fix-ushr：`>>>` 成 token 后，三层嵌套闭合 `A<B<C<int>>>` 整发 GtGtGt——
+        // 吃一个、余二（与 GtGt ⇒ 余一对称）。表达式上下文的移位语义不受影响
+        // （拆分只在类型实参闭合路径上发生）。
+        if (this._p._peek().Kind == TokenKind.GtGtGt) { this._p._advance(); this._p._pendingGt = 2; return true; }
         return false;
     }
 

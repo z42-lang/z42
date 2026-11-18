@@ -213,7 +213,7 @@ public sealed class MemberParser {
                 else if (!opListed) {
                     this._p._diags.Error(DiagnosticCodes.OperatorNotOverloadable,
                         "operator `" + opSym + "` cannot be overloaded — z42 overloads only the binary"
-                        + " operators `+ - * / % == != < > <= >= & | ^ << >>` and the unary"
+                        + " operators `+ - * / % == != < > <= >= & | ^ << >> >>>` and the unary"
                         + " operators `- + ! ~`", opSp);
                 }
                 else {
@@ -499,6 +499,7 @@ public sealed class MemberParser {
         if (op == "^")  { return "op_ExclusiveOr"; }
         if (op == "<<") { return "op_LeftShift"; }
         if (op == ">>") { return "op_RightShift"; }
+        if (op == ">>>") { return "op_UnsignedRightShift"; }   // fix-ushr（C# 11 对齐）
         // 表外符号 = **不可重载**，与派发侧 `TypeFactsTc._operatorMethodNameTc` 同一约定
         // （`TypeChecker.z42` 那句「`""` 表不可重载」记的就是它）。此前这里回落 `"op_" + op`
         // 替表外符号**造了个名字**，于是声明侧「有」而派发侧「无」——两侧对同一个问题给出相反

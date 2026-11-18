@@ -34,6 +34,7 @@ public static string _operatorMethodNameTc(string op) {
         if (op == "^")  { return "op_ExclusiveOr"; }
         if (op == "<<") { return "op_LeftShift"; }
         if (op == ">>") { return "op_RightShift"; }
+        if (op == ">>>") { return "op_UnsignedRightShift"; }   // fix-ushr（与声明侧 MemberParser 一致）
         return "";
     }
 
