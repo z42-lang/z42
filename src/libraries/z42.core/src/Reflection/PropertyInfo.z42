@@ -78,7 +78,8 @@ public class PropertyInfo : MemberInfo {
     [Native("__property_custom_attributes")]
     public extern Std.Attribute[] __customAttributes(string qualified);
 
-    /// 覆写：按访问器全限定名（getter 优先，否则 setter）取本属性的 attribute 实例；
+    /// 覆写：按访问器全限定名（getter 优先，否则 setter）取 attribute 实例。
+    ///
     /// 无任何访问器时为空数组。缓存骨架在 MemberInfo。
     public override Std.Attribute[] __fetchCustomAttributes() {
         string acc = this.__getterQualified;

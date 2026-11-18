@@ -47,7 +47,8 @@ public class MemberInfo {
         return null;
     }
 
-    /// 成员种类判别（对标 C# `MemberInfo.MemberType`），纯派生、无 VM 参与：
+    /// 成员种类判别（对标 C# `MemberInfo.MemberType`），纯派生、无 VM 参与。
+    ///
     /// 参数按 .NET 语义归入 `Method`（参数永远属于方法/构造器）；`Std.Type` 报
     /// `TypeInfo`（嵌套类型报 `NestedType`）。
     public MemberTypes MemberType {
