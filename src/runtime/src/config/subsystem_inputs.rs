@@ -18,6 +18,7 @@ impl RuntimeConfig {
             gc_trace: self.gc_trace,
             sample_hz: self.sample_hz,
             trace_timeline: self.trace_out.is_some(),
+            vm_thread_stack_size: self.vm_thread_stack_size(),
         }
     }
 
