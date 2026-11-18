@@ -126,7 +126,7 @@ fn thrown(msg: &str) -> String {
 /// which closes the inline gate). Returns the outcome and whether the slow path ran.
 fn run_jit(m: &Module, idx: usize, args: &[Value], init_pending: bool) -> (String, bool) {
     let vm = VmContext::new();
-    crate::metadata::resolve::resolve_function_tokens(&m.functions[idx], m, &vm);
+    crate::components::bridge::resolve_function_tokens(&m.functions[idx], m, &vm);
     let rt = install(&vm, m, z42::config::runtime_config().jit_config()).expect("install");
     if init_pending {
         use crate::metadata::statics::CctorRegistry;

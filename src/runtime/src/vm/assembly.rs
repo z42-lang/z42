@@ -119,5 +119,5 @@ fn build_context(mut module: Module, inputs: ProgramInputs) -> Pin<Box<VmContext
 
 /// Pre-fill execution tokens after loader setup and before component attachment.
 pub(crate) fn resolve_tokens(ctx: &VmContext, module: &Module) {
-    crate::metadata::resolve::resolve_module(module, ctx);
+    crate::metadata::resolve::resolve_module(module, &ctx.resolve_services());
 }

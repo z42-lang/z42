@@ -23,6 +23,11 @@
 //! `build_type_registry` are done (so all intra-module lookups succeed)
 //! and before any dispatch happens (so hot paths see fully-populated
 //! `ResolvedTokens`).
+//!
+//! Resolution consumes only the minimal view in [`ResolveServices`]; the VM
+//! composition layer supplies the implementation and owns the load
+//! orchestration (`settle_type_loads`), so this module neither receives a
+//! `VmContext` nor drives the loader itself.
 
 use crate::metadata::ids::tokens::UNRESOLVED;
 use crate::metadata::Function;
@@ -84,21 +89,41 @@ pub struct ResolvedTokens {
 
 use crate::metadata::dispatch::ic::{FieldIC, ObjNewSite, VCallIC};
 
+/// The minimal resolution view: exactly the services token resolution
+/// consumes, nothing more. The VM composition layer implements it
+/// (`vm::VmResolveServices`); resolution facts stay here while load
+/// orchestration stays with the caller through [`ResolveServices::settle_type_loads`].
+pub trait ResolveServices {
+    /// Function identity table (read-only lookups: `is_entry` / `id_of` / `get`).
+    fn funcs(&self) -> &crate::metadata::ids::func_table::FuncTable;
+    /// Builtin name catalog (read-only `id_of`; closed set).
+    fn builtins(&self) -> &crate::metadata::builtins::BuiltinCatalog;
+    /// Static field table; `resolve` lazily allocates the cross-zpkg field id.
+    fn statics(&self) -> crate::metadata::statics::StaticFields<'_>;
+    /// Whether the type's owning package is already loaded (read-only; never loads).
+    fn has_loaded_type(&self, class_fq: &str) -> bool;
+    /// Settle pending type loads before the resolved tokens are published, so an
+    /// observable prepared function also exposes its types and registered cctor
+    /// facts. `owners` are the owners newly discovered by this resolution pass.
+    fn settle_type_loads(&self, owners: &[String]);
+}
+
 /// Walk every Function in `module` and populate its `resolved`
 /// `OnceLock<ResolvedTokens>`. Idempotent: once `OnceLock` is
 /// initialised on a function, subsequent calls are no-ops (the
 /// `let _ = ...` ignores the duplicate-set error).
 ///
-/// `ctx` is needed for `StaticGet/Set` resolution: static field IDs are
-/// allocated lazily through `StaticFields::resolve` so
-/// cross-zpkg static fields can be encountered in any load order.
-pub fn resolve_module(module: &crate::metadata::Module, ctx: &crate::vm::VmContext) {
+/// `svc` supplies the minimal resolution view (function/builtin/statics
+/// identity plus type-load queries); static field IDs are allocated lazily
+/// through `StaticFields::resolve` so cross-zpkg static fields can be
+/// encountered in any load order.
+pub fn resolve_module(module: &crate::metadata::Module, svc: &dyn ResolveServices) {
     for func in &module.functions {
-        resolve_function_tokens(func, module, ctx);
+        resolve_function_tokens(func, module, svc);
     }
 }
 
-/// Populate one `Function`'s `ResolvedTokens` against `module` + `ctx`.
+/// Populate one `Function`'s `ResolvedTokens` against `module` + `svc`.
 ///
 /// Extracted from `resolve_module` (perf-lazy-resolve-tokens) so
 /// **lazily-loaded** functions — whose owning zpkg is never passed through
@@ -122,7 +147,7 @@ pub fn resolve_module(module: &crate::metadata::Module, ctx: &crate::vm::VmConte
 pub fn resolve_function_tokens(
     func: &Function,
     module: &crate::metadata::Module,
-    ctx: &crate::vm::VmContext,
+    svc: &dyn ResolveServices,
 ) {
     {
         // Skip if already populated (idempotent).
@@ -221,7 +246,7 @@ pub fn resolve_function_tokens(
         // package's calls into itself start out bound. Same signature check as the call path's
         // first binding (`exec_call::call`): a callee that cannot take this site's argument count
         // stays `UNRESOLVED` so the call path raises there. Lookups only — nothing is loaded here.
-        let funcs = ctx.funcs();
+        let funcs = svc.funcs();
         let by_fn_id = funcs.is_entry(module);
         let method_tokens: Vec<AtomicU32> = method_site_names.iter().zip(method_site_argc.iter())
             .map(|(name, &argc)| {
@@ -256,7 +281,7 @@ pub fn resolve_function_tokens(
                 // A name not in `BUILTINS` stays `UNRESOLVED` rather than panicking (this
                 // can run at JIT compile time, where a panic aborts the VM); the call
                 // site then resolves it by name and throws `MissingSymbolException`.
-                ctx.core.runtime.builtins.id_of(name)
+                svc.builtins().id_of(name)
                     .map_or(crate::metadata::ids::tokens::UNRESOLVED, |b| b.0)
             })
             .collect();
@@ -289,7 +314,7 @@ pub fn resolve_function_tokens(
         // ordering doesn't matter. Resolution is "always succeed" — if the
         // name was first seen in this module, this is the allocation site.
         let static_field_tokens: Vec<AtomicU32> = static_site_names.iter()
-            .map(|name| AtomicU32::new(ctx.statics().resolve(name).0))
+            .map(|name| AtomicU32::new(svc.statics().resolve(name).0))
             .collect();
 
         // defer-class-initialization (T3): 静态字段引用是「首次主动使用」的一种，
@@ -303,10 +328,11 @@ pub fn resolve_function_tokens(
         // ⚠️ unify-static-init-into-cctor（7.3）：这里**只负责"加载"，不负责"初始化"**。
         // 初始化时机归访问点的屏障（`static_get` 顶部的 `ensure_owner_type_init` 等），
         // 否则会在函数解析期就跑掉类型初始化器，破坏「首次使用前」语义。
+        let mut pending_type_loads: Vec<String> = Vec::new();
         for name in &static_site_names {
             let Some((class_fq, _field)) = name.rsplit_once('.') else { continue };
-            if ctx.loader().has_loaded_type(class_fq) { continue; }
-            ctx.loader().enqueue_type_load(class_fq);
+            if svc.has_loaded_type(class_fq) { continue; }
+            pending_type_loads.push(class_fq.to_string());
         }
 
         let resolved = ResolvedTokens {
@@ -323,7 +349,9 @@ pub fn resolve_function_tokens(
         // Publish tokens only after their queued type owners have been resolved.
         // Observing a prepared function must also expose its types and registered
         // cctor facts. Managed initialization still runs at execution barriers.
-        ctx.loader().drain_pending_type_loads();
+        // The load request list is handed to the caller-supplied service —
+        // resolution states facts, the composition layer owns the loading.
+        svc.settle_type_loads(&pending_type_loads);
 
         // OnceLock idempotent set — Err means already set (race or repeat call).
         let _ = func.resolved.set(resolved);

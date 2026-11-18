@@ -128,7 +128,7 @@ fn interp_call_indirect_routes_to_the_jit_slot() {
     let module = Arc::clone(vm.module().unwrap());
     let rt = install_tuned(&vm, &module, |rt| rt.jit_threshold = 2);
     let main = &module.functions[0];
-    crate::metadata::resolve::resolve_function_tokens(main, &module, &vm);
+    crate::components::bridge::resolve_function_tokens(main, &module, &vm);
     let before = vm.counters().jit_native_from_interp.load(Ordering::Relaxed);
     let r = crate::interp::run_outcome(&vm, &module, main, &[]);
     assert!(matches!(r, Ok(crate::exec::call::outcome::ExecOutcome::Returned(_))));

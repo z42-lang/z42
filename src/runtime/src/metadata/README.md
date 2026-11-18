@@ -20,7 +20,7 @@
 ## 基础用法
 
 身份表从 `z42::metadata::ids` 导入；运行期 token 位于其 `tokens` 模块。
-加载编排调用 types 模块的 `build_type_registry` 和 `verify_constraints`，执行准备调用 `resolve::resolve_module`；加载时序由调用方保持。派发查询传入显式表、描述符或缓存引用；不接受 VmContext，不执行代码、物化异常、加载包或等待初始化。
+加载编排调用 types 模块的 `build_type_registry` 和 `verify_constraints`，执行准备调用 `resolve::resolve_module`（经 `ResolveServices` 最小视图：身份查询在此、加载结算归 vm 组合层）；加载时序由调用方保持。派发查询传入显式表、描述符或缓存引用；不接受 VmContext，不执行代码、物化异常、加载包或等待初始化。
 
 ## 如何测试验证
 

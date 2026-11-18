@@ -385,7 +385,34 @@ impl VmContext {
     }
     #[inline]
     pub fn counters(&self) -> &crate::diagnostics::RuntimeCounters { &self.diagnostics.counters }
+
+    /// The minimal resolution view handed to `metadata::resolve` — the
+    /// composition layer owns the adaptation, resolution never sees the VM.
+    #[inline]
+    pub(crate) fn resolve_services(&self) -> VmResolveServices<'_> {
+        VmResolveServices(self)
+    }
 }
+
+/// `metadata::resolve::ResolveServices` implementation assembled by the VM
+/// composition layer: identity tables are borrowed as-is; the type-load
+/// settlement enqueues the requested owners and drains, keeping the
+/// "an observable prepared function has its types registered" ordering.
+pub(crate) struct VmResolveServices<'a>(&'a VmContext);
+
+impl crate::metadata::resolve::ResolveServices for VmResolveServices<'_> {
+    fn funcs(&self) -> &crate::metadata::ids::func_table::FuncTable { self.0.funcs() }
+    fn builtins(&self) -> &crate::metadata::builtins::BuiltinCatalog { &self.0.core.runtime.builtins }
+    fn statics(&self) -> crate::metadata::statics::StaticFields<'_> { self.0.statics() }
+    fn has_loaded_type(&self, class_fq: &str) -> bool { self.0.loader().has_loaded_type(class_fq) }
+    fn settle_type_loads(&self, owners: &[String]) {
+        for owner in owners {
+            self.0.loader().enqueue_type_load(owner);
+        }
+        self.0.loader().drain_pending_type_loads();
+    }
+}
+
 
 #[cfg(all(test, z42_test_facade))]
 mod tests;

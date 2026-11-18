@@ -135,7 +135,7 @@ fn two_vms_share_definitions_and_isolate_all_link_state() {
     af.catch_key(0).set(18);
     af.forward.set(Some(19));
     af.owner_init.set(Some(at.clone())).unwrap();
-    crate::metadata::resolve::resolve_function_tokens(&am.functions[0], am, &a);
+    crate::metadata::resolve::resolve_function_tokens(&am.functions[0], am, &a.resolve_services());
     assert_eq!(bf.type_key(0, 0).get(), None);
     assert_eq!(af.type_key(0, 1).get(), None, "is/as have distinct cells");
     assert_eq!(bf.catch_key(0).get(), None);
