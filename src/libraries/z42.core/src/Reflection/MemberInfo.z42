@@ -1,23 +1,25 @@
 namespace Std.Reflection;
 
-/// 所有反射成员的基类：字段、方法、构造器、属性与类型本身（`Std.Type`）。
+/// 所有反射成员的基类：字段、方法、构造器、属性、参数与类型本身（`Std.Type`）。
 ///
 /// 按约定只读——实例只由 VM 反射内建（`__type_fields` / `__type_methods` /
 /// `__type_properties` …）创建并填充，用户代码不构造。attribute 家族
 /// （`GetCustomAttributes` / `GetAttribute`）在本层实现，子类只覆写
 /// `__fetchCustomAttributes` 接各自的 native 解析通道；`Std.Type` 例外——
 /// 整体覆写 `GetCustomAttributes` 保留 VM 失效缓存契约（见 Type.z42）。
-/// `ParameterInfo` 刻意不在本家族（参数是方法的侧面，见其文档）。
 public class MemberInfo {
     /// 成员名（非限定）。VM 直接写入。
     public string Name;
 
-    /// 声明该成员的类的 `Type`；继承成员指向基类声明者（C# 语义）。
+    /// 声明本成员的上下文（Clang `getDeclContext()` 的泛化）。
     ///
-    /// 由成员对象的 `__qualified`（"<类>.<成员>"）派生。`Std.Type` 覆写为
-    /// `GetDeclaringType()`（嵌套类型的外围类型）；无声明类可考时为 null。
+    /// 字段/方法/构造器/属性报声明它的**类型**（继承成员指向基类声明者，C#
+    /// DeclaringType 语义）；参数报声明它的**方法**（覆写；`Method` 是其类型化
+    /// 捷径）；`Std.Type` 自身报嵌套外围类型（覆写）；无可考时为 null。
+    /// `Type` 既是 `MemberInfo`，类型成员的声明上下文可直接当 `Std.Type` 用
+    /// （`(DeclaringContext as Std.Type).FullName`）。
     [Native("__memberinfo_declaring_type")]
-    public extern Std.Type? DeclaringType { get; }
+    public extern MemberInfo? DeclaringContext { get; }
 
     // ── 自定义 attribute ─────────────────────────────────────────────────────
     // 缓存骨架与 GetAttribute 循环原先在 FieldInfo / PropertyInfo / MethodInfo /

@@ -1,6 +1,7 @@
-// MemberInfo.DeclaringType（add-memberinfo-declaring-type）：声明该成员的类。
-// 由各成员对象的 __qualified（"<类>.<成员>"）派生——继承成员指向基类声明者（C# 语义）；
-// Std.Type 覆写为嵌套外围类型口径（GetDeclaringType）。
+// MemberInfo.DeclaringContext（add-memberinfo-declaring-type，经 reflection-memberinfo 家族收口
+// 更名/改型为 MemberInfo?）：声明本成员的成员。类型成员报声明类型（继承成员指向
+// 基类声明者，C# DeclaringType 语义）；Std.Type 覆写为嵌套外围类型口径；参数报
+// 声明它的方法（MemberTypes.Parameter 是 z42 自有档，C# 谎报 Method）。
 namespace Demo;
 using Std;
 using Std.IO;
@@ -18,27 +19,40 @@ class Box {
 
 class Outer { public class Inner { } }
 
+// 类型成员的 Owner 即声明类型；抽 FullName 供断言（== null 早退守卫的惯用法）。
+string DeclaringFullName(MemberInfo? m) {
+    Type? t = m as Type;
+    if (t == null) { return "<not-a-type>"; }
+    return t.FullName;
+}
+
 void Main() {
     // ① 自声明成员：声明者 == 该类
-    Console.WriteLine(fieldof(Box.A).DeclaringType.FullName);
-    Console.WriteLine(propertyof(Box.Name).DeclaringType.FullName);
-    Console.WriteLine(methodof(Box.Twice).DeclaringType.FullName);
+    Console.WriteLine(DeclaringFullName(fieldof(Box.A).DeclaringContext));
+    Console.WriteLine(DeclaringFullName(propertyof(Box.Name).DeclaringContext));
+    Console.WriteLine(DeclaringFullName(methodof(Box.Twice).DeclaringContext));
     // 构造器：声明者 == 该类
     Type bt = typeof(Box);
-    Console.WriteLine(bt.GetConstructors()[0].DeclaringType.FullName);
+    Console.WriteLine(DeclaringFullName(bt.GetConstructors()[0].DeclaringContext));
 
-    // ② 继承成员：经派生类取，指向**基类声明者**（__qualified 是声明类全名）
-    Console.WriteLine(fieldof(Derived.Tag).DeclaringType.FullName);
-    Console.WriteLine(fieldof(Derived.Own).DeclaringType.FullName);
+    // ② 继承成员：经派生类取，指向基类声明者（__qualified 是声明类全名）
+    Console.WriteLine(DeclaringFullName(fieldof(Derived.Tag).DeclaringContext));
+    Console.WriteLine(DeclaringFullName(fieldof(Derived.Own).DeclaringContext));
 
     // ③ typeof（Type 自身也是 MemberInfo）：覆写为嵌套外围类型口径
-    Console.WriteLine(typeof(Outer.Inner).DeclaringType.FullName);
-    Console.WriteLine((typeof(Outer.Inner).DeclaringType == typeof(Outer)).ToString());
-    // 非嵌套类型的 DeclaringType 为 null
-    Console.WriteLine((typeof(Box).DeclaringType == null).ToString());
+    Console.WriteLine(DeclaringFullName(typeof(Outer.Inner).DeclaringContext));
+    Console.WriteLine(((typeof(Outer.Inner).DeclaringContext as Type) == typeof(Outer)).ToString());
+    // 非嵌套类型的 Owner 为 null
+    Console.WriteLine(Object.ReferenceEquals(typeof(Box).DeclaringContext, null).ToString());
 
     // ④ 值相等：同一声明类与 typeof 同一身份
-    Console.WriteLine((fieldof(Box.A).DeclaringType == typeof(Box)).ToString());
-    Console.WriteLine((methodof(Box.Twice).DeclaringType == typeof(Box)).ToString());
-    Console.WriteLine((fieldof(Derived.Tag).DeclaringType == typeof(Base)).ToString());
+    Console.WriteLine(((fieldof(Box.A).DeclaringContext as Type) == typeof(Box)).ToString());
+    Console.WriteLine(((methodof(Box.Twice).DeclaringContext as Type) == typeof(Box)).ToString());
+    Console.WriteLine(((fieldof(Derived.Tag).DeclaringContext as Type) == typeof(Base)).ToString());
+
+    // ⑤ 参数：Owner 报声明它的方法（与 Method 同一对象；MemberType 随宿主归 Method）
+    ParameterInfo px = methodof(Box.Twice).GetParameters()[0];
+    Console.WriteLine(Object.ReferenceEquals(px.DeclaringContext, px.Method).ToString());
+    Console.WriteLine(px.DeclaringContext.Name);
+    Console.WriteLine((px.MemberType == MemberTypes.Parameter).ToString());
 }

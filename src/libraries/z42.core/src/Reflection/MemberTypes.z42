@@ -3,19 +3,22 @@ namespace Std.Reflection;
 /// 反射成员的种类（对标 C# `System.Reflection.MemberTypes` 的位值），由
 /// `MemberInfo.MemberType` 报告。
 ///
-/// 数值与 C# 对齐（无 z42 对应种类的 `Event`/`Custom` 暂不收录；`EventInfo` 落地时
-/// `Event = 2` 按位值补入）。`ParameterInfo` 无独立种类——按 .NET 语义归入 `Method`。
+/// 数值与 C# 对齐（`Event = 2` 留位待 `EventInfo`）；**`Parameter` 是 z42 自有档**——
+/// C# 没有 Parameter 种类、参数谎报 `Method`（.NET 层级的历史疣）；z42 按 Clang
+/// `Decl::Kind` 的全员诚实原则给参数自己的位值（256，避开 C# 位段）。
 public enum MemberTypes {
     /// = 1 构造器（`ConstructorInfo`）
     Constructor = 1,
     /// = 4 字段（`FieldInfo`）
     Field = 4,
-    /// = 8 方法（`MethodInfo`；`ParameterInfo.MemberType` 也报此值）
+    /// = 8 方法（`MethodInfo`）
     Method = 8,
     /// = 16 属性（`PropertyInfo`）
     Property = 16,
     /// = 32 类型（`Std.Type` 自身）
     TypeInfo = 32,
+    /// = 256 参数（`ParameterInfo`；z42 自有，C# 报 Method）
+    Parameter = 256,
     /// = 128 嵌套类型（`GetMembers()` 里的 `Type` 成员）
     NestedType = 128,
 }

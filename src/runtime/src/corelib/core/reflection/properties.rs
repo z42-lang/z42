@@ -68,6 +68,16 @@ pub(super) fn alloc_property_info(
     };
     let projected = subst.and_then(|subst| projected_member_type(ctx, type_tag, subst, &[]));
     let property_type = projected.unwrap_or_else(|| make_type_from_name(ctx, type_tag));
+    // The declaring class is the accessor's class (vtable / own_methods store the
+    // DECLARING implementation), NOT the queried class — an inherited property keeps
+    // its base declarer. `__qualified` feeds `MemberInfo.Owner` and value equality,
+    // both documented as declaring-class-scoped (C# semantics).
+    let declaring = p
+        .getter_qualified
+        .as_deref()
+        .or(p.setter_qualified.as_deref())
+        .and_then(|acc| acc.rfind('.').map(|i| &acc[..i]))
+        .unwrap_or(class);
     alloc_named(
         ctx,
         STD_REFLECTION_PROPERTYINFO,
@@ -80,7 +90,7 @@ pub(super) fn alloc_property_info(
             ("CanWritePublicInstance", Value::Bool(p.setter_public_instance)),
             ("__getterQualified", getter_q),
             ("__setterQualified", setter_q),
-            ("__qualified", Value::Str(format!("{class}.{}", p.name).into())),
+            ("__qualified", Value::Str(format!("{declaring}.{}", p.name).into())),
         ],
     )
 }
