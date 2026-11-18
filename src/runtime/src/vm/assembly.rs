@@ -115,6 +115,12 @@ fn build_context(mut module: Module, inputs: ProgramInputs) -> anyhow::Result<Pi
         let func_names: Vec<String> = m.functions.iter().map(|f| f.name.clone()).collect();
         ctx.loader().seed_lazy_loader_types(&m.type_registry, &func_names);
     }
+    // M1 no-eager-merge track: register decoded dep packages through the lazy
+    // loader's own machinery BEFORE the entry's types are seeded, so entry
+    // definitions win any name conflict (closest to the merged last-wins).
+    for artifact in inputs.eager_packages {
+        ctx.loader().register_eager_artifact(artifact)?;
+    }
     ctx.loader().seed_lazy_loader_impls(&inputs.eager_impl_pairs);
     ctx.loader().seed_lazy_loader_symbol_owners(&inputs.eager_deps);
     Ok(ctx)

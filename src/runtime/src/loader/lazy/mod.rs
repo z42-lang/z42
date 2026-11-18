@@ -464,6 +464,16 @@ impl LazyLoader {
         true
     }
 
+    /// M1 no-eager-merge: register an already-decoded artifact (decode,
+    /// type-registry build and verification all happened in the host prepare;
+    /// no I/O here). Moves the artifact in by value — the same funnel as
+    /// on-demand loads, so every registry fact (functions, types with cctor
+    /// facts, string-pool append + ConstStr remap, symbol ownership) stays
+    /// identical to the lazy path.
+    pub(crate) fn register_decoded_artifact(&mut self, artifact: crate::loader::LoadedArtifact) -> anyhow::Result<()> {
+        self.register_loaded_artifact(artifact)
+    }
+
     /// The registered function named `name` (no loading).
     #[inline]
     pub(crate) fn registered_function(&self, name: &str) -> Option<Arc<Function>> {

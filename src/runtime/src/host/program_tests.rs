@@ -290,3 +290,76 @@ fn no_eager_merge_track_registers_packages_and_runs() {
     let value = outcome.expect("entry runs on the per-package track").expect("a return value");
     assert_eq!(value, crate::host::Value::I64(0), "embedding hello returns 0");
 }
+
+/// Unit-level repro: drive `register_decoded_artifact` directly against a
+/// fresh VM (bypassing prepare's VFS-driven collection) and assert the
+/// dependency's function lands in the global FuncTable.
+#[test]
+fn no_eager_merge_unit_registration_lands_in_func_table() {
+    use crate::zpkg::ir::{self, Instruction, Terminator};
+    let dep = crate::loader::LoadedArtifact {
+        module: crate::metadata::Module::from_ir(ir::Module {
+            name: "Dep".into(),
+            string_pool: Vec::new(),
+            classes: Vec::new(),
+            functions: vec![ir::Function {
+                name: "Dep.Work".into(),
+                param_count: 0,
+                ret_type: "void".into(),
+                exec_mode: ir::ExecMode::Interp,
+                blocks: vec![ir::BasicBlock {
+                    label: "entry".into(),
+                    instructions: vec![Instruction::ConstI64 { dst: 0, val: 1 }],
+                    terminator: Terminator::Ret { reg: Some(0) },
+                }],
+                is_static: true,
+                visibility: 0,
+                method_flags: 0,
+                min_arg: 0,
+                params_from: 0xff,
+                max_reg: 0,
+                cold: None,
+                reg_types: Box::new([]),
+                block_index: Default::default(),
+                branch_targets: Vec::new(),
+                frame_meta: None,
+            }],
+            func_index: Default::default(),
+        }),
+        entry_hint: None,
+        dependencies: Vec::new(),
+        import_namespaces: Vec::new(),
+        impl_pairs: Vec::new(),
+        package_name: Some("dep_pkg".into()),
+    };
+    let options = crate::host::LoadOptions {
+        mode: crate::host::ExecMode::Interp,
+        ..Default::default()
+    };
+    let entry = crate::loader::LoadedArtifact {
+        module: crate::metadata::Module::from_ir(ir::Module {
+            name: "Entry".into(),
+            string_pool: Vec::new(),
+            classes: Vec::new(),
+            functions: Vec::new(),
+            func_index: Default::default(),
+        }),
+        entry_hint: None,
+        dependencies: Vec::new(),
+        import_namespaces: Vec::new(),
+        impl_pairs: Vec::new(),
+        package_name: None,
+    };
+    let program = super::load::prepare_with_eager_mode(
+        entry, None, &options,
+        &crate::vm::assembly::ComponentInputs::for_request(&options),
+        None, super::load::EagerMerge::Off,
+    )
+    .expect("loads");
+    let ctx = program.context();
+    ctx.loader().register_eager_artifact(dep).expect("registration runs");
+    assert!(
+        ctx.funcs().id_of("Dep.Work").is_some(),
+        "registered dep function must be resolvable by name after explicit registration"
+    );
+}
