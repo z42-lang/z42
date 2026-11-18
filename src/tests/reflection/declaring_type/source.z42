@@ -1,0 +1,44 @@
+// MemberInfo.DeclaringType（add-memberinfo-declaring-type）：声明该成员的类。
+// 由各成员对象的 __qualified（"<类>.<成员>"）派生——继承成员指向基类声明者（C# 语义）；
+// Std.Type 覆写为嵌套外围类型口径（GetDeclaringType）。
+namespace Demo;
+using Std;
+using Std.IO;
+using Std.Reflection;
+
+class Base    { public int Tag; public void Hello() { } }
+class Derived : Base { public int Own; }
+
+class Box {
+    public int A;
+    public string Name { get; set; }
+    public Box() { }
+    public int Twice(int x) { return x * 2; }
+}
+
+class Outer { public class Inner { } }
+
+void Main() {
+    // ① 自声明成员：声明者 == 该类
+    Console.WriteLine(fieldof(Box.A).DeclaringType.FullName);
+    Console.WriteLine(propertyof(Box.Name).DeclaringType.FullName);
+    Console.WriteLine(methodof(Box.Twice).DeclaringType.FullName);
+    // 构造器：声明者 == 该类
+    Type bt = typeof(Box);
+    Console.WriteLine(bt.GetConstructors()[0].DeclaringType.FullName);
+
+    // ② 继承成员：经派生类取，指向**基类声明者**（__qualified 是声明类全名）
+    Console.WriteLine(fieldof(Derived.Tag).DeclaringType.FullName);
+    Console.WriteLine(fieldof(Derived.Own).DeclaringType.FullName);
+
+    // ③ typeof（Type 自身也是 MemberInfo）：覆写为嵌套外围类型口径
+    Console.WriteLine(typeof(Outer.Inner).DeclaringType.FullName);
+    Console.WriteLine((typeof(Outer.Inner).DeclaringType == typeof(Outer)).ToString());
+    // 非嵌套类型的 DeclaringType 为 null
+    Console.WriteLine((typeof(Box).DeclaringType == null).ToString());
+
+    // ④ 值相等：同一声明类与 typeof 同一身份
+    Console.WriteLine((fieldof(Box.A).DeclaringType == typeof(Box)).ToString());
+    Console.WriteLine((methodof(Box.Twice).DeclaringType == typeof(Box)).ToString());
+    Console.WriteLine((fieldof(Derived.Tag).DeclaringType == typeof(Base)).ToString());
+}
