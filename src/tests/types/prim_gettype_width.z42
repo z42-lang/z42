@@ -1,0 +1,27 @@
+// fix-prim-gettype-width：非 int 整数基元（long/short/byte/sbyte）的 `GetType()` 编译期折叠为
+// `typeof(静态类型)`。运行期裸 I64 辨不了宽度 —— `primitive_class_name` 一律答 `Std.Int32`，
+// 修前 `(5L).GetType().FullName` 报 `Std.Int32`。int 本身运行期已正确（I64 默认即 Int32），
+// 保持不拦（零自举字节漂移）；bool/char/double/string 独立表示、运行期正确，也不拦。
+
+void Main() {
+    // 字面量直取（修前主症状）
+    Assert.Equal("Std.Int64", (5L).GetType().FullName);
+    Assert.Equal("Std.Int32", (5).GetType().FullName);
+
+    // 变量（同为静态类型折叠路径）
+    long lv = 9;   Assert.Equal("Std.Int64", lv.GetType().FullName);
+    short sv = 7;  Assert.Equal("Std.Int16", sv.GetType().FullName);
+    byte bv = 3;   Assert.Equal("Std.Byte",  bv.GetType().FullName);
+    sbyte sb = 1;  Assert.Equal("Std.SByte", sb.GetType().FullName);
+
+    // 独立表示的基元（不拦，运行期本就正确）
+    Assert.Equal("Std.Double",  (5.5).GetType().FullName);
+    Assert.Equal("Std.Boolean", (true).GetType().FullName);
+
+    // 折叠结果与 typeof 同一类型身份
+    Assert.True((5L).GetType() == typeof(long));
+
+    // object 装箱路径（五擦除点装箱辨宽度）不受本折叠影响
+    object ol = 5L;
+    Assert.Equal("Std.Int64", ol.GetType().FullName);
+}
