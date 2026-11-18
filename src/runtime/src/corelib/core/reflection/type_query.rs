@@ -6,6 +6,26 @@ pub fn type_full_name(ty: &Value) -> Value {
     read_type_slot_of(ty, "__fullName")
 }
 
+/// `__memberinfo_declaring_type(memberObj) -> Std.Type | null` — the Type of the class
+/// that declared this member (`MemberInfo.DeclaringType`). Derived from the
+/// `__qualified` identity slot ("<declaring class FQ>.<member>") every member-info
+/// constructor fills (fields / methods / constructors / properties) — strip the
+/// trailing member segment (its own dots only ever come from overload mangling
+/// `$N$types`, which stays inside the last segment) and resolve the class prefix.
+/// Inherited members carry the DECLARING class's name, so a base-declared member
+/// reached through a derived class reports the base — C# semantics. `Std.Type`
+/// overrides the getter with `GetDeclaringType` (nested-type declaring class);
+/// any other receiver without `__qualified` answers null.
+pub fn member_declaring_type(ctx: &VmContext, this: &Value) -> Value {
+    match read_type_slot_of(this, "__qualified") {
+        Value::Str(s) => match s.rfind('.') {
+            Some(i) => make_type_from_name(ctx, &s[..i]),
+            None => Value::Null,
+        },
+        _ => Value::Null,
+    }
+}
+
 /// The element Type captured when this array Type was built.
 pub fn type_element(ctx: &VmContext, ty: &Value) -> Value {
     if let Value::Object(rc) = ty {
@@ -400,6 +420,9 @@ pub mod typed {
 
     #[builtin(name = "__type_full_name")]
     pub fn full_name(ty: &Value) -> Value { type_full_name(ty) }
+
+    #[builtin(name = "__memberinfo_declaring_type", this = "DeclaringType", reenters)]
+    pub fn member_declaring_type_of(ctx: &VmContext, this: &Value) -> Value { member_declaring_type(ctx, this) }
 
     #[builtin(name = "__type_identity_equals")]
     pub fn identity_equals(a: &Value, b: &Value) -> bool {

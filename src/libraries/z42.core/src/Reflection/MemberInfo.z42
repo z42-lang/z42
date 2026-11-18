@@ -1,15 +1,23 @@
 namespace Std.Reflection;
 
-/// 所有反射成员的基类：字段、方法、构造器、属性、参数与类型本身（`Std.Type`）。
+/// 所有反射成员的基类：字段、方法、构造器、属性与类型本身（`Std.Type`）。
 ///
 /// 按约定只读——实例只由 VM 反射内建（`__type_fields` / `__type_methods` /
 /// `__type_properties` …）创建并填充，用户代码不构造。attribute 家族
-/// （`GetCustomAttributes` / `GetAttribute`）与种类判别（`MemberType`）在本层实现，
-/// 子类只覆写 `__fetchCustomAttributes` 接各自的 native 解析通道；`Std.Type` 例外——
+/// （`GetCustomAttributes` / `GetAttribute`）在本层实现，子类只覆写
+/// `__fetchCustomAttributes` 接各自的 native 解析通道；`Std.Type` 例外——
 /// 整体覆写 `GetCustomAttributes` 保留 VM 失效缓存契约（见 Type.z42）。
+/// `ParameterInfo` 刻意不在本家族（参数是方法的侧面，见其文档）。
 public class MemberInfo {
     /// 成员名（非限定）。VM 直接写入。
     public string Name;
+
+    /// 声明该成员的类的 `Type`；继承成员指向基类声明者（C# 语义）。
+    ///
+    /// 由成员对象的 `__qualified`（"<类>.<成员>"）派生。`Std.Type` 覆写为
+    /// `GetDeclaringType()`（嵌套类型的外围类型）；无声明类可考时为 null。
+    [Native("__memberinfo_declaring_type")]
+    public extern Std.Type? DeclaringType { get; }
 
     // ── 自定义 attribute ─────────────────────────────────────────────────────
     // 缓存骨架与 GetAttribute 循环原先在 FieldInfo / PropertyInfo / MethodInfo /
@@ -47,23 +55,10 @@ public class MemberInfo {
         return null;
     }
 
-    /// 成员种类判别（对标 C# `MemberInfo.MemberType`），纯派生、无 VM 参与。
+    /// 成员种类判别（对标 C# `MemberInfo.MemberType`），各子类覆写返回常量。
     ///
-    /// 参数按 .NET 语义归入 `Method`（参数永远属于方法/构造器）；`Std.Type` 报
-    /// `TypeInfo`（嵌套类型报 `NestedType`）。
-    public MemberTypes MemberType {
-        get {
-            if (this is FieldInfo) { return MemberTypes.Field; }
-            if (this is PropertyInfo) { return MemberTypes.Property; }
-            if (this is MethodInfo) { return MemberTypes.Method; }
-            if (this is ConstructorInfo) { return MemberTypes.Constructor; }
-            if (this is ParameterInfo) { return MemberTypes.Method; }
-            Std.Type t = this as Std.Type;
-            if (!Object.ReferenceEquals(t, null)) {
-                if (t.IsNested) { return MemberTypes.NestedType; }
-                return MemberTypes.TypeInfo;
-            }
-            return MemberTypes.TypeInfo;
-        }
+    /// `Std.Type` 覆写为 `TypeInfo`（嵌套类型报 `NestedType`）。
+    public virtual MemberTypes MemberType {
+        get { return MemberTypes.TypeInfo; }
     }
 }

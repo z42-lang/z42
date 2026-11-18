@@ -78,6 +78,17 @@ public class PropertyInfo : MemberInfo {
     [Native("__property_custom_attributes")]
     public extern Std.Attribute[] __customAttributes(string qualified);
 
+    /// 覆写：属性的成员种类。
+    public override MemberTypes MemberType { get { return MemberTypes.Property; } }
+
+    /// 本属性的 getter（`get_<Name>` 访问器）的 `MethodInfo`；只写属性返回 null。
+    [Native("__property_get_method")]
+    public extern MethodInfo? GetGetMethod();
+
+    /// 本属性的 setter（`set_<Name>` 访问器）的 `MethodInfo`；只读属性返回 null。
+    [Native("__property_set_method")]
+    public extern MethodInfo? GetSetMethod();
+
     /// 覆写：按访问器全限定名（getter 优先，否则 setter）取 attribute 实例。
     ///
     /// 无任何访问器时为空数组。缓存骨架在 MemberInfo。

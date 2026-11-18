@@ -65,6 +65,9 @@ public class FieldInfo : MemberInfo {
     [Native("__field_custom_attributes")]
     public extern Std.Attribute[] __customAttributes(string qualified);
 
+    /// 覆写：字段的成员种类。
+    public override MemberTypes MemberType { get { return MemberTypes.Field; } }
+
     /// 覆写：按全限定名取本字段的 attribute 实例。
     public override Std.Attribute[] __fetchCustomAttributes() {
         return this.__customAttributes(this.__qualified);

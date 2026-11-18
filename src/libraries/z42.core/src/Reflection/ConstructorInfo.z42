@@ -23,6 +23,9 @@ public class ConstructorInfo : MethodBase {
     [Native("__method_custom_attributes")]
     public extern Std.Attribute[] __customAttributes(string qualified);
 
+    /// 覆写：构造器的成员种类。
+    public override MemberTypes MemberType { get { return MemberTypes.Constructor; } }
+
     /// 覆写：按全限定名取本构造器的 attribute 实例。缓存骨架在 MemberInfo。
     public override Std.Attribute[] __fetchCustomAttributes() {
         return this.__customAttributes(this.__qualified);

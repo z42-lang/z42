@@ -180,6 +180,34 @@ pub mod typed {
     pub fn property_of(ctx: &VmContext, qualified: &crate::object::string::vstr::Str) -> Result<Value, BuiltinError> {
         propertyof(ctx, qualified)
     }
+
+    #[builtin(name = "__property_get_method", reenters)]
+    pub fn property_get_method(ctx: &VmContext, this: &Value) -> Result<Value, BuiltinError> {
+        accessor_method(ctx, this, true)
+    }
+
+    #[builtin(name = "__property_set_method", reenters)]
+    pub fn property_set_method(ctx: &VmContext, this: &Value) -> Result<Value, BuiltinError> {
+        accessor_method(ctx, this, false)
+    }
+}
+
+/// Build the `MethodInfo` for a property's `get_<X>` / `set_<X>` accessor from the
+/// qualified name stamped at property-build time (`__getterQualified` /
+/// `__setterQualified`); absent accessor → null. `build_method_info` resolves the
+/// backing function, so the result carries the full signature (params / staticness /
+/// visibility) — `GetGetMethod().Invoke(obj, args)` is the same path
+/// `PropertyInfo.GetValue` walks.
+fn accessor_method(ctx: &VmContext, prop: &Value, getter: bool) -> Result<Value, BuiltinError> {
+    let slot = if getter { "__getterQualified" } else { "__setterQualified" };
+    match read_type_slot_of(prop, slot) {
+        Value::Str(qualified) => {
+            let qualified = qualified.to_string();
+            let simple = simple_method_name(&qualified);
+            build_method_info(ctx, simple, &qualified, false).map_err(BuiltinError::Legacy)
+        }
+        _ => Ok(Value::Null),
+    }
 }
 
 /// `__propertyof("<declaring FQN>.<Prop>") -> Std.Reflection.PropertyInfo`

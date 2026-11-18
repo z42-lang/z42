@@ -795,16 +795,17 @@ class NestOuter {
 }
 
 [Test]
-void test_parameterinfo_is_memberinfo() {
-    // ParameterInfo 并入 MemberInfo 家族（对标 C#）：Name 经继承槽读取。
+void test_parameterinfo_standalone_not_memberinfo() {
+    // ParameterInfo 刻意不并入 MemberInfo：参数是方法的侧面，不是类型的成员。
+    // Name / attribute 家族本地自持；类型语义经 Method 属性取宿主后查询。
     MethodOwner mo = new MethodOwner();
     foreach (var m in mo.GetType().GetMethods()) {
         if (m.Name == "Blend") {
             ParameterInfo[] ps = m.GetParameters();
             Assert.True(ps.Length == 2);
-            Assert.True(ps[0] is MemberInfo);
-            MemberInfo asMember = ps[0];
-            Assert.Equal("x", asMember.Name);
+            Assert.True(!(ps[0] is MemberInfo));
+            Assert.Equal("x", ps[0].Name);
+            Assert.True(Object.ReferenceEquals(ps[0].GetCustomAttributes(), ps[0].GetCustomAttributes()));
         }
     }
 }
@@ -887,7 +888,6 @@ void test_membertype_kinds() {
     foreach (var m in mo.GetType().GetMethods()) {
         if (m.Name == "Blend") {
             Assert.True(m.MemberType == MemberTypes.Method);
-            Assert.True(m.GetParameters()[0].MemberType == MemberTypes.Method);
         }
     }
     Assert.True(typeof(MethodOwner).MemberType == MemberTypes.TypeInfo);
@@ -931,4 +931,60 @@ void test_makegeneric_param_owner() {
     Assert.True(Object.ReferenceEquals(constructed, ps[0].Method));
     // 定义版的参数仍指向定义版（未被动过）。
     Assert.True(Object.ReferenceEquals(def, def.GetParameters()[0].Method));
+}
+
+[Test]
+void test_property_accessor_methods() {
+    // PropertyInfo.GetGetMethod/GetSetMethod：从 __getter/__setterQualified 构建
+    // 完整 MethodInfo；Invoke 走的与 GetValue 同一条反射调用路径。
+    PropHolder ph = new PropHolder();
+    foreach (var p in ph.GetType().GetProperties()) {
+        if (p.Name == "Size") {
+            MethodInfo getter = p.GetGetMethod();
+            MethodInfo setter = p.GetSetMethod();
+            Assert.True(getter != null);
+            Assert.True(setter != null);
+            Assert.Equal("get_Size", getter.Name);
+            Assert.Equal("set_Size", setter.Name);
+            // setter 形参就是属性类型一个；getter 零参（不含隐式 this）。
+            Assert.Equal(1, setter.GetParameters().Length);
+            Assert.Equal(0, getter.GetParameters().Length);
+            Assert.Equal("Int32", setter.GetParameters()[0].ParameterType.Name);
+            // 往返：经反射 setter 写、getter 读。
+            setter.Invoke(ph, new object[] { 7 });
+            Assert.Equal(7, getter.Invoke(ph, null));
+            Assert.Equal(7, ph.Size);
+        }
+        if (p.Name == "Tag") {
+            // 只读属性：有 getter 无 setter。
+            Assert.True(p.GetGetMethod() != null);
+            Assert.True(p.GetSetMethod() == null);
+        }
+    }
+}
+
+[Test]
+void test_declaring_type_field_and_property() {
+    // MemberInfo.DeclaringType（并入自 #1845）：自家成员报自身；继承成员报基类声明者。
+    PropChild child = new PropChild();
+    foreach (var p in child.GetType().GetProperties()) {
+        if (p.Name == "Active") {
+            Assert.Equal("PropChild", p.DeclaringType.Name);
+        }
+        if (p.Name == "Size") {
+            Assert.Equal("PropHolder", p.DeclaringType.Name);
+        }
+    }
+    Derived d = new Derived();
+    foreach (var f in d.GetType().GetFields()) {
+        if (f.Name == "a") { Assert.Equal("Base", f.DeclaringType.Name); }
+        if (f.Name == "b") { Assert.Equal("Derived", f.DeclaringType.Name); }
+    }
+    // 参数的类型语义经宿主方法查询（不并入 MemberInfo 的替代通路）。
+    foreach (var m in d.GetType().GetMethods()) {
+        if (m.Name == "Add") {
+            ParameterInfo p0 = m.GetParameters()[0];
+            Assert.Equal("Derived", p0.Method.DeclaringType.Name);
+        }
+    }
 }

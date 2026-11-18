@@ -63,6 +63,9 @@ public class MethodInfo : MethodBase {
     [Native("__method_custom_attributes")]
     public extern Std.Attribute[] __customAttributes(string qualified);
 
+    /// 覆写：方法的成员种类。
+    public override MemberTypes MemberType { get { return MemberTypes.Method; } }
+
     /// 覆写：按全限定名取本方法的 attribute 实例。
     public override Std.Attribute[] __fetchCustomAttributes() {
         return this.__customAttributes(this.__qualified);
