@@ -37,6 +37,10 @@
 mod protocol;
 pub use protocol::ObjectProtocol;
 pub mod identity;
+/// Runtime token family (TypeId / FnId / StaticFieldId / BuiltinId …) —
+/// cross-domain identity primitives owned by the representation layer;
+/// `metadata::ids::tokens` re-exports it as the minting/registry side.
+pub mod tokens;
 pub mod value;
 pub(crate) mod types;
 pub(crate) mod header;

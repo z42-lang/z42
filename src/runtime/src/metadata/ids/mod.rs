@@ -1,5 +1,5 @@
 //! Runtime identities and stable, append-only lookup tables.
-pub mod tokens;
+pub use crate::object::tokens;
 pub mod seg_vec;
 pub mod func_table;
 pub mod type_table;
