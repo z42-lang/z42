@@ -88,6 +88,14 @@ impl LoadedProgram {
         super::load::prepare(artifact, None, &options, &components)
     }
 
+    #[cfg(not(feature = "jit-test-support"))]
+    pub(crate) fn context(&self) -> &VmContext {
+        &self.ctx
+    }
+    /// Test-support view (`jit-test-support` builds): compiled-code assertions
+    /// need the low-level context. Production hosts reach the VM only through
+    /// functional requests.
+    #[cfg(feature = "jit-test-support")]
     pub fn context(&self) -> &VmContext {
         &self.ctx
     }
