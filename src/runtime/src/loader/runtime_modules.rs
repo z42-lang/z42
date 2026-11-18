@@ -43,6 +43,17 @@ impl RuntimeLoader<'_> {
         crate::metadata::dispatch::ic::note_fn_registration();
     }
 
+    /// M1 no-eager-merge track: register an already-decoded dependency
+    /// artifact through the lazy loader (the per-package machinery the lazy
+    /// path uses for on-demand loads). Requires the loader to be installed.
+    pub fn register_eager_artifact(&self, artifact: crate::loader::LoadedArtifact) -> anyhow::Result<()> {
+        let mut state = self.state.lazy_loader.write();
+        let loader = state
+            .as_mut()
+            .ok_or_else(|| anyhow::anyhow!("no-eager-merge registration before the lazy loader is installed"))?;
+        loader.register_decoded_artifact(artifact)
+    }
+
     /// Clear the lazy loader (used in tests).
     pub fn uninstall_lazy_loader(&self) {
         let mut state = self.state.lazy_loader.write();

@@ -57,11 +57,17 @@ fn entry_zpkg_idempotency_keys(file: &str) -> Vec<String> {
 }
 
 pub(super) fn prepare(user_artifact: LoadedArtifact, source_path: Option<&str>, options: &LoadOptions, components: &crate::vm::assembly::ComponentInputs, image_cache: Option<&crate::loader::ImageCache>) -> Result<LoadedProgram> {
+    prepare_with_eager_mode(user_artifact, source_path, options, components, image_cache, EagerMerge::Default)
+}
+
+pub(super) fn prepare_with_eager_mode(user_artifact: LoadedArtifact, source_path: Option<&str>, options: &LoadOptions, components: &crate::vm::assembly::ComponentInputs, image_cache: Option<&crate::loader::ImageCache>, eager_mode: EagerMerge) -> Result<LoadedProgram> {
     let vfs = Arc::clone(&options.vfs);
     let fs = &*vfs;
     let search_dirs = options.search_dirs.clone();
     let file = source_path.unwrap_or("<memory>");
-    let mut modules: Vec<crate::metadata::Module> = Vec::new();
+    // Deps keep their whole artifact (M1 no-eager-merge registers them
+    // per-package after construction); the merged path maps them to modules.
+    let mut artifacts: Vec<crate::loader::LoadedArtifact> = Vec::new();
     // Track canonical paths of loaded artifact files to prevent duplicate loading.
     let mut loaded_paths: HashSet<PathBuf> = HashSet::new();
     // Track zpkg file names loaded eagerly at startup (initially_loaded input
@@ -92,7 +98,7 @@ pub(super) fn prepare(user_artifact: LoadedArtifact, source_path: Option<&str>, 
             queue.extend(artifact.dependencies.iter().flat_map(|d| d.namespaces.iter().cloned()));
             loaded_for_replay.push((namespace, Some(bytes.len() as u64)));
             eager_impl_pairs.extend(artifact.impl_pairs.iter().cloned());
-            modules.push(artifact.module);
+            artifacts.push(artifact);
         }
     }
     // 5.1b — unconditionally try to load z42.core.zpkg if present.
@@ -124,7 +130,7 @@ pub(super) fn prepare(user_artifact: LoadedArtifact, source_path: Option<&str>, 
                     let byte_size = std::fs::metadata(&core_path).ok().map(|m| m.len());
                     loaded_for_replay.push(("z42.core.zpkg".to_string(), byte_size));
                     eager_impl_pairs.extend(a.impl_pairs.iter().cloned());
-                    modules.insert(0, a.module);
+                    artifacts.insert(0, a);
                     loaded_paths.insert(core_canonical);
                     initially_loaded_zpkgs.push("z42.core.zpkg".to_string());
                     prelude_err = None;
@@ -185,7 +191,7 @@ pub(super) fn prepare(user_artifact: LoadedArtifact, source_path: Option<&str>, 
             for dep in &artifact.dependencies { file_queue.push_back(dep.file.clone()); }
             for ns in &artifact.import_namespaces { ns_queue.push_back(ns.clone()); }
             eager_impl_pairs.extend(artifact.impl_pairs.iter().cloned());
-            modules.push(artifact.module);
+            artifacts.push(artifact);
             initially_loaded_zpkgs.push(dep_file.clone());
         }
     }
@@ -206,20 +212,42 @@ pub(super) fn prepare(user_artifact: LoadedArtifact, source_path: Option<&str>, 
     let entry_hint = user_artifact.entry_hint.clone();
     let user_module_name = user_artifact.module.name.clone();
     eager_impl_pairs.extend(user_artifact.impl_pairs.iter().cloned());
-    modules.push(user_artifact.module);
 
-    let final_module = if modules.len() == 1 {
-        modules.into_iter().next().ok_or_else(|| anyhow::anyhow!("no module to load"))?
-    } else {
-        let mut m = crate::loader::merge_modules(modules)
-            .with_context(|| format!("merging modules for `{}`", file))?;
-        m.name = user_module_name;
-        crate::metadata::types::build_type_registry(&mut m);
-        crate::metadata::types::verify_constraints(&m)
+    // M1 dual track (merge-retirement design §4): the default path keeps the
+    // flat merge byte for byte; the no-eager-merge path carries the entry
+    // module alone and hands the decoded dep artifacts to the assembly, which
+    // registers them per-package through the lazy loader's machinery.
+    let no_eager_merge = match eager_mode {
+        EagerMerge::Default => std::env::var_os("Z42_NO_EAGER_MERGE").is_some(),
+        EagerMerge::Off => true,
+    };
+    let (final_module, eager_packages) = if no_eager_merge {
+        let mut entry = user_artifact.module;
+        entry.name = user_module_name;
+        crate::metadata::types::build_type_registry(&mut entry);
+        crate::metadata::types::verify_constraints(&entry)
             .with_context(|| format!("constraint verification failed for `{}`", file))?;
-        crate::loader::build_block_indices(&mut m);
-        crate::loader::package::build_func_index(&mut m);
-        m
+        crate::loader::build_block_indices(&mut entry);
+        crate::loader::package::build_func_index(&mut entry);
+        (entry, artifacts)
+    } else {
+        let mut modules: Vec<crate::metadata::Module> =
+            artifacts.into_iter().map(|a| a.module).collect();
+        modules.push(user_artifact.module);
+        let merged = if modules.len() == 1 {
+            modules.into_iter().next().ok_or_else(|| anyhow::anyhow!("no module to load"))?
+        } else {
+            let mut m = crate::loader::merge_modules(modules)
+                .with_context(|| format!("merging modules for `{}`", file))?;
+            m.name = user_module_name;
+            crate::metadata::types::build_type_registry(&mut m);
+            crate::metadata::types::verify_constraints(&m)
+                .with_context(|| format!("constraint verification failed for `{}`", file))?;
+            crate::loader::build_block_indices(&mut m);
+            crate::loader::package::build_func_index(&mut m);
+            m
+        };
+        (merged, Vec::new())
     };
 
     crate::vm::assembly::build(final_module, crate::vm::assembly::ProgramInputs {
@@ -229,7 +257,16 @@ pub(super) fn prepare(user_artifact: LoadedArtifact, source_path: Option<&str>, 
         initially_loaded: initially_loaded_zpkgs,
         eager_impl_pairs,
         eager_deps,
+        eager_packages,
     }, options, components, entry_hint, loaded_for_replay)
+}
+
+/// Which eager-loading track `prepare` takes. `Default` reads the
+/// `Z42_NO_EAGER_MERGE` env switch; `Off` forces per-package registration
+/// (tests drive this directly — the env var is process-global).
+pub(super) enum EagerMerge {
+    Default,
+    Off,
 }
 
 fn visited_resolver_namespace(options: &LoadOptions, loaded: &[String], namespace: &str) -> bool {

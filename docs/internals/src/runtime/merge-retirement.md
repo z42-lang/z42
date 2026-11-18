@@ -49,7 +49,7 @@ eager 与 lazy（`loader/lazy`）两套装载语义并存。
 | 阶段 | 内容 | 风险 |
 |---|---|---|
 | M0 | 本设计文档 | — |
-| M1 | prepare 双轨：默认仍 merge，`Z42_NO_EAGER_MERGE` 开关切逐包注册（复用 `register_loaded_artifact`），CI 全量门 + 可选 bench A/B | 中 |
+| M1 | prepare 双轨：默认仍 merge，`Z42_NO_EAGER_MERGE` 开关切逐包注册（复用 `register_loaded_artifact`），CI 全量门 + 可选 bench A/B | 中（**已落地**：入口模块单独走四道装配 pass，依赖工件经 `register_eager_artifact`→`register_decoded_artifact` 复用惰性漏斗；smoke=embedding hello 开关路径端到端，CI 执行） |
 | M2 | 类型注册迁移：per-Assembly 类型进 TypeTable、跨包继承补全走注册期；M1 开关下 e2e/类型相关 golden 全绿 | **高** |
 | M3 | resolve 双分支统一（全局 id 单分支）+ interp/JIT 取 token 对齐；bench 对账 | 中 |
 | M4 | 切默认=逐包注册，观察一个 nightly 周期后删 `merge_modules` 与 ConstStr 重映射；contexts.rs root-context 语义随之更新 | 低 |
