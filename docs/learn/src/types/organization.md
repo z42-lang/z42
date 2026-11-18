@@ -174,7 +174,13 @@
 > 注意主构造器那条只管**构造器**——裸 `class P(int X)` 的字段 `X` 仍是 private，
 > 想要一个字段公开的数据类就加 `[Record]`（第 16 章）。
 
-顶层声明标 `private` / `protected` 没有意义（默认已经是 `internal`），会直接报错：
+顶层的 `private` / `protected` 有着和成员位不同的**作用域语义**：
+
+- 顶层 `private class` 是**文件作用域**——只在本文件可见（上面的 `Helper` 换个文件就用不了，
+  报 E0404）。适合只服务一个文件的辅助类型：builder、状态机、生成器产物。
+- 顶层 `protected class` 是**命名空间作用域**——本包里声明了**相同命名空间**的文件都能用。
+  最典型的用法：`partial` 类拆在几个文件里，它的共享 helper 标 `protected`，各碎片都够用，
+  包里其它命名空间的文件则看不见。
 
 ```z42
 // examples/types/organization/access/toplevel.z42
@@ -184,6 +190,20 @@
 ```console
 {{#include ../../../../examples/types/organization/access/run.console:toplevel}}
 ```
+
+顶层 `protected` 要求文件声明了 `namespace`——空命名空间等于「所有文件」，收窄就名存实亡了，
+所以直接报错：
+
+```z42
+// examples/types/organization/access/protected.z42
+{{#include ../../../../examples/types/organization/access/protected.z42}}
+```
+
+```console
+{{#include ../../../../examples/types/organization/access/run.console:protected}}
+```
+
+另一条边界：**顶层函数**仍不接受 `private` / `protected`（同样报 E0442）。
 
 ## `partial`：一个类型拆到几个文件
 

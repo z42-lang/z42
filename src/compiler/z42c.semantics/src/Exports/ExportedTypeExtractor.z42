@@ -119,7 +119,11 @@ public static class ExportedTypeExtractor {
             Decl d = ExportedTypeExtractor._unwrap(cu.Decls[i]);
             if (d is ClassDecl) {
                 ClassDecl c = d as ClassDecl;
-                if (c.Kind == "class" || c.Kind == "struct") {
+                // access-top-scope：顶层 private（文件作用域）类型不进 zpkg 导出——包外本就不可见，
+                // 导出只会让跨包解析命中后报错口径变差。protected 照常导出（跨包 resolve-then-deny，
+                // 与 internal 同路径）。嵌套类型名含 '+'，其可见性由外层类管，不在此跳过。
+                if ((c.Kind == "class" || c.Kind == "struct")
+                    && !(c.Name.IndexOf('+') < 0 && Mod.Has(c.ModFlags, Mod.Private))) {
                     if (cc == classes.Length) {
                         ExportedClassZ[] b = new ExportedClassZ[classes.Length * 2];
                         int k = 0; while (k < cc) { b[k] = classes[k]; k = k + 1; }
@@ -150,7 +154,7 @@ public static class ExportedTypeExtractor {
             Decl d2 = ExportedTypeExtractor._unwrap(cu.Decls[i]);
             if (d2 is ClassDecl) {
                 ClassDecl c2 = d2 as ClassDecl;
-                if (c2.Kind == "interface") {
+                if (c2.Kind == "interface" && !(c2.Name.IndexOf('+') < 0 && Mod.Has(c2.ModFlags, Mod.Private))) {   // access-top-scope：顶层 private 接口不导出（同类）
                     if (lic == localIfs.Length) {
                         ExportedInterfaceZ[] b2 = new ExportedInterfaceZ[localIfs.Length * 2];
                         int k2 = 0; while (k2 < lic) { b2[k2] = localIfs[k2]; k2 = k2 + 1; }

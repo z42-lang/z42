@@ -10,7 +10,11 @@ z42c build: 1 error(s) in private.z42
 # ANCHOR_END: private
 # ANCHOR: toplevel
 $ z42 run toplevel.z42
-z42c build: 1 error(s) in toplevel.z42
-  toplevel.z42(1,9): E0442: top-level declaration cannot be private or protected (use internal or public)
-[exit: 1]
+Twice=42
 # ANCHOR_END: toplevel
+# ANCHOR: protected
+$ z42 run protected.z42
+z42c build: 1 error(s) in protected.z42
+  protected.z42(1,11): E0442: top-level `protected` is namespace-scoped: this file must declare a `namespace` first
+[exit: 1]
+# ANCHOR_END: protected

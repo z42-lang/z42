@@ -55,6 +55,15 @@ public sealed class StubCollector {
                     Z42Type dret = sv.ResolveTypeP(dd.RetType, dd.TypeParams.Names, dd.TypeParams.Count);
                     this._sc._chkTypeRef(dret, "", sv, dd.RetType.Span);
                     table.Delegates.Put(dkey, new Z42FuncType(ps, dd.ParamCount, dret));
+                    // access-top-scope：仅显式 private/protected 时在**表内实例**上记声明事实（同 enum 口径）。
+                    // 匿名函数类型 / 导入重建实例三字段恒空 ⇒ CheckTypeRef 一律放行，零回归面。
+                    if (Mod.Has(dd.ModFlags, Mod.Private) || Mod.Has(dd.ModFlags, Mod.Protected)) {
+                        Z42FuncType dft = table.Delegates.Get(dkey) as Z42FuncType;
+                        dft.DeclVis = Mod.Has(dd.ModFlags, Mod.Private) ? "private" : "protected";
+                        dft.DeclFile = dd.Span.File;   // 显示名轴（同 _putClassStub）
+                        dft.DeclNs = cu.HasNamespace ? cu.Namespace : "";
+                        dft.DeclName = dd.Name;
+                    }
                     table.DelegateNs.Put(dkey, new StrBox(cu.HasNamespace ? cu.Namespace : ""));   // using-csharp-rules PR-2
                     table.NoteDelegateKey(dkey);
                 }
@@ -73,6 +82,15 @@ public sealed class StubCollector {
                 table.EnumTypes.Put(ekey, "enum");
                 table.NoteEnumKey(ekey);
                 table.EnumTypeNs.Put(ekey, new StrBox(cu.HasNamespace ? cu.Namespace : ""));   // unify-type-identity-fqn：enum 声明 ns
+                // access-top-scope：仅显式 private/protected 记录（enum 与类一致：顶层 private=文件 /
+                // protected=本包∩同名 ns；嵌套 '+' 名=外层类文本/家族）。无修饰/显式 internal/public 不记，
+                // 合成默认 public——与既有行为逐字一致，绝不引入新的强制面。文件身份取声明 span 的
+                // 显示名轴（同 _putClassStub）。
+                int emf = ed.ModFlags;
+                if (Mod.Has(emf, Mod.Private) || Mod.Has(emf, Mod.Protected)) {
+                    table.EnumTypeVis.Put(ekey, Mod.Has(emf, Mod.Private) ? "private" : "protected");
+                    table.EnumTypeFile.Put(ekey, ed.Span.File);
+                }
                 long cur = 0;
                 int mi = 0;
                 while (mi < ed.MemberCount) {
@@ -122,6 +140,7 @@ public sealed class StubCollector {
                             Z42InterfaceType itw = new Z42InterfaceType(c.Name);   // 均非 partial：维持既有 last-wins
                             itw.Namespace = cu.Namespace;   // unify-type-identity-fqn：声明 ns（供 Fqn()）
                             itw.Visibility = DeclFacts.classVis(c.ModFlags, c.Name.IndexOf('+') >= 0);   // complete-class-access-control ④
+                            itw.DeclFile = c.Span.File;   // access-top-scope：显示名轴（同 _putClassStub）
                             StubCollector._setIfaceTypeParams(itw, c);   // add-associated-types PR-3
                             this._addIfaceBases(itw, c);
                             table.InterfacesByFqn.Put(itw.Fqn(), itw);   // unify-type-identity-fqn
@@ -132,6 +151,7 @@ public sealed class StubCollector {
                         it.Namespace = cu.Namespace;   // unify-type-identity-fqn：声明 ns（供 Fqn()）
                         if (c.IsPartial) { it.IsPartial = true; it.PartialMainFile = file; }
                         it.Visibility = DeclFacts.classVis(c.ModFlags, c.Name.IndexOf('+') >= 0);   // complete-class-access-control ④
+                        it.DeclFile = c.Span.File;   // access-top-scope：显示名轴（同 _putClassStub）
                         StubCollector._setIfaceTypeParams(it, c);   // add-associated-types PR-3
                         this._addIfaceBases(it, c);
                         table.InterfacesByFqn.Put(it.Fqn(), it);   // unify-type-identity-fqn
@@ -444,6 +464,7 @@ public sealed class StubCollector {
         ct.IsSealed = Mod.Has(c.ModFlags, Mod.Sealed);   // impl-sealed-semantics-devirt：本地 sealed class
         ct.IsAbstract = Mod.Has(c.ModFlags, Mod.Abstract);   // add-internal-hierarchy-exhaustiveness：本地 abstract class（封闭层次穷尽性排除不可实例化类）
         ct.Visibility = DeclFacts.classVis(c.ModFlags, c.Name.IndexOf('+') >= 0);   // enforce-class-access：位置默认（嵌套→private / 顶层→internal，显式优先）
+        ct.DeclFile = c.Span.File;   // access-top-scope：取**声明自身 span 的显示名轴**（与引用点 sp.File 同轴；cin.Files 是真实路径轴，混轴必假红）
         ct.InterfaceNames = ifaces;
         ct.InterfaceCount = ifc;
         if (c.TypeParams.Count > 0) { ct.GenericParamNames = c.TypeParams.Names; ct.GenericParamCount = c.TypeParams.Count; }
