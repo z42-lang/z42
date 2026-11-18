@@ -664,6 +664,14 @@ public sealed partial class ExprTyper : IExprVisitor<BoundExpr, TypeEnv> {
                 return BoundCall.WithOwner(BoundCall.Marked(new BoundCall("static", false, null, lct.Name(), opMs.CallKey(), opArgs, 2, opMs.Signature.Ret, sp), opMs.Signature), lct);
             }
         }
+        // fix-enum-bitwise：**同 enum** 的 `&` `|` `^`（[Flags] 位标志场景）——底层恒 i64
+        // （z42 每个枚举都是 long 背书），逐位运算直通，结果类型是该 enum（C# 同款，不走
+        // Arith 拓宽）。单侧 enum 单侧整数不放行（落回下方 Integral 表报 E0402）——与 C#
+        // 的显式转换要求同口径：`(Color)(m | 0x4)` 先在底层域运算再 cast。
+        if ((op == "&" || op == "|" || op == "^")
+            && TypeFacts.IsEnum(lt) && TypeFacts.IsEnum(rt) && lt.Name() == rt.Name()) {
+            return new BoundBinary(op, left, right, lt, sp);
+        }
         BinaryRule rule = BinaryTypeTable.Lookup(op);
         if (!rule.Known) {
             return new BoundBinary(op, left, right, new Z42UnknownType(), sp);
@@ -780,6 +788,11 @@ public sealed partial class ExprTyper : IExprVisitor<BoundExpr, TypeEnv> {
                     return BoundCall.WithOwner(BoundCall.Marked(new BoundCall("static", false, null, ct.Name(), opMs.CallKey(), opArgs, 1, opMs.Signature.Ret, u.Span), opMs.Signature), ct);
                 }
             }
+        }
+        // fix-enum-bitwise：enum 的 `~`（[Flags] 「全集补集」惯用法）——底层 i64 直通，
+        // 结果该 enum（C# 同款）。位于 op_ 派发之后：用户类型的 op_OnesComplement 优先。
+        if (u.Op == "~" && TypeFacts.IsEnum(ot)) {
+            return new BoundUnary(u.Op, operand, ot, u.Span);
         }
         BinaryRule rule = BinaryTypeTable.LookupUnary(u.Op);
         if (!rule.Known) {

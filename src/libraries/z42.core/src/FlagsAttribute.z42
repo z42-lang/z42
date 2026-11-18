@@ -1,0 +1,17 @@
+namespace Std;
+
+/// `[Flags]` —— 位标志枚举标注（fix-enum-bitwise）。
+///
+/// 贴在 enum 上声明「成员是可组合的位标志」。纯文档性标注（存在与否不影响语义——
+/// 同 enum 的 `&` `|` `^` `~` 一律可用），对齐 C# `System.FlagsAttribute`；
+/// `ToString` / 格式化不因它改变。
+///
+/// ```z42
+/// [Flags]
+/// enum Permissions { None = 0, Read = 1, Write = 2, Execute = 4 }
+/// Permissions rw = Permissions.Read | Permissions.Write;
+/// ```
+public class FlagsAttribute : Attribute {
+    /// 无参构造。
+    public FlagsAttribute() { }
+}

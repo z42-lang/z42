@@ -59,10 +59,27 @@ bool d = Color.Red == Mood.Glad;    // ❌ 异种 enum
 > 由 `TypeChecker._checkEnumOperands` 负责，且**只作用于比较运算符**：算术位上
 > `_checkOperand` 已经先报了「requires numeric operand」，两道一起上会同一个错报两遍。
 
-### 算术：不参与
+### 算术：不参与；位运算：同 enum 可用
 
-enum 不是数字，`+`/`-`/`*`/… 一律拒绝（要算就先 `(long)` 出来）。这条不只是洁癖——
+enum 不是数字，`+`/`-`/`*`/`/`/`%` 一律拒绝（要算就先 `(long)` 出来）。这条不只是洁癖——
 它是发射端的**前提**，见下「字符串拼接」。
+
+例外是**位运算**（fix-enum-bitwise，`[Flags]` 位标志场景）：**同 enum** 的 `&` `|` `^`
+与一元 `~` 合法，底层 i64 逐位直通，**结果类型是该 enum**（C# 同款）：
+
+```z42
+[Flags]
+enum Permissions { None = 0, Read = 1, Write = 2, Execute = 4 }
+
+Permissions rw = Permissions.Read | Permissions.Write;      // 组标志
+Permissions has = rw & Permissions.Execute;                  // 测标志（None = 未设）
+Permissions cleared = rw ^ Permissions.Write;                // 清标志
+Permissions inv = ~rw & (Permissions.ReadWrite | Permissions.Execute);   // 受控域补集
+flags |= Permissions.Execute;                                 // 复合赋值同规
+```
+
+单侧 enum 单侧整数**不放行**（同比较的口径：要混算先显式 cast 到底层域，
+`(Color)(m | 0x4)`）。`[Flags]` attribute 目前是纯文档性标注（存在与否不影响语义）。
 
 ## 运行期表示与身份
 
