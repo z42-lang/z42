@@ -109,16 +109,21 @@ pub fn exec_instr(
         }
         Instruction::Sub { dst, a, b } => exec_value::sub(frame, *dst, *a, *b)?,
         Instruction::Mul { dst, a, b } => exec_value::mul(frame, *dst, *a, *b)?,
+        // fix-u64-semantics: 无符号域判据（scalar::pair_u64，SoT）在分派点算好喂给
+        // handler——handler 只收 bool，不重复判型。动态（reg_types 空/Unknown）自然
+        // 落 false ⇒ signed 回落，与 JIT 动态站点同口径。
         Instruction::Div { dst, a, b } => {
             // fix-int-div-by-zero-panic : div/rem now return
             // Option<Value> so int-by-zero can surface as a catchable
             // Std.DivideByZeroException instead of panicking.
-            if let Some(thrown) = exec_value::div(ctx, module, frame, *dst, *a, *b)? {
+            let u64dom = crate::exec::ops::scalar::pair_u64(&func.reg_types, *a, *b);
+            if let Some(thrown) = exec_value::div(ctx, module, frame, *dst, *a, *b, u64dom)? {
                 return Ok(Some(thrown));
             }
         }
         Instruction::Rem { dst, a, b } => {
-            if let Some(thrown) = exec_value::rem(ctx, module, frame, *dst, *a, *b)? {
+            let u64dom = crate::exec::ops::scalar::pair_u64(&func.reg_types, *a, *b);
+            if let Some(thrown) = exec_value::rem(ctx, module, frame, *dst, *a, *b, u64dom)? {
                 return Ok(Some(thrown));
             }
         }
@@ -126,10 +131,10 @@ pub fn exec_instr(
         // ── Comparison ───────────────────────────────────────────────────────
         Instruction::Eq { dst, a, b } => exec_value::eq(frame, *dst, *a, *b)?,
         Instruction::Ne { dst, a, b } => exec_value::ne(frame, *dst, *a, *b)?,
-        Instruction::Lt { dst, a, b } => exec_value::lt(frame, *dst, *a, *b)?,
-        Instruction::Le { dst, a, b } => exec_value::le(frame, *dst, *a, *b)?,
-        Instruction::Gt { dst, a, b } => exec_value::gt(frame, *dst, *a, *b)?,
-        Instruction::Ge { dst, a, b } => exec_value::ge(frame, *dst, *a, *b)?,
+        Instruction::Lt { dst, a, b } => exec_value::lt(frame, *dst, *a, *b, crate::exec::ops::scalar::pair_u64(&func.reg_types, *a, *b))?,
+        Instruction::Le { dst, a, b } => exec_value::le(frame, *dst, *a, *b, crate::exec::ops::scalar::pair_u64(&func.reg_types, *a, *b))?,
+        Instruction::Gt { dst, a, b } => exec_value::gt(frame, *dst, *a, *b, crate::exec::ops::scalar::pair_u64(&func.reg_types, *a, *b))?,
+        Instruction::Ge { dst, a, b } => exec_value::ge(frame, *dst, *a, *b, crate::exec::ops::scalar::pair_u64(&func.reg_types, *a, *b))?,
 
         // ── Logical ──────────────────────────────────────────────────────────
         Instruction::And { dst, a, b } => exec_value::and(frame, *dst, *a, *b)?,
@@ -145,12 +150,15 @@ pub fn exec_instr(
         Instruction::BitXor { dst, a, b } => exec_value::bit_xor(frame, *dst, *a, *b)?,
         Instruction::BitNot { dst, src }  => exec_value::bit_not(frame, *dst, *src)?,
         Instruction::Shl    { dst, a, b } => exec_value::shl(frame, *dst, *a, *b)?,
-        Instruction::Shr    { dst, a, b } => exec_value::shr(frame, *dst, *a, *b)?,
+        // fix-u64-semantics: 左操作数静态 U64 ⇒ 逻辑右移（判据见 scalar::reg_is_u64）。
+        Instruction::Shr    { dst, a, b } => exec_value::shr(frame, *dst, *a, *b, crate::exec::ops::scalar::reg_is_u64(&func.reg_types, *a))?,
 
         // ── String formation ─────────────────────────────────────────────────
         Instruction::StrConcat { dst, a, b } => exec_value::str_concat(ctx, frame, *dst, *a, *b)?,
         Instruction::ToStr     { dst, src }  => {
-            if let Err(e) = exec_value::to_str(ctx, module, frame, *dst, *src) {
+            // fix-u64-semantics: 静态 U64 源按 u64 格式化（$"{hi}" 不再打 -1）。
+            let u64src = crate::exec::ops::scalar::reg_is_u64(&func.reg_types, *src);
+            if let Err(e) = exec_value::to_str(ctx, module, frame, *dst, *src, u64src) {
                 return ctx.exec().take_pending_thrown().map(Some).ok_or(e);
             }
         }
@@ -178,7 +186,9 @@ pub fn exec_instr(
         // ── Numeric cast (fix-numeric-cast-lowering) ────────────
         Instruction::Convert { dst, src, to_tag } => {
             // make-hard-cast-fail-properly：硬转换失败 → 可 catch 的真异常（走 Ok(Some) 通道）。
-            if let Some(thrown) = exec_value::convert(ctx, module, frame, *dst, *src, *to_tag)? {
+            // fix-u64-semantics: 源静态 U64 ⇒ int→float 臂按 u64 加宽。
+            let u64src = crate::exec::ops::scalar::reg_is_u64(&func.reg_types, *src);
+            if let Some(thrown) = exec_value::convert(ctx, module, frame, *dst, *src, *to_tag, u64src)? {
                 return Ok(Some(thrown));
             }
         }

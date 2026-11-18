@@ -376,3 +376,81 @@ mod hard_cast {
         assert!(hard_cast_failure(&Value::Str("s".into()), TAG_STR).is_none());
     }
 }
+
+// ── fix-u64-semantics：u64 位域原语 ─────────────────────────────────────────
+//
+// 钉死豆包线程实测的四个断点值（0.7.0 下 `hi % 10ul` → -1、`hi / 10ul` → 0、
+// `hi > 10ul` → false、`hi >> 1ul` → -1），以及 cast 两臂与类型谓词。
+
+#[test]
+fn uint_div_rem_on_max_u64_match_csharp() {
+    let hi = u64::MAX as i64; // 位模式 0xFFFF…FFFF，i64 视角 -1
+    assert_eq!(uint_div(hi, 10), 1_844_674_407_370_955_161_i64);
+    assert_eq!(uint_rem(hi, 10), 5);
+}
+
+#[test]
+fn uint_shr_is_logical_on_u64_bit_pattern() {
+    assert_eq!(uint_shr(u64::MAX as i64, 1), (u64::MAX >> 1) as i64);
+    // 移位量与 signed 路径同规 mask 低 6 位。
+    assert_eq!(uint_shr(u64::MAX as i64, 64), u64::MAX as i64);
+    assert_eq!(uint_shr(u64::MAX as i64, 65), (u64::MAX >> 1) as i64);
+}
+
+#[test]
+fn uint_lt_compares_bit_pattern_as_u64() {
+    let hi = u64::MAX as i64;
+    // hi 的位模式是 u64::MAX ⇒ `10 < hi` 成立、`hi < 10` 不成立（signed 下两者皆反）。
+    assert!(!uint_lt(&Value::I64(hi), &Value::I64(10)).unwrap());
+    assert!(uint_lt(&Value::I64(10), &Value::I64(hi)).unwrap());
+    // 混合 u64→f64 加宽：2^64-1 加宽成 1.844e19 而非 -1.0。
+    assert!(!uint_lt(&Value::I64(hi), &Value::F64(1.0e19)).unwrap());
+    assert!(uint_lt(&Value::I64(hi), &Value::F64(1.9e19)).unwrap());
+}
+
+#[test]
+fn eval_cmp_u64_keeps_eq_ne_bitwise() {
+    let hi = u64::MAX as i64;
+    use crate::metadata::CmpOp;
+    assert!(eval_cmp_u64(CmpOp::Eq, &Value::I64(hi), &Value::I64(hi)).unwrap());
+    assert!(!eval_cmp_u64(CmpOp::Ne, &Value::I64(hi), &Value::I64(hi)).unwrap());
+    assert!(eval_cmp_u64(CmpOp::Ge, &Value::I64(hi), &Value::I64(hi)).unwrap());
+    assert!(eval_cmp_u64(CmpOp::Gt, &Value::I64(hi), &Value::I64(10)).unwrap());
+}
+
+#[test]
+fn f64_to_u64_saturates_unsigned() {
+    // C# `(ulong)f`：负 → 0、超上限 → u64::MAX、NaN → 0。此前 `f as i64`（signed
+    // 饱和）把 -1.0 变成 -1 位模式 = 2^64-1，错的域。
+    assert_eq!(convert_value(Value::F64(-1.0), T_U64).unwrap(), Value::I64(0));
+    assert_eq!(convert_value(Value::F64(f64::NEG_INFINITY), T_U64).unwrap(), Value::I64(0));
+    assert_eq!(convert_value(Value::F64(1.0e30), T_U64).unwrap(), Value::I64(u64::MAX as i64));
+    assert_eq!(convert_value(Value::F64(f64::NAN), T_U64).unwrap(), Value::I64(0));
+    assert_eq!(convert_value(Value::F64(42.9), T_U64).unwrap(), Value::I64(42));
+}
+
+#[test]
+fn u64src_to_float_widens_unsigned() {
+    // (double)hi：2^64-1 → 1.8446744073709552e19（JIT emit_int_to_f64 的
+    // fcvt_from_uint 本就如此，本函数是 interp 的对齐件）。
+    let hi = u64::MAX as i64;
+    match convert_value_u64src(Value::I64(hi), T_F64).unwrap() {
+        Value::F64(f) => assert!((f - 1.8446744073709552e19).abs() < 1e4),
+        other => panic!("expected F64, got {other:?}"),
+    }
+    // 窄化臂与 convert_value 逐位一致（u64 源按低位截断）。
+    assert_eq!(convert_value_u64src(Value::I64(hi), T_U32).unwrap(), Value::I64(0xFFFFFFFF));
+}
+
+#[test]
+fn pair_u64_covers_either_operand() {
+    use crate::zpkg::ir::reg_type::IrType;
+    let types = [IrType::U64, IrType::I64, IrType::F64, IrType::Unknown];
+    assert!(pair_u64(&types, 0, 1));
+    assert!(pair_u64(&types, 1, 0));
+    assert!(!pair_u64(&types, 1, 2));
+    assert!(!pair_u64(&types, 2, 3));
+    assert!(!pair_u64(&types, 5, 1), "越界索引按 Unknown ⇒ false");
+    assert!(reg_is_u64(&types, 0));
+    assert!(!reg_is_u64(&types, 1));
+}

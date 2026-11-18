@@ -116,12 +116,13 @@ fn exec_function_body(ctx: &VmContext, module: &Module, func: &Function, mut fra
         // last instruction + terminator, using the SHARED `ops::eval_cmp` (same
         // primitive the standalone cmp handlers use). Preserves the back-edge
         // safepoint + OSR hand-off exactly as the `BrCond` terminator does.
-        if let Some(crate::metadata::SuperInstr::CmpBr { op, a, b, dst, t_blk, f_blk, typed }) = fused {
-            // interp-typed-superinstr: `typed` ⇒ both operands statically I64 →
+        if let Some(crate::metadata::SuperInstr::CmpBr { op, a, b, dst, t_blk, f_blk, typed, unsigned }) = fused {
+            // interp-typed-superinstr: `typed` ⇒ both operands statically integer →
             // unchecked i64 compare (no discriminant branch). Else the dynamic
             // `eval_cmp` (same primitive the standalone cmp handlers use).
+            // fix-u64-semantics: `unsigned` ⇒ 任一侧静态 U64，typed 比较切 u64 位域。
             let cond = if *typed {
-                ops::eval_cmp_i64(*op, &frame.regs, *a, *b)
+                ops::eval_cmp_i64(*op, &frame.regs, *a, *b, *unsigned)
             } else {
                 ops::eval_cmp(*op, &frame.regs, *a, *b)?
             };

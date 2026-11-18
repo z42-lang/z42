@@ -20,11 +20,11 @@ use super::*;
 /// op (`emit_i64_convert`), not here (z42 has no implicit narrowing →
 /// intermediates stay i64).
 ///
-/// **Unsigned note**: the VM (both interp and the JIT helper fallback) treats
-/// `U64` uniformly as *signed* i64 for compare/shift (`numeric_lt`: `x < y`;
-/// `shr`: `x >> (y & 63)` arithmetic). The native path deliberately matches
-/// that (signed `icmp`, `sshr`) so `vm-jit-consistency` stays byte-identical —
-/// making `U64` truly unsigned is a separate VM-wide change, not this one.
+/// **Unsigned note**（fix-u64-semantics 已落地）: 任一侧静态 `U64` 的比较/除模/
+/// 右移在 u64 位域执行——比较用 Unsigned `IntCC`、除模 `udiv`/`urem`、右移 `ushr`
+/// （判据 `exec::ops::scalar::pair_u64` / `reg_is_u64`，与 interp 分派点同源）。
+/// 动态（Unknown）站点与窄无符号 U8/U16/U32（零扩展恒正）保持 signed——后者
+/// 逐位等价，前者是文档化的 signed 回落。
 #[inline]
 pub(super) fn is_int_typed(func: &Function, dst: u32, a: u32, b: u32) -> bool {
     let rt = &func.reg_types;
@@ -38,8 +38,9 @@ pub(super) fn is_int_typed(func: &Function, dst: u32, a: u32, b: u32) -> bool {
 /// review.md C2 P1 follow-up : bitwise + shift opcodes added.
 /// `Shl` / `Shr` mask the shift amount by 63 to match the helper
 /// `jit_shl` / `jit_shr` behavior (`x << (y & 63)`).
+/// fix-u64-semantics: `UShr` = 逻辑右移（左操作数静态 `U64` 的 `>>`）。
 #[derive(Clone, Copy)]
-pub(super) enum BinopKind { Add, Sub, Mul, BitAnd, BitOr, BitXor, Shl, Shr }
+pub(super) enum BinopKind { Add, Sub, Mul, BitAnd, BitOr, BitXor, Shl, Shr, UShr }
 
 /// F64 binary op kind for `emit_f64_binop` (jit-native-float). `Div` is safe
 /// natively: IEEE float divide-by-zero yields ±inf/NaN (no trap), unlike i64

@@ -1,0 +1,88 @@
+// fix-u64-semantics (2026-11-18): `ulong`（U64 存储）的比较 / 除法 / 取模 / 右移 /
+// 格式化此前全按 signed i64 执行（`hi % 10ul` → -1、`hi >> 1ul` → -1、`hi > 10ul` →
+// false、`$"{hi}"` → -1）。本文件把当时实测的探针（豆包线程 0.7.0）钉成回归：
+// 期望值与 C# 对齐。位运算 `& ^` 当时即正确，一并钉住防回归。
+namespace Z42CoreU64SemanticsTests;
+
+using Std.Harness;
+
+[Test]
+void test_u64_div_rem_compare_on_max() {
+    ulong hi = 0xFFFFFFFFFFFFFFFFul;   // 2^64-1，i64 位模式 -1
+    // 期望：u64 域除法/取模（0.7.0 实测得 0 / -1）。
+    Assert.Equal("5", (hi % 10ul).ToString());
+    Assert.Equal("1844674407370955161", (hi / 10ul).ToString());
+    // 期望：u64 域比较（0.7.0 实测得 false）。
+    Assert.True(hi > 10ul);
+    Assert.True(hi >= 0xFFFFFFFFFFFFFFFFul);
+    Assert.False(hi < 10ul);
+    // 混合 signed（负的 signed 侧按位模式参与 u64 域，同 C 的 usual
+    // arithmetic conversions：-1 的位模式是 2^64-1，不小于 hi）。
+    Assert.False(hi < (ulong)0);
+}
+
+[Test]
+void test_u64_right_shift_is_logical() {
+    ulong hi = 0xFFFFFFFFFFFFFFFFul;
+    // 期望：逻辑右移零填充（0.7.0 实测得 -1，即算术右移）。
+    Assert.Equal("9223372036854775807", (hi >> 1ul).ToString());
+    ulong mid = 0x8000000000000000ul;   // 2^63，i64 位模式 MIN
+    Assert.Equal("4611686018427387904", (mid >> 1ul).ToString());
+    // signed long 的 >> 保持算术（符号扩展）——分派只认静态 U64。
+    long smid = -9223372036854775808L;
+    Assert.True((smid >> 1) < 0);
+    // 移位量 mask 低 6 位：64 当 0。
+    Assert.Equal("18446744073709551615", (hi >> 64ul).ToString());
+}
+
+[Test]
+void test_u64_bitwise_was_already_correct() {
+    ulong hi = 0xFFFFFFFFFFFFFFFFul;
+    Assert.Equal("5", (hi & 5ul).ToString());
+    Assert.Equal("18446744073709551610", (hi ^ 5ul).ToString());
+    Assert.Equal("0", (~hi).ToString());
+}
+
+[Test]
+void test_u64_interpolation_and_tostring() {
+    ulong hi = 0xFFFFFFFFFFFFFFFFul;
+    // wrapper ToString 当时即正确；插值 `$"{hi}"` 0.7.0 打 -1。
+    Assert.Equal("18446744073709551615", hi.ToString());
+    Assert.Equal("hi=18446744073709551615", $"hi={hi}");
+}
+
+[Test]
+void test_u64_cast_widening_is_unsigned() {
+    ulong hi = 0xFFFFFFFFFFFFFFFFul;
+    // (double)hi：u64→f64（1.844e19 而非 -1.0）。
+    Assert.True((double)hi > 1.8e19);
+    // (ulong)double：u64 饱和（负 → 0、超上限 → u64::MAX）。
+    Assert.Equal("0", ((ulong)(-1.0)).ToString());
+    Assert.Equal("18446744073709551615", ((ulong)1.0e30).ToString());
+}
+
+[Test]
+void test_u64_loop_condition_fused_cmp_uses_u64_domain() {
+    // CmpBr 超指令融合：循环条件的比较走 typed 融合路径（reg_types 证明整型），
+    // 该路径也必须切 u64 域（融合器 pair_u64 判据），否则 `while (u64…)` 绕过
+    // standalone handler 的无符号分派。
+    // ① 融合执行本身不破：两个 ≥2^63 的值互增到头（两域序相同，钉融合行为）。
+    //    0xFF…FA 逐 +1 到 0xFF…FF 共 5 步。
+    ulong hi = 0xFFFFFFFFFFFFFFFAul;
+    int steps = 0;
+    while (hi < 0xFFFFFFFFFFFFFFFFul) {
+        hi = hi + 1ul;
+        steps = steps + 1;
+    }
+    Assert.Equal(5, steps);
+    // ② 域分派本体：无符号域下 big（2^63+3）不小于 10 ⇒ 循环体零次；
+    // 旧 signed 域里 big 是负数 < 10 ⇒ 会进循环（防御 break 让它红而非挂死）。
+    ulong big = 0x8000000000000003ul;
+    int seen = 0;
+    while (big < 10ul) {
+        seen = seen + 1;
+        if (seen > 4) { break; }
+        big = big + 1ul;
+    }
+    Assert.Equal(0, seen);
+}
