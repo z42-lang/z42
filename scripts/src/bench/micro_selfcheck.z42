@@ -11,8 +11,10 @@ class MicroFixtureCapture : MicroCapture {
     public bool Missing;
     public bool Throw;
     public string ExpectedOwners = "";
+    public string ExpectedResampleOwners;
     public override int Capture(string tree, string vm, string libs, string driver, string output, string owners) {
-        _gateAssert(owners == this.ExpectedOwners, "all captures retain the same owner scope");
+        string want = this.Calls < 2 || this.ExpectedResampleOwners == null ? this.ExpectedOwners : this.ExpectedResampleOwners;
+        _gateAssert(owners == want, "round 1 keeps the planned scope; resample/confirmation rounds narrow to the suspects' packages");
         this.Calls = this.Calls + 1;
         if (this.Throw) { throw new Exception("capture fixture exception"); }
         bool head = this.Calls % 2 == 1;
@@ -34,35 +36,40 @@ void _microAbChecks() {
     cmd.BaseVm = "base-vm"; cmd.PrVm = "pr-vm"; cmd.BaseLibs = "base-libs"; cmd.PrLibs = "pr-libs";
     try {
         foreach (var scenario in new string[]{ "overlap", "drift", "real" }) {
-            var capture = new MicroFixtureCapture(); capture.Fixtures = Path.Join(_root(), "src/benches/testdata"); capture.Scenario = scenario;
+            var capture = new MicroFixtureCapture(); capture.Fixtures = Path.Join(_root(), "src/benches/testdata"); capture.Scenario = scenario; capture.ExpectedResampleOwners = "z42.core";
             int code = _benchMicroAbAt(root, cmd, capture);
-            _gateAssert(code == (scenario == "real" ? 1 : 0) && capture.Calls == (scenario == "overlap" ? 2 : 6), "micro A/B whole-round policy: " + scenario);
-            _microExecutionCheck(root, code, capture.Calls, "");
+            int wantCalls = scenario == "overlap" ? 2 : (scenario == "real" ? 8 : 6);
+            _gateAssert(code == (scenario == "real" ? 1 : 0) && capture.Calls == wantCalls, "micro A/B whole-round policy: " + scenario);
+            _microExecutionCheck(root, code, capture.Calls, "", scenario == "overlap" ? "" : "z42.core");
         }
         cmd.Owners = "z42.json,z42.io,z42.json";
         var scoped = new MicroFixtureCapture(); scoped.Fixtures = Path.Join(_root(), "src/benches/testdata");
-        scoped.Scenario = "real"; scoped.ExpectedOwners = "z42.io,z42.json";
-        _gateAssert(_benchMicroAbAt(root, cmd, scoped) == 1 && scoped.Calls == 6, "scoped resampling preserves both owners on all six captures");
-        _microExecutionCheck(root, 1, 6, "z42.io,z42.json");
+        scoped.Scenario = "real"; scoped.ExpectedOwners = "z42.io,z42.json"; scoped.ExpectedResampleOwners = "z42.core";
+        _gateAssert(_benchMicroAbAt(root, cmd, scoped) == 1 && scoped.Calls == 8, "scoped round 1 keeps both owners; suspect rounds narrow to the flagged package");
+        _microExecutionCheck(root, 1, 8, "z42.io,z42.json", "z42.core");
         cmd.Owners = "";
         _microScopeChecks();
-        for (int fail = 1; fail <= 6; fail = fail + 1) {
-            var capture = new MicroFixtureCapture(); capture.Fixtures = Path.Join(_root(), "src/benches/testdata"); capture.Scenario = "real"; capture.FailAt = fail;
-            _gateAssert(_benchMicroAbAt(root, cmd, capture) == 17 && capture.Calls == fail, "capture failures stop immediately, including resampling");
-            _microExecutionCheck(root, 17, fail, "");
+        string[] ownerVocab = new string[]{ "z42.core", "z42.collections", "z42c.pipeline", "z42.core.extra" };
+        _gateAssert(_microSuspectOwners(ownerVocab, "z42.core.Array.push\nz42.collections.bench_x\n") == "z42.collections,z42.core", "suspect owners map by package prefix and deduplicate");
+        _gateAssert(_microSuspectOwners(ownerVocab, "z42.core.extra.Bench\n") == "z42.core.extra", "longer package names win over their prefixes");
+        _gateAssert(_microSuspectOwners(ownerVocab, "z42.core.Array.push\nnot.a.package.Bench\n") == "", "unmappable suspect keeps the full scope");
+        for (int fail = 1; fail <= 8; fail = fail + 1) {
+            var capture = new MicroFixtureCapture(); capture.Fixtures = Path.Join(_root(), "src/benches/testdata"); capture.Scenario = "real"; capture.FailAt = fail; capture.ExpectedResampleOwners = "z42.core";
+            _gateAssert(_benchMicroAbAt(root, cmd, capture) == 17 && capture.Calls == fail, "capture failures stop immediately, including resampling and the confirmation round");
+            _microExecutionCheck(root, 17, fail, "", fail <= 2 ? "" : "z42.core");
         }
         var missing = new MicroFixtureCapture(); missing.Missing = true;
         _gateAssert(_benchMicroAbAt(root, cmd, missing) == 2 && missing.Calls == 1, "stale captures cannot mask a missing result");
-        _microExecutionCheck(root, 2, 1, "");
+        _microExecutionCheck(root, 2, 1, "", "");
         var throws = new MicroFixtureCapture(); throws.Throw = true;
         bool propagated = false;
         try { _benchMicroAbAt(root, cmd, throws); } catch (Exception e) { propagated = e.Message.Contains("capture fixture exception"); }
         _gateAssert(propagated, "reporting retains the original capture exception");
-        _microExecutionCheck(root, -1, 1, "");
+        _microExecutionCheck(root, -1, 1, "", "");
         File.WriteAllText(Path.Join(_benchDir(root), "micro-suspects.txt"), "stale suspect\n");
         cmd.PrVm = "";
         _gateAssert(_benchMicroAbAt(root, cmd, missing) == 2 && missing.Calls == 1, "missing tool overrides fail before capture");
-        _microExecutionCheck(root, 2, 0, "");
+        _microExecutionCheck(root, 2, 0, "", "");
         string cwd = Environment.GetCurrentDirectory();
         var child = new MicroCapture(); child.Root = root;
         Directory.Create(Path.Join(root, ".github/ci"));
@@ -73,11 +80,11 @@ void _microAbChecks() {
         string args = File.ReadAllText(Path.Join(tree, "argv.txt"));
         _gateAssert(args == tree + "\nbench\nstdlib\n--json\nout with spaces\n--no-build\n--mode\ninterp\n--vm\nvm with spaces\n--libs\nlibs with spaces\n--driver\ndriver with spaces\n--owners\nz42.io,z42.json\n"
             && Environment.GetCurrentDirectory() == cwd, "capture isolates cwd and preserves argument boundaries");
-        Console.WriteLine("✓ micro A/B: early success, full resampling, verdicts, stale files and capture failures");
+        Console.WriteLine("✓ micro A/B: early success, suspect-scoped resampling, single-regression confirmation, verdicts, stale files and capture failures");
     } finally { Directory.Delete(root, true); }
 }
 
-void _microExecutionCheck(string root, int code, int calls, string owners) {
+void _microExecutionCheck(string root, int code, int calls, string owners, string resampleOwners) {
     JsonValue report = JsonValue.Parse(File.ReadAllText(Path.Join(_benchDir(root), "micro-execution.json")));
     _gateAssert(report.Get("schema").AsString() == "micro-execution-v1" && report.Get("exit_code").AsLong() == (long)code,
         "execution receipt is fresh and retains the actual return code");
@@ -86,8 +93,9 @@ void _microExecutionCheck(string root, int code, int calls, string owners) {
     JsonValue captures = report.Get("captures");
     for (int i = 0; i < captures.Count(); i = i + 1) {
         JsonValue capture = captures.At(i);
+        string wantOwners = i < 2 || resampleOwners.Length == 0 ? owners : resampleOwners;
         _gateAssert(capture.Get("round").AsLong() == (long)(i / 2 + 1) && capture.Get("side").AsString() == (i % 2 == 0 ? "pr" : "base")
-            && capture.Get("elapsed_ms").AsLong() >= 0L && String.Join(",", _epJsonToStrArr(capture.Get("owners"))) == owners,
+            && capture.Get("elapsed_ms").AsLong() >= 0L && String.Join(",", _epJsonToStrArr(capture.Get("owners"))) == wantOwners,
             "capture timing retains round, side and canonical owner boundaries");
         int expected = (code == 17 || code == -1) && i == calls - 1 ? code : 0;
         _gateAssert(capture.Get("exit_code").AsLong() == (long)expected, "capture failures are attributed to the actual failing position");

@@ -2,6 +2,7 @@ namespace Z42Xtask;
 
 using Std.IO;
 using Std.Json;
+using Std.Collections;
 
 // Match benchmark name, metric and execution profile before computing any ratio.
 // Each resampled comparison requires a matching entry in every captured round.
@@ -53,6 +54,7 @@ int _benchMicroDiff(BenchCommand cmd) {
     string suspects = "";
 
     int regr = 0; int compared = 0; int newb = 0; int dropped = 0;
+    var absent = new List<string>();
     for (int j = 0; j < curBs.Count(); j = j + 1) {
         JsonValue c = curBs.At(j);
         string name   = c.Get("name").AsString();
@@ -67,8 +69,10 @@ int _benchMicroDiff(BenchCommand cmd) {
                 // Present in round 1 but not in every round. A benchmark that comes and
                 // goes between rounds is not evidence of a regression — keep it OUT of
                 // the gate, but say so: silently dropping gate entries is how a gate
-                // goes blind.
-                Console.WriteLine("  ⚠️  " + name + " [" + mkey + "]: missing from some round — excluded from the gate");
+                // goes blind. Suspect-scoped resample rounds legitimately leave most
+                // benchmarks absent from the later rounds, so only the first few are
+                // itemized.
+                absent.Add(name + " [" + mkey + "]");
                 dropped = dropped + 1;
                 continue;
             }
@@ -83,7 +87,12 @@ int _benchMicroDiff(BenchCommand cmd) {
         Console.WriteLine("  (" + newb.ToString() + " new benchmark(s) with no base match — skipped)");
     }
     if (dropped > 0) {
-        Console.WriteLine("  (" + dropped.ToString() + " benchmark(s) excluded — not present in every round)");
+        int itemized = dropped < 8 ? dropped : 8;
+        for (int d = 0; d < itemized; d = d + 1) {
+            Console.WriteLine("  ⚠️  " + absent[d] + ": missing from some round — excluded from the gate");
+        }
+        Console.WriteLine("  (" + dropped.ToString() + " benchmark(s) excluded — not present in every round"
+            + (dropped > itemized ? "; first " + itemized.ToString() + " itemized" : "") + ")");
     }
     if (suspectsPath.Length > 0) { File.WriteAllText(_absUnder(root, suspectsPath), suspects); }
     Console.WriteLine("");

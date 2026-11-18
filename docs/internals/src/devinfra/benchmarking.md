@@ -383,7 +383,10 @@ CI 在规划时导出 `bench_owners`，本地可用 `--plan <plan.json>` 在主�
    `src/runtime` 无非文档改动 → `jit`，否则 `both`。
 6. **micro A/B（硬门禁，`xtask bench --micro-ab`）**：两棵树（`head-src` / `base-src`）各采一份 `bench stdlib --json`，**同形捕获** → 第 1 轮
    `--micro-diff --suspects …` **只点名不判红**；`suspects` 为空 ⇒ 直接通过（**零额外开销**）；
-   非空 ⇒ 再采两轮，用三轮判红。
+   非空 ⇒ 再采两轮，用三轮判红。**复测轮只采嫌疑条目所在的包**（嫌疑名按包前缀映射；映射不出
+   任何已知包时回退全量——复测轮变窄不会弄瞎门禁，缺席后续轮次的条目按 `no-data` 出闸）。
+   三轮后若**恰好剩一条**回归，再补一轮便宜的确认轮并以第 2–4 轮重判——单条轮换噪声（每次
+   挂的基准都在换）不能仅凭触发嫌疑的第 1 轮判红整个 job。
 7. **Criterion A/B（informational）**：`bench_vm=true` 时由 `xtask bench vm --base base-src` 执行，不依赖前两类工具链构建成功。各测量步骤遇到执行失败后停止后续工作。
 
 **Rust 依赖缓存在 main 上预热**（`bench-cache-warm` job：push 到 main 且动了 `src/runtime`（含其 `.cargo`）/ 本
@@ -402,6 +405,7 @@ main 上存的才对所有 PR 可见。若让 PR 自己存，每个新 PR 都冷
 | `_benchDiff`（`--diff`，历史/本地对比）| `testdata/current-*.json` vs `baseline.json` | 4 |
 | `_microDiff` 单轮（`--micro-diff`）| `testdata/micro-*.json` vs `micro-base.json` | 7 |
 | `_microDiff` **复测**（三轮 × 两侧）| `testdata/micro-rs-*-r{1,2,3}.json` | 4 + 1 用法错误 |
+| `_microAb` **整轮策略**（嫌疑定向 + 确认轮）| `bench check`（fixture 捕获）| 干净/漂移/持续回归/作用域/失败传播 |
 
 所有 fixture 都跑 **0.15（门禁在用的那个）与 0.25 两遍**：每条套件里都有一个只在其中一个阈值下
 翻红的用例，它是**唯一对阈值本身敏感**的用例——没有它，把 `--threshold-time` 降到 0.001 结果都

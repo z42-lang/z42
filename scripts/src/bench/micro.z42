@@ -38,11 +38,18 @@ int _benchMicroAbRun(string root, BenchCommand cmd, MicroCapture capture) {
     var diff = new BenchCommand();
     diff.ThresholdTime = cmd.ThresholdTime.Length > 0 ? cmd.ThresholdTime : "0.15";
     string suspects = Path.Join(dir, "micro-suspects.txt");
+    string regressions = Path.Join(dir, "micro-regressions.txt");
     if (File.Exists(suspects)) { File.Delete(suspects); }
+    if (File.Exists(regressions)) { File.Delete(regressions); }
+    // Rounds 2+ recapture only the suspects' packages (fail-safe: an unmappable
+    // suspect name keeps the full scope). The resampled verdict requires every
+    // gated entry in every round, so the narrowed rounds cannot blind the gate.
+    string resampleOwners = "";
     for (int round = 1; round <= 3; round = round + 1) {
         string suffix = round == 1 ? ".json" : "-r" + round.ToString() + ".json";
         string current = Path.Join(dir, "micro-pr" + suffix); pr.Add(current);
         string previous = Path.Join(dir, "micro-base" + suffix); baseline.Add(previous);
+        string scope = round == 1 ? owners : resampleOwners;
         foreach (var head in new bool[]{ true, false }) {
             string tree = head ? cmd.PrTree : cmd.BaseTree;
             string vm = head ? cmd.PrVm : cmd.BaseVm;
@@ -51,22 +58,99 @@ int _benchMicroAbRun(string root, BenchCommand cmd, MicroCapture capture) {
             string output = head ? current : previous;
             if (File.Exists(output)) { File.Delete(output); }
             int rc = capture.Capture(_microPath(root, tree), _microPath(root, vm), libs,
-                driver.Length > 0 ? _microPath(root, driver) : Path.Join(libs, "z42c.driver.zpkg"), output, owners);
+                driver.Length > 0 ? _microPath(root, driver) : Path.Join(libs, "z42c.driver.zpkg"), output, scope);
             if (rc != 0) { return rc; }
             if (!File.Exists(output)) { ConsoleError.WriteLine("micro capture did not write " + output); return 2; }
         }
         if (round == 2) { continue; }
         diff.Current = String.Join(",", pr.ToArray()); diff.Baseline = String.Join(",", baseline.ToArray());
-        diff.Suspects = round == 1 ? suspects : "";
+        diff.Suspects = round == 1 ? suspects : regressions;
         int verdict = _benchMicroDiff(diff);
-        if (round == 3 || verdict > 1) { return verdict; }
-        if (!File.Exists(suspects)) { throw new Exception("micro round 1 did not write suspects"); }
-        if (File.ReadAllText(suspects).Length == 0) {
-            Console.WriteLine("✅ micro round 1: no suspects; no resampling needed"); return 0;
+        if (verdict > 1) { return verdict; }
+        if (round == 1) {
+            if (!File.Exists(suspects)) { throw new Exception("micro round 1 did not write suspects"); }
+            if (File.ReadAllText(suspects).Length == 0) {
+                Console.WriteLine("✅ micro round 1: no suspects; no resampling needed"); return 0;
+            }
+            resampleOwners = _microSuspectOwnersSafe(File.ReadAllText(suspects));
+            Console.WriteLine("── micro suspects; recapture " + (resampleOwners.Length > 0
+                ? "suspect packages (" + resampleOwners + ") for two rounds ──"
+                : "two complete rounds (suspects did not map to packages) ──") + "\n" + File.ReadAllText(suspects));
+        } else {
+            // Rotating single-regression guard: exactly one survivor after k=3 gets
+            // one cheap confirmation round; the verdict is recomputed over rounds
+            // 2..4 so the round that raised the suspicion cannot alone fail the gate.
+            if (verdict == 1 && File.Exists(regressions) && _countLines(File.ReadAllText(regressions)) == 1) {
+                Console.WriteLine("── single flagged regression; one confirmation round (verdict over rounds 2-4) ──");
+                string r4pr = Path.Join(dir, "micro-pr-r4.json"); pr.RemoveAt(0);
+                string r4base = Path.Join(dir, "micro-base-r4.json"); baseline.RemoveAt(0);
+                foreach (var head in new bool[]{ true, false }) {
+                    string tree = head ? cmd.PrTree : cmd.BaseTree;
+                    string vm = head ? cmd.PrVm : cmd.BaseVm;
+                    string libs = _microPath(root, head ? cmd.PrLibs : cmd.BaseLibs);
+                    string driver = head ? cmd.PrDriver : cmd.BaseDriver;
+                    string output = head ? r4pr : r4base;
+                    if (File.Exists(output)) { File.Delete(output); }
+                    int rc = capture.Capture(_microPath(root, tree), _microPath(root, vm), libs,
+                        driver.Length > 0 ? _microPath(root, driver) : Path.Join(libs, "z42c.driver.zpkg"), output, resampleOwners);
+                    if (rc != 0) { return rc; }
+                    if (!File.Exists(output)) { ConsoleError.WriteLine("micro capture did not write " + output); return 2; }
+                }
+                pr.Add(r4pr); baseline.Add(r4base);
+                diff.Current = String.Join(",", pr.ToArray()); diff.Baseline = String.Join(",", baseline.ToArray());
+                diff.Suspects = "";
+                return _benchMicroDiff(diff);
+            }
+            return verdict;
         }
-        Console.WriteLine("── micro suspects; recapture two complete rounds ──\n" + File.ReadAllText(suspects));
     }
     return 2;
+}
+
+int _countLines(string text) {
+    int lines = 0;
+    foreach (var raw in text.Split("\n")) { if (raw.Trim().Length > 0) { lines = lines + 1; } }
+    return lines;
+}
+
+// All benchmark-owning package names of THIS repository, sorted — the vocabulary
+// suspects map onto. The work root the orchestrator received holds captures, not
+// sources, so enumeration always goes through the repository root.
+string[] _microAllBenchOwnerNames() {
+    var names = new List<string>();
+    foreach (var project in _allUnitProjects(_root(), "bench")) { names.Add(ManifestLoader.Load(project).Project.Name); }
+    string[] ordered = names.ToArray(); _sortStrings(ordered);
+    return ordered;
+}
+
+// Fail-safe wrapper: an unreadable vocabulary keeps the full scope instead of
+// narrowing (or crashing) the gate.
+string _microSuspectOwnersSafe(string suspects) {
+    try {
+        return _microSuspectOwners(_microAllBenchOwnerNames(), suspects);
+    } catch (Exception e) {
+        Console.WriteLine("  (suspect packages could not be enumerated — keeping the full scope: " + e.Message + ")");
+        return "";
+    }
+}
+
+// Suspect benchmark names -> owning packages (longest prefix match, deduplicated,
+// sorted). Any name that does not map onto a known package returns "" so the
+// caller keeps the full scope instead of silently narrowing the gate.
+string _microSuspectOwners(string[] ownerNames, string suspects) {
+    var matched = new List<string>();
+    foreach (var raw in suspects.Split("\n")) {
+        string name = raw.Trim();
+        if (name.Length == 0) { continue; }
+        string owner = "";
+        foreach (var candidate in ownerNames) {
+            if ((name == candidate || name.StartsWith(candidate + ".")) && candidate.Length > owner.Length) { owner = candidate; }
+        }
+        if (owner.Length == 0) { return ""; }
+        if (!matched.Contains(owner)) { matched.Add(owner); }
+    }
+    string[] ordered = matched.ToArray(); _sortStrings(ordered);
+    return String.Join(",", ordered);
 }
 
 string _microPath(string root, string path) { return Path.IsRooted(path) ? path : Path.Join(root, path); }
