@@ -4,8 +4,9 @@
 use std::{path::PathBuf, sync::Arc};
 use z42::host::{
     ExecMode,
-    LoadOptions, LoadedProgram, Value, VmContext,
+    LoadOptions, LoadedProgram, Value,
 };
+use z42::vm::VmContext;
 
 fn input(name: &str) -> PathBuf {
     std::env::var_os(name).map(PathBuf::from).expect("component verification must supply packaged fixture paths")

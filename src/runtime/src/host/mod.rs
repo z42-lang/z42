@@ -34,9 +34,15 @@
 //! use z42::host::entry::Z42Entry;
 //! ```
 //! ```compile_fail
+//! use z42::host::VmContext;
+//! ```
+//! ```compile_fail
 //! use z42::host::module::Z42Module;
 //! ```
-pub use crate::{object::Value, pal::fs::Vfs, vm::{VmContext, VmCore}, metadata::Module};
+pub use crate::{object::Value, pal::fs::Vfs, metadata::Module};
+// VmContext stays reachable at `z42::vm` only: hosts express functional
+// requests; the low-level context is a VM-internal facility.
+use crate::vm::VmContext;
 pub mod resolver;
 pub(crate) mod program;
 pub mod signal;
