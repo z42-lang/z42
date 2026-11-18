@@ -14,6 +14,9 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                         emit_i64_binop(self.builder, self.regs_base, self.cache, self.promoted, *dst, *a, *b, BinopKind::Add);
                     } else if is_f64_typed(self.func, *dst, *a, *b) {
                         emit_f64_binop(self.builder, self.regs_base, self.promoted, *dst, *a, *b, F64BinopKind::Add);
+                    } else if self.try_add_str_u64(*dst, *a, *b) {
+                        // fix-u64-semantics（Add-string 补丁）：静态 Str × U64 —— 窄 helper
+                        // 按 u64 格式化直拼（判据见 try_add_str_u64）。
                     } else {
                         self.emit_arith_guarded_binop(*dst, *a, *b, self.hr_add, BinopKind::Add, true);
                     }
@@ -188,6 +191,32 @@ impl<'a, 'b> TxCtx<'a, 'b> {
             _ => anyhow::bail!("tr_arith: unexpected opcode in category dispatch"),
         }
         Ok(())
+    }
+
+    /// fix-u64-semantics（Add-string 补丁）：一侧静态 `U64`、另一侧静态 `Str` 的加法
+    /// 直呼窄 helper `jit_add_str_u64`（无运行期 guard——静态证明即信任，同其他内联
+    /// 路径）。返回 false = 不适用（其余形状回落 guarded/fat 路径）。
+    fn try_add_str_u64(&mut self, dst: u32, a: u32, b: u32) -> bool {
+        use crate::exec::ops::scalar::reg_is_u64;
+        let (u64_reg, str_reg, u64_first) = if reg_is_u64(&self.func.reg_types, a)
+            && is_typed(self.func, b, IrType::Str)
+        {
+            (a, b, true)
+        } else if reg_is_u64(&self.func.reg_types, b)
+            && is_typed(self.func, a, IrType::Str)
+        {
+            (b, a, false)
+        } else {
+            return false;
+        };
+        let pu = reg_addr(self.builder, self.regs_base, u64_reg);
+        let ps = reg_addr(self.builder, self.regs_base, str_reg);
+        let pd = reg_addr(self.builder, self.regs_base, dst);
+        let first = self.builder.ins().iconst(types::I8, u64_first as i64);
+        let inst = self.builder.ins().call(self.hr_add_str_u64, &[self.ctx_val, pu, ps, pd, first]);
+        let ret = self.builder.inst_results(inst)[0];
+        self.check(ret);
+        true
     }
 
     /// Dynamic-site guard inlining for Add/Sub/Mul: guard both operands'
