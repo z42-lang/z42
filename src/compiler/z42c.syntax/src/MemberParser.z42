@@ -192,22 +192,36 @@ public sealed class MemberParser {
             string opSym = this._p._peek().Text;
             Span   opSp  = this._p._peek().Span;
             this._p._advance();   // 运算符符号 token（+ - * / %）
-            string opName = MemberParser._operatorMethodName(opSym);
-            bool opListed = opName != "";
+            string opName   = MemberParser._operatorMethodName(opSym);   // 二元表（16 条）
+            string unaryName = MemberParser._unaryOperatorMethodName(opSym);   // fix-unary-op-overload：一元表（4 条）
+            bool opListed = opName != "" || unaryName != "";
             // 表外符号仍给个名字，只为让这条成员**继续解析完**（否则后面的 `(...)` / 方法体会
             // 级联出一串位置在别处的假错）。同一个类里两个不可重载的符号因此仍互不同名，不会
             // 再多冒一条假的「重复成员」。本轮必报错 ⇒ 这个名字到不了发射端。
-            if (!opListed) { opName = "op_" + opSym; }
+            if (opName == "") { opName = unaryName != "" ? unaryName : "op_" + opSym; }
             Decl opDecl = this._parseMethodTail(mods, false, false, type, opName, this._p._typeP._emptyTypeParams(), sp);
-            if (!opListed) {
-                this._p._diags.Error(DiagnosticCodes.OperatorNotOverloadable,
-                    "operator `" + opSym + "` cannot be overloaded — z42 overloads only the binary"
-                    + " operators `+ - * / % == != < > <= >= & | ^ << >>`", opSp);
-            }
-            else if (opDecl is MethodDecl && (opDecl as MethodDecl).ParamCount != 2) {
-                this._p._diags.Error(DiagnosticCodes.OperatorNotOverloadable,
-                    "operator `" + opSym + "` overload must take exactly two parameters — z42 has no"
-                    + " unary operator overloading", opSp);
+            // fix-unary-op-overload：`-` / `+` 一元与二元同符号——名字算出的那一刻 arity 还
+            // 不知道（既有 ⚠️ 不变），解析完按形参个数定形：一元形态改挂一元名。
+            if (opDecl is MethodDecl) {
+                MethodDecl md = opDecl as MethodDecl;
+                if (md.ParamCount == 2 && MemberParser._operatorMethodName(opSym) != "") {
+                    // 二元形态照旧
+                }
+                else if (md.ParamCount == 1 && unaryName != "") {
+                    md.Name = unaryName;
+                }
+                else if (!opListed) {
+                    this._p._diags.Error(DiagnosticCodes.OperatorNotOverloadable,
+                        "operator `" + opSym + "` cannot be overloaded — z42 overloads only the binary"
+                        + " operators `+ - * / % == != < > <= >= & | ^ << >> >>>` and the unary"
+                        + " operators `- + ! ~`", opSp);
+                }
+                else {
+                    this._p._diags.Error(DiagnosticCodes.OperatorNotOverloadable,
+                        "operator `" + opSym + "` overload must take exactly "
+                        + (unaryName != "" && MemberParser._operatorMethodName(opSym) == "" ? "one parameter" : "two parameters")
+                        + " — z42 has no other arity for this operator", opSp);
+                }
             }
             return opDecl;
         }
@@ -485,10 +499,22 @@ public sealed class MemberParser {
         if (op == "^")  { return "op_ExclusiveOr"; }
         if (op == "<<") { return "op_LeftShift"; }
         if (op == ">>") { return "op_RightShift"; }
+        if (op == ">>>") { return "op_UnsignedRightShift"; }   // fix-ushr（C# 11 对齐）
         // 表外符号 = **不可重载**，与派发侧 `TypeFactsTc._operatorMethodNameTc` 同一约定
         // （`TypeChecker.z42` 那句「`""` 表不可重载」记的就是它）。此前这里回落 `"op_" + op`
         // 替表外符号**造了个名字**，于是声明侧「有」而派发侧「无」——两侧对同一个问题给出相反
         // 答案，非法名 `op_!` 因此一路进到发码。唯一的判据放在这一份表里。
+        return "";
+    }
+
+    // fix-unary-op-overload：一元可重载表（C# 镜像命名）。`-` / `+` 与二元同符号——
+    // 按形参个数分流（一元形态在 _parseMethodTail 解析完后改名）。`++` / `--` 刻意不在
+    // 表里（自增走数值域脱糖；z42 无 true/false operator）。
+    public static string _unaryOperatorMethodName(string op) {
+        if (op == "-") { return "op_UnaryNegation"; }
+        if (op == "+") { return "op_UnaryPlus"; }
+        if (op == "!") { return "op_LogicalNot"; }
+        if (op == "~") { return "op_OnesComplement"; }
         return "";
     }
 

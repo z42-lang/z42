@@ -16,6 +16,7 @@
 namespace Z42.Scripting;
 
 using Std.IO;
+using Std.Collections;       // List（fix-repl-multi-statement：多段收集）
 using Std.Threading;   // Thread（add-repl-prewarm：Join 后台预热 worker）
 using Z42.Syntax;            // Lexer / TokenKind（_isStatement token 判——前端已是 stdlib）
 using Z42.Build;             // IReplCompiler / ReplCompileResult（编译经门面——sink-repl-compile-facade）
@@ -132,6 +133,13 @@ public static class Script {
         // 避免后台 worker 读 state.Usings 与主线程改 state.Usings 竞争（Join 是内存屏障）。
         // worker 已完成 → Join 瞬回；无 worker（.reset / -c）→ inline Prewarm 兜底。
         Script._ensureWarm(state);
+
+        // fix-repl-multi-statement：多语句单行（顶层分号切出 >1 段，如 `int b = 0; b = b + 1; b`）
+        // 走多段路径（var 声明并入本轮 Vars{n}、语句拼函数体、尾表达式作轮返回值）。此前整行被
+        // Classifier 当**单个** var 声明、剩余语句全进 init（发进类体报 E0201）。单段输入不走此
+        // 路径——既有语义零改动。
+        string[] segs = Script._splitTopLevel(trimmed);
+        if (segs.Length > 1) { return Script._evalMulti(state, segs); }
 
         // ── using 声明：累积（去重），不编译 ──
         if (trimmed.StartsWith("using ")) {
@@ -361,5 +369,194 @@ public static class Script {
             i = i + 1;
         }
         return false;
+    }
+
+    // ══ fix-repl-multi-statement：多语句单行 ═══════════════════════════════════
+
+    // token 级顶层切分：按括号深度 0 的 `;` 把输入切成语句段（尾段无分号也保留）。
+    // 圆/方括号内的分号不切（调用实参 / 数组初始化器安全）；**顶层花括号块闭合后**若下一
+    // token 非块延续（else / catch / finally / while（do-while 尾）/ `.`），也切——块语句
+    // 自终止，`if (…) { … } k` 的尾表达式 `k` 是独立一段（只按分号切会把它粘进块段，被
+    // 语句判定吞掉返回值）。**尖括号不计深度**——泛型实参自平衡，而顶层比较表达式
+    // （`a < b; c > d`）若计深度会把切点误保护进「泛型」里，两害取其轻。
+    // 字符串/注释里的分号由词法器吞掉，天然不构成 token。返回 Trim 后的非空段。
+    private static string[] _splitTopLevel(string input) {
+        Lexer lx = new Lexer(input, "<repl>");
+        lx.Tokenize();
+        int cnt = lx.TokenCount();
+        List<string> segs = new List<string>();
+        int depth = 0;
+        int start = 0;
+        int i = 0;
+        while (i < cnt) {
+            int k = lx.TokenAt(i).Kind;
+            if (k == TokenKind.LParen || k == TokenKind.LBracket || k == TokenKind.LBrace) { depth = depth + 1; }
+            else if (k == TokenKind.RParen || k == TokenKind.RBracket) { depth = depth - 1; }
+            else if (k == TokenKind.RBrace) {
+                depth = depth - 1;
+                // **块**闭合到顶层：非延续形态 → 块语句在此终止，下一 token 起是新一段。
+                // 只对花括号（语句级自终止）——圆/方括号闭合后是表达式延续（`f(1) + 2`），
+                // 且 `if (…)` 与其块体之间也绝不能切。
+                if (depth == 0 && i + 1 < cnt) {
+                    int nk = lx.TokenAt(i + 1).Kind;
+                    bool continues = nk == TokenKind.Else || nk == TokenKind.Catch || nk == TokenKind.Finally
+                        || nk == TokenKind.While || nk == TokenKind.Dot;
+                    if (!continues && nk != TokenKind.Semicolon && nk != TokenKind.Eof) {
+                        string seg = input.Substring(start, lx.TokenAt(i + 1).Span.Start - start).Trim();
+                        if (seg.Length > 0) { segs.Add(seg); }
+                        start = lx.TokenAt(i + 1).Span.Start;
+                    }
+                }
+            }
+            else if (k == TokenKind.Semicolon && depth <= 0) {
+                string seg = input.Substring(start, lx.TokenAt(i).Span.Start - start).Trim();
+                if (seg.Length > 0) { segs.Add(seg); }
+                start = lx.TokenAt(i).Span.End;
+            }
+            i = i + 1;
+        }
+        string tail = input.Substring(start, input.Length - start).Trim();
+        if (tail.Length > 0) { segs.Add(tail); }
+        return segs.ToArray();
+    }
+
+    // 单条 using 段累积（去重）。Eval 的整行 using 与多段路径的 using 段共用同一语义。
+    private static void _absorbUsing(ScriptState state, string seg) {
+        string nsName = seg.Substring(6, seg.Length - 6).Trim();
+        if (nsName.EndsWith(";")) { nsName = nsName.Substring(0, nsName.Length - 1).Trim(); }
+        bool seen = false;
+        int sk = 0;
+        while (sk < state.Usings.Count) { if (state.Usings[sk] == nsName) { seen = true; } sk = sk + 1; }
+        if (!seen) { state.Usings.Add(nsName); }
+    }
+
+    // 多语句单行主流程：逐段分类收集 → 汇编 prelude/body → 编译双路 → 加载推进。
+    // using 累积；var 声明并入本轮 Vars{n}（同轮重名后者胜）；语句段拼函数体；尾段按
+    // 语句/表达式二分（表达式作轮返回值）。类型/函数声明段与逐段包语义冲突 → 报错请独占一行。
+    [Suppress("style.fnLinesHard", "58 body lines；分类收集一段；汇编编译一段")]
+    private static EvalResult _evalMulti(ScriptState state, string[] segs) {
+        int n = Script._lastLoadedRound + 1;
+        string ns = "Repl.R" + n.ToString();
+        string efn = "Eval" + n.ToString();
+        string cls = "Vars" + n.ToString();
+
+        // 本轮改写名集 = 既有会话变量 ∪ 本轮新声明（后者逐段追加，前段 init 可引后段名不成立、
+        // 后段引前段名成立——静态字段按声明序初始化）。
+        List<string> names = new List<string>();
+        int oi = 0;
+        while (oi < state.VarNames.Count) { names.Add(state.VarNames[oi]); oi = oi + 1; }
+        List<string> newNames = new List<string>();     // 本轮新变量（有序，登记会话用）
+        List<string> decls = new List<string>();        // Vars{n} 类的新声明行（改写后）
+        List<string> bodySegs = new List<string>();     // 语句段（改写后）
+        string lastExpr = "";                           // 尾表达式段（改写后）；"" = 无值轮
+
+        int si = 0;
+        while (si < segs.Length) {
+            string seg = segs[si];
+            si = si + 1;
+            if (seg.StartsWith("using ")) { Script._absorbUsing(state, seg); continue; }
+            ParsedInput p = Classifier.Classify(seg);
+            if (p.IsDecl) {
+                return new EvalResult(false, false, null,
+                    "error: 顶层类型/函数声明请独占一行（多语句行内混排不支持）: " + seg + "\n", state);
+            }
+            if (p.IsVarDecl) {
+                // 同轮重名：后者胜（删除前者的声明行与名，避免 Vars 类重复字段 E0443）。
+                int di = 0;
+                while (di < newNames.Count) { if (newNames[di] == p.VarName) {
+                    newNames.RemoveAt(di);
+                    decls.RemoveAt(di);
+                    int ni2 = names.Count - 1;
+                    while (ni2 >= 0 && names[ni2] != p.VarName) { ni2 = ni2 - 1; }   // 只删本轮加的那份
+                    if (ni2 >= 0) { names.RemoveAt(ni2); }
+                } di = di + 1; }
+                string initR = Rewriter.Rewrite(p.InitExpr, names, cls);
+                string declKw = (p.DeclType.Length > 0) ? p.DeclType : "var";
+                decls.Add("  public static " + declKw + " " + p.VarName + " = " + initR + ";");
+                newNames.Add(p.VarName);
+                names.Add(p.VarName);
+                // var 声明在尾段 → 它的值作轮返回值（对齐单 var 轮语义）；中间段无值。
+                if (si == segs.Length) { lastExpr = cls + "." + p.VarName; }
+                continue;
+            }
+            // 表达式 / 语句段：尾段按 _isStatement 二分；中间段一律作语句拼入（表达式语句
+            // 限调用等合法形态，非法时编译错自然显示）。
+            string rewritten = seg;
+            if (names.Count > 0) { rewritten = Rewriter.Rewrite(seg, names, cls); }
+            if (si == segs.Length && !Script._isStatement(rewritten.Trim())) {
+                lastExpr = rewritten;
+            } else {
+                bodySegs.Add(rewritten);
+            }
+        }
+        if (newNames.Count == 0 && bodySegs.Count == 0 && lastExpr.Length == 0) {
+            return new EvalResult(true, false, null, "", state);   // 全 using 段：累积即完成
+        }
+        return Script._evalMultiCompile(state, n, ns, efn, cls, decls, bodySegs, lastExpr, newNames);
+    }
+
+    // 多段路径的后半：carry + 新声明汇编 Vars{n} 类与 Eval{n} 函数体，表达式尾优先、失败回退
+    // 语句尾（镜像单段双路），成功后加载推进（VarsRound / 名册 / ExtendWorld）。
+    [Suppress("style.fnLinesHard", "52 body lines；编译双路与单段 Eval 同构")]
+    private static EvalResult _evalMultiCompile(ScriptState state, int n, string ns, string efn, string cls,
+                                                List<string> decls, List<string> bodySegs, string lastExpr,
+                                                List<string> newNames) {
+        string prelude = Script._basePrelude(state, ns);
+        prelude = prelude + "public static class " + cls + " {\n";
+        string carryCls = "Vars" + state.VarsRound.ToString();
+        int vi = 0;
+        while (vi < state.VarNames.Count) {
+            prelude = prelude + "  public static var " + state.VarNames[vi] + " = " + carryCls + "." + state.VarNames[vi] + ";\n";
+            vi = vi + 1;
+        }
+        int di = 0;
+        while (di < decls.Count) { prelude = prelude + decls[di] + "\n"; di = di + 1; }
+        prelude = prelude + "}\n";
+
+        // 函数体：语句段拼接（块尾空格 / 其余分号——同 fix-repl-block-statement-tail）+ 尾表达式。
+        string body = "";
+        int bi = 0;
+        while (bi < bodySegs.Count) {
+            string s = bodySegs[bi].Trim();
+            body = body + s + (s.EndsWith("}") ? " " : "; ");
+            bi = bi + 1;
+        }
+        bool hasValue = lastExpr.Length > 0;
+        ReplCompileResult art = Script._compileBody(state, n, prelude, efn,
+            body + (hasValue ? ("return (" + lastExpr + ");") : "return null;"));
+        if (art.ErrorCount > 0 && hasValue) {
+            // 尾表达式段失败 → 回退纯语句（副作用调用等），镜像单段路径。
+            string lex = lastExpr.Trim();
+            ReplCompileResult artS = Script._compileBody(state, n, prelude, efn,
+                body + lex + (lex.EndsWith("}") ? " " : "; ") + "return null;");
+            if (artS.ErrorCount == 0) { art = artS; hasValue = false; }
+        }
+        if (art.ErrorCount > 0) {
+            int pl = Script._countNewlines(prelude);
+            string err = "";
+            int dj = 0;
+            while (dj < art.DiagCount) { err = err + Script._remapDiag(art.Diagnostics[dj], pl) + "\n"; dj = dj + 1; }
+            return new EvalResult(false, false, null, err, state);   // 会话不推进
+        }
+        Engine.LoadBytes(art.Bytes);
+        Script._lastLoadedRound = n;
+        object result = null;
+        try {
+            result = Engine.Invoke(ns + "." + efn);
+        } catch (Exception e) {
+            return new EvalResult(false, false, null, e.GetType().Name + ": " + e.Message + "\n", state);
+        }
+        ReplCompilerHost.Get().ExtendWorld(state.CachedScan, art.Bytes, "repl_r" + n.ToString());
+        state.VarsRound = n;
+        int ni = 0;
+        while (ni < newNames.Count) {
+            bool dup = false;
+            int dk = 0;
+            while (dk < state.VarNames.Count) { if (state.VarNames[dk] == newNames[ni]) { dup = true; } dk = dk + 1; }
+            if (!dup) { state.VarNames.Add(newNames[ni]); }
+            ni = ni + 1;
+        }
+        object retVal = hasValue ? result : null;
+        return new EvalResult(true, hasValue, retVal, "", state);
     }
 }

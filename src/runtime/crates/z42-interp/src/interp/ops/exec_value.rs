@@ -43,6 +43,7 @@ pub(super) fn copy(frame: &mut Frame, dst: u32, src: u32) -> Result<()> {
 
 pub(super) fn add(
     ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, a: u32, b: u32,
+    a_u64: bool, b_u64: bool,
 ) -> Result<()> {
     // dispatch-tostring-in-native-stringify: 混合臂（一侧是字符串）的非串操作数走与
     // `$"{obj}"`（`ToStr` 指令）同一个 `ToString` 协议（`with_obj_str`）——class / record /
@@ -50,7 +51,7 @@ pub(super) fn add(
     // perf-str-concat-direct: 非串操作数**不落地**成中间串——标量格式化进栈缓冲、用户
     // `ToString` 返回的 GC 串原样借用——直接和另一侧一起拷进结果块（一次 GC 分配，零 malloc）。
     let result = match (frame.get(a)?, frame.get(b)?) {
-        (Value::Str(_), _) | (_, Value::Str(_)) => return add_str(ctx, module, frame, dst, a, b),
+        (Value::Str(_), _) | (_, Value::Str(_)) => return add_str(ctx, module, frame, dst, a, b, a_u64, b_u64),
         // vm-wrapping-int-arith: wrapping_add（与 Rust release build /
         // C# unchecked int / Java int 一致），解锁 hash / PRNG / 校验和算法
         _ => int_binop(&frame.regs, a, b, i64::wrapping_add, |x, y| x + y)?,
@@ -60,23 +61,55 @@ pub(super) fn add(
 }
 
 /// The string arm of [`add`] — at least one operand is a string.
+/// fix-u64-semantics（Add-string 补丁）：非串标量操作数**静态**为 U64 时按 u64 格式化
+/// （`"k" + hi` 打 `k18446744073709551615` 而非 `k-1`；标志在 exec_instr 分派点按
+/// `reg_types` 算好）。对象 / 装箱操作数不受影响，仍走 `ToString` 协议。
 #[inline(never)] // 热循环布局：留在 exec_function_body 之外（见 exec_instr.rs 模块注释）
-fn add_str(ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, a: u32, b: u32) -> Result<()> {
+fn add_str(
+    ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, a: u32, b: u32,
+    a_u64: bool, b_u64: bool,
+) -> Result<()> {
     let result = match (frame.get(a)?, frame.get(b)?) {
         // fuse-str-concat-alloc: allocate the concatenation as one fused GC block.
         (Value::Str(sa), Value::Str(sb)) => Value::Str(ctx.heap().alloc_str_concat2(sa, sb)),
         (Value::Str(sa), vb) => {
             let sa = *sa;
-            Value::Str(with_obj_str(ctx, module, vb, |t| ctx.heap().alloc_str_concat2(&sa, t))?)
+            // 文本次序 str ++ scalar ⇒ scalar_left = false
+            Value::Str(concat_with_scalar(ctx, module, &sa, vb, b_u64, false)?)
         }
         (va, Value::Str(sb)) => {
             let sb = *sb;
-            Value::Str(with_obj_str(ctx, module, va, |t| ctx.heap().alloc_str_concat2(t, &sb))?)
+            // 文本次序 scalar ++ str ⇒ scalar_left = true
+            Value::Str(concat_with_scalar(ctx, module, &sb, va, a_u64, true)?)
         }
         _ => bail!("add_str: neither operand is a string"),
     };
     frame.set(dst, result);
     Ok(())
+}
+
+/// `"<str><scalar>"` 的一次性拼接：标量侧静态 U64 且载荷为 I64 ⇒ u64 格式化（与
+/// `$"{hi}"` 的 ToStr 补丁同口径）；其余（对象 / 装箱 / 其他标量）走 `with_obj_str`。
+/// `scalar_left` 只决定拼接次序。
+fn concat_with_scalar(
+    ctx: &VmContext, module: &Module, s: &crate::object::string::vstr::Str,
+    v: &Value, v_u64: bool, scalar_left: bool,
+) -> Result<crate::object::string::vstr::Str> {
+    let heap = ctx.heap();
+    if v_u64 {
+        if let Value::I64(_) = v {
+            return Ok(if scalar_left {
+                crate::object::value::format::with_value_str_u64(v, |t| heap.alloc_str_concat2(t, s))
+            } else {
+                crate::object::value::format::with_value_str_u64(v, |t| heap.alloc_str_concat2(s, t))
+            });
+        }
+    }
+    Ok(if scalar_left {
+        with_obj_str(ctx, module, v, |t| heap.alloc_str_concat2(t, s))?
+    } else {
+        with_obj_str(ctx, module, v, |t| heap.alloc_str_concat2(s, t))?
+    })
 }
 
 pub(super) fn sub(frame: &mut Frame, dst: u32, a: u32, b: u32) -> Result<()> {
@@ -214,7 +247,10 @@ pub(super) fn not(frame: &mut Frame, dst: u32, src: u32) -> Result<()> {
 
 pub(super) fn neg(frame: &mut Frame, dst: u32, src: u32) -> Result<()> {
     let res = match frame.get(src)? {
-        Value::I64(n) => Value::I64(-n),
+        // fix-ushr 顺手修：wrapping_neg 对齐 vm-wrapping-int-arith 契约（`-i64::MIN` ==
+        // `i64::MIN`）。此前裸 `-n` 在 debug 构建是 Rust overflow panic（`-9223372036854775808L`
+        // 字面量直接崩 VM），release 才静默 wrap —— 两模式行为分裂。
+        Value::I64(n) => Value::I64(n.wrapping_neg()),
         Value::F64(f) => Value::F64(-f),
         other => bail!("Neg: expected numeric, got {:?}", other),
     };

@@ -55,6 +55,7 @@ public sealed class IrGenAuxEmitter {
                 EnumDecl ed = de as EnumDecl;
                 IrClassDesc edesc = new IrClassDesc(this._g._q(ed.Name), false, "", new IrFieldDesc[0], 0);
                 edesc.Flags = edesc.Flags | 32;   // bit5 = enum
+                edesc.Visibility = DeclFacts.classVisCode(ed.ModFlags, false);   // access-top-scope：跨包可见性字节（消费端拒 private/protected 引用）
                 string[] mn = new string[ed.MemberCount];
                 long[] mv = new long[ed.MemberCount];
                 long cur = 0;
@@ -84,6 +85,7 @@ public sealed class IrGenAuxEmitter {
                 string dfq = this._g._q(dd.Name);
                 IrClassDesc ddesc = new IrClassDesc(dfq, false, "", new IrFieldDesc[0], 0);
                 ddesc.Flags = ddesc.Flags | 64;   // bit6 = delegate
+                ddesc.Visibility = DeclFacts.classVisCode(dd.ModFlags, false);   // access-top-scope：跨包可见性字节
                 if (dd.TypeParams.Count > 0) {
                     ddesc.TypeParams = dd.TypeParams.Names; ddesc.TypeParamCount = dd.TypeParams.Count;
                     ddesc.TypeParamConstraints = new IrConstraintDesc[dd.TypeParams.Count];

@@ -38,7 +38,8 @@
 // 正好是这个粒度 ⇒ 挂在表项上。**`pattern_match` 不在这张表里**：裁决（D2-6 甲）是只关
 // 「进模式引擎的 5 个入口」而**保留** `x is T` / `x is T v`（类型测试，`ExprParser:181-183`
 // 明写不入模式引擎）⇒ 它比「`is` 这个 token」细一档，只能挂在引擎入口。
-// ⚠️ `&=` / `|=` / `^=` **未**挂 `bitwise`：本批裁决的范围是那 5 个运算符，复合赋值的归属待裁。
+// （fix-ushr 裁决落定）位运算的复合赋值 `&=` / `|=` / `^=` / `<<=` / `>>=` / `>>>=` 与 `>>>`
+// 一并挂 `bitwise`——门关闭的语言含义是「无位运算」，复合形式单独存活即语义泄漏。
 namespace Z42.Syntax;
 
 // 本层用到的特性名。`LanguageFeatures.Phase1Profile()` 是**名单**的 SoT，这里只是把
@@ -87,7 +88,8 @@ public static class ParseTable {
     public static int LeftBp(int k) {
         if (k == TokenKind.Eq || k == TokenKind.PlusEq || k == TokenKind.MinusEq
             || k == TokenKind.StarEq || k == TokenKind.SlashEq || k == TokenKind.PercentEq
-            || k == TokenKind.AmpEq || k == TokenKind.PipeEq || k == TokenKind.CaretEq) { return 10; }
+            || k == TokenKind.AmpEq || k == TokenKind.PipeEq || k == TokenKind.CaretEq
+            || k == TokenKind.LtLtEq || k == TokenKind.GtGtEq || k == TokenKind.GtGtGtEq) { return 10; }   // fix-ushr：移位复合赋值
         if (k == TokenKind.Question)         { return 20; }
         if (k == TokenKind.QuestionQuestion) { return 25; }
         if (k == TokenKind.PipePipe)  { return 30; }
@@ -98,7 +100,7 @@ public static class ParseTable {
         if (k == TokenKind.EqEq || k == TokenKind.BangEq) { return 50; }
         if (k == TokenKind.Lt || k == TokenKind.LtEq || k == TokenKind.Gt || k == TokenKind.GtEq) { return 60; }
         if (k == TokenKind.Is || k == TokenKind.As) { return 60; }
-        if (k == TokenKind.LtLt || k == TokenKind.GtGt) { return 65; }
+        if (k == TokenKind.LtLt || k == TokenKind.GtGt || k == TokenKind.GtGtGt) { return 65; }   // fix-ushr：>>> 与 << >> 同档（C# 11 对齐）
         if (k == TokenKind.Plus || k == TokenKind.Minus)  { return 70; }
         if (k == TokenKind.Star || k == TokenKind.Slash || k == TokenKind.Percent) { return 80; }
         if (k == TokenKind.Switch || k == TokenKind.With) { return 85; }
@@ -109,7 +111,8 @@ public static class ParseTable {
     public static int Led(int k) {
         if (k == TokenKind.Eq || k == TokenKind.PlusEq || k == TokenKind.MinusEq
             || k == TokenKind.StarEq || k == TokenKind.SlashEq || k == TokenKind.PercentEq
-            || k == TokenKind.AmpEq || k == TokenKind.PipeEq || k == TokenKind.CaretEq) { return LedKind.Assign; }
+            || k == TokenKind.AmpEq || k == TokenKind.PipeEq || k == TokenKind.CaretEq
+            || k == TokenKind.LtLtEq || k == TokenKind.GtGtEq || k == TokenKind.GtGtGtEq) { return LedKind.Assign; }
         if (k == TokenKind.Question)         { return LedKind.Ternary; }
         if (k == TokenKind.QuestionQuestion) { return LedKind.NullCoalesce; }
         if (k == TokenKind.Is) { return LedKind.IsPattern; }
@@ -126,7 +129,7 @@ public static class ParseTable {
         if (k == TokenKind.Pipe || k == TokenKind.Caret || k == TokenKind.Ampersand) { return true; }
         if (k == TokenKind.EqEq || k == TokenKind.BangEq) { return true; }
         if (k == TokenKind.Lt || k == TokenKind.LtEq || k == TokenKind.Gt || k == TokenKind.GtEq) { return true; }
-        if (k == TokenKind.LtLt || k == TokenKind.GtGt) { return true; }
+        if (k == TokenKind.LtLt || k == TokenKind.GtGt || k == TokenKind.GtGtGt) { return true; }
         if (k == TokenKind.Plus || k == TokenKind.Minus) { return true; }
         if (k == TokenKind.Star || k == TokenKind.Slash || k == TokenKind.Percent) { return true; }
         return false;
@@ -146,8 +149,12 @@ public static class ParseTable {
     // ── 特性门（第 1 层与第 2 层的接缝）──────────────────────────────────
     // "" = 永远启用。粒度是「整个 token 的构造」，见抬头「特性门能表达到什么粒度」。
     public static string Feature(int k) {
+        // fix-ushr 裁决（ParseTable 抬头旧悬案落定）：位运算的**复合赋值形式**一并挂 `bitwise`——
+        // 该门关闭的语言含义是「无位运算」，`x &= y` 单独存活即语义泄漏；粒度仍是 token 构造。
         if (k == TokenKind.Pipe || k == TokenKind.Caret || k == TokenKind.Ampersand
-            || k == TokenKind.LtLt || k == TokenKind.GtGt) { return FeatureNames.Bitwise; }
+            || k == TokenKind.LtLt || k == TokenKind.GtGt || k == TokenKind.GtGtGt
+            || k == TokenKind.AmpEq || k == TokenKind.PipeEq || k == TokenKind.CaretEq
+            || k == TokenKind.LtLtEq || k == TokenKind.GtGtEq || k == TokenKind.GtGtGtEq) { return FeatureNames.Bitwise; }
         if (k == TokenKind.Question) { return FeatureNames.Ternary; }
         return "";
     }
@@ -170,8 +177,8 @@ public static class ParseTable {
     // 挡掉 or-模式的 `|`（`x is 1 | 2` 里 `|` 必须留给模式引擎续 or-链），允许 `^` / `&` / 算术。
     public static int BetweenOrAndXor() { return ParseTable.LeftBp(TokenKind.Pipe) + 1; }
 
-    // 同步门用：需要遍历的 token kind 上界（`TokenKind.Propertyof` = 157 是当前最大值）。
-    public static int MaxKind() { return 158; }
+    // 同步门用：需要遍历的 token kind 上界（`TokenKind.GtGtGtEq` = 161 是当前最大值）。
+    public static int MaxKind() { return 162; }
 }
 
 // ── 语句位的**步骤**（顺序即数据）────────────────────────────────────────────

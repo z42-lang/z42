@@ -79,6 +79,22 @@ interop 侧的 materialize/load_named 继续以 `loader::native::resolve_symbol`
 的线程级形态；载荷身份词汇 `ContextId` / `AssemblyId` 由 `object::identity` 拥有，loader 经再导出保持注册表路径。
 `TypeDesc.id` 的 TypeId 仍指 metadata（见缺口表）。
 
+进程级 `runtime_config()` 的消费面已分类钉死：CLI/启动与 host 运行策略（进程语义）、config 自身、
+loader 的融合输入与 native 路径默认（文档钦定的进程装载策略）、corelib 的 `__cfg_*` / 应用属性
+（托管查询面）为合法进程级读取；`vm/defaults` 默认构造按进程快照捕获（每 VM 模型的正确形态）；
+后端生产读取为零。原最后一个裸读取点（worker 线程栈尺寸在 spawn 时查进程配置）改为 `VmConfig`
+构造时捕获进 `VmCore::vm_thread_stack_size`，spawn 只读快照。
+
+token 家族已整族下移 object：`define_token!` 家族（TypeId / FnId / StaticFieldId / BuiltinId /
+TypeKeyCell / `alloc_type_id_block`，零 crate 依赖）从 `metadata/ids/tokens.rs` 迁至
+`object/tokens.rs`——身份原语归表示层，与 `object::identity` 的 ContextId / AssemblyId 汇成完整的
+跨域身份词汇家；`metadata::ids::tokens` 以模块再导出保活铸造/注册侧路径（全仓引用零改动）。
+对象表示对 metadata 的身份依赖就此归零，缺口表清空。
+
+C 适配归能力所有者转长期留档：`host/c/` 五文件归组是当前最优形态（单一 C 面、集中可发现）；
+分域搬移的触发条件为出现第二个 C 面（per-domain 头文件）或适配规模显著超出五文件，届时随真实
+能力边界分域，不预做分散。
+
 协议内依赖身份已收口：`RuntimeApi::query_component` 的按 ID 查询在生产构建回答 UNAVAILABLE——
 组件依赖一律经描述符的依赖闭包由管理层解析（`get_service` 按语义服务获取不变）；真实现仅内部
 测试构建注册。另清三处可见性收口遗留的孤儿再导出（object/header 的 marks glob、gc 的
@@ -114,9 +130,7 @@ vm/mod.rs 只负责共享 Core 与线程视图的组合、布局、构造和生�
 
 | 缺口 | 代码证据 | 影响与目标 |
 |---|---|---|
-| 低层上下文默认构造仍使用进程配置 | availability 的组件可用性查询已收口：JIT 目标矩阵以 build 脚本派生的 `z42_jit_supported` cfg 为单一来源，config 不再反向调 components（`execution_supported` 已删除） | 进程 bootstrap 与 VM 设置分开捕获；进程级 `runtime_config()` 逐 VM 化归 W3 |
-| 普通宿主与 C 适配尚未分开 | C 适配五文件已归组 `host/c/`（经 host 根再导出），尚未归能力所有者 | CLI 已归 cli 适配且平台构建可排除；后续 C 适配/头文件归能力所有者，host 保留功能请求/环境服务契约 |
-| TypeDesc 引用 metadata 的 TypeId | `object/types/type_desc.rs` 的 `pub id`（原缺口三边中的其余两边已收口：ambient 堆附着迁 `gc::ambient`，`ContextId`/`AssemblyId` 身份词汇归 `object::identity`） | TypeId 属 `define_token!` token 家族（IMPORT_BASE/import_idx 语义一体），单独抽出会撕裂词汇一致性；抽出需整族设计裁决 |
+
 
 
 这些是源码中的具体依赖，不是 Cargo 生产依赖环的证明。生产 core 不依赖具体后端，测试 dev-dependency 和

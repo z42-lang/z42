@@ -47,6 +47,12 @@ public sealed partial class SymbolTable {
     // 两者此前都不存在 ⇒ 接口/enum 的类型身份只有短名，与类那半边不一致。
     public StrMap InterfacesByFqn;
     public StrMap EnumTypeNs;
+    // access-top-scope：显式 private/protected 的 enum 声明事实（FQN → vis / 声明文件）。仅显式
+    // 新档位时记录（无修饰/显式 internal/public 不记 ⇒ 合成默认 public，与既有行为逐字一致）。
+    // `EnumType(key)` 合成 Z42ClassType 时回填，CheckTypeRef 消费（private=文件 / protected=本包∩同名 ns；
+    // 嵌套 '+' 名走 _checkVisRef 既有嵌套分支）。跨包导入侧不重建此表 ⇒ 导入 enum 一律放行（既有行为）。
+    public StrMap EnumTypeVis;
+    public StrMap EnumTypeFile;
     public StrMap EnumConsts;       // "EnumFqn.MemberName" → 整数值字符串
     public StrMap Delegates;        // FQN → Z42FuncType（用户 delegate，非泛型；委托类型即函数类型）
     // add-bare-name-ambiguity-diagnostic：**短名 → 声明过它的全部命名空间**（值 StrBox，"|" 连接，登记序）。
@@ -133,6 +139,8 @@ public sealed partial class SymbolTable {
         this.EnumTypes = new StrMap();
         this.InterfacesByFqn = new StrMap(512);   // unify-type-identity-fqn（perf-strmap 同上）
         this.EnumTypeNs = new StrMap();        // unify-type-identity-fqn
+        this.EnumTypeVis = new StrMap();       // access-top-scope
+        this.EnumTypeFile = new StrMap();      // access-top-scope
         this.EnumConsts = new StrMap();
         this.Delegates = new StrMap();
         this.ClassNsAll = new StrMap();
@@ -193,6 +201,8 @@ public sealed partial class SymbolTable {
         this.EnumTypes = parent.EnumTypes;
         this.InterfacesByFqn = parent.InterfacesByFqn;   // unify-type-identity-fqn：共享（并行段内只读）
         this.EnumTypeNs = parent.EnumTypeNs;             // unify-type-identity-fqn：共享（并行段内只读）
+        this.EnumTypeVis = parent.EnumTypeVis;           // access-top-scope：同上共享（漏拷 = 视图上合成 enum NPE）
+        this.EnumTypeFile = parent.EnumTypeFile;         // access-top-scope：同上
         this.EnumConsts = parent.EnumConsts;
         this.Delegates = parent.Delegates;
         this.ClassNsAll = parent.ClassNsAll;   // add-bare-name-ambiguity-diagnostic：共享（并行段内只读）
@@ -311,6 +321,21 @@ public sealed partial class SymbolTable {
         string ns = (this.EnumTypeNs.ValAt(at) as StrBox).Value;
         Z42ClassType ect = Z42ClassType.Enum(ns == "" ? key : key.Substring(ns.Length + 1, key.Length - ns.Length - 1));
         ect.Namespace = ns;
+        // access-top-scope：显式 private/protected 的 enum 回填（合成点唯一 ⇒ 这里是唯一回填位）。
+        // 值带 "imp:" 前缀 = 导入（_mergeImportedEnums）⇒ 置 IsImported：private 文件比对恒不中、
+        // protected 跨包一律拒（同名 ns 也不放行）——与类那半边（IsImported）同一判据。
+        int vat = this.EnumTypeVis.Find(key);
+        if (vat >= 0) {
+            string v = this.EnumTypeVis.ValAt(vat) as string;
+            if (v != null && v.Length > 4 && v.Substring(0, 4) == "imp:") {
+                ect.Visibility = v.Substring(4, v.Length - 4);
+                ect.IsImported = true;
+            } else {
+                ect.Visibility = v;
+                int fat = this.EnumTypeFile.Find(key);
+                if (fat >= 0) { ect.DeclFile = this.EnumTypeFile.ValAt(fat) as string; }
+            }
+        }
         return ect;
     }
 

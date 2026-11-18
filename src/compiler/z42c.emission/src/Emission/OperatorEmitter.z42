@@ -36,7 +36,10 @@ public sealed class OperatorEmitter {
             }
             return this._emitCompare(op, a, c);   // → bool
         }
-        TypedReg d = this._ctx.Alloc(this._ctx.ToIrType(b.Type()));
+        // fix-enum-bitwise：enum 结果的**载荷域**是 i64（z42 每个枚举 long 背书）——
+        // ToIrType(enum)=Ref 是引用语义，位运算产物是标量，须 Alloc I64。
+        int dIr = Z42.Symbols.TypeFacts.IsEnum(b.Type()) ? IrType.I64 : this._ctx.ToIrType(b.Type());
+        TypedReg d = this._ctx.Alloc(dIr);
         if (op == "-") { this._ctx.Emit(new SubInstr(d, a, c)); }
         else if (op == "*") { this._ctx.Emit(new MulInstr(d, a, c)); }
         else if (op == "/") { this._ctx.Emit(new DivInstr(d, a, c)); }
@@ -46,6 +49,13 @@ public sealed class OperatorEmitter {
         else if (op == "^") { this._ctx.Emit(new BitXorInstr(d, a, c)); }
         else if (op == "<<") { this._ctx.Emit(new ShlInstr(d, a, c)); }
         else if (op == ">>") { this._ctx.Emit(new ShrInstr(d, a, c)); }
+        // fix-ushr：`>>>` = 「按同宽无符号重解释再 >>」（C# 11 同款定义）。无新 opcode——
+        // Shr 在 U 型左操作数上按逻辑移位执行（运行时静态类型分派，scalar.rs 语义表 U64 行）。
+        // 窄符号数符号扩展存储 ⇒ 先 Convert 截位零扩展；无符号操作数零扩展恒正，直发 Shr。
+        else if (op == ">>>") {
+            a = this._reinterpretUnsigned(a, b.Left.Type());
+            this._ctx.Emit(new ShrInstr(d, a, c));
+        }
         else if (op == "+") {
             // make-enum-distinct-type 1.5：enum 操作数先装箱，让运行期拼出成员名而非裸 i64。
             // **无需判「结果是不是 string」**：enum 的算术 `+`（enum+enum / enum+整数）已被
@@ -67,6 +77,22 @@ public sealed class OperatorEmitter {
         return d;
     }
 
+    // fix-ushr：`>>>` 的左操作数重解释为同宽无符号（signed 窄数先 Convert 截位零扩展；
+    // unsigned/char 等零扩展恒正，原样透传）。产出的中间寄存器类型标签（U8..U64）是
+    // 运行时 Shr 按逻辑移位执行的判据（reg_types 静态分派）。
+    private TypedReg _reinterpretUnsigned(TypedReg x, Z42Type t) {
+        string n = Z42.Symbols.TypeFacts._asPrimName(t);
+        int u = 0;
+        if (n == "sbyte") { u = IrType.U8; }
+        else if (n == "short") { u = IrType.U16; }
+        else if (n == "int")   { u = IrType.U32; }
+        else if (n == "long")  { u = IrType.U64; }
+        if (u == 0) { return x; }
+        TypedReg d = this._ctx.Alloc(u);
+        this._ctx.Emit(new ConvertInstr(d, x));
+        return d;
+    }
+
     // 比较 → bool（操作数类型透传到指令文本）。
     private TypedReg _emitCompare(string op, TypedReg a, TypedReg c) {
         TypedReg d = this._ctx.Alloc(IrType.Bool);
@@ -85,7 +111,8 @@ public sealed class OperatorEmitter {
         string op = u.Op;
         if (op == "!") { TypedReg d = this._ctx.Alloc(IrType.Bool); this._ctx.Emit(new NotInstr(d, x)); return d; }
         if (op == "-") { TypedReg d = this._ctx.Alloc(this._ctx.ToIrType(u.Type())); this._ctx.Emit(new NegInstr(d, x)); return d; }
-        if (op == "~") { TypedReg d = this._ctx.Alloc(this._ctx.ToIrType(u.Type())); this._ctx.Emit(new BitNotInstr(d, x)); return d; }
+        // fix-enum-bitwise：enum 结果载荷域 i64（ToIrType(enum)=Ref 是引用语义）。
+        if (op == "~") { int nIr = Z42.Symbols.TypeFacts.IsEnum(u.Type()) ? IrType.I64 : this._ctx.ToIrType(u.Type()); TypedReg d = this._ctx.Alloc(nIr); this._ctx.Emit(new BitNotInstr(d, x)); return d; }
         if (op == "+") { return x; }
         // 前置 ++/--（"pre++"/"pre--"）：x = x ± 1，返回**新值**（区别于后置返回旧值）。
         // BoundIdent（`++i`）与非-ident（`++arr[i]`/`++obj.f`）都经通用 store 写回。

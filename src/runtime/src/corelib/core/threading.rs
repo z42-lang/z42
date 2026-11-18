@@ -94,7 +94,8 @@ pub fn thread_spawn(ctx: &VmContext, action: &Value) -> Result<i64, crate::exec:
 
     // runtime-audit P0-4: z42 calls recurse on the native stack and running out
     // is fatal, so worker threads get the configured size, not std's 2 MiB.
-    let stack = crate::config::runtime_config().vm_thread_stack_size();
+    // Captured at this VM's construction — a spawn never re-reads process config.
+    let stack = ctx.core().vm_thread_stack_size;
     let handle = std::thread::Builder::new().stack_size(stack).spawn(move || -> Result<()> {
         let _env_root = env_root;
         // **测试钩子**：`Z42_SPAWN_ENV_DELAY_MS` 把上面那个窗口人为撑大，

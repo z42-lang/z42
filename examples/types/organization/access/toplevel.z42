@@ -1,2 +1,10 @@
-private class Foo { }             // ✗ 顶层声明不接受 private
-void Main() { }
+using Std.IO;
+
+// 顶层 private：文件作用域——Helper 只在本文件可见，别的文件写不出它的名字
+private class Helper {
+    public static int Twice(int x) { return x * 2; }
+}
+
+void Main() {
+    Console.WriteLine("Twice=" + Helper.Twice(21));   // ✅ 同文件，随便用
+}

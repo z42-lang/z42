@@ -50,7 +50,7 @@ public sealed class TypeChecker {
     // enforce-class-access：绑定期类型引用点访问校验（体引用：new/var/cast/is/as/typeof/default/catch/泛型实参）。
     // binder 解析出类型后调此；委托静态 AccessChecker.CheckTypeRef，emit 到 _diags。
     public void _chkTypeRef(Z42Type t, TypeEnv env, Span sp) {
-        TypeRefAccess.CheckTypeRef(t, env.CurrentClass(), env.Symbols, this._diags, sp);
+        TypeRefAccess.CheckTypeRef(t, env.CurrentClass(), this._currentNs, env.Symbols, this._diags, sp);   // access-top-scope：curNs 入参（顶层 protected 判定）
         if (t is Z42ClassType) { this._access.CheckDeprecatedT(t as Z42ClassType, sp); }   // add-deprecated-directive：类级 use-site（new/类型引用）
         this._chkTypeRefPkg(env.Symbols, t, sp);   // report-crosspkg-duplicate-type：E0601 / E0606（使用位）
         if (t is Z42InstantiatedType) { this._constraints.Check(env.Symbols, t as Z42InstantiatedType, sp); }   // check-constraints-all-type-refs H1：体内类型引用位（局部/cast/is/as/default/typeof）校验 where 约束（声明位走 CheckDeclTypeRefs）
@@ -69,6 +69,7 @@ public sealed class TypeChecker {
     // using-csharp-rules PR-2：表达式位**写出**的类名（静态成员读 `C.x` / 静态调用 `C.M()` / ns 限定静态调用）也是
     // 一次类型引用 —— 判跨包同名（同 `_chkTypeRefPkg`）+ 记「本文件用到的 ns」（限定写法也算，规则 4）。
     public void _chkStaticOwner(SymbolTable symbols, Z42ClassType ct, Span sp) {
+        TypeRefAccess.CheckTopScopeOwner(ct, this._currentNs, symbols, this._diags, sp);   // access-top-scope：属主类型自身的顶层文件/ns 门
         this._chkTypeRefPkg(symbols, ct, sp);
         symbols.NoteUse(ct.Namespace);
         symbols.NoteDepUse(ct.Namespace, symbols.ImportedPkgOf(ct.Fqn()), ct.Fqn());   // deterministic-zpkg-deps / precise-pkg-refs
@@ -76,6 +77,7 @@ public sealed class TypeChecker {
 
     // 同上，类名在源码里写作 `written`：写成全限定名时不记「用到 ns」（不需要 using），只记依赖。
     public void _chkStaticOwnerQualified(SymbolTable symbols, Z42ClassType ct, string written, Span sp) {
+        TypeRefAccess.CheckTopScopeOwner(ct, this._currentNs, symbols, this._diags, sp);   // access-top-scope：同 _chkStaticOwner
         this._chkTypeRefPkg(symbols, ct, sp);
         symbols._noteNamedUse(written, ct.Namespace);
         symbols.NoteDepUse(ct.Namespace, symbols.ImportedPkgOf(ct.Fqn()), ct.Fqn());

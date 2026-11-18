@@ -196,8 +196,13 @@ public sealed class ExportedEnumZ {
     public string                Name;
     public ExportedEnumMemberZ[] Members;
     public int                   MemberCount;
+    // access-top-scope：声明可见性（"public"/"private"/"protected"/"internal"）。ctor 元数不变
+    // （旧种子 ABI），构造后赋值；仅 TsigReconcile 从 zbc TYPE 可见性字节还原，消费端据此
+    // 拒跨包引用 private/protected enum。
+    public string                Visibility;
     public ExportedEnumZ(string name, ExportedEnumMemberZ[] members, int memberCount) {
         this.Name = name; this.Members = members; this.MemberCount = memberCount;
+        this.Visibility = "public";
     }
 }
 
@@ -244,6 +249,9 @@ public sealed class ExportedDelegateZ {
     public string[]         TypeParams;  public int TpCount;
     public bool             HasContainer;
     public string           ContainerClass;
+    // access-top-scope：同 ExportedEnumZ.Visibility——TsigReconcile 从 zbc TYPE 字节还原，
+    // 消费端 ImportedSymbolLoader 写入 Z42FuncType.DeclVis 并拒跨包引用。
+    public string           Visibility;
     public ExportedDelegateZ(string name, string returnType,
                              ExportedParamZ[] params_, int paramCount,
                              string[] typeParams, int tpCount,
@@ -252,6 +260,7 @@ public sealed class ExportedDelegateZ {
         this.Params = params_; this.ParamCount = paramCount;
         this.TypeParams = typeParams; this.TpCount = tpCount;
         this.HasContainer = hasContainer; this.ContainerClass = containerClass;
+        this.Visibility = "public";
     }
 }
 

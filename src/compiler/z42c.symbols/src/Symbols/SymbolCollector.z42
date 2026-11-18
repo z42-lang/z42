@@ -150,6 +150,10 @@ public sealed class SymbolCollector {
                 table.NoteEnumKey(efq[i]);
                 int dot = efq[i].LastIndexOf('.');
                 table.EnumTypeNs.Put(efq[i], new StrBox(dot > 0 ? efq[i].Substring(0, dot) : ""));
+                // access-top-scope：导入 enum 的显式 private/protected 以 "imp:" 前缀并入（EnumType()
+                // 合成时据此置 IsImported——private 文件比对恒不中、protected 跨包一律拒，同名 ns 也不放行）。
+                string ivis = imported.EnumTypeVisByFqn.Get(efq[i]) as string;
+                if (ivis != null && ivis != "") { table.EnumTypeVis.Put(efq[i], "imp:" + ivis); }
             }
             i = i + 1;
         }
@@ -623,7 +627,7 @@ public sealed class SymbolCollector {
     // `table` 必须是**带作用域的 per-CU 视图**（_passMembers 顶部建），否则 ScopeNs/ScopeUsings 为空、
     // 判据恒返回 false —— 那就成了「装了个从不响的门」。
     internal void _chkTypeRefT(Z42Type t, TypeExpr te, string cls, SymbolTable table, Span sp) {
-        TypeRefAccess.CheckTypeRef(t, cls, table, this.Diags, sp);
+        TypeRefAccess.CheckTypeRef(t, cls, table.ScopeNs, table, this.Diags, sp);   // access-top-scope：curNs=本 CU 作用域 ns（顶层 protected 判定）
         this._chkTypeRefPkg(t, table, sp);   // report-crosspkg-duplicate-type：E0601 / E0606（声明位）
         string name = table.FirstAmbiguousBareName(te);   // 含嵌套位置（`List<Widget>` / `Widget[]`）；限定名跳过
         if (name == "") { return; }

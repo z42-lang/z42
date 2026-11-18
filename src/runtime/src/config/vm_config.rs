@@ -11,4 +11,8 @@ pub struct VmConfig {
     pub gc_trace: bool,
     pub sample_hz: Option<u32>,
     pub trace_timeline: bool,
+    /// Worker-thread stack size, captured at construction (runtime-audit P0-4:
+    /// z42 recursion on the native stack is fatal, so spawned workers take this
+    /// instead of std's 2 MiB default).
+    pub vm_thread_stack_size: usize,
 }

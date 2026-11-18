@@ -129,3 +129,37 @@ void test_clamp() {
     Assert.Equal(0, Math.ClampInt(-3, 0, 5));
     Assert.Equal(3, Math.ClampInt(3, 0, 5));
 }
+
+// add-math-typed-overloads (2026-11-19)：主名同 arity 类型化重载（typed-overload-resolution
+// 已支持，Math 头注释「无法承载同 arity 重载」过时）。int/long 保持型直接走主名；
+// int 实参从「加宽进 double 版」变「精确匹配 int 版」（返回类型 double→int，全仓无
+// int 实参调主名的存量调用者）；double 实参不变。Int 后缀名为兼容别名保留。
+[Test]
+void test_main_name_typed_overloads() {
+    // long：此前 `Math.Abs(-5L)` 直接 E0439（long 不隐式加宽 double）——本缺陷的主诉求。
+    long la = Math.Abs(-5L);
+    Assert.Equal(5L, la);
+    Assert.Equal(9223372036854775807L, Math.Abs(-9223372036854775807L));   // 2^63-1 取反在范围内
+    Assert.Equal(7L, Math.Max(7L, 3L));
+    Assert.Equal(3L, Math.Min(7L, 3L));
+    Assert.Equal(-1, Math.Sign(-9000000000000L));
+    Assert.Equal(1, Math.Sign(9000000000000L));
+    Assert.Equal(0, Math.Sign(0L));
+    Assert.Equal(5L, Math.Clamp(10000000000L, 0L, 5L));
+    Assert.Equal(0L, Math.Clamp(-3000000000L, 0L, 5L));
+    Assert.Equal(4000000000L, Math.Clamp(4000000000L, 0L, 5000000000L));
+    // int：精确匹配 int 版，返回可赋 int 局部（此前主名只能返回 double）。
+    int ia = Math.Abs(-7);
+    Assert.Equal(7, ia);
+    Assert.Equal(10, Math.Max(3, 10));
+    Assert.Equal(3, Math.Min(3, 10));
+    Assert.Equal(-1, Math.Sign(-7));
+    Assert.Equal(5, Math.Clamp(10, 0, 5));
+    // double：原路不变。
+    double da = Math.Abs(-3.5);
+    Assert.EqualApprox(3.5, da, 1e-9);
+    // 兼容别名仍在。
+    Assert.Equal(5, Math.AbsInt(-5));
+    Assert.Equal(10, Math.MaxInt(3, 10));
+    Assert.Equal(3, Math.ClampInt(3, 0, 5));
+}

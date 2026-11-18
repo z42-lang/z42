@@ -1,0 +1,2 @@
+protected class Base { }         // ✗ 本文件没有声明 namespace，protected 无处安放
+void Main() { }

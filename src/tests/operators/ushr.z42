@@ -1,0 +1,46 @@
+// fix-ushr：`>>>` 逻辑右移（C# 11 对齐）+ 移位复合赋值 `<<=` / `>>=` / `>>>=`。
+// 发射是脱糖：signed 窄数先 Convert 同宽无符号（截位零扩展）再 Shr；运行时 Shr 在
+// U 型左操作数上按逻辑移位执行（静态 reg_types 分派）。语义钉死（值与 C# 逐条对齐）：
+//   (int)-1  >>> 1 = 0x7FFFFFFF（32 位域，不是对 i64 载荷直移！）
+//   (long)-1 >>> 1 = 0x7FFF_FFFF_FFFF_FFFF
+//   ulong     >>> 与 >> 等价（本就无符号）
+void Main() {
+    // ── >>> 各宽度 ──────────────────────────────────────────────────────────
+    Assert.Equal(2147483647, -1 >>> 1);                  // int：32 位域零填充
+    Assert.Equal(1073741823, -3 >>> 2);
+    Assert.Equal(9223372036854775807L, -1L >>> 1);       // long：64 位域
+    Assert.Equal(4611686018427387903L, -3L >>> 2);
+
+    ulong hi = 0xFFFFFFFFFFFFFFFFul;
+    Assert.Equal(9223372036854775807ul, hi >>> 1);       // ulong：与 >> 等价
+    Assert.Equal(hi >> 5, hi >>> 5);
+
+    uint u = 0xFFFFFFFFu;
+    Assert.Equal(2147483647u, u >>> 1);                  // uint 零扩展恒正，天然正确
+
+    sbyte sb = -2;                                       // 0xFE → 截 8 位域 → 127
+    Assert.Equal(127, sb >>> 1);
+    short sh = -2;
+    Assert.Equal(32767, sh >>> 1);
+
+    int positive = 12;                                   // 正数 >>> 与 >> 一致
+    Assert.Equal(positive >> 2, positive >>> 2);
+
+    // 移位量 mask 低 6 位（与 >> 同规）：64 当 0 ⇒ 值原样保留
+    Assert.Equal(-1, -1 >>> 64);
+    Assert.Equal(-1L, -1L >>> 64);
+
+    // ── 移位复合赋值 ────────────────────────────────────────────────────────
+    int m = -8;
+    m >>>= 2;                                            // 0xFFFFFFF8 → u32 域 >>>2
+    Assert.Equal(1073741822, m);
+    int n = 3;
+    n <<= 4;
+    Assert.Equal(48, n);
+    long q = -9223372036854775808L;                      // long MIN
+    q >>= 1;                                             // 算术右移保符号
+    Assert.Equal(-4611686018427387904L, q);
+    ulong uh = 0xFFFFFFFFFFFFFFFFul;
+    uh >>>= 4;
+    Assert.Equal(0x0FFFFFFFFFFFFFFFul, uh);
+}
