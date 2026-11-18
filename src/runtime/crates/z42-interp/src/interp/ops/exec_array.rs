@@ -1,8 +1,8 @@
 /// Array instructions: allocation, element access, length — thin adapters over
-/// [`crate::objops::array`] (the single implementation shared with the JIT).
+/// [`crate::exec::ops::object::array`] (the single implementation shared with the JIT).
 ///
 /// Each adapter reads registers, calls objops, writes `dst`, and maps an
-/// [`OpError`](crate::objops::OpError) to the interp throw channel via [`raise`]:
+/// [`OpError`](crate::exec::ops::object::OpError) to the interp throw channel via [`raise`]:
 /// `Ok(Some(exc))` = a catchable exception (`NullReferenceException` /
 /// `IndexOutOfRangeException` / `OverflowException` / `OutOfMemoryException`),
 /// `Err` = internal VM error.
@@ -10,7 +10,6 @@
 use crate::object::ElemType;
 use crate::metadata::Module;
 use crate::object::Value;
-use crate::objops;
 use crate::components::bridge::VmContext;
 use anyhow::Result;
 
@@ -31,7 +30,7 @@ pub(super) fn array_new(
 ) -> Result<Option<Value>> {
     let len = *frame.get(size)?;
     let (tp_prim, bound) = generic_array_args(ctx, frame, type_param_kind, type_param_index, owner);
-    let r = objops::array::array_new(
+    let r = crate::exec::ops::object::array::array_new(
         ctx, &len, elem_tag, element_type, type_param_kind != 0, tp_prim, bound, stack_frame(ctx, frame, stack_alloc));
     match r {
         Ok(arr) => { frame.set(dst, arr); Ok(None) }
@@ -41,12 +40,12 @@ pub(super) fn array_new(
 
 fn generic_array_args(
     ctx: &VmContext, frame: &Frame, kind: u8, index: i32, owner: Option<&str>,
-) -> (Option<objops::array::TypeParamElem>, Option<ElemType>) {
+) -> (Option<crate::exec::ops::object::array::TypeParamElem>, Option<ElemType>) {
     if index < 0 { return (None, None); }
     let index = index as usize;
     match kind {
-        1 => objops::array::method_type_param_array_args(&frame.method_type_args, index),
-        2 => objops::array::class_type_param_array_args(ctx, frame.get(0).ok(), index, owner),
+        1 => crate::exec::ops::object::array::method_type_param_array_args(&frame.method_type_args, index),
+        2 => crate::exec::ops::object::array::class_type_param_array_args(ctx, frame.get(0).ok(), index, owner),
         _ => (None, None),
     }
 }
@@ -68,7 +67,7 @@ pub(super) fn array_new_lit(
         );
     }
     let vals = elems.iter().map(|r| frame.get(*r).copied().unwrap_or(Value::Null));
-    let r = objops::array::array_new_lit(ctx, vals, element_type, stack_frame(ctx, frame, stack_alloc));
+    let r = crate::exec::ops::object::array::array_new_lit(ctx, vals, element_type, stack_frame(ctx, frame, stack_alloc));
     match r {
         Ok(arr) => { frame.set(dst, arr); Ok(None) }
         Err(e) => raise(ctx, module, e),
@@ -81,7 +80,7 @@ pub(super) fn array_get(
 ) -> Result<Option<Value>> {
     // `Value: Copy` — copy the operands out so the lazy frame-id closure can borrow `frame`.
     let (a, i) = (*frame.get(arr)?, *frame.get(idx)?);
-    match objops::array::array_get(ctx, &a, &i, erased, || frame.frame_id(ctx)) {
+    match crate::exec::ops::object::array::array_get(ctx, &a, &i, erased, || frame.frame_id(ctx)) {
         Ok(v) => { frame.set(dst, v); Ok(None) }
         Err(e) => raise(ctx, module, e),
     }
@@ -97,7 +96,7 @@ pub(super) fn array_set(
         !matches!(v, Value::StackObject { .. } | Value::StackArray { .. }),
         "stack-alloc handle stored into an array element — escape analysis unsound (ArraySet.val)"
     );
-    match objops::array::array_set(ctx, frame.get(arr)?, frame.get(idx)?, v) {
+    match crate::exec::ops::object::array::array_set(ctx, frame.get(arr)?, frame.get(idx)?, v) {
         Ok(()) => Ok(None),
         Err(e) => raise(ctx, module, e),
     }
@@ -106,7 +105,7 @@ pub(super) fn array_set(
 pub(super) fn array_len(
     ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, arr: u32,
 ) -> Result<Option<Value>> {
-    match objops::array::array_len(ctx, frame.get(arr)?) {
+    match crate::exec::ops::object::array::array_len(ctx, frame.get(arr)?) {
         Ok(n) => { frame.set(dst, Value::I64(n)); Ok(None) }
         Err(e) => raise(ctx, module, e),
     }

@@ -194,8 +194,8 @@ object 堆访问接口只接收 Heap、对象/数组句柄、字段位置或已�
 实现通过 object 根导出，反射和异常栈迹直接使用对象写入接口；普通存储操作不需要动态注册查询。
 SATB 删除屏障留在底层存储原语，插入屏障由对象写入接口补齐；struct 数组跟踪实际引用叶子，不能拿来源盒子代替。
 
-`lib.rs` 的 `objops` 仍是 `exec/ops/object` 的转出路径。后续整理同时收口真实所有者与消费者，
-避免长期维护多个路径；删除旧入口时连同后端、corelib、测试和文档迁移。
+`objops` 别名已退役：`lib.rs` 不再转出 `exec/ops/object`，全部消费者（后端、corelib、exec 内部、
+集成测试）迁移到 `exec::ops::object` 直达路径，测试文件随改名 object_ops_tests.rs。
 
 ## 边界与限制
 

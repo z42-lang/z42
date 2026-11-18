@@ -2,7 +2,7 @@
 use crate::object as ty;
 use crate::object::{Value, StructTypeLayout};
 use crate::vm::VmContext;
-use crate::objops::struct_leaf::as_struct_ref;
+use crate::exec::ops::object::struct_leaf::as_struct_ref;
 use anyhow::Result;
 use std::sync::Arc;
 

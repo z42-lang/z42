@@ -66,7 +66,7 @@ pub enum BuiltinError {
     /// the VM stops with a report, like a stack overflow.
     Internal(String),
     /// An error from a builtin of the old table (`anyhow`): the old mapping — a typed
-    /// `objops::Throw` keeps its class, anything else becomes `Std.Exception`.
+    /// `exec::ops::object::Throw` keeps its class, anything else becomes `Std.Exception`.
     Legacy(anyhow::Error),
 }
 
@@ -206,12 +206,12 @@ impl From<std::io::Error> for BuiltinError {
     }
 }
 
-impl From<crate::objops::OpError> for BuiltinError {
-    fn from(e: crate::objops::OpError) -> Self {
+impl From<crate::exec::ops::object::OpError> for BuiltinError {
+    fn from(e: crate::exec::ops::object::OpError) -> Self {
         match e {
-            crate::objops::OpError::Throw(t) => BuiltinError::Exception { class: t.class, message: t.msg },
-            crate::objops::OpError::Thrown(v) => BuiltinError::Thrown(v),
-            crate::objops::OpError::Internal(e) => BuiltinError::Internal(e.to_string()),
+            crate::exec::ops::object::OpError::Throw(t) => BuiltinError::Exception { class: t.class, message: t.msg },
+            crate::exec::ops::object::OpError::Thrown(v) => BuiltinError::Thrown(v),
+            crate::exec::ops::object::OpError::Internal(e) => BuiltinError::Internal(e.to_string()),
         }
     }
 }
@@ -264,7 +264,7 @@ fn build(ctx: &VmContext, module: &Module, builtin: &str, e: BuiltinError) -> Re
         BuiltinError::Thrown(v) => Ok(v),
         BuiltinError::Legacy(err) => match err.downcast::<BuiltinError>() {
             Ok(typed) => build(ctx, module, builtin, typed),
-            Err(err) => match err.downcast::<crate::objops::Throw>() {
+            Err(err) => match err.downcast::<crate::exec::ops::object::Throw>() {
                 Ok(t) => make(ctx, module, &[t.class], t.msg),
                 Err(err) => crate::exec::exception::make_stdlib_exception(ctx, module, "Std.Exception", err.to_string())
                     .map_err(|_| Raised::Raw(err)),

@@ -35,8 +35,8 @@
 | `object.rs` | 对象分配（类 / 构造器解析与站点缓存共用 `exec::ops::obj_new`，ctor 按 `FnId` 走槽位）、类型检查、静态字段（内联快路未放行时的 `jit_static_get` / `jit_static_set`）、`default(T)` |
 | `vcall.rs` | 虚调用的 JIT **调用侧**：PIC 命中（载荷 = `FnId`，惰性目标也在内）→ by-id tiered `FnEntry`，冷 → 按 id 经注册 Engine 回落 interp；miss → `exec::ops::vcall::resolve_vcall`（与 interp 共用的**唯一**目标解析：装箱基元 / 装箱 struct / primitive-as-struct / vtable·层级 walk + PIC 安装）→ 编译入口或已注册 Engine 回退 |
 | `closure.rs` | L3 闭包：`load_fn` / `mk_clos` / `call_indirect` |
-| `object_field.rs` | 字段访问 helper（`objops::field` 的薄适配）：原生字段 IC 未命中时的 `jit_field_get` / `jit_field_set`（解析并安装站点 IC） |
-| `struct_ops.rs` | struct 值类型指令（`struct_alloc`/`copy`/`field_get_prim`/`field_set_prim`）——桥接到共享 `struct_arena`，叶子读写走 `objops::struct_leaf`，分配 / 拷贝调用 `exec/ops/structs` 的值级核心 |
+| `object_field.rs` | 字段访问 helper（`crate::exec::ops::object::field` 的薄适配）：原生字段 IC 未命中时的 `jit_field_get` / `jit_field_set`（解析并安装站点 IC） |
+| `struct_ops.rs` | struct 值类型指令（`struct_alloc`/`copy`/`field_get_prim`/`field_set_prim`）——桥接到共享 `struct_arena`，叶子读写走 `crate::exec::ops::object::struct_leaf`，分配 / 拷贝调用 `exec/ops/structs` 的值级核心 |
 
 编译器与对应单元测试放在 `compile/`；原生激活放在 `runtime/`。转发形状识别的测试与共享实现一起位于 `exec/call/forward_shape_tests.rs`。
 

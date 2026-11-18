@@ -638,7 +638,7 @@ impl ArrayObj {
 /// Which mode an element type selects — the single key the constructors dispatch on (cached per
 /// interned [`ElemType`]). Name-only: the packed primitives (only widths that round-trip
 /// losslessly through `get_boxed` / `set_boxed`), REF for the reference types a name alone
-/// proves (`string`, `object`, any array type), MIXED for everything else. `objops::array`
+/// proves (`string`, `object`, any array type), MIXED for everything else. `exec::ops::object::array`
 /// upgrades a MIXED class / interface / delegate element type to REF with the type registry.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ElemKind { Bool, Bytes, I32, I64, Chars, F64, Ref, Mixed }

@@ -86,7 +86,7 @@ pub fn try_field_read_cached(
         let site = *tokens.site_index.first()?.first()?;
         tokens.field_ic.get(site as usize)
     });
-    let result = crate::objops::field::field_get(ctx, recv, &insn.field_name, ic).ok()?;
+    let result = crate::exec::ops::object::field::field_get(ctx, recv, &insn.field_name, ic).ok()?;
     if let (Some(site), Some(ic)) = (site, ic) {
         let td = object.type_desc();
         if !td.base_unmerged() && td.composed_object_layout_ref().is_some() {

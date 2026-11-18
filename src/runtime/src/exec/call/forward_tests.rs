@@ -280,7 +280,7 @@ fn field_read_fold_loads_current_value_and_rejects_ineligible_calls() {
 
     let first = super::try_direct_field_read(&vm, &getter, &[recv], &[0]);
     assert!(matches!(first, Some(Value::Str(s)) if s.as_ref() == "first"));
-    crate::objops::field::field_set(&vm, &recv, "Message", &Value::Str("second".into()), None).unwrap();
+    crate::exec::ops::object::field::field_set(&vm, &recv, "Message", &Value::Str("second".into()), None).unwrap();
     let second = super::try_direct_field_read(&vm, &getter, &[recv], &[0]);
     assert!(matches!(second, Some(Value::Str(s)) if s.as_ref() == "second"));
     assert!(super::try_direct_field_read(&vm, &getter, &[Value::Null], &[0]).is_none());

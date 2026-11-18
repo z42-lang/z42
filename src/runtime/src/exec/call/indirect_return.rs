@@ -34,7 +34,7 @@ pub fn invoke(
 ) -> Result<ExecOutcome> {
     let caller_slot = if has_caller_return_slot(function, arguments.len()) {
         let value = arguments.pop().ok_or_else(|| anyhow!("indirect struct return: missing caller slot"))?;
-        crate::objops::struct_leaf::as_struct_ref(&value, "indirect caller return slot")?;
+        crate::exec::ops::object::struct_leaf::as_struct_ref(&value, "indirect caller return slot")?;
         Some(value)
     } else { None };
     // The caller's registers/closure keep original arguments rooted. New struct
@@ -73,7 +73,7 @@ pub fn invoke(
                 Value::StructRef { .. } => value,
                 other => return Err(anyhow!("indirect struct return: expected struct result, got {other:?}")),
             };
-            let (index, owner) = crate::objops::struct_leaf::as_struct_ref(&destination, "indirect caller return slot")?;
+            let (index, owner) = crate::exec::ops::object::struct_leaf::as_struct_ref(&destination, "indirect caller return slot")?;
             let size = ctx.exec.struct_arena.lock().with(index, owner, |slot| slot.layout.size as u32)?;
             crate::exec::ops::structs::struct_copy_val(ctx, &destination, &source, size)?;
             Ok(ExecOutcome::Returned(None))
@@ -81,7 +81,7 @@ pub fn invoke(
         (_, Some(index), ExecOutcome::Returned(_)) => {
             let (name, bytes, references) = ctx.exec.struct_arena.lock()
                 .with(index, frame_id, |slot| (slot.type_name.clone(), slot.bytes.clone(), slot.refs.clone()))?;
-            let result = crate::objops::struct_leaf::box_struct_blob(ctx, &name, &bytes, &references)?;
+            let result = crate::exec::ops::object::struct_leaf::box_struct_blob(ctx, &name, &bytes, &references)?;
             Ok(ExecOutcome::Returned(Some(result)))
         }
         (_, _, outcome) => Ok(outcome),

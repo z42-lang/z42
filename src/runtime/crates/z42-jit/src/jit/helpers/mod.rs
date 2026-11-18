@@ -101,7 +101,7 @@ pub(super) fn set_exception(ctx: &VmContext, v: Value) {
 /// `ctx` 是 helper 收到的线程 `VmContext` 指针（单测的最小 ctx 可能没装 JIT——回落到 VM 自己的 module）。
 #[cold]
 #[inline(never)]
-pub(super) unsafe fn raise(ctx: *const VmContext, e: crate::objops::OpError) -> u8 {
+pub(super) unsafe fn raise(ctx: *const VmContext, e: crate::exec::ops::object::OpError) -> u8 {
     let vm = vm_ctx_ref(ctx);
     let module = match crate::jit::compile::state::runtime(&vm) { Some(rt) => Some(rt.module()), None => vm.module().map(|m| &**m) };
     let exc = match e.into_exception(vm, module) {

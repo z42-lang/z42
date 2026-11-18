@@ -23,7 +23,7 @@ impl ArrayObj {
             ArrayMode::Struct => {
                 // A struct[] element read as a generic `Value` needs a heap box (value semantics);
                 // `get_boxed` cannot allocate. The value paths materialize a `StructRefHeap`
-                // handle (`objops::array::array_get`) or box through the heap-aware bulk path.
+                // handle (`exec::ops::object::array::array_get`) or box through the heap-aware bulk path.
                 debug_assert!(false,
                     "get_boxed on a struct[] array: struct[] element boxing needs a heap-aware path");
                 Value::Null

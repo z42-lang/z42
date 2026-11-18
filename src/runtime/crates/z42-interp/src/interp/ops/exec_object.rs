@@ -126,7 +126,7 @@ pub(crate) fn obj_new(
     Ok(None)
 }
 
-/// `FieldGet` — adapter over [`crate::objops::field::field_get`] (the single
+/// `FieldGet` — adapter over [`crate::exec::ops::object::field::field_get`] (the single
 /// implementation shared with the JIT: FieldIC fast path, stack objects, `Length`
 /// pseudo-fields, boxed structs; a null receiver throws `NullReferenceException`).
 #[inline]
@@ -134,13 +134,13 @@ pub(super) fn field_get(
     ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, obj: u32, field_name: &str,
     field_ic: Option<&crate::metadata::dispatch::ic::FieldIC>,
 ) -> Result<Option<Value>> {
-    match crate::objops::field::field_get(ctx, frame.get(obj)?, field_name, field_ic) {
+    match crate::exec::ops::object::field::field_get(ctx, frame.get(obj)?, field_name, field_ic) {
         Ok(v) => { frame.set(dst, v); Ok(None) }
         Err(e) => super::raise(ctx, module, e),
     }
 }
 
-/// `FieldSet` — adapter over [`crate::objops::field::field_set`] (write barrier,
+/// `FieldSet` — adapter over [`crate::exec::ops::object::field::field_set`] (write barrier,
 /// primitive-slot type check, null receiver → `NullReferenceException`).
 #[inline]
 pub(super) fn field_set(
@@ -154,7 +154,7 @@ pub(super) fn field_set(
         !matches!(v, Value::StackObject { .. } | Value::StackArray { .. }),
         "stack-alloc handle stored into a field — escape analysis unsound (FieldSet.val)"
     );
-    match crate::objops::field::field_set(ctx, frame.get(obj)?, field_name, v, field_ic) {
+    match crate::exec::ops::object::field::field_set(ctx, frame.get(obj)?, field_name, v, field_ic) {
         Ok(()) => Ok(None),
         Err(e) => super::raise(ctx, module, e),
     }
@@ -164,7 +164,7 @@ pub(super) fn field_set(
 mod isa;
 pub(super) use isa::{as_cast, is_instance};
 
-/// `StaticGet` — adapter over [`crate::objops::statics::static_get`] (init barrier,
+/// `StaticGet` — adapter over [`crate::exec::ops::object::statics::static_get`] (init barrier,
 /// lazy zero-init of never-assigned value-type statics, missing-symbol check).
 /// `field_id` = resolver-populated `StaticFieldId` (None → by-name fallback).
 #[inline(never)] // 热循环布局：留在 exec_function_body 之外（见 exec_instr.rs 模块注释）
@@ -172,7 +172,7 @@ pub(super) fn static_get(
     ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, field: &str,
     field_id: Option<u32>,
 ) -> Result<Option<Value>> {
-    match crate::objops::statics::static_get(ctx, module, field, field_id) {
+    match crate::exec::ops::object::statics::static_get(ctx, module, field, field_id) {
         Ok(v) => { frame.set(dst, v); Ok(None) }
         Err(e) => super::raise(ctx, module, e),
     }
@@ -190,7 +190,7 @@ pub(super) fn static_set(
         !matches!(v, Value::StackObject { .. } | Value::StackArray { .. }),
         "stack-alloc handle stored into a static field — escape analysis unsound (StaticSet.val)"
     );
-    match crate::objops::statics::static_set(ctx, module, field, field_id, v) {
+    match crate::exec::ops::object::statics::static_set(ctx, module, field, field_id, v) {
         Ok(()) => Ok(None),
         Err(e) => super::raise(ctx, module, e),
     }

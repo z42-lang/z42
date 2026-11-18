@@ -3,7 +3,7 @@ use super::Frame;
 use crate::components::bridge::VmContext;
 use anyhow::Result;
 use crate::exec::ops::structs::{struct_alloc_val, struct_copy_val, resolve_for_access};
-use crate::objops::struct_leaf::{struct_field_get_val, struct_field_set_val};
+use crate::exec::ops::object::struct_leaf::{struct_field_get_val, struct_field_set_val};
 #[cfg(all(test, z42_test_facade))]
 use crate::exec::ops::structs::*;
 #[cfg(all(test, z42_test_facade))]

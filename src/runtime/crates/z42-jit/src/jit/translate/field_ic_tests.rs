@@ -234,8 +234,8 @@ fn direct_reader_warms_before_getter_compilation_and_rechecks_its_guards() {
     let a = class("A", 0x7100_0011, &[("n", F::I64), ("m", F::I64)]);
     let b = class("B", 0x7100_0012, &[("m", F::I64), ("n", F::I64)]);
     let (oa, ob) = (new_obj(&vm, &a, 2), new_obj(&vm, &b, 2));
-    crate::objops::field::field_set(&vm, &oa, "n", &Value::I64(7), None).unwrap();
-    crate::objops::field::field_set(&vm, &ob, "n", &Value::I64(13), None).unwrap();
+    crate::exec::ops::object::field::field_set(&vm, &oa, "n", &Value::I64(7), None).unwrap();
+    crate::exec::ops::object::field::field_set(&vm, &ob, "n", &Value::I64(13), None).unwrap();
     let run = |value| {
         let before = CALL_HELPER_HITS.with(|hits| hits.get());
         let result = j.run(&[value]).0;

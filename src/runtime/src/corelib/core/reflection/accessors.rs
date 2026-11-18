@@ -47,7 +47,7 @@ pub fn field_get_value(ctx: &VmContext, fi: &Value, target: &Value) -> anyhow::R
         // add-boxed-struct-identity (P4b): reflect a value struct's own fields off its
         // shared box object — the field data lives byte-packed in `struct_bytes` +
         // reference-leaf side-table `struct_refs`, not in `slots`.
-        Value::BoxedStruct(gc) => crate::objops::struct_leaf::boxed_struct_field_get(ctx, gc, &name),
+        Value::BoxedStruct(gc) => crate::exec::ops::object::struct_leaf::boxed_struct_field_get(ctx, gc, &name),
         Value::Object(rc) => {
             // add-object-inline-struct-reflection (P4b-B): an inline value-struct field
             // (`class C { Point pt; }`) has a dead placeholder slot — its bytes live in the
@@ -101,7 +101,7 @@ pub(super) fn object_inline_struct_field_get(
         bail!("object inline struct ref leaf offset {} not in composed layout", fa.offset + nro);
     }
     let (bytes, refs) = rc.borrow().read_blob(fa.offset as usize, fa.width as usize, &nested.ref_offsets);
-    Ok(Some(crate::objops::struct_leaf::box_struct_blob(ctx, &struct_type, &bytes, &refs)?))
+    Ok(Some(crate::exec::ops::object::struct_leaf::box_struct_blob(ctx, &struct_type, &bytes, &refs)?))
 }
 
 /// `__field_set_value(field: FieldInfo, target: object, value: object)` — write

@@ -72,8 +72,8 @@ impl ArgAt {
     #[cold]
     pub fn null(&self) -> BuiltinError {
         match self.receiver {
-            Some(member) => match crate::objops::OpError::null_call(member) {
-                crate::objops::OpError::Throw(t) => BuiltinError::NullReference(t.msg),
+            Some(member) => match crate::exec::ops::object::OpError::null_call(member) {
+                crate::exec::ops::object::OpError::Throw(t) => BuiltinError::NullReference(t.msg),
                 _ => BuiltinError::NullReference(format!("cannot call method `{member}` on a null reference")),
             },
             None => BuiltinError::ArgumentNull(format!("Value cannot be null. (Parameter '{}')", self.param)),

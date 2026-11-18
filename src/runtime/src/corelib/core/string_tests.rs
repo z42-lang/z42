@@ -114,7 +114,7 @@ fn join_interleaves_and_rejects_non_strings() {
 /// null 实参同类。引擎的 builtin 错误出口按 `Throw` 构造异常（`corelib::builtin_error_exception`）。
 #[test]
 fn null_string_receiver_is_a_null_reference() {
-    use crate::objops::Throw;
+    use crate::exec::ops::object::Throw;
     let ctx = VmContext::new();
     let _nre = |e: anyhow::Error| {
         let t = e.downcast::<Throw>().expect("typed throw");

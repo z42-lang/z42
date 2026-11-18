@@ -31,12 +31,12 @@
 
 ```rust
 // interp 适配（interp/ops/exec_object.rs）
-match objops::field::field_get(ctx, frame.get(obj)?, name, ic) {
+match exec::ops::object::field::field_get(ctx, frame.get(obj)?, name, ic) {
     Ok(v) => { frame.set(dst, v); Ok(None) }
     Err(e) => super::ops::raise(ctx, module, e),   // Ok(Some(exc)) 或 Err(内部错误)
 }
 // JIT 适配（jit/helpers/object_field.rs）
-match objops::field::field_get(vm_ctx_ref(ctx), recv, name, ic) {
+match exec::ops::object::field::field_get(vm_ctx_ref(ctx), recv, name, ic) {
     Ok(v) => { (*frame).regs[dst as usize] = v; 0 }
     Err(e) => raise(ctx, e),                       // pending 异常 + 返回 1
 }

@@ -17,8 +17,8 @@ pub mod struct_leaf;
 pub use error::{ArrayOp, OpError, OpResult, Throw};
 
 #[cfg(all(test, z42_test_facade))]
-#[path = "objops_tests.rs"]
-mod objops_tests;
+#[path = "object_ops_tests.rs"]
+mod object_ops_tests;
 
 #[cfg(all(test, z42_test_facade))]
 #[path = "write_barrier_tests.rs"]
