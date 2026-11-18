@@ -83,6 +83,13 @@ interop 侧的 materialize/load_named 继续以 `loader::native::resolve_symbol`
 组件依赖一律经描述符的依赖闭包由管理层解析（`get_service` 按语义服务获取不变）；真实现仅内部
 测试构建注册。另清三处可见性收口遗留的孤儿再导出（object/header 的 marks glob、gc 的
 loh_bytes/VarChunkReclaim 测试专用项转 cfg(test) 门控）。
+会话内 zpkg 定义共享已落地（C# ALC「已加载即共享」规则）：`loader::ImageCache` 以内容哈希为键，
+`host::load::prepare` 的三个装载点（resolver 命中、prelude、依赖文件队列）与 C 会话的入口字节都经
+它解码-or-共享——同一 zpkg（标准库居首）在会话内只解码一次，函数 IR 与定义数据经 `PackageImage`
+的 Arc 跨程序共享（`Module::from_image` 浅包装）；类型表/静态/派发缓存仍每 VM 独立（实例化状态，
+对应不同 ALC 各自的 RuntimeTypes）。Rust 宿主的 `load_file/load_bytes` 保持无缓存路径不变，
+`load_bytes_with_cache` 为带会话的入口。
+
 
 元数据解析已按最小视图运行：`metadata::resolve::ResolveServices` 只暴露函数/builtin/静态字段身份查询与
 类型加载查询/结算，`vm::VmResolveServices` 提供实现并拥有入队与排空时序（「可观察的已解析函数其类型已登记」

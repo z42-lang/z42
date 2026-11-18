@@ -219,11 +219,11 @@ pub unsafe extern "C" fn z42_host_load_zbc(
 
         // Build the merged module + ctx outside the write lock so we do
         // I/O without blocking other readers.
-        let config = match state::with_state_read(|s| s.config.clone()) {
-            Some(config) => config,
+        let (config, image_cache) = match state::with_state_read(|s| (s.config.clone(), std::sync::Arc::clone(&s.image_cache))) {
+            Some(pair) => pair,
             None => return set_error(Z42HostStatus::NotInit, "z42_host_load_zbc: host state vanished mid-call"),
         };
-        let host_module = match ops::build_host_module(&config, slice) {
+        let host_module = match ops::build_host_module(&config, slice, &image_cache) {
             Ok(module) => module,
             Err(error) => return set_error(Z42HostStatus::BadZbc, format!("z42_host_load_zbc: {error:#}")),
         };
