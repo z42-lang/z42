@@ -344,7 +344,9 @@ pub unsafe extern "C" fn jit_neg(
     dst: u32, src: u32,
 ) -> u8 {
     let result = match &(*frame).regs[src as usize] {
-        Value::I64(n) => Value::I64(-n),
+        // fix-ushr 顺手修：wrapping_neg（debug 构建下裸 `-n` 对 i64::MIN 是 Rust panic，
+        // 与 interp 同修；JIT 内联路径 `ineg` 本就 wrapping）。
+        Value::I64(n) => Value::I64(n.wrapping_neg()),
         Value::F64(f) => Value::F64(-f),
         other => {
             set_exception(vm_ctx_ref(ctx), Value::Str(format!("Neg: expected numeric, got {:?}", other).into()));

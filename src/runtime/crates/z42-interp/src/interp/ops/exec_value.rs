@@ -214,7 +214,10 @@ pub(super) fn not(frame: &mut Frame, dst: u32, src: u32) -> Result<()> {
 
 pub(super) fn neg(frame: &mut Frame, dst: u32, src: u32) -> Result<()> {
     let res = match frame.get(src)? {
-        Value::I64(n) => Value::I64(-n),
+        // fix-ushr 顺手修：wrapping_neg 对齐 vm-wrapping-int-arith 契约（`-i64::MIN` ==
+        // `i64::MIN`）。此前裸 `-n` 在 debug 构建是 Rust overflow panic（`-9223372036854775808L`
+        // 字面量直接崩 VM），release 才静默 wrap —— 两模式行为分裂。
+        Value::I64(n) => Value::I64(n.wrapping_neg()),
         Value::F64(f) => Value::F64(-f),
         other => bail!("Neg: expected numeric, got {:?}", other),
     };

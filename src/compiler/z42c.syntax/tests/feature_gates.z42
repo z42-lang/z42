@@ -48,6 +48,11 @@ void test_bitwise_knob_takes_effect() {
     Assert.True(hasFeatureDisabled(codesWithout("int c = 1 ^ 2;",  "bitwise")));
     Assert.True(hasFeatureDisabled(codesWithout("int c = 1 << 2;", "bitwise")));
     Assert.True(hasFeatureDisabled(codesWithout("int c = 8 >> 2;", "bitwise")));
+    // fix-ushr：`>>>` 与六个位运算复合赋值同门（裁决见 ParseTable.Feature 注释）。
+    Assert.True(hasFeatureDisabled(codesWithout("int c = -1 >>> 2;", "bitwise")));
+    Assert.True(hasFeatureDisabled(codesWithout("int a = 3; a &= 1;", "bitwise")));
+    Assert.True(hasFeatureDisabled(codesWithout("int a = 3; a <<= 1;", "bitwise")));
+    Assert.True(hasFeatureDisabled(codesWithout("int a = -8; a >>= 1;", "bitwise")));
     // 关掉 bitwise **不该**牵连算术与比较（门是按 token 挂的，不是一刀切）。
     Assert.Equal("", codesWithout("int c = 1 + 2 * 3; bool d = c > 2;", "bitwise"));
 }

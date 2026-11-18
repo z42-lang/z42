@@ -431,6 +431,13 @@ public sealed class Lexer {
         if (c == '!' && d == '=') { this._adv2(); this._emit(TokenKind.BangEq, "!="); return; }
         if (c == '<' && d == '=') { this._adv2(); this._emit(TokenKind.LtEq, "<="); return; }
         if (c == '>' && d == '=') { this._adv2(); this._emit(TokenKind.GtEq, ">="); return; }
+        // fix-ushr：三/四字符 max-munch，须先于对应双字符（`>>>` 先于 `>>`，`>>>=` 先于 `>>>`）。
+        // 泛型闭合 `A<B<C<int>>>` 因此整发 GtGtGt —— 由 TypeParser._tryCloseTypeArgs 的
+        // _pendingGt 拆分（GtGtGt ⇒ pendingGt=2，与既有 GtGt ⇒ 1 对称）。
+        if (c == '>' && d == '>' && this._ch(this._pos + 2) == '>' && this._ch(this._pos + 3) == '=') { this._adv2(); this._advance(); this._advance(); this._emit(TokenKind.GtGtGtEq, ">>>="); return; }
+        if (c == '>' && d == '>' && this._ch(this._pos + 2) == '>') { this._adv2(); this._advance(); this._emit(TokenKind.GtGtGt, ">>>"); return; }
+        if (c == '>' && d == '>' && this._ch(this._pos + 2) == '=') { this._adv2(); this._advance(); this._emit(TokenKind.GtGtEq, ">>="); return; }
+        if (c == '<' && d == '<' && this._ch(this._pos + 2) == '=') { this._adv2(); this._advance(); this._emit(TokenKind.LtLtEq, "<<="); return; }
         if (c == '<' && d == '<') { this._adv2(); this._emit(TokenKind.LtLt, "<<"); return; }
         if (c == '>' && d == '>') { this._adv2(); this._emit(TokenKind.GtGt, ">>"); return; }
         if (c == '&' && d == '&') { this._adv2(); this._emit(TokenKind.AmpAmp, "&&"); return; }
