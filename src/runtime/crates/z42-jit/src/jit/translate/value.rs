@@ -111,9 +111,18 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     let ret  = self.builder.inst_results(inst)[0]; self.check(ret);
                 }
                 Instruction::ToStr { dst, src } => {
-                    let d = self.ri(*dst); let s = self.ri(*src);
-                    let inst = self.builder.ins().call(self.hr_to_str, &[self.frame_val, self.ctx_val, d, s]);
-                    let ret  = self.builder.inst_results(inst)[0]; self.check(ret);
+                    // fix-u64-semantics: 源静态 U64 ⇒ 窄 helper 按 u64 格式化
+                    // （镜像 interp `to_str` 的 u64 分支；判据同源 scalar::reg_is_u64）。
+                    if crate::exec::ops::scalar::reg_is_u64(&self.func.reg_types, *src) {
+                        let a_src = reg_addr(self.builder, self.regs_base, *src);
+                        let d_addr = reg_addr(self.builder, self.regs_base, *dst);
+                        let inst = self.builder.ins().call(self.hr_to_str_u64, &[self.ctx_val, a_src, d_addr]);
+                        let ret  = self.builder.inst_results(inst)[0]; self.check(ret);
+                    } else {
+                        let d = self.ri(*dst); let s = self.ri(*src);
+                        let inst = self.builder.ins().call(self.hr_to_str, &[self.frame_val, self.ctx_val, d, s]);
+                        let ret  = self.builder.inst_results(inst)[0]; self.check(ret);
+                    }
                 }
 
                 // Calls

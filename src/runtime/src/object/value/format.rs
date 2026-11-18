@@ -68,6 +68,22 @@ pub fn with_value_str<R>(v: &Value, f: impl FnOnce(&str) -> R) -> R {
     f(b.as_str())
 }
 
+/// fix-u64-semantics: [`with_value_str`] 的 **u64 位域**视图——静态类型 `U64` 的
+/// `Value::I64` 载荷按无符号格式化（`18446744073709551615` 而非 `-1`）。其余变体
+/// 与 [`with_value_str`] 逐字相同（委托之）。消费点：静态 U64 源的 `ToStr`
+/// （`$"{hi}"` 插值，interp `to_str` / JIT `jit_to_str_u64` 窄 helper）。
+/// 动态（无静态类型）格式化站点仍走 [`with_value_str`]——三路同口径的 signed 回落。
+#[inline]
+pub fn with_value_str_u64<R>(v: &Value, f: impl FnOnce(&str) -> R) -> R {
+    use std::fmt::Write;
+    if let Value::I64(n) = v {
+        let mut b = FmtBuf::new();
+        let _ = write!(b, "{}", *n as u64);
+        return f(b.as_str());
+    }
+    with_value_str(v, f)
+}
+
 /// Convert a Value to its string representation.
 ///
 /// Exhaustive match: 加新 `Value` variant 时编译期强制覆盖（防止再次出现

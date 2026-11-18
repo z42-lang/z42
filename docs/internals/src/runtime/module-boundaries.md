@@ -79,6 +79,18 @@ interop 侧的 materialize/load_named 继续以 `loader::native::resolve_symbol`
 的线程级形态；载荷身份词汇 `ContextId` / `AssemblyId` 由 `object::identity` 拥有，loader 经再导出保持注册表路径。
 `TypeDesc.id` 的 TypeId 仍指 metadata（见缺口表）。
 
+协议内依赖身份已收口：`RuntimeApi::query_component` 的按 ID 查询在生产构建回答 UNAVAILABLE——
+组件依赖一律经描述符的依赖闭包由管理层解析（`get_service` 按语义服务获取不变）；真实现仅内部
+测试构建注册。另清三处可见性收口遗留的孤儿再导出（object/header 的 marks glob、gc 的
+loh_bytes/VarChunkReclaim 测试专用项转 cfg(test) 门控）。
+会话内 zpkg 定义共享已落地（C# ALC「已加载即共享」规则）：`loader::ImageCache` 以内容哈希为键，
+`host::load::prepare` 的三个装载点（resolver 命中、prelude、依赖文件队列）与 C 会话的入口字节都经
+它解码-or-共享——同一 zpkg（标准库居首）在会话内只解码一次，函数 IR 与定义数据经 `PackageImage`
+的 Arc 跨程序共享（`Module::from_image` 浅包装）；类型表/静态/派发缓存仍每 VM 独立（实例化状态，
+对应不同 ALC 各自的 RuntimeTypes）。Rust 宿主的 `load_file/load_bytes` 保持无缓存路径不变，
+`load_bytes_with_cache` 为带会话的入口。
+
+
 元数据解析已按最小视图运行：`metadata::resolve::ResolveServices` 只暴露函数/builtin/静态字段身份查询与
 类型加载查询/结算，`vm::VmResolveServices` 提供实现并拥有入队与排空时序（「可观察的已解析函数其类型已登记」
 次序保持不变）；独立后端经 `components::bridge::resolve_function_tokens` 装配视图，resolve 模块不再接收 VmContext。
@@ -98,7 +110,6 @@ vm/mod.rs 只负责共享 Core 与线程视图的组合、布局、构造和生�
 
 | 缺口 | 代码证据 | 影响与目标 |
 |---|---|---|
-| 组件协议中的依赖身份 | `components::abi::RuntimeApi` 的跨组件依赖查询 | VM 执行消费者按语义角色请求服务；按 ID 查询只在内部测试构建可见，生产 VM 经内部能力入口获取租约，协议内依赖 ID 由管理层拥有 |
 | 低层上下文默认构造仍使用进程配置 | availability 的组件可用性查询已收口：JIT 目标矩阵以 build 脚本派生的 `z42_jit_supported` cfg 为单一来源，config 不再反向调 components（`execution_supported` 已删除） | 进程 bootstrap 与 VM 设置分开捕获；进程级 `runtime_config()` 逐 VM 化归 W3 |
 | 普通宿主与 C 适配尚未分开 | C 适配五文件已归组 `host/c/`（经 host 根再导出），尚未归能力所有者 | CLI 已归 cli 适配且平台构建可排除；后续 C 适配/头文件归能力所有者，host 保留功能请求/环境服务契约 |
 | 初始化层级含混 | `host/state.rs` 的会话保存多个 LoadedProgram；`ops::build_host_module` 每次创建程序/VM；`LoadedProgram::invoke` 执行一次性托管初始化 | 区分会话、VM/包准备与托管初始化，不把 C initialize 当作所有模块已初始化；统一装配但保持隔离和失败终态 |

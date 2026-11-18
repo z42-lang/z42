@@ -18,7 +18,10 @@ impl<'a, 'b> TxCtx<'a, 'b> {
             _ => anyhow::bail!("tr_compare: unexpected opcode in category dispatch"),
         };
         if is_int_cmp(self.func, a, b) {
-            emit_i64_cmp(self.builder, self.regs_base, self.cache, self.promoted, dst, a, b, kind);
+            // fix-u64-semantics: 任一侧静态 U64 ⇒ Unsigned `IntCC`（判据与 interp
+            // 分派点同源 scalar::pair_u64）。动态 guard/回落在下方，保持 signed。
+            let unsigned = crate::exec::ops::scalar::pair_u64(&self.func.reg_types, a, b);
+            emit_i64_cmp(self.builder, self.regs_base, self.cache, self.promoted, dst, a, b, kind, unsigned);
         } else if is_f64_cmp(self.func, a, b) {
             emit_f64_cmp(self.builder, self.regs_base, self.promoted, dst, a, b, kind);
         } else if is_typed(self.func, a, IrType::Char) && is_typed(self.func, b, IrType::Char) {
@@ -57,7 +60,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
         self.builder.switch_to_block(fast_i64);
         let ai = load_payload_i64(self.builder, a_addr);
         let bi = load_payload_i64(self.builder, b_addr);
-        let r = self.builder.ins().icmp(int_cc_for_cmp(kind), ai, bi);
+        let r = self.builder.ins().icmp(int_cc_for_cmp(kind, false), ai, bi);
         store_const_tag(self.builder, d_addr, TAG_BOOL, r);
         self.builder.ins().jump(done_blk, &[]);
 

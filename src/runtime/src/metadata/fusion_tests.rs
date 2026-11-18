@@ -27,11 +27,28 @@ fn recognizes_cmp_br_and_types_it_when_operands_are_integer() {
     // reg 0 = I64, reg 1 = I32 (both stored as Value::I64 at runtime), reg 2 = Bool (the cmp result).
     let reg_types = [IrType::I64, IrType::I32, IrType::Bool];
     match SuperInstr::recognize(&block, &targets, &reg_types, true) {
-        Some(SuperInstr::CmpBr { op, a, b, dst, t_blk, f_blk, typed }) => {
+        Some(SuperInstr::CmpBr { op, a, b, dst, t_blk, f_blk, typed, unsigned }) => {
             assert_eq!((op, a, b, dst, t_blk, f_blk), (CmpOp::Lt, 0, 1, 2, 3, 4));
             assert!(typed, "I64+I32 operands ⇒ typed (both are Value::I64 at runtime)");
+            assert!(!unsigned, "no U64 operand ⇒ signed domain");
         }
         other => panic!("expected typed CmpBr, got {other:?}"),
+    }
+}
+
+/// fix-u64-semantics: 任一侧静态 U64 ⇒ 融合比较切 u64 位域（否则 `while (hi > limit)`
+/// 走融合路径绕过 standalone handler 的无符号分派）。
+#[test]
+fn cmp_br_goes_unsigned_when_an_operand_is_u64() {
+    let block = cmp_br_block(2, 0, 1);
+    let targets = BranchTargets::BrCond(3, 4);
+    let reg_types = [IrType::U64, IrType::I32, IrType::Bool];
+    match SuperInstr::recognize(&block, &targets, &reg_types, true) {
+        Some(SuperInstr::CmpBr { typed, unsigned, .. }) => {
+            assert!(typed, "U64+I32 operands ⇒ typed (both are Value::I64 at runtime)");
+            assert!(unsigned, "any U64 operand ⇒ u64 domain");
+        }
+        other => panic!("expected unsigned CmpBr, got {other:?}"),
     }
 }
 

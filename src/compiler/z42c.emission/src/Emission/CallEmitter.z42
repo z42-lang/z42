@@ -143,13 +143,20 @@ public sealed class CallEmitter {
             // 已知。修 ① struct GetType（否则走下方无体静态 Call 崩）+ ② enum GetType（否则裸 i64→Std.Int32）。
             // 排除 scalar 基元（其 IsStruct 亦 true，但 `5.GetType()` 已由运行期正确处理，不拦以免自举字节漂移）；
             // enum 字面量 `E.Red`（静态类型 long）靠 BoundLitInt.EnumTypeName origin 标记识别。
+            //
+            // fix-prim-gettype-width：**非 int 的整数基元**（long/short/byte/sbyte/uint…）同折 —— 运行期
+            // 裸 I64 无法辨宽度，`primitive_class_name` 一律答 `Std.Int32`（`(5L).GetType().FullName`
+            // 实测报 Int32）。int 本身运行期答案已正确（I64 默认即 Int32），保持不拦：零自举字节漂移，
+            // 只修错的那几个宽度。bool/char/double/float/string 独立运行时表示、运行期正确，不拦。
             if (c.MethodName == "GetType" && c.ArgCount == 0) {
                 string enumFqn = "";
                 if (c.Receiver is BoundLitInt) {
                     BoundLitInt bli = c.Receiver as BoundLitInt;
                     if (bli.EnumTypeName != "") { enumFqn = bli.EnumTypeName; }   // 绑定时已是 FQN（MemberResolver）
                 }
-                if (enumFqn != "" || this._isStructOrEnumStatic(c.Receiver.Type())) {
+                Z42Type rtOf = c.Receiver.Type();
+                if (enumFqn != "" || this._isStructOrEnumStatic(rtOf)
+                    || (rtOf.IsIntegerType() && rtOf.PrimCode() != 2)) {
                     return this._emitValueTypeGetType(c, enumFqn);
                 }
             }
