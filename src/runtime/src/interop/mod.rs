@@ -23,6 +23,13 @@ pub(crate) fn state_for_vm(providers: &'static providers::NativeRegistry) -> sta
 pub mod providers;
 pub mod module;
 pub use module::{register_native_module, resolve_native_module};
+
+#[cfg(any(feature = "native-interop", feature = "component-loading"))]
+pub mod install;
+#[cfg(feature = "native-interop")]
+pub use install::{load_library, guess_register_symbol};
+#[cfg(feature = "component-loading")]
+pub use install::load_native_module;
 mod native_call;
 mod native_value;
 pub(crate) use native_call::invoke_export;
