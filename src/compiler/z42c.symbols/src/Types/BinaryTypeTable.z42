@@ -163,8 +163,8 @@ public static class BinaryTypeTable {
         if (op == "&&" || op == "||") {
             return new BinaryRule(true, OperandKind.Bool, OperandKind.Bool, ResultKind.Bool, "bool");
         }
-        // 位运算/移位：两侧 integral → 拓宽
-        if (op == "&" || op == "|" || op == "^" || op == "<<" || op == ">>") {
+        // 位运算/移位：两侧 integral → 拓宽（`>>>` 逻辑右移同规，fix-ushr）
+        if (op == "&" || op == "|" || op == "^" || op == "<<" || op == ">>" || op == ">>>") {
             return new BinaryRule(true, OperandKind.Integral, OperandKind.Integral, ResultKind.Arith, "integral");
         }
         return new BinaryRule(false, OperandKind.None, OperandKind.None, ResultKind.Unknown, "");

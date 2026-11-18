@@ -1,0 +1,50 @@
+// fix-unary-op-overload：一元操作符重载端到端。`operator -(T a)` 等 4 条一元形态此前
+// 报 E0495（"z42 has no unary operator overloading"），现降低为 C# 名
+// op_UnaryNegation / op_UnaryPlus / op_LogicalNot / op_OnesComplement，
+// 派发侧 ExprTyper._bindUnary 先 op_ 后原生表（数值 / bool 零行为变化）。
+class Vec {
+    public int x;
+    public int y;
+    public Vec(int a, int b) { this.x = a; this.y = b; }
+
+    public static Vec operator -(Vec v) { return new Vec(-v.x, -v.y); }
+    public static Vec operator +(Vec v) { return v; }
+    public static Vec operator ~(Vec v) { return new Vec(~v.x, ~v.y); }
+    public static Vec operator -(Vec a, Vec b) { return new Vec(a.x - b.x, a.y - b.y); }   // 同符号二元照旧
+}
+
+class Toggle {
+    public bool on;
+    public Toggle(bool b) { this.on = b; }
+    public static bool operator !(Toggle t) { return !t.on; }
+}
+
+void Main() {
+    Vec v = new Vec(3, -4);
+    Vec n = -v;                       // op_UnaryNegation
+    Assert.Equal(-3, n.x);
+    Assert.Equal(4, n.y);
+
+    Vec p = +v;                       // op_UnaryPlus（透传语义自定）
+    Assert.Equal(3, p.x);
+    Assert.Equal(-4, p.y);
+
+    Vec c = ~v;                       // op_OnesComplement
+    Assert.Equal(~3, c.x);
+    Assert.Equal(~(-4), c.y);
+
+    Vec d = v - n;                    // 同符号二元重载不受一元影响
+    Assert.Equal(6, d.x);
+    Assert.Equal(-8, d.y);
+
+    Toggle t = new Toggle(false);
+    Assert.True(!t);                  // op_LogicalNot
+    Assert.False(!new Toggle(true));
+
+    // 原生一元路径零行为变化
+    Assert.Equal(-7, -7);
+    Assert.Equal(~6, ~6);
+    Assert.True(!false);
+    int i = 5;
+    Assert.Equal(-5, -i);
+}

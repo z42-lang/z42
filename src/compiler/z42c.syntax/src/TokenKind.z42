@@ -82,4 +82,8 @@ public static class TokenKind {
     public static int Methodof = 155;      // methodof(Type.Member(签名)) 方法引用（add-method-reference；值仅需互异、不入 zbc）
     public static int Fieldof = 156;       // fieldof(Type.Field) 字段引用（add-field-property-reference；值仅需互异、不入 zbc）
     public static int Propertyof = 157;    // propertyof(Type.Prop) 属性引用（add-field-property-reference；值仅需互异、不入 zbc）
+    public static int GtGtGt = 158;        // >>> 逻辑右移（fix-ushr；C# 11 对齐）
+    public static int LtLtEq = 159;        // <<= 移位复合赋值（fix-ushr）
+    public static int GtGtEq = 160;        // >>= 移位复合赋值（fix-ushr）
+    public static int GtGtGtEq = 161;      // >>>= 逻辑移位复合赋值（fix-ushr）
 }

@@ -104,10 +104,11 @@ void test_table_columns_stay_in_sync() {
         if (pf  != PostfixKind.None) { pfCount = pfCount + 1; }
         k = k + 1;
     }
-    // 钉住规模：led 33 个 = 9 赋值族 + `?:` + `??` + `is` + `as` + `switch` + `with` + 18 二元；
+    // 钉住规模：led 37 个 = 12 赋值族（fix-ushr 加 `<<=` `>>=` `>>>=`）+ `?:` + `??` + `is` + `as`
+    // + `switch` + `with` + 19 二元（fix-ushr 加 `>>>`）；
     // 后缀 7 个（`.` `?.` `(` `[` `++` `--` `<`）。数目变了要么是真加了运算符（改这里），
     // 要么是某一列漏了同步（上面的断言会先红）。
-    Assert.Equal(33, ledCount);
+    Assert.Equal(37, ledCount);
     Assert.Equal(7, pfCount);
 }
 
@@ -140,8 +141,9 @@ void test_every_feature_name_is_declared() {
         }
         k = k + 1;
     }
-    // 6 个：`| ^ & << >>`（bitwise）+ `?:`（ternary）
-    Assert.Equal(6, gated);
+    // 13 个：`| ^ & << >> >>>` + 复合 `&= |= ^= <<= >>= >>>=`（bitwise，fix-ushr 裁决：
+    // 门关闭的语言含义是「无位运算」，复合形式单独存活即语义泄漏）+ `?:`（ternary）
+    Assert.Equal(13, gated);
 }
 
 [Test]
@@ -151,10 +153,15 @@ void test_gated_operators_are_the_expected_ones() {
     Assert.Equal("bitwise", ParseTable.Feature(TokenKind.Ampersand));
     Assert.Equal("bitwise", ParseTable.Feature(TokenKind.LtLt));
     Assert.Equal("bitwise", ParseTable.Feature(TokenKind.GtGt));
+    Assert.Equal("bitwise", ParseTable.Feature(TokenKind.GtGtGt));           // fix-ushr
     Assert.Equal("ternary", ParseTable.Feature(TokenKind.Question));
-    // ⚠️ 刻意**没有**挂在表里的：
-    //  · `&=` / `|=` / `^=` —— 复合赋值的归属待裁（本批裁决的范围是那 5 个运算符）。
-    Assert.Equal("", ParseTable.Feature(TokenKind.AmpEq));
+    // fix-ushr 裁决落定：位运算的复合赋值形式一并挂 `bitwise`（旧悬案「&= 归属待裁」收口）。
+    Assert.Equal("bitwise", ParseTable.Feature(TokenKind.AmpEq));
+    Assert.Equal("bitwise", ParseTable.Feature(TokenKind.PipeEq));
+    Assert.Equal("bitwise", ParseTable.Feature(TokenKind.CaretEq));
+    Assert.Equal("bitwise", ParseTable.Feature(TokenKind.LtLtEq));
+    Assert.Equal("bitwise", ParseTable.Feature(TokenKind.GtGtEq));
+    Assert.Equal("bitwise", ParseTable.Feature(TokenKind.GtGtGtEq));
     //  · `is` —— `pattern_match` 比「`is` 这个 token」细一档：只关进模式引擎的那几条路，
     //    `x is T` / `x is T v`（类型测试，不入引擎）必须留着 ⇒ 门挂在引擎入口，不在表里。
     Assert.Equal("", ParseTable.Feature(TokenKind.Is));
