@@ -77,6 +77,20 @@ pub(in crate::interp) fn int_bitop(
     crate::exec::ops::scalar::int_bitop(va, vb, op)
 }
 
+/// fix-u64-semantics: [`int_binop`] 的 u64 位域对应物（静态 U64 站点的 div/rem）。
+/// 规则在 `scalar::uint_binop`（混合 I64/F64 的加宽走 u64→f64），这里只做寄存器取值。
+pub(in crate::interp) fn uint_binop(
+    regs: &[Value],
+    a: u32,
+    b: u32,
+    int_op:   impl Fn(i64, i64) -> i64,
+    float_op: impl Fn(f64, f64) -> f64,
+) -> Result<Value> {
+    let va = regs.get(a as usize).ok_or_else(|| anyhow::anyhow!("undefined register %{a}"))?;
+    let vb = regs.get(b as usize).ok_or_else(|| anyhow::anyhow!("undefined register %{b}"))?;
+    crate::exec::ops::scalar::uint_binop(va, vb, int_op, float_op)
+}
+
 /// Numeric less-than comparison with automatic widening.
 ///
 /// fix-char-comparison : `Value::Char` cases added so
@@ -97,13 +111,22 @@ pub(in crate::interp) fn eval_cmp(op: crate::metadata::CmpOp, regs: &[Value], a:
     crate::exec::ops::scalar::eval_cmp(op, reg_ref(regs, a)?, reg_ref(regs, b)?)
 }
 
+/// fix-u64-semantics: 任一侧静态 U64 的比较走 [`crate::exec::ops::scalar::eval_cmp_u64`]
+/// （u64 位域；Eq/Ne 仍按位）。与 [`eval_cmp`] 同构，判据在 exec_instr 分派点 /
+/// CmpBr 融合器算好（`scalar::pair_u64`）。
+#[inline]
+pub(in crate::interp) fn eval_cmp_u64(op: crate::metadata::CmpOp, regs: &[Value], a: u32, b: u32) -> Result<bool> {
+    crate::exec::ops::scalar::eval_cmp_u64(op, reg_ref(regs, a)?, reg_ref(regs, b)?)
+}
+
 #[inline]
 fn reg_ref(regs: &[Value], r: u32) -> Result<&Value> {
     regs.get(r as usize).ok_or_else(|| anyhow::anyhow!("undefined register %{r}"))
 }
 
 /// interp-typed-superinstr : the **typed** comparison primitive for
-/// super-instructions whose operands `reg_types` confirm are both `I64`. Index
+/// super-instructions whose operands `reg_types` confirm are both integers.
+/// Index
 /// access stays bounds-checked (panics, never UB); only the *type* extraction is
 /// unchecked (`as_i64_unchecked`), skipping the discriminant branch that
 /// [`eval_cmp`] / `numeric_lt` pay for the dynamic case. Infallible — an I64/I64
@@ -114,14 +137,27 @@ fn reg_ref(regs: &[Value], r: u32) -> Result<&Value> {
 /// invariant is implied by `typed`, since `is_i64(reg_types, r)` requires
 /// `r < reg_types.len() == regs.len()`).
 #[inline]
-pub(in crate::interp) fn eval_cmp_i64(op: crate::metadata::CmpOp, regs: &[Value], a: u32, b: u32) -> bool {
+pub(in crate::interp) fn eval_cmp_i64(op: crate::metadata::CmpOp, regs: &[Value], a: u32, b: u32, unsigned: bool) -> bool {
     use crate::metadata::CmpOp;
-    // SAFETY: the typed super-instruction was recognized only when
-    // `reg_types[a] == reg_types[b] == I64`, the same invariant the JIT's raw
-    // i64 arithmetic trusts. `debug_assert` inside `as_i64_unchecked` catches a
-    // violation in debug builds.
+    // SAFETY: the typed super-instruction was recognized only when both
+    // operands are statically integer (I8..U64, all `Value::I64`), the same
+    // invariant the JIT's raw i64 arithmetic trusts. `debug_assert` inside
+    // `as_i64_unchecked` catches a violation in debug builds.
     let x = unsafe { regs[a as usize].as_i64_unchecked() };
     let y = unsafe { regs[b as usize].as_i64_unchecked() };
+    // fix-u64-semantics: 任一侧静态 U64 ⇒ u64 位域（CmpBr 的 `unsigned` 由融合器
+    // 用 `scalar::pair_u64` 算好；Eq/Ne 按位与域无关）。
+    if unsigned {
+        let (x, y) = (x as u64, y as u64);
+        return match op {
+            CmpOp::Lt => x <  y,
+            CmpOp::Le => x <= y,
+            CmpOp::Gt => x >  y,
+            CmpOp::Ge => x >= y,
+            CmpOp::Eq => x == y,
+            CmpOp::Ne => x != y,
+        };
+    }
     match op {
         CmpOp::Lt => x <  y,
         CmpOp::Le => x <= y,

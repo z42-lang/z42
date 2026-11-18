@@ -56,6 +56,13 @@ pub(super) fn emit_i64_binop(
             let masked_bi = builder.ins().band(bi, mask);
             builder.ins().sshr(ai, masked_bi)
         }
+        // fix-u64-semantics: 逻辑右移（左操作数静态 `U64` 的 `>>`）——
+        // SEMANTICS: `scalar::uint_shr`（u64 位域零填充，移位量同 mask 63）。
+        BinopKind::UShr   => {
+            let mask = builder.ins().iconst(types::I64, 63);
+            let masked_bi = builder.ins().band(bi, mask);
+            builder.ins().ushr(ai, masked_bi)
+        }
     };
 
     // Store to the resident Variable (2C) or the cache (2B), via `store_int`.
@@ -93,17 +100,18 @@ pub(super) fn emit_i64_bit_not(
     store_int(builder, cache, promoted, dst, result);
 }
 
-/// Signed `IntCC` for a `CmpKind` — the one spelling of "how the VM orders
-/// integers" shared by the statically-typed inline path and the dynamic-site
-/// I64 guard (`compare.rs::emit_cmp_guarded`).
-pub(super) fn int_cc_for_cmp(kind: CmpKind) -> IntCC {
+/// `IntCC` for a `CmpKind` — the one spelling of "how the VM orders integers"
+/// shared by the statically-typed inline path and the dynamic-site I64 guard
+/// (`compare.rs::emit_cmp_guarded`). `unsigned`（fix-u64-semantics：任一侧静态
+/// `U64`）时取 Unsigned 域，SEMANTICS 锚：`scalar::eval_cmp_u64`。
+pub(super) fn int_cc_for_cmp(kind: CmpKind, unsigned: bool) -> IntCC {
     match kind {
         CmpKind::Eq => IntCC::Equal,
         CmpKind::Ne => IntCC::NotEqual,
-        CmpKind::Lt => IntCC::SignedLessThan,
-        CmpKind::Le => IntCC::SignedLessThanOrEqual,
-        CmpKind::Gt => IntCC::SignedGreaterThan,
-        CmpKind::Ge => IntCC::SignedGreaterThanOrEqual,
+        CmpKind::Lt => if unsigned { IntCC::UnsignedLessThan } else { IntCC::SignedLessThan },
+        CmpKind::Le => if unsigned { IntCC::UnsignedLessThanOrEqual } else { IntCC::SignedLessThanOrEqual },
+        CmpKind::Gt => if unsigned { IntCC::UnsignedGreaterThan } else { IntCC::SignedGreaterThan },
+        CmpKind::Ge => if unsigned { IntCC::UnsignedGreaterThanOrEqual } else { IntCC::SignedGreaterThanOrEqual },
     }
 }
 
@@ -120,6 +128,7 @@ pub(super) fn emit_i64_cmp(
     promoted: &[bool],
     dst: u32, a: u32, b: u32,
     kind: CmpKind,
+    unsigned: bool,
 ) {
     // Operands read via resident Variable (2C) / cache (2B) / memory.
     let ai = load_int(builder, cache, promoted, regs_base, a);
@@ -127,8 +136,10 @@ pub(super) fn emit_i64_cmp(
 
     // Cranelift `icmp` returns an i8 (boolean: 0 or 1) — directly the
     // payload byte we need to write back. Signed compares since z42's
-    // `<` / `<=` etc. are signed on all narrow integer types (i8..i64).
-    let result_i8 = builder.ins().icmp(int_cc_for_cmp(kind), ai, bi);
+    // `<` / `<=` etc. are signed on all narrow integer types (i8..i64);
+    // fix-u64-semantics: 任一侧静态 `U64` ⇒ Unsigned 域（SEMANTICS:
+    // `scalar::eval_cmp_u64`），窄无符号 U8/U16/U32 零扩展恒正、逐位等价。
+    let result_i8 = builder.ins().icmp(int_cc_for_cmp(kind, unsigned), ai, bi);
 
     // The dst is a Bool, not an integer — write it straight to memory (with
     // TAG_BOOL) and drop any stale integer cache entry for it. The consumer

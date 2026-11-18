@@ -101,22 +101,33 @@ pub(super) fn mul(frame: &mut Frame, dst: u32, a: u32, b: u32) -> Result<()> {
 /// exception, None = success) mirroring the `Call` / `Builtin`
 /// propagation pattern.
 pub(super) fn div(
-    ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, a: u32, b: u32,
+    ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, a: u32, b: u32, u64dom: bool,
 ) -> Result<Option<Value>> {
     if let Some(thrown) = check_int_div_by_zero(ctx, module, &frame.regs, b, "/")? {
         return Ok(Some(thrown));
     }
-    frame.set(dst, int_binop(&frame.regs, a, b, crate::exec::ops::scalar::int_div, |x, y| x / y)?);
+    // fix-u64-semantics: 任一侧静态 U64 ⇒ u64 位域除法（pair_u64 在 exec_instr 分派点算好）。
+    let result = if u64dom {
+        super::uint_binop(&frame.regs, a, b, crate::exec::ops::scalar::uint_div, |x, y| x / y)?
+    } else {
+        int_binop(&frame.regs, a, b, crate::exec::ops::scalar::int_div, |x, y| x / y)?
+    };
+    frame.set(dst, result);
     Ok(None)
 }
 
 pub(super) fn rem(
-    ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, a: u32, b: u32,
+    ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, a: u32, b: u32, u64dom: bool,
 ) -> Result<Option<Value>> {
     if let Some(thrown) = check_int_div_by_zero(ctx, module, &frame.regs, b, "%")? {
         return Ok(Some(thrown));
     }
-    frame.set(dst, int_binop(&frame.regs, a, b, crate::exec::ops::scalar::int_rem, |x, y| x % y)?);
+    let result = if u64dom {
+        super::uint_binop(&frame.regs, a, b, crate::exec::ops::scalar::uint_rem, |x, y| x % y)?
+    } else {
+        int_binop(&frame.regs, a, b, crate::exec::ops::scalar::int_rem, |x, y| x % y)?
+    };
+    frame.set(dst, result);
     Ok(None)
 }
 
@@ -145,6 +156,7 @@ fn check_int_div_by_zero(
 
 // interp-superinstr-fusion: all six comparisons route through the shared
 // `ops::eval_cmp` primitive (also used by the fused `CmpBr` super-instruction).
+// fix-u64-semantics: 任一侧静态 U64 ⇒ `ops::eval_cmp_u64`（u64 位域，Eq/Ne 仍按位）。
 use crate::metadata::CmpOp;
 
 pub(super) fn eq(frame: &mut Frame, dst: u32, a: u32, b: u32) -> Result<()> {
@@ -157,23 +169,27 @@ pub(super) fn ne(frame: &mut Frame, dst: u32, a: u32, b: u32) -> Result<()> {
     Ok(())
 }
 
-pub(super) fn lt(frame: &mut Frame, dst: u32, a: u32, b: u32) -> Result<()> {
-    frame.set(dst, Value::Bool(super::eval_cmp(CmpOp::Lt, &frame.regs, a, b)?));
+pub(super) fn lt(frame: &mut Frame, dst: u32, a: u32, b: u32, u64dom: bool) -> Result<()> {
+    let r = if u64dom { super::eval_cmp_u64(CmpOp::Lt, &frame.regs, a, b)? } else { super::eval_cmp(CmpOp::Lt, &frame.regs, a, b)? };
+    frame.set(dst, Value::Bool(r));
     Ok(())
 }
 
-pub(super) fn le(frame: &mut Frame, dst: u32, a: u32, b: u32) -> Result<()> {
-    frame.set(dst, Value::Bool(super::eval_cmp(CmpOp::Le, &frame.regs, a, b)?));
+pub(super) fn le(frame: &mut Frame, dst: u32, a: u32, b: u32, u64dom: bool) -> Result<()> {
+    let r = if u64dom { super::eval_cmp_u64(CmpOp::Le, &frame.regs, a, b)? } else { super::eval_cmp(CmpOp::Le, &frame.regs, a, b)? };
+    frame.set(dst, Value::Bool(r));
     Ok(())
 }
 
-pub(super) fn gt(frame: &mut Frame, dst: u32, a: u32, b: u32) -> Result<()> {
-    frame.set(dst, Value::Bool(super::eval_cmp(CmpOp::Gt, &frame.regs, a, b)?));
+pub(super) fn gt(frame: &mut Frame, dst: u32, a: u32, b: u32, u64dom: bool) -> Result<()> {
+    let r = if u64dom { super::eval_cmp_u64(CmpOp::Gt, &frame.regs, a, b)? } else { super::eval_cmp(CmpOp::Gt, &frame.regs, a, b)? };
+    frame.set(dst, Value::Bool(r));
     Ok(())
 }
 
-pub(super) fn ge(frame: &mut Frame, dst: u32, a: u32, b: u32) -> Result<()> {
-    frame.set(dst, Value::Bool(super::eval_cmp(CmpOp::Ge, &frame.regs, a, b)?));
+pub(super) fn ge(frame: &mut Frame, dst: u32, a: u32, b: u32, u64dom: bool) -> Result<()> {
+    let r = if u64dom { super::eval_cmp_u64(CmpOp::Ge, &frame.regs, a, b)? } else { super::eval_cmp(CmpOp::Ge, &frame.regs, a, b)? };
+    frame.set(dst, Value::Bool(r));
     Ok(())
 }
 
@@ -237,8 +253,14 @@ pub(super) fn shl(frame: &mut Frame, dst: u32, a: u32, b: u32) -> Result<()> {
     Ok(())
 }
 
-pub(super) fn shr(frame: &mut Frame, dst: u32, a: u32, b: u32) -> Result<()> {
-    frame.set(dst, int_bitop(&frame.regs, a, b, |x, y| x >> (y & 63))?);
+pub(super) fn shr(frame: &mut Frame, dst: u32, a: u32, b: u32, u64dom: bool) -> Result<()> {
+    // fix-u64-semantics: 左操作数静态 U64 ⇒ 逻辑右移（u64 位域零填充）；
+    // 其余保持算术右移。窄无符号 U8/U16/U32 零扩展恒正，两者逐位等价，无需分派。
+    if u64dom {
+        frame.set(dst, int_bitop(&frame.regs, a, b, crate::exec::ops::scalar::uint_shr)?);
+    } else {
+        frame.set(dst, int_bitop(&frame.regs, a, b, |x, y| x >> (y & 63))?);
+    }
     Ok(())
 }
 
@@ -259,13 +281,16 @@ pub(super) fn str_concat(ctx: &VmContext, frame: &mut Frame, dst: u32, a: u32, b
 
 #[inline(never)] // 热循环布局：留在 exec_function_body 之外（见 exec_instr.rs 模块注释）
 pub(super) fn to_str(
-    ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, src: u32,
+    ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, src: u32, u64src: bool,
 ) -> Result<()> {
     // perf-str-concat-direct: format straight into the GC string — no intermediate
     // `String`. A user `ToString`'s result string is used as-is (the JIT `jit_to_str`
     // native path does the same), so `$"{obj}"` allocates nothing beyond what `ToString` did.
+    // fix-u64-semantics: 源静态 U64 的标量按 u64 格式化（$"{hi}" 打 18446744073709551615
+    // 而非 -1）；对象/装箱臂不受影响（走各自的 ToString 协议）。
     let s = match frame.get(src)? {
         v @ (Value::Object(_) | Value::BoxedStruct(_)) => { let v = *v; obj_to_gc_str(ctx, module, &v)? }
+        v if u64src => crate::object::value::format::with_value_str_u64(v, |t| ctx.heap().alloc_str(t)),
         v => with_value_str(v, |t| ctx.heap().alloc_str(t)),
     };
     frame.set(dst, Value::Str(s));
@@ -286,13 +311,20 @@ pub(super) fn to_str(
 /// 抛异常通道（同 `check_int_div_by_zero` 的分工——判据+消息在 semantics、构造留在这里，
 /// 因为构造需要 ctx/module）。
 pub(super) fn convert(
-    ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, src: u32, to_tag: u8,
+    ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, src: u32, to_tag: u8, u64src: bool,
 ) -> Result<Option<Value>> {
     let v = frame.get(src)?.clone();
     if let Some((exc_fq, msg)) = crate::exec::ops::scalar::hard_cast_failure(&v, to_tag) {
         return Ok(Some(crate::exec::exception::make_stdlib_exception(ctx, module, exc_fq, msg)?));
     }
-    let result = crate::exec::ops::scalar::convert_value(v, to_tag)?;
+    // fix-u64-semantics: 源静态 U64 ⇒ int→float 臂按 u64 加宽（(double)hi → 1.844e19）。
+    // 判据+规则在 semantics（convert_value_u64src），这里只透传分派点算好的静态标志
+    // （与 JIT emit_int_to_f64 的 fcvt_from_uint 镜像——那条路本就已无符号）。
+    let result = if u64src {
+        crate::exec::ops::scalar::convert_value_u64src(v, to_tag)?
+    } else {
+        crate::exec::ops::scalar::convert_value(v, to_tag)?
+    };
     frame.set(dst, result);
     Ok(None)
 }

@@ -22,11 +22,18 @@
 //! | 整数 add/sub/mul 溢出 | wrapping（同 Rust release / C# unchecked / Java int） | `emit_i64_binop`：`iadd`/`isub`/`imul` |
 //! | 整数 div/rem 除零 | 抛 `Std.DivideByZeroException`（可 catch），非 panic / 非 Infinity | `emit_int_divrem`：冷路由 `b ∈ {0,-1}` 到 helper |
 //! | 整数 `MIN / -1`、`MIN % -1` | wrapping：商为 `MIN`、余数为 `0`（[`int_div`] / [`int_rem`]），不 panic、不 trap | `emit_int_divrem`：`b = -1` 同样冷路由到 helper |
-//! | float→int | 饱和 + NaN→0（Rust `as`）；`U64` 目标按 signed i64 饱和 | `emit_f64_to_int`：`fcvt_to_sint_sat` |
-//! | int→float | 全 f64 精度（F32 目标也走 f64，无 f32 舍入） | `emit_int_to_f64`：`fcvt_from_sint` |
+//! | float→int | 饱和 + NaN→0（Rust `as`）；`U64` 目标按 **unsigned u64** 饱和 | `emit_f64_to_int`：`fcvt_to_sint_sat` / `fcvt_to_uint_sat` |
+//! | int→float | 全 f64 精度（F32 目标也走 f64，无 f32 舍入）；`U64` 源按 u64 解释 | `emit_int_to_f64`：`fcvt_from_sint` / `fcvt_from_uint` |
 //! | 数值比较 | signed ordered；`Ne` 用 unordered `NotEqual`（`NaN != NaN → true`） | `emit_i64_cmp` / `emit_f64_cmp` |
+//! | **U64 域比较/除模/右移**（fix-u64-semantics） | 任一侧静态 `U64`（[`pair_u64`]）⇒ `<`/`<=`/`>`/`>=`、`/`、`%` 按 u64 位域，`>>` 为逻辑移位；`==`/`!=` 恒按位（与域无关）。窄无符号 U8/U16/U32 零扩展恒正，signed==unsigned，无需分派 | `emit_i64_cmp`（Unsigned `IntCC`）/ `emit_int_divrem`（`udiv`/`urem`，冷路由仅 `b = 0`）/ `emit_i64_binop` `Shr`（`ushr`） |
 //! | 混合数值比较 | **六种比较一律加宽**（整数升 f64、Char 升 i64）—— `<`/`<=`/`>`/`>=` 走 `numeric_lt`，`==`/`!=` 走 `numeric_eq` | 无（混合操作数永不内联） |
 //! | 整数移位量 | mask 到低 6 位（`& SHIFT_MASK`） | `emit_i64_binop`：`Shl`/`Shr` 前 `band 63` |
+//!
+//! fix-u64-semantics：U8/U16/U32 零扩展存储恒正，signed 与 unsigned 的比较/除模/移位在
+//! i64 载荷上逐位等价，故只有 U64 需要无符号分派；分派钥匙是**静态**类型
+//! （`func.reg_types`，见 [`pair_u64`] / [`reg_is_u64`]），`Value` 动态无 U64 变体——
+//! 动态（Unknown）站点一律 signed 回落，文档化的取舍。混合 U64×I64 按 u64 域
+//! （负的 signed 侧按位模式变成巨大无符号数，同 C 的 usual arithmetic conversions）。
 //!
 //! 混合 I64/F64 运算（`int_binop` 自动加宽）永不走内联（内联仅在 `reg_types` 证明全 I64 或
 //! 全 F64 时触发），故加宽规则只在本模块 + JIT helper 两路，无内联镜像。
@@ -40,10 +47,31 @@
 use crate::object::value_kind_name;
 use crate::object::Value;
 use crate::metadata::CmpOp;
+use crate::zpkg::ir::reg_type::IrType;
 use anyhow::{bail, Result};
 
 /// 整数移位量 mask（低 6 位）—— interp `shl`/`shr` 与 JIT 内联 `Shl`/`Shr` 共用此常量。
 pub const SHIFT_MASK: i64 = 63;
+
+// ── U64 静态域判定（fix-u64-semantics）───────────────────────────────────────
+//
+// 无符号分派的钥匙：`Value` 无 U64 变体（窄整数统一 `Value::I64`），唯一真相是
+// 函数级静态类型表 `func.reg_types`。interp 分派点 / JIT predicates / CmpBr 融合器
+// 三处都通过这两个谓词取域，判据只此一份。
+
+/// `reg_types[r]` 静态为 `U64`（越界/Unknown → false）。
+#[inline]
+pub fn reg_is_u64(types: &[IrType], r: u32) -> bool {
+    types.get(r as usize).copied() == Some(IrType::U64)
+}
+
+/// 任一侧操作数静态 `U64` ⇒ 整个比较/除模进入 u64 位域（混合 U64×I64 时负的
+/// signed 侧按位模式参与，同 C 的 usual arithmetic conversions——`ulong > -1` 为
+/// false，因为 -1 的位模式是 2^64-1）。`Eq`/`Ne` 无需此判定（按位相等与域无关）。
+#[inline]
+pub fn pair_u64(types: &[IrType], a: u32, b: u32) -> bool {
+    reg_is_u64(types, a) || reg_is_u64(types, b)
+}
 
 /// `Std.DivideByZeroException` 全限定名 —— 整数除零三路共用。
 pub const DIV_BY_ZERO_EXC: &str = "Std.DivideByZeroException";
@@ -76,6 +104,31 @@ pub fn int_bitop(
     })
 }
 
+/// u64 位域二元算术（fix-u64-semantics，[`pair_u64`] 命中时用）。与 [`int_binop`]
+/// 镜像：`int_op` 收 i64 载荷、闭包内部按 u64 解释（[`uint_div`] / [`uint_rem`]）；
+/// 混合 I64/F64 的加宽走 **u64→f64**（不是 i64→f64——`ulong + 1.5` 里 2^64-1 应
+/// 加宽成 1.844e19 而非 -1.0）。服务 div/rem。
+pub fn uint_binop(
+    va: &Value, vb: &Value,
+    int_op: impl Fn(i64, i64) -> i64,
+    float_op: impl Fn(f64, f64) -> f64,
+) -> Result<Value> {
+    Ok(match (va, vb) {
+        (Value::I64(x), Value::I64(y)) => Value::I64(int_op(*x, *y)),
+        (Value::F64(x), Value::F64(y)) => Value::F64(float_op(*x, *y)),
+        (Value::F64(x), Value::I64(y)) => Value::F64(float_op(*x, (*y as u64) as f64)),
+        (Value::I64(x), Value::F64(y)) => Value::F64(float_op((*x as u64) as f64, *y)),
+        (a, b) => bail!("type mismatch in arithmetic: {:?} vs {:?}", a, b),
+    })
+}
+
+/// u64 位域逻辑右移（`>>` 于 [`reg_is_u64`] 左操作数 / `>>>` 共用）。
+/// 移位量与 [`int_bitop`] 同规 mask 低 6 位。
+#[inline]
+pub fn uint_shr(x: i64, y: i64) -> i64 {
+    ((x as u64) >> ((y & SHIFT_MASK) as u64)) as i64
+}
+
 // ── 比较 ──────────────────────────────────────────────────────────────────────
 
 /// 数值 `<` 比较，含 I64/F64 自动加宽 + Char/I64 加宽。
@@ -91,6 +144,18 @@ pub fn numeric_lt(va: &Value, vb: &Value) -> Result<bool> {
         (Value::Char(x), Value::Char(y)) => x < y,
         (Value::Char(x), Value::I64(y))  => (*x as u32 as i64) < *y,
         (Value::I64(x),  Value::Char(y)) => *x < (*y as u32 as i64),
+        (a, b) => bail!("type mismatch in comparison: {:?} vs {:?}", a, b),
+    })
+}
+
+/// u64 位域 `<` 比较（fix-u64-semantics，[`pair_u64`] 命中时用）。I64 载荷按 u64
+/// 解释；混合 I64/F64 的加宽走 u64→f64（与 [`uint_binop`] 同规）。
+pub fn uint_lt(va: &Value, vb: &Value) -> Result<bool> {
+    Ok(match (va, vb) {
+        (Value::I64(x), Value::I64(y)) => (*x as u64) < (*y as u64),
+        (Value::F64(x), Value::F64(y)) => x < y,
+        (Value::F64(x), Value::I64(y)) => *x < ((*y as u64) as f64),
+        (Value::I64(x), Value::F64(y)) => ((*x as u64) as f64) < *y,
         (a, b) => bail!("type mismatch in comparison: {:?} vs {:?}", a, b),
     })
 }
@@ -138,6 +203,20 @@ pub fn eval_cmp(op: CmpOp, va: &Value, vb: &Value) -> Result<bool> {
     })
 }
 
+/// u64 位域六种比较（fix-u64-semantics）：`<`/`<=`/`>`/`>=` 走 [`uint_lt`]，
+/// `Eq`/`Ne` 仍走 [`numeric_eq`]——按位相等与位域无关，且引用/装箱臂在它里面。
+/// interp 标准 cmp 处理器、CmpBr 融合、JIT 内联（Unsigned `IntCC` 镜像）共用此口径。
+pub fn eval_cmp_u64(op: CmpOp, va: &Value, vb: &Value) -> Result<bool> {
+    Ok(match op {
+        CmpOp::Lt => uint_lt(va, vb)?,
+        CmpOp::Le => !uint_lt(vb, va)?,
+        CmpOp::Gt => uint_lt(vb, va)?,
+        CmpOp::Ge => !uint_lt(va, vb)?,
+        CmpOp::Eq => numeric_eq(va, vb),
+        CmpOp::Ne => !numeric_eq(va, vb),
+    })
+}
+
 // ── 整数除法（三路共用决策；异常对象构造留调用点，因其需 VmContext/Module）──────────
 
 /// 整数除零判定：`divisor` 为 `I64(0)` 时为真 → 应抛 [`DIV_BY_ZERO_EXC`]。
@@ -165,6 +244,20 @@ pub fn int_rem(x: i64, y: i64) -> i64 {
     x.wrapping_rem(y)
 }
 
+/// u64 位域除法（fix-u64-semantics，[`pair_u64`] 命中时用）。调用方已排除除数为 0
+/// （u64 域同样抛 [`DIV_BY_ZERO_EXC`]）；u64 无 `MIN / -1` 问题，`wrapping` 仅为
+/// 对齐 [`int_div`] 的不 panic 担保。`0xFFFFFFFFFFFFFFFF / 10 = 1844674407370955161`。
+#[inline]
+pub fn uint_div(x: i64, y: i64) -> i64 {
+    ((x as u64).wrapping_div(y as u64)) as i64
+}
+
+/// u64 位域取余（同 [`uint_div`]）。`0xFFFFFFFFFFFFFFFF % 10 = 5`。
+#[inline]
+pub fn uint_rem(x: i64, y: i64) -> i64 {
+    ((x as u64).wrapping_rem(y as u64)) as i64
+}
+
 // ── 数值转换（cast）───────────────────────────────────────────────────────────
 
 /// 目标类型标签常量 —— 单一真相源在 `crate::object`（`TAG_*`，镜像 z42
@@ -184,6 +277,21 @@ pub use crate::object::{
 /// 引用类型 identity cast 原样透传。编译器为每个 cast（含 `(string)obj` / `(byte[])obj` /
 /// `(SomeClass)obj`）都发单个 `Convert` IR，故运行期需识别「窄化静态类型、值已匹配」为 no-op
 /// 而非数值转换。`Null` 可 cast 到任意引用目标。(add-std-process.)
+/// fix-u64-semantics：源**静态**为 `U64` 的 cast（interp convert 处理器按
+/// `func.reg_types[src]` 选用；JIT 静态路径由 `emit_int_to_f64` 的 `fcvt_from_uint`
+/// 镜像）。与 [`convert_value`] 唯一实质差异在 int→float 臂：u64→f64
+/// （`2^64-1 → 1.844e19` 而非 `-1.0`）。窄化/透传臂按低位截断，i64/u64 源逐位
+/// 等价，复用 [`convert_value`]；动态（Unknown）源沿用 [`convert_value`] 的
+/// signed 回落——与 JIT 动态站点同口径。
+pub fn convert_value_u64src(v: Value, to_tag: u8) -> Result<Value> {
+    if let Value::I64(x) = v {
+        if matches!(to_tag, T_F32 | T_F64) {
+            return Ok(Value::F64((x as u64) as f64));
+        }
+    }
+    convert_value(v, to_tag)
+}
+
 pub fn convert_value(v: Value, to_tag: u8) -> Result<Value> {
     // Numeric sources first: they are almost every `Convert` (int ↔ long ↔
     // double …), and none of the unbox / identity checks below applies to them.
@@ -301,7 +409,9 @@ fn convert_from_f64(f: f64, to_tag: u8) -> Result<Value> {
         T_U8  => Value::I64((f as u8) as i64),
         T_U16 => Value::I64((f as u16) as i64),
         T_U32 => Value::I64((f as u32) as i64),
-        T_U64 => Value::I64(f as i64),  // saturating same as f → i64
+        // fix-u64-semantics: u64 饱和（NaN→0、负→0、>u64::MAX→u64::MAX），同 C# `(ulong)f`。
+        // 此前 `f as i64`（signed 饱和）：-1.0 → -1 位模式 ⇒ 2^64-1，错的域。
+        T_U64 => Value::I64((f as u64) as i64),
         T_CHAR => {
             let u = f as u32;
             char::from_u32(u)

@@ -109,6 +109,27 @@ pub unsafe extern "C" fn jit_str_concat(
     }
 }
 
+/// fix-u64-semantics: 静态 U64 源的 `ToStr` 窄 helper（translate 侧按
+/// `reg_types[src] == U64` 路由，镜像 interp `to_str` 的 u64 分支）——
+/// `Value::I64` 载荷按 u64 格式化（`$"{hi}"` 打 `18446744073709551615` 而非
+/// `-1`）。非 I64 载荷（静态 U64 寄存器不该出现）按通用 signed 视图兜底。
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn jit_to_str_u64(
+    ctx: *const VmContext, psrc: *const Value, pdst: *mut Value,
+) -> u8 {
+    let heap = super::vm_ctx_ref(ctx).heap();
+    match &*psrc {
+        Value::I64(n) => {
+            *pdst = Value::Str(crate::object::value::format::with_value_str_u64(&*psrc, |t| heap.alloc_str(t)));
+        }
+        other => {
+            let other = other.clone();
+            *pdst = Value::Str(crate::object::value::format::with_value_str(&other, |t| heap.alloc_str(t)));
+        }
+    }
+    0
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_to_str(
     frame: *mut JitFrame, ctx: *const VmContext, dst: u32, src: u32,

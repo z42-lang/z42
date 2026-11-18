@@ -31,6 +31,10 @@ public struct UInt64 : IComparable, IEquatable, INumber {
         return 0;
     }
 
+    // fix-u64-semantics：原生 `/` `%` 已在 u64 位域执行（运行时静态类型分派），这五个
+    // wrapper 的 `(ulong)(…)` 转型保留——自举第一波由旧种子 z42c 编译本文件，彼时
+    // `ulong op ulong` 仍推成 int，转型是必需的；新编译器（ArithmeticResult 补 ulong 档）
+    // 之下它是恒等转换，两者皆合法。
     /// 加法。
     public static override ulong op_Add(ulong a, ulong b)      { return (ulong)(a + b); }
     /// 减法。

@@ -41,10 +41,12 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     // ±inf/NaN (no trap, no exception), matching interp.
                     // jit-native-int-divrem: integer divide is native `sdiv`
                     // with a cold guard for `b ∈ {0, -1}` (see `emit_int_divrem`).
+                    // fix-u64-semantics: 任一侧静态 U64 ⇒ `udiv`（冷路由仅 `b = 0`）。
                     if is_f64_typed(self.func, *dst, *a, *b) {
                         emit_f64_binop(self.builder, self.regs_base, self.promoted, *dst, *a, *b, F64BinopKind::Div);
                     } else if is_int_typed(self.func, *dst, *a, *b) {
-                        self.emit_int_divrem(*dst, *a, *b, self.hr_div, true);
+                        let u64dom = crate::exec::ops::scalar::pair_u64(&self.func.reg_types, *a, *b);
+                        self.emit_int_divrem(*dst, *a, *b, self.hr_div, true, u64dom);
                     } else {
                         let (d, av, bv) = (self.ri(*dst), self.ri(*a), self.ri(*b));
                         let inst = self.builder.ins().call(self.hr_div, &[self.frame_val, self.ctx_val, d, av, bv]);
@@ -56,8 +58,10 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     // with the same cold guard as Div. Float `%` (an f64 modulo,
                     // no single Cranelift op) is not int-typed → stays on the
                     // helper's `int_binop_helper` f64 path.
+                    // fix-u64-semantics: 任一侧静态 U64 ⇒ `urem`（冷路由仅 `b = 0`）。
                     if is_int_typed(self.func, *dst, *a, *b) {
-                        self.emit_int_divrem(*dst, *a, *b, self.hr_rem, false);
+                        let u64dom = crate::exec::ops::scalar::pair_u64(&self.func.reg_types, *a, *b);
+                        self.emit_int_divrem(*dst, *a, *b, self.hr_rem, false, u64dom);
                     } else {
                         let (d, av, bv) = (self.ri(*dst), self.ri(*a), self.ri(*b));
                         let inst = self.builder.ins().call(self.hr_rem, &[self.frame_val, self.ctx_val, d, av, bv]);
@@ -165,7 +169,14 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                 }
                 Instruction::Shr { dst, a, b } => {
                     if is_int_typed(self.func, *dst, *a, *b) {
-                        emit_i64_binop(self.builder, self.regs_base, self.cache, self.promoted, *dst, *a, *b, BinopKind::Shr);
+                        // fix-u64-semantics: 左操作数静态 U64 ⇒ 逻辑右移（`ushr`）；
+                        // 窄无符号 U8/U16/U32 零扩展恒正，`sshr` 逐位等价，无需分派。
+                        let kind = if crate::exec::ops::scalar::reg_is_u64(&self.func.reg_types, *a) {
+                            BinopKind::UShr
+                        } else {
+                            BinopKind::Shr
+                        };
+                        emit_i64_binop(self.builder, self.regs_base, self.cache, self.promoted, *dst, *a, *b, kind);
                     } else {
                         let (d, av, bv) = (self.ri(*dst), self.ri(*a), self.ri(*b));
                         let inst = self.builder.ins().call(self.hr_shr, &[self.frame_val, self.ctx_val, d, av, bv]);
