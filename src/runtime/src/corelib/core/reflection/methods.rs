@@ -109,7 +109,7 @@ pub(super) fn build_ctor_info(
     let simple = simple_full.split('$').next().unwrap_or(simple_full);
     let (params, _is_static, _ret, _vis, _mf, _sig_found) = build_param_infos_ex(ctx, qualified, false, subst, &[])?;
     let params_arr = ctx.heap().alloc_array(params);
-    alloc_named(
+    let ctor = alloc_named(
         ctx,
         STD_REFLECTION_CONSTRUCTORINFO,
         &[
@@ -119,7 +119,9 @@ pub(super) fn build_ctor_info(
             ("__qualified", Value::Str(qualified.to_string().into())),
             ("__owner", Value::Str(owner.to_string().into())),
         ],
-    )
+    )?;
+    stamp_param_methods(ctx, &params_arr, &ctor);
+    Ok(ctor)
 }
 
 /// Build the logical `ParameterInfo[]` (excludes the implicit `this`) for a function,
@@ -264,7 +266,7 @@ fn build_method_info_ex(
         .collect();
     let tp_names_arr = ctx.heap().alloc_array(tp_name_values);
     let params_arr = ctx.heap().alloc_array(params);
-    alloc_named(
+    let method = alloc_named(
         ctx,
         STD_REFLECTION_METHODINFO,
         &[
@@ -289,7 +291,9 @@ fn build_method_info_ex(
             // resolve the backing Function's attribute factories.
             ("__qualified", Value::Str(qualified.to_string().into())),
         ],
-    )
+    )?;
+    stamp_param_methods(ctx, &params_arr, &method);
+    Ok(method)
 }
 
 /// add-interface-member-reflection: build a `MethodInfo` for an interface-declared
@@ -323,7 +327,7 @@ pub(super) fn build_iface_method_info(
         )?);
     }
     let params_arr = ctx.heap().alloc_array(params);
-    alloc_named(
+    let method = alloc_named(
         ctx,
         STD_REFLECTION_METHODINFO,
         &[
@@ -339,7 +343,50 @@ pub(super) fn build_iface_method_info(
             ("__parameters", params_arr),
             ("__qualified", Value::Str(qualified.into())),
         ],
-    )
+    )?;
+    stamp_param_methods(ctx, &params_arr, &method);
+    Ok(method)
+}
+
+/// Stamp every `ParameterInfo` in `params_arr` with `__method = method` so
+/// `ParameterInfo.Method` answers without re-resolving the qualified name.
+/// Parameters are published *before* their owner — a method object lists
+/// `__parameters` while each parameter lists the method (chicken-and-egg) — so
+/// every build site stamps right after its `alloc_named`. VM-made values only
+/// (the `write_published_slot` contract); the objects are fresh nursery
+/// allocations, making the barrier cheap.
+pub(super) fn stamp_param_methods(ctx: &VmContext, params_arr: &Value, method: &Value) {
+    let Value::Array(arr) = params_arr else { return };
+    for param in arr.borrow().iter_boxed() {
+        write_published_slot(ctx, &param, "__method", method);
+    }
+}
+
+/// `MakeGenericMethod` must not alias the definition's `ParameterInfo` objects:
+/// copy each one into a fresh object repointing `__method` to the constructed
+/// `MethodInfo` (the definition's own parameters keep their original owner).
+/// Signature slots are copied verbatim — parameter types are NOT re-projected
+/// through the bound arguments (pre-existing sharing semantics).
+pub(super) fn reown_params(ctx: &VmContext, def_params: &Value, method: &Value) -> Result<Value> {
+    let Value::Array(arr) = def_params else { return Ok(def_params.clone()) };
+    let mut out = Vec::with_capacity(arr.borrow().len());
+    for def in arr.borrow().iter_boxed() {
+        out.push(alloc_named(
+            ctx,
+            STD_REFLECTION_PARAMINFO,
+            &[
+                ("Name", read_type_slot_of(&def, "Name")),
+                ("ParameterType", read_type_slot_of(&def, "ParameterType")),
+                ("Position", read_type_slot_of(&def, "Position")),
+                ("IsOptional", read_type_slot_of(&def, "IsOptional")),
+                ("IsParams", read_type_slot_of(&def, "IsParams")),
+                ("DefaultValue", read_type_slot_of(&def, "DefaultValue")),
+                ("__qualified", read_type_slot_of(&def, "__qualified")),
+                ("__method", method.clone()),
+            ],
+        )?);
+    }
+    Ok(ctx.heap().alloc_array(out))
 }
 
 /// Keep the owning handle alive while reflection projects borrowed metadata.

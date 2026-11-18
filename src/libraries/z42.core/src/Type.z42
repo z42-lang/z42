@@ -248,11 +248,13 @@ public sealed class Type : MemberInfo, IEquatable {
     // ── 自定义 attribute ──────────────────────────────────────────────────────
 
     // Only the VM publishes and invalidates this metadata-dependent result.
+    // 整体覆写 MemberInfo.GetCustomAttributes（不走基类 __attrCache 脚本级缓存）：
+    // 这里的缓存由 VM 按实际描述符失效重物化，元数据更新后重新取活实例。
     private Attribute[] __attributeCache;
 
     /// 应用于本类型的用户 attribute（活实例）。VM 按实际描述符缓存，
     /// 同一描述符下复用实例，类型元数据更新后重新物化。
-    public Attribute[] GetCustomAttributes() {
+    public override Attribute[] GetCustomAttributes() {
         Attribute[] cached = this.__attributeCache;
         if (cached != null) { return cached; }
         return this._fetchAttributes();
@@ -261,19 +263,5 @@ public sealed class Type : MemberInfo, IEquatable {
     [Native("__type_custom_attributes")]
     private extern Attribute[] _fetchAttributes();
 
-    /// 给定类型的单个 attribute，否则 null。按实例运行时类型（FullName）比较，子类 attribute
-    /// 也命中。
-    public Attribute? GetAttribute(Type attributeType) {
-        Attribute[] all = this.GetCustomAttributes();
-        int i = 0;
-        while (i < all.Length) {
-            Attribute a = all[i];
-            Type at = a.GetType();
-            if (at.FullName == attributeType.FullName) {
-                return a;
-            }
-            i = i + 1;
-        }
-        return null;
-    }
+    // GetAttribute(attributeType) 继承自 MemberInfo（经本覆写取活实例）。
 }

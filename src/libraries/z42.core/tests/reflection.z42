@@ -775,3 +775,160 @@ void test_get_type_resolves_short_names_and_primitive_aliases() {
     Assert.Equal(typeof(int), Type.GetType("int"));
     Assert.Equal("MissingReflectionShortName", Type.GetType("MissingReflectionShortName").FullName);
 }
+
+// ── memberinfo-family：ParameterInfo : MemberInfo、ParameterInfo.Method、
+// MemberTypes 判别、attribute 家族上提基类（缓存骨架单一来源）。──────────────
+
+class MethodOwner {
+    public int Blend(int x, int y) { return x + y; }
+    public static T Echo<T>(T v) { return v; }
+}
+
+class CtorHolder {
+    public int seed;
+    [FieldTag("ctor")] public CtorHolder(int seed) { this.seed = seed; }
+}
+
+class NestOuter {
+    public int outer;
+    public class NestInner { public int n; }
+}
+
+[Test]
+void test_parameterinfo_is_memberinfo() {
+    // ParameterInfo 并入 MemberInfo 家族（对标 C#）：Name 经继承槽读取。
+    MethodOwner mo = new MethodOwner();
+    foreach (var m in mo.GetType().GetMethods()) {
+        if (m.Name == "Blend") {
+            ParameterInfo[] ps = m.GetParameters();
+            Assert.True(ps.Length == 2);
+            Assert.True(ps[0] is MemberInfo);
+            MemberInfo asMember = ps[0];
+            Assert.Equal("x", asMember.Name);
+        }
+    }
+}
+
+[Test]
+void test_parameterinfo_method_owner() {
+    // ParameterInfo.Method 回指声明它的 MethodBase；定义态方法的参数与
+    // Method.GetParameters() 是同一批对象（__parameters 直读）。
+    MethodOwner mo = new MethodOwner();
+    foreach (var m in mo.GetType().GetMethods()) {
+        if (m.Name == "Blend") {
+            ParameterInfo[] ps = m.GetParameters();
+            MethodBase owner = ps[0].Method;
+            Assert.True(owner is MethodInfo);
+            Assert.Equal("Blend", owner.Name);
+            Assert.True(Object.ReferenceEquals(owner, m));
+            Assert.True(Object.ReferenceEquals(ps[1], owner.GetParameters()[1]));
+        }
+    }
+}
+
+[Test]
+void test_parameterinfo_method_owner_ctor() {
+    // 构造器参数的宿主是 ConstructorInfo（MethodBase 的另一子类）。
+    ConstructorInfo[] ctors = typeof(CtorHolder).GetConstructors();
+    Assert.True(ctors.Length == 1);
+    ParameterInfo[] ps = ctors[0].GetParameters();
+    Assert.True(ps.Length == 1);
+    MethodBase owner = ps[0].Method;
+    Assert.True(owner is ConstructorInfo);
+    Assert.Equal("CtorHolder", owner.Name);
+    Assert.True(Object.ReferenceEquals(owner, ctors[0]));
+}
+
+[Test]
+void test_memberinfo_attribute_family_on_members() {
+    // attribute 缓存骨架上提 MemberInfo 后：FieldInfo 走基类缓存（两次调用同实例），
+    // GetAttribute 经基类循环命中；多态视角（MemberInfo 类型变量）同样可用。
+    TaggedFields tf = new TaggedFields();
+    foreach (var f in tf.GetType().GetFields()) {
+        if (f.Name == "marked") {
+            Assert.True(Object.ReferenceEquals(f.GetCustomAttributes(), f.GetCustomAttributes()));
+            FieldTagAttribute tag = (FieldTagAttribute) f.GetAttribute(typeof(FieldTagAttribute));
+            Assert.Equal("hot", tag.Note);
+            MemberInfo m = f;
+            Assert.Equal(1, m.GetCustomAttributes().Length);
+            Assert.True(m.GetAttribute(typeof(FieldTagAttribute)) != null);
+        }
+    }
+    foreach (var p in typeof(PropHolder).GetProperties()) {
+        if (p.Name == "Size") {
+            Assert.Equal(0, p.GetCustomAttributes().Length);
+            Assert.Null(p.GetAttribute(typeof(FieldTagAttribute)));
+        }
+    }
+}
+
+[Test]
+void test_ctor_attributes_via_memberinfo_family() {
+    // 构造器是普通函数，attribute 走方法通道（ConstructorInfo 经继承获得 API）。
+    ConstructorInfo[] ctors = typeof(CtorHolder).GetConstructors();
+    Assert.True(ctors.Length == 1);
+    Assert.True(Object.ReferenceEquals(ctors[0].GetCustomAttributes(), ctors[0].GetCustomAttributes()));
+    FieldTagAttribute tag = (FieldTagAttribute) ctors[0].GetAttribute(typeof(FieldTagAttribute));
+    Assert.Equal("ctor", tag.Note);
+}
+
+[Test]
+void test_membertype_kinds() {
+    // MemberTypes 判别（对标 C# MemberInfo.MemberType）；参数归入 Method、
+    // 类型报 TypeInfo、嵌套类型报 NestedType。
+    MethodOwner mo = new MethodOwner();
+    TaggedFields tf = new TaggedFields();
+    foreach (var f in tf.GetType().GetFields()) {
+        if (f.Name == "marked") { Assert.True(f.MemberType == MemberTypes.Field); }
+    }
+    foreach (var p in typeof(PropHolder).GetProperties()) {
+        if (p.Name == "Size") { Assert.True(p.MemberType == MemberTypes.Property); }
+    }
+    foreach (var m in mo.GetType().GetMethods()) {
+        if (m.Name == "Blend") {
+            Assert.True(m.MemberType == MemberTypes.Method);
+            Assert.True(m.GetParameters()[0].MemberType == MemberTypes.Method);
+        }
+    }
+    Assert.True(typeof(MethodOwner).MemberType == MemberTypes.TypeInfo);
+    Assert.True(typeof(NestOuter.NestInner).MemberType == MemberTypes.NestedType);
+    ConstructorInfo[] ctors = typeof(CtorHolder).GetConstructors();
+    Assert.True(ctors[0].MemberType == MemberTypes.Constructor);
+}
+
+[Test]
+void test_getmembers_membertype_coverage() {
+    // GetMembers() 混排字段/方法/属性/嵌套类型，MemberType 一口判别无需 is 链。
+    bool sawField = false;
+    bool sawMethod = false;
+    bool sawProperty = false;
+    bool sawNested = false;
+    foreach (var m in typeof(NestOuter).GetMembers()) {
+        if (m.MemberType == MemberTypes.Field) { sawField = true; }
+        if (m.MemberType == MemberTypes.Method) { sawMethod = true; }
+        if (m.MemberType == MemberTypes.Property) { sawProperty = true; }
+        if (m.MemberType == MemberTypes.NestedType) { sawNested = true; }
+    }
+    Assert.True(sawField);
+    Assert.True(sawMethod);
+    Assert.True(sawNested);
+    // NestOuter 没有属性——sawProperty 可为 false，这里显式断言排除。
+    Assert.True(!sawProperty);
+}
+
+[Test]
+void test_makegeneric_param_owner() {
+    // MakeGenericMethod 的构造版参数指向构造版方法（不与定义版共享参数对象）。
+    MethodInfo def = null;
+    foreach (var m in typeof(MethodOwner).GetMethods()) {
+        if (m.Name == "Echo" && m.IsGenericMethodDefinition) { def = m; }
+    }
+    Assert.True(def != null);
+    MethodInfo constructed = def.MakeGenericMethod(typeof(int));
+    ParameterInfo[] ps = constructed.GetParameters();
+    Assert.True(ps.Length == 1);
+    Assert.True(ps[0].Method is MethodInfo);
+    Assert.True(Object.ReferenceEquals(constructed, ps[0].Method));
+    // 定义版的参数仍指向定义版（未被动过）。
+    Assert.True(Object.ReferenceEquals(def, def.GetParameters()[0].Method));
+}

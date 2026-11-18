@@ -15,4 +15,16 @@ public class ConstructorInfo : MethodBase {
     /// 以原类型传播。
     [Native("__ctor_invoke")]
     public extern object Invoke(object[] args);
+
+    // ── 自定义 attribute ─────────────────────────────────────────────────────
+
+    /// native 门面：取 `qualified` 全限定名对应函数上的 attribute 实例数组（构造器是
+    /// 普通函数，与方法共用同一索引通道）。
+    [Native("__method_custom_attributes")]
+    public extern Std.Attribute[] __customAttributes(string qualified);
+
+    /// 覆写：按全限定名取本构造器的 attribute 实例。缓存骨架在 MemberInfo。
+    public override Std.Attribute[] __fetchCustomAttributes() {
+        return this.__customAttributes(this.__qualified);
+    }
 }
