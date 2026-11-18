@@ -8,9 +8,10 @@ public class MemberInfo {
     /// 成员名（非限定）。VM 直接写入。
     public string Name;
 
-    /// 声明该成员的类的 `Type`；继承成员指向**基类声明者**（C# 语义）。由成员对象的
-    /// `__qualified`（"<类>.<成员>"）派生。`Std.Type` 覆写为 `GetDeclaringType()`
-    /// （嵌套类型的外围类型）；无声明类可考时为 null。
+    /// 声明该成员的类的 `Type`；继承成员指向基类声明者（C# 语义）。
+    ///
+    /// 由成员对象的 `__qualified`（"<类>.<成员>"）派生。`Std.Type` 覆写为
+    /// `GetDeclaringType()`（嵌套类型的外围类型）；无声明类可考时为 null。
     [Native("__memberinfo_declaring_type")]
     public extern Std.Type? DeclaringType { get; }
 }
