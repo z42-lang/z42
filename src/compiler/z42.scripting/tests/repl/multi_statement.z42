@@ -1,0 +1,35 @@
+// 多语句单行（fix-repl-multi-statement）：顶层分号切出多段的一行输入——var 声明并入本轮
+// Vars{n}（多变量）、语句段拼函数体、尾表达式段作轮返回值。此前整行被 Classifier 当单个
+// var 声明、剩余语句全进 init（发进类体报 E0201），该轮副作用全部丢失。
+namespace Z42ScriptingTests;
+
+using Z42.Scripting;
+using Std.Harness;
+
+[Test]
+void test_multi_statement_line() {
+    ScriptState s = Script.Create();
+    // 多 var + while 块 + 跨段引用（修前主症状：整轮编译失败）。
+    Assert.Equal("ok", _step(s, "int b = 0; int c2 = 0; while (b < 3) { b = b + 1; c2 = c2 + 2; }"));
+    Assert.Equal("3", _step(s, "b"));
+    Assert.Equal("6", _step(s, "c2"));
+    // 尾表达式段作返回值；后段引用同轮前段新变量。
+    Assert.Equal("11", _step(s, "var x = 1; var y = x + 10; y"));
+    Assert.Equal("10", _step(s, "var z = 5; z = z * 2; z"));
+    // 同轮重名：后者胜。
+    Assert.Equal("2", _step(s, "var d = 1; var d = 2; d"));
+    // var + 赋值 + 块语句混排。
+    Assert.Equal("ok", _step(s, "var w = 0; foreach (int k in new int[3]) { w = w + 1; }"));
+    Assert.Equal("3", _step(s, "w"));
+    // using 段混排：累积后后续段可见；尾段是调用 → 其返回值作轮返回值（Append 返回 this）。
+    Assert.Equal("StringBuilder", _step(s, "using Std.Text; var sb = new StringBuilder(); sb.Append(\"q\")"));
+    Assert.Equal("q1", _step(s, "sb.Append(\"1\"); sb.ToString()"));
+    // 类型/函数声明混排：明确报错请独占一行；失败轮**整轮不推进会话**（q 也不登记）。
+    Assert.Equal("error: 顶层类型/函数声明请独占一行（多语句行内混排不支持）: class K { }",
+                 _step(s, "var q = 1; class K { }").Trim());
+    Assert.Equal("E0401: undefined: q", _step(s, "q").Trim());   // 会话未被失败轮污染
+    // 块语句后跟表达式（块尾段分隔）：if / try / do-while 各形态。
+    Assert.Equal("true", _step(s, "var f = 0; if (f == 0) { f = 1; } f == 1"));
+    Assert.Equal("1", _step(s, "var t = 0; try { t = 1; } catch { t = 2; } t"));
+    Assert.Equal("3", _step(s, "int d2 = 0; do { d2 = d2 + 1; } while (d2 < 3); d2"));
+}
