@@ -210,6 +210,12 @@ impl Initialization<'_> {
                 // 失败终态不重跑：`ensure_type_init` 对它只会原样返回那条 Err，
                 // 在这里收下就又变成「与被调方无关也抛」。交给下面的归属判定。
                 if cc.is_module_init_failed(&td.name) { continue; }
+                // 触达语义（module-initializers 文档）：带 sym 的屏障只初始化
+                // **拥有该符号的包**——首条跨包调用不应把别的包的初始化器也
+                // 提前跑了。sym=None（无符号语境）保持全量排空。
+                if let Some(sym) = sym_fq {
+                    if !cc.pending_module_owns(&td.name, sym) { continue; }
+                }
                 if let Err(e) = self.ensure_type_init(td) {
                     if first_err.is_none() {
                         first_err = Some(e);
