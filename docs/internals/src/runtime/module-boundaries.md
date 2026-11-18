@@ -90,6 +90,10 @@ loh_bytes/VarChunkReclaim 测试专用项转 cfg(test) 门控）。
 对应不同 ALC 各自的 RuntimeTypes）。Rust 宿主的 `load_file/load_bytes` 保持无缓存路径不变，
 `load_bytes_with_cache` 为带会话的入口。
 
+初始化层级已钉为契约：会话 = 进程配置/输出/共享解码缓存；每次 load_zbc = 独立加载单元
+（依赖闭包合并、独占 VM，类型表/静态互不可见；依赖 zpkg 按内容共享定义——ALC 规则）；invoke =
+每模块一次性托管初始化、失败终态。C initialize 不等于任何模块已初始化；一个模块的 fatal 只终结
+该模块。文本见 embedding.md「为什么是这个形状」与 z42_host_api.h 头注。
 
 元数据解析已按最小视图运行：`metadata::resolve::ResolveServices` 只暴露函数/builtin/静态字段身份查询与
 类型加载查询/结算，`vm::VmResolveServices` 提供实现并拥有入队与排空时序（「可观察的已解析函数其类型已登记」
@@ -112,7 +116,6 @@ vm/mod.rs 只负责共享 Core 与线程视图的组合、布局、构造和生�
 |---|---|---|
 | 低层上下文默认构造仍使用进程配置 | availability 的组件可用性查询已收口：JIT 目标矩阵以 build 脚本派生的 `z42_jit_supported` cfg 为单一来源，config 不再反向调 components（`execution_supported` 已删除） | 进程 bootstrap 与 VM 设置分开捕获；进程级 `runtime_config()` 逐 VM 化归 W3 |
 | 普通宿主与 C 适配尚未分开 | C 适配五文件已归组 `host/c/`（经 host 根再导出），尚未归能力所有者 | CLI 已归 cli 适配且平台构建可排除；后续 C 适配/头文件归能力所有者，host 保留功能请求/环境服务契约 |
-| 初始化层级含混 | `host/state.rs` 的会话保存多个 LoadedProgram；`ops::build_host_module` 每次创建程序/VM；`LoadedProgram::invoke` 执行一次性托管初始化 | 区分会话、VM/包准备与托管初始化，不把 C initialize 当作所有模块已初始化；统一装配但保持隔离和失败终态 |
 | TypeDesc 引用 metadata 的 TypeId | `object/types/type_desc.rs` 的 `pub id`（原缺口三边中的其余两边已收口：ambient 堆附着迁 `gc::ambient`，`ContextId`/`AssemblyId` 身份词汇归 `object::identity`） | TypeId 属 `define_token!` token 家族（IMPORT_BASE/import_idx 语义一体），单独抽出会撕裂词汇一致性；抽出需整族设计裁决 |
 
 

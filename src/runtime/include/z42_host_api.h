@@ -23,10 +23,15 @@
  *   - All access is through z42_host_* functions, not direct struct manipulation.
  *   - Major version bumps are explicit semver-major breaks.
  *
- * v0.1 lifecycle: single VM instance per process.
- *   z42_host_initialize() succeeds at most once at a time;
- *   shutdown returns the process to "uninitialized" so initialize may be
- *   called again. Multi-instance / ALC-like contexts are tracked in
+ * v0.1 lifecycle: one session per process (config, sinks and the shared
+ *   zpkg decode cache). Each z42_host_load_zbc returns its own load unit:
+ *   entry artifact plus its dependency closure merged into one linked
+ *   module owning a private VM (type table / statics / dispatch caches are
+ *   not shared between units). A dependency zpkg already loaded anywhere in
+ *   the session is shared by content (the C# ALC rule) — decoded
+ *   definitions live once per session. z42_host_initialize() succeeds at
+ *   most once at a time; shutdown returns the process to "uninitialized" so
+ *   initialize may be called again. Multi-VM handles are tracked in
  *   docs/design/runtime/embedding.md §12 Deferred.
  */
 
