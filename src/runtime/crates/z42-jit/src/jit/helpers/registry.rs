@@ -333,6 +333,7 @@ pub(crate) struct ArithImports {
     pub eq_str: FuncId,
     pub add_str: FuncId,
     pub to_str_u64: FuncId,
+    pub add_str_u64: FuncId,
 }
 
 fn register_symbols_arith(builder: &mut JITBuilder) {
@@ -365,6 +366,7 @@ fn register_symbols_arith(builder: &mut JITBuilder) {
     reg!("jit_eq_str", arith::jit_eq_str);
     reg!("jit_add_str", arith::jit_add_str);
     reg!("jit_to_str_u64", value::jit_to_str_u64);
+    reg!("jit_add_str_u64", arith::jit_add_str_u64);
 }
 
 fn declare_arith(jit: &mut JITModule) -> Result<ArithImports> {
@@ -404,5 +406,6 @@ fn declare_arith(jit: &mut JITModule) -> Result<ArithImports> {
         eq_str:        decl!("jit_eq_str",     [ptr, ptr],                                [i8t]),
         add_str:       decl!("jit_add_str",    [ptr, ptr, ptr, ptr],                      [i8t]),
         to_str_u64:    decl!("jit_to_str_u64", [ptr, ptr, ptr],                           [i8t]),
+        add_str_u64:   decl!("jit_add_str_u64", [ptr, ptr, ptr, ptr, i8t],                 [i8t]),
     })
 }

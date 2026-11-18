@@ -273,6 +273,34 @@ pub unsafe extern "C" fn jit_eq_str(
     }
 }
 
+/// fix-u64-semantics（Add-string 补丁）：静态 `Str × U64`（或反序）加法的窄 helper——
+/// translate 侧按 `reg_types` 证明两侧类型后直呼（无运行期 tag guard，同其他静态内联
+/// 路径），非串臂按 u64 格式化（与 `$"{hi}"` 的 ToStr 补丁、interp `add_str` 同口径）。
+/// `u64_first` 决定拼接次序。非 (I64, Str) 组合（静态证明不该出现）防御性失败。
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn jit_add_str_u64(
+    ctx: *const VmContext,
+    pu64: *const Value, pstr: *const Value, pdst: *mut Value, u64_first: u8,
+) -> u8 {
+    let heap = vm_ctx_ref(ctx).heap();
+    match (&*pu64, &*pstr) {
+        (v @ Value::I64(_), Value::Str(s)) => {
+            let s = *s;
+            *pdst = if u64_first != 0 {
+                Value::Str(crate::object::value::format::with_value_str_u64(v, |t| heap.alloc_str_concat2(t, &s)))
+            } else {
+                Value::Str(crate::object::value::format::with_value_str_u64(v, |t| heap.alloc_str_concat2(&s, t)))
+            };
+            0
+        }
+        _ => {
+            set_exception(vm_ctx_ref(ctx), Value::Str(
+                "jit_add_str_u64: non-(u64, str) operands (translate-side static typing broken)".into()));
+            1
+        }
+    }
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_add_str(
     ctx: *const VmContext,

@@ -80,6 +80,7 @@ pub(super) struct TxCtx<'a, 'b> {
     pub(super) hr_eq_str: FuncRef,
     pub(super) hr_add_str: FuncRef,
     pub(super) hr_to_str_u64: FuncRef,
+    pub(super) hr_add_str_u64: FuncRef,
     pub(super) hr_str_concat: FuncRef,
     pub(super) hr_to_str: FuncRef,
     pub(super) hr_call: FuncRef,
