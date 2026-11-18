@@ -85,6 +85,12 @@ loader 的融合输入与 native 路径默认（文档钦定的进程装载策�
 后端生产读取为零。原最后一个裸读取点（worker 线程栈尺寸在 spawn 时查进程配置）改为 `VmConfig`
 构造时捕获进 `VmCore::vm_thread_stack_size`，spawn 只读快照。
 
+token 家族已整族下移 object：`define_token!` 家族（TypeId / FnId / StaticFieldId / BuiltinId /
+TypeKeyCell / `alloc_type_id_block`，零 crate 依赖）从 `metadata/ids/tokens.rs` 迁至
+`object/tokens.rs`——身份原语归表示层，与 `object::identity` 的 ContextId / AssemblyId 汇成完整的
+跨域身份词汇家；`metadata::ids::tokens` 以模块再导出保活铸造/注册侧路径（全仓引用零改动）。
+对象表示对 metadata 的身份依赖就此归零，缺口表清空。
+
 C 适配归能力所有者转长期留档：`host/c/` 五文件归组是当前最优形态（单一 C 面、集中可发现）；
 分域搬移的触发条件为出现第二个 C 面（per-domain 头文件）或适配规模显著超出五文件，届时随真实
 能力边界分域，不预做分散。
@@ -125,7 +131,6 @@ vm/mod.rs 只负责共享 Core 与线程视图的组合、布局、构造和生�
 | 缺口 | 代码证据 | 影响与目标 |
 |---|---|---|
 
-| TypeDesc 引用 metadata 的 TypeId | `object/types/type_desc.rs` 的 `pub id`（原缺口三边中的其余两边已收口：ambient 堆附着迁 `gc::ambient`，`ContextId`/`AssemblyId` 身份词汇归 `object::identity`） | TypeId 属 `define_token!` token 家族（IMPORT_BASE/import_idx 语义一体），单独抽出会撕裂词汇一致性；抽出需整族设计裁决 |
 
 
 这些是源码中的具体依赖，不是 Cargo 生产依赖环的证明。生产 core 不依赖具体后端，测试 dev-dependency 和
