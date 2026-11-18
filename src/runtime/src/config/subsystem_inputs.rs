@@ -18,7 +18,6 @@ impl RuntimeConfig {
             gc_trace: self.gc_trace,
             sample_hz: self.sample_hz,
             trace_timeline: self.trace_out.is_some(),
-            process_loh_bytes: self.gc_loh_bytes,
         }
     }
 

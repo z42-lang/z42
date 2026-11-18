@@ -19,7 +19,7 @@ fn vm_inputs_capture_resolved_units_and_optional_trace_state() {
     assert_eq!(captured.gc.mode, GcMode::StwMarkSweep);
     assert_eq!(captured.gc.pause_window, 3);
     assert_eq!(captured.gc_max_bytes, Some(64 * 1024 * 1024));
-    assert_eq!(captured.process_loh_bytes, Some(96 * 1024));
+    assert_eq!(runtime.gc_loh_bytes, Some(96 * 1024));
     assert!(captured.gc_trace);
     assert_eq!(captured.sample_hz, Some(37));
     assert!(captured.trace_timeline);

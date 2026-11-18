@@ -49,6 +49,10 @@ main.rs 只依赖 std/libloading，加载 libz42 的 z42_main_v1。命令行参�
 engine/init、counters/observer、protocol 实现模块私有；实现文件移动只需调整所属模块的声明与显式导出。
 模块内的实现引用不做机械改写，也不建立总括所有领域的 prelude。正向 doctest 与私有路径 compile_fail 验证这条边界。
 
+LOH 进程策略与每 VM 输入已分离：`VmConfig` 不再携带 `process_loh_bytes`，旋钮在进程配置发布
+（`init_runtime_config` 成功一次或惰性首读）时经 `apply_process_policy` 恰好应用一次——任意后续 VM
+构造不再改写其它 VM 可见的全局策略，TLB 快路径仍只付一次静态读。
+
 gc / object / metadata 的实现子模块可见性棘轮第一档：零 crate 外消费者的子模块（gc×12——heap 内部/
 epoch/footprint/tlab/var_region/side_bits/soft_registry/trace/types/mode/to_vm/config，metadata 的 types/
 reflection_types，object 的 types/header）收 `pub(crate)`，跨引擎词汇（gc 的 walk/satb 与根再导出、
@@ -94,7 +98,6 @@ vm/mod.rs 只负责共享 Core 与线程视图的组合、布局、构造和生�
 | 低层上下文默认构造仍使用进程配置 | availability 的组件可用性查询已收口：JIT 目标矩阵以 build 脚本派生的 `z42_jit_supported` cfg 为单一来源，config 不再反向调 components（`execution_supported` 已删除） | 进程 bootstrap 与 VM 设置分开捕获；进程级 `runtime_config()` 逐 VM 化归 W3 |
 | 普通宿主与 C 适配尚未分开 | C 适配五文件已归组 `host/c/`（经 host 根再导出），尚未归能力所有者 | CLI 已归 cli 适配且平台构建可排除；后续 C 适配/头文件归能力所有者，host 保留功能请求/环境服务契约 |
 | 初始化层级含混 | `host/state.rs` 的会话保存多个 LoadedProgram；`ops::build_host_module` 每次创建程序/VM；`LoadedProgram::invoke` 执行一次性托管初始化 | 区分会话、VM/包准备与托管初始化，不把 C initialize 当作所有模块已初始化；统一装配但保持隔离和失败终态 |
-| 进程策略混入每 VM 输入 | `config/vm_config.rs::process_loh_bytes` 在 Core 构造时修改进程级 LOH 设置 | 进程 bootstrap 与 VM 设置分开捕获，禁止任意 VM 构造改写其它 VM 可见的全局策略 |
 | TypeDesc 引用 metadata 的 TypeId | `object/types/type_desc.rs` 的 `pub id`（原缺口三边中的其余两边已收口：ambient 堆附着迁 `gc::ambient`，`ContextId`/`AssemblyId` 身份词汇归 `object::identity`） | TypeId 属 `define_token!` token 家族（IMPORT_BASE/import_idx 语义一体），单独抽出会撕裂词汇一致性；抽出需整族设计裁决 |
 
 

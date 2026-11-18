@@ -269,13 +269,6 @@ impl VmContext {
             if config.gc_trace {
                 core.heap.add_observer(Arc::new(crate::gc::trace::GcTracer::default()));
             }
-            // add-loh-bytes-knob : process-global, not per-heap — `class_for` is
-            // called from the lock-free TLAB fast path, which has no heap reference. Applied
-            // here (rather than read in `class_for`) so the allocation path keeps paying only
-            // one relaxed load of a static rather than a `runtime_config()` lookup.
-            if let Some(n) = config.process_loh_bytes {
-                crate::gc::var_region::set_loh_bytes(n as usize);
-            }
         }
 
         core.heap.set_external_root_scanner(Box::new(crate::threads::roots::CoreRoots(Arc::downgrade(&core))));
