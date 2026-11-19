@@ -364,3 +364,36 @@ fn no_eager_merge_unit_registration_lands_in_func_table() {
         "registered dep function must be resolvable by name after explicit registration"
     );
 }
+
+/// M4 dry-run CI repro shape: bare entry zbc + a single libs search dir
+/// holding the full stdlib (the C component-verify harness's exact shape —
+/// `cfg.search_paths = [pkg/libs]`, `z42_host_load_zbc(bytes)`). The entry
+/// reaches `Std.Compression.*` with NO declared deps: cross-package symbols
+/// must resolve through the lazy loader's on-demand path on BOTH tracks.
+#[test]
+fn bare_entry_resolves_undeclared_stdlib_package_from_search_dir() {
+    // Needs the built runtime's native dir (z42_compression dylib); the CI
+    // matrix always has it, local bare `cargo test` does not.
+    if std::env::var_os("Z42_NATIVE_PATH").is_none() {
+        eprintln!("skipping: Z42_NATIVE_PATH not set");
+        return;
+    }
+    let wt = std::path::PathBuf::from("/Users/d.s.qiu/Documents/z42-new/wt/host-simplify");
+    let zbc = std::fs::read("/tmp/ecp.zbc").expect("fixture zbc (built by this session)");
+    let libs = wt.join("artifacts/intermediate/libraries/flat/release");
+    let options = crate::host::LoadOptions {
+        mode: crate::host::ExecMode::Interp,
+        search_dirs: vec![libs],
+        ..Default::default()
+    };
+    let program = super::LoadedProgram::load_bytes(&zbc, options).expect("loads");
+    // CI sequence: resolve + invoke Echo three times first (warms the core
+    // package through the same C-harness flow), then the compression probe.
+    for i in 40u64..43 {
+        let outcome = program.invoke("EngineComponentProbe.Echo", &[crate::host::Value::I64(i as i64)]);
+        assert_eq!(outcome.expect("echo runs").map(|v| match v { crate::host::Value::I64(n) => n, _ => -1 }), Some((i + (i - 39)) as i64));
+    }
+    let outcome = program.invoke("EngineComponentProbe.CompressionRoundtrip", &[]);
+    let value = outcome.expect("compression roundtrip resolves on the default track");
+    assert_eq!(value, Some(crate::host::Value::I64(36)), "1..8 gzip roundtrip sums to 36");
+}
