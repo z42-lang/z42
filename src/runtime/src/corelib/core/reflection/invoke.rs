@@ -182,7 +182,10 @@ pub fn method_make_generic(ctx: &VmContext, mi: &Value, type_args_arr: &Value) -
     }
     // Clone the definition MethodInfo into a constructed one: preserve identity slots,
     // set __typeArgs, and flip IsGenericMethodDefinition off (IsGenericMethod stays on).
-    Ok(alloc_named(
+    // The definition's ParameterInfo array is NOT aliased — `reown_params` copies it so
+    // each parameter's `__method` owner points at THIS constructed method.
+    let def_params = read_obj_slot(&mi, "__parameters");
+    let constructed = alloc_named(
         ctx,
         STD_REFLECTION_METHODINFO,
         &[
@@ -198,10 +201,14 @@ pub fn method_make_generic(ctx: &VmContext, mi: &Value, type_args_arr: &Value) -
             ("IsGenericMethodDefinition", Value::Bool(false)),
             ("__typeParamNames", read_obj_slot(&mi, "__typeParamNames")),
             ("__typeArgs", type_args),
-            ("__parameters", read_obj_slot(&mi, "__parameters")),
+            ("__parameters", def_params.clone()),
             ("__qualified", read_obj_slot(&mi, "__qualified")),
         ],
-    ).map_err(BuiltinError::Legacy)?)
+    )
+    .map_err(BuiltinError::Legacy)?;
+    let owned_params = reown_params(ctx, &def_params, &constructed).map_err(BuiltinError::Legacy)?;
+    write_published_slot(ctx, &constructed, "__parameters", &owned_params);
+    Ok(constructed)
 }
 
 /// Shared reflective-invocation core: resolve `qualified` (main module first,

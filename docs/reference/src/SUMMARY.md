@@ -239,6 +239,7 @@
         - [ConstructorInfo](stdlib/core.ConstructorInfo.md)
         - [FieldInfo](stdlib/core.FieldInfo.md)
         - [MemberInfo](stdlib/core.MemberInfo.md)
+        - [MemberTypes](stdlib/core.MemberTypes.md)
         - [MethodBase](stdlib/core.MethodBase.md)
         - [MethodInfo](stdlib/core.MethodInfo.md)
         - [ParameterInfo](stdlib/core.ParameterInfo.md)
