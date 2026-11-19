@@ -2,70 +2,6 @@
 use crate::vm::VmContext;
 use std::sync::Arc;
 
-impl VmContext {
-    /// Bare context without an entry module, useful for testing VM services.
-    /// Hosts loading callable programs use `host::LoadedProgram`.
-    pub fn new() -> std::pin::Pin<Box<Self>> {
-        Self::with_extensions(None, crate::pal::fs::default_vfs(), Default::default())
-    }
-
-    /// [`new`](Self::new) on the file system `vfs` instead of the default one.
-    pub fn with_vfs(vfs: Arc<dyn crate::pal::fs::Vfs>) -> std::pin::Pin<Box<Self>> {
-        Self::with_extensions(None, vfs, Default::default())
-    }
-
-    /// Low-level context construction with the user's compiled
-    /// Module wrapped in `Arc` for cross-thread sharing. Required by any
-    /// path that may invoke `__thread_spawn` (which dispatches into the
-    /// shared module from the spawned thread).
-    pub fn with_module(module: crate::metadata::Module) -> std::pin::Pin<Box<Self>> {
-        Self::with_module_and_vfs(module, crate::pal::fs::default_vfs())
-    }
-
-    /// [`with_module`](Self::with_module) on the file system `vfs`: every path-based file
-    /// builtin and every package load of this VM goes through it.
-    pub fn with_module_and_vfs(
-        module: crate::metadata::Module,
-        vfs: Arc<dyn crate::pal::fs::Vfs>,
-    ) -> std::pin::Pin<Box<Self>> {
-        Self::with_extensions(Some(module), vfs, Default::default())
-    }
-
-    /// Create a VM with owned extension registrations, frozen for its entire lifetime.
-    /// `None` omits the entry module, as in [`Self::new`]. Module linkage is reset
-    /// exactly as in [`Self::with_module_and_vfs`]. Worker contexts share this state.
-    pub fn with_extensions(
-        module: Option<crate::metadata::Module>,
-        vfs: Arc<dyn crate::pal::fs::Vfs>,
-        extensions: crate::vm::VmExtensions,
-    ) -> std::pin::Pin<Box<Self>> {
-        construct(
-            module,
-            vfs,
-            extensions,
-            crate::components::api::engine_registry(),
-        )
-    }
-
-    /// Instantiate shared package definitions with fresh per-VM types and caches.
-    pub fn with_image(
-        image: Arc<crate::zpkg::image::PackageImage>,
-    ) -> anyhow::Result<std::pin::Pin<Box<Self>>> {
-        Self::with_image_and_vfs(image, crate::pal::fs::default_vfs())
-    }
-
-    /// Instantiate an image using this VM's file system for subsequent loads.
-    pub fn with_image_and_vfs(
-        image: Arc<crate::zpkg::image::PackageImage>,
-        vfs: Arc<dyn crate::pal::fs::Vfs>,
-    ) -> anyhow::Result<std::pin::Pin<Box<Self>>> {
-        let mut module = crate::metadata::Module::from_image(image);
-        crate::metadata::types::build_type_registry(&mut module);
-        crate::metadata::types::verify_constraints(&module)?;
-        crate::loader::build_block_indices(&mut module);
-        Ok(Self::with_module_and_vfs(module, vfs))
-    }
-}
 
 #[cfg(test)]
 #[path = "defaults_tests.rs"]
@@ -78,6 +14,7 @@ pub(crate) fn construct(
     vfs: Arc<dyn crate::pal::fs::Vfs>,
     extensions: crate::vm::VmExtensions,
     engines: crate::exec::EngineRegistry,
+    freeze: fn(crate::vm::VmExtensions) -> crate::vm::ExtensionState,
 ) -> std::pin::Pin<Box<VmContext>> {
     let module = module.map(|mut module| {
         module.clear_link_state();
@@ -86,7 +23,7 @@ pub(crate) fn construct(
     let ctx = with_config(
         module,
         vfs,
-        crate::vm::services::freeze(extensions),
+        freeze(extensions),
         crate::config::runtime_config().vm_config(),
         crate::corelib::object_protocol(),
         engines,
@@ -124,6 +61,6 @@ pub(crate) fn with_config(
 #[cfg(feature = "jit-test-support")]
 #[doc(hidden)]
 pub fn jit_test_context(config: crate::config::RuntimeConfig) -> std::pin::Pin<Box<VmContext>> {
-    with_config(None, crate::pal::fs::default_vfs(), crate::vm::services::freeze(Default::default()),
+    with_config(None, crate::pal::fs::default_vfs(), crate::composition::freeze(Default::default()),
         config.vm_config(), crate::corelib::object_protocol(), crate::components::api::engine_registry())
 }

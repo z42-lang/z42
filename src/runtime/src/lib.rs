@@ -12,6 +12,7 @@
 //! ```
 extern crate self as z42;
 pub use z42_zpkg as zpkg;
+mod composition;
 pub mod vm;
 pub mod exec;
 pub mod loader;

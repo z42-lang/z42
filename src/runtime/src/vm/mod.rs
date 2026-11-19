@@ -25,7 +25,6 @@ pub use extensions::{ExtensionState, VmExtensions};
 
 pub(crate) mod assembly;
 pub(crate) mod defaults;
-pub(crate) mod services;
 
 /// State shared by all contexts of one VM, owned through `Arc<VmCore>`.
 /// Subsystems own their synchronization and teardown; contexts retain thread-local
