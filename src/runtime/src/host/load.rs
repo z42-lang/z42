@@ -255,7 +255,8 @@ pub(super) fn prepare_with_eager_mode(user_artifact: LoadedArtifact, source_path
         (merged, Vec::new())
     };
 
-    crate::vm::assembly::build(final_module, crate::vm::assembly::ProgramInputs {
+    let jit_config = crate::config::runtime_config_snapshot().jit_config();
+    let ctx = crate::vm::assembly::build(final_module, crate::vm::assembly::ProgramInputs {
         vfs: Arc::clone(&vfs),
         search_dirs: search_dirs.clone(),
         declared_candidates,
@@ -263,7 +264,10 @@ pub(super) fn prepare_with_eager_mode(user_artifact: LoadedArtifact, source_path
         eager_impl_pairs,
         eager_deps,
         eager_packages,
-    }, options, components, entry_hint, loaded_for_replay)
+    }, crate::vm::assembly::AssemblyOptions {
+        native: options.native.clone(), mode: options.mode, jit_config, components,
+    }, loaded_for_replay)?;
+    LoadedProgram::new(ctx, options.mode, entry_hint)
 }
 
 /// Which eager-loading track `prepare` takes. `Default` reads the

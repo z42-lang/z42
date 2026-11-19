@@ -40,6 +40,13 @@ impl Default for LoadOptions {
     }
 }
 
+impl crate::vm::assembly::ComponentInputs {
+    pub(crate) fn for_request(options: &LoadOptions) -> Self {
+        Self { profiler: if options.allow_profiling { Default::default() }
+            else { crate::components::api::BackendSource::Disabled }, ..Default::default() }
+    }
+}
+
 /// One loaded module and its VM. Initialization is shared by all entry invocations.
 /// Drive a context from one thread at a time; worker execution uses its own context.
 pub struct LoadedProgram {
