@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
+use rustc_hash::FxHashMap;
 
 use crate::metadata::Module;
 use crate::zpkg::image::PackageImage;
@@ -22,6 +23,11 @@ pub(crate) struct ArtifactMeta {
     pub import_namespaces: Vec<String>,
     pub impl_pairs: Vec<(String, String)>,
     pub package_name: Option<String>,
+    /// The decoded module's type registry. `Module::from_image` rebuilds a
+    /// module with an EMPTY registry; per-package registration (M1+) consumes
+    /// the artifact's registry directly, so the cache carries it alongside
+    /// the image and restores it on every handout.
+    pub type_registry: FxHashMap<String, std::sync::Arc<crate::object::TypeDesc>>,
 }
 
 /// Content-addressed artifact cache: key = hash of the raw artifact bytes.
@@ -45,36 +51,55 @@ impl ImageCache {
         decode: impl FnOnce() -> Result<crate::loader::LoadedArtifact>,
     ) -> Result<crate::loader::LoadedArtifact> {
         let cached = self.artifacts.lock().unwrap().get(content_id).cloned();
-        let (image, meta) = match cached {
-            Some(pair) => pair,
+        match cached {
+            // Hit: shallow view over the shared image with the decoded type
+            // registry restored (`from_image` alone yields an empty one).
+            Some((image, meta)) => {
+                let mut module = Module::from_image(image);
+                module.type_registry = meta.type_registry;
+                Ok(crate::loader::LoadedArtifact {
+                    module,
+                    entry_hint: meta.entry_hint,
+                    dependencies: meta.dependencies,
+                    import_namespaces: meta.import_namespaces,
+                    impl_pairs: meta.impl_pairs,
+                    package_name: meta.package_name,
+                })
+            }
+            // Miss: decode, freeze the image + the decoded type registry
+            // into the cache, and hand back the SAME shallow shape a hit
+            // produces (every handout goes through `from_image`, so the
+            // definition `Arc`s are shared across the whole session; the
+            // registry is restored because per-package registration consumes
+            // the artifact's registry directly).
             None => {
                 let artifact = decode()?;
+                let image = artifact.module.image();
                 let meta = ArtifactMeta {
                     entry_hint: artifact.entry_hint.clone(),
                     dependencies: artifact.dependencies.clone(),
                     import_namespaces: artifact.import_namespaces.clone(),
                     impl_pairs: artifact.impl_pairs.clone(),
                     package_name: artifact.package_name.clone(),
+                    type_registry: artifact.module.type_registry.clone(),
                 };
-                let image = artifact.module.into_image();
-                let entry = self
-                    .artifacts
+                self.artifacts
                     .lock()
                     .unwrap()
                     .entry(content_id.to_owned())
-                    .or_insert_with(|| (image.clone(), meta.clone()))
-                    .clone();
-                entry
+                    .or_insert_with(|| (image.clone(), meta.clone()));
+                let mut module = Module::from_image(image);
+                module.type_registry = meta.type_registry;
+                Ok(crate::loader::LoadedArtifact {
+                    module,
+                    entry_hint: meta.entry_hint,
+                    dependencies: meta.dependencies,
+                    import_namespaces: meta.import_namespaces,
+                    impl_pairs: meta.impl_pairs,
+                    package_name: meta.package_name,
+                })
             }
-        };
-        Ok(crate::loader::LoadedArtifact {
-            module: Module::from_image(image),
-            entry_hint: meta.entry_hint,
-            dependencies: meta.dependencies,
-            import_namespaces: meta.import_namespaces,
-            impl_pairs: meta.impl_pairs,
-            package_name: meta.package_name,
-        })
+        }
     }
 
     /// Number of distinct artifacts held — test/diagnostics surface.
