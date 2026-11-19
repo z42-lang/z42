@@ -218,7 +218,12 @@ pub(super) fn prepare_with_eager_mode(user_artifact: LoadedArtifact, source_path
     // module alone and hands the decoded dep artifacts to the assembly, which
     // registers them per-package through the lazy loader's machinery.
     let no_eager_merge = match eager_mode {
-        EagerMerge::Default => std::env::var_os("Z42_NO_EAGER_MERGE").is_some(),
+        // M4 dry run (merge-retirement design §4): per-package registration is
+        // now the DEFAULT. The escape hatch is Z42_EAGER_MERGE=1 (restores the
+        // merged track) — the same transitional shape the old switch had,
+        // inverted. Full-suite validation of the flipped default rides the CI
+        // matrix of this PR; the bench gate measures the steady-state cost.
+        EagerMerge::Default => std::env::var_os("Z42_EAGER_MERGE").is_none(),
         EagerMerge::Off => true,
     };
     let (final_module, eager_packages) = if no_eager_merge {
@@ -262,8 +267,9 @@ pub(super) fn prepare_with_eager_mode(user_artifact: LoadedArtifact, source_path
 }
 
 /// Which eager-loading track `prepare` takes. `Default` reads the
-/// `Z42_NO_EAGER_MERGE` env switch; `Off` forces per-package registration
-/// (tests drive this directly — the env var is process-global).
+/// `Z42_EAGER_MERGE` escape hatch (per-package is the default since the M4
+/// dry run); `Off` forces per-package registration (tests drive this
+/// directly — the env var is process-global).
 pub(super) enum EagerMerge {
     Default,
     Off,
