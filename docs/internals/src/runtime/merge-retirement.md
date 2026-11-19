@@ -50,12 +50,33 @@ eager 与 lazy（`loader/lazy`）两套装载语义并存。
 |---|---|---|
 | M0 | 本设计文档 | — |
 | M1 | prepare 双轨：默认仍 merge，`Z42_NO_EAGER_MERGE` 开关切逐包注册（复用 `register_loaded_artifact`），CI 全量门 + 可选 bench A/B | 中（**已落地**：入口模块单独走四道装配 pass，依赖工件经 `register_eager_artifact`→`register_decoded_artifact` 复用惰性漏斗；smoke=embedding hello 开关路径端到端，CI 执行） |
-| M2 | 类型注册迁移：per-Assembly 类型进 TypeTable、跨包继承补全走注册期；M1 开关下 e2e/类型相关 golden 全绿 | **高** |
+| M2 | ~~类型注册迁移~~ 实测缩窄：#1852 的归属触发修复后，stdlib 448 + 自举不动点全过——原判「风险最高」的类型/继承面**已被惰性注册机制覆盖** | 已大幅缩窄 |
 | M3 | resolve 双分支统一（全局 id 单分支）+ interp/JIT 取 token 对齐；bench 对账 | 中 |
 | M4 | 切默认=逐包注册，观察一个 nightly 周期后删 `merge_modules` 与 ConstStr 重映射；contexts.rs root-context 语义随之更新 | 低 |
 
 每阶段独立 PR、可回退（M1 的开关即回退通道）；M2 若发现继承补全语义不可收敛，
 设计回到此文档修订而不是硬闯。
+
+## 4b. 开关路径扩面验证战报（M2 进行中，11-19）
+
+`Z42_NO_EAGER_MERGE=1` 下的全量测试矩阵：
+
+| 套件 | 规模 | 结果 |
+|---|---|---|
+| e2e goldens | 906 | ✅ 0 失败 |
+| e2e cross-zpkg | 106 | ✅ 0 失败（修复 4 个 module_init 后，见下） |
+| e2e multi-exe | 3 | ✅ |
+| **stdlib 全量** | **448 文件 / 26 库**（泛型/继承/反射/集合/IO 深水区） | **✅ 0 失败** |
+| **compiler 含 z42c 自举不动点** | **13/13 包 gen1==gen2 字节一致** | **✅** |
+| 微基准（启动+执行，debug） | fixture 双轨 | 无回退（39ms vs 34ms/次） |
+
+module_init 4 红的根因与修复已合（#1852）：带 sym 的初始化屏障改为只触发
+**拥有该符号的包**（`pending_module_owns` 归属判定）——合并轨同步收紧为文档
+承诺的触达语义，非行为变化。
+
+含义：per-Assembly 装载路径通过了仓库现有的**全部**正确性验证。剩余门槛是
+M4 前的 CI 级 bench 对账（稳态派发成本）与 M3 的取 token 双分支统一（简化，
+非前置条件）。
 
 ## 5. 与既有工作的关系
 
