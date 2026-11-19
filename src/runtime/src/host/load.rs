@@ -266,6 +266,7 @@ pub(super) fn prepare_with_eager_mode(user_artifact: LoadedArtifact, source_path
         eager_packages,
     }, crate::vm::assembly::AssemblyOptions {
         native: options.native.clone(), mode: options.mode, jit_config, components,
+        freeze_extensions: crate::composition::freeze,
     }, loaded_for_replay)?;
     LoadedProgram::new(ctx, options.mode, entry_hint)
 }

@@ -3,6 +3,18 @@ use crate::config::RuntimeConfig;
 use crate::gc::GcMode;
 
 #[test]
+fn construct_uses_supplied_extension_factory() {
+    fn injected(mut extensions: crate::vm::VmExtensions) -> crate::vm::ExtensionState {
+        extensions.register(String::from("injected")).unwrap();
+        extensions.freeze()
+    }
+    let ctx = super::construct(None, crate::pal::fs::default_vfs(), Default::default(),
+        crate::exec::EngineRegistry::new(None), injected);
+    assert_eq!(ctx.ext::<String>().map(String::as_str), Some("injected"));
+    assert!(crate::corelib::application::state(&ctx).is_err());
+}
+
+#[test]
 fn captured_vm_inputs_choose_independent_heap_modes() {
     let mut settings = RuntimeConfig::from_getter(|_| None);
     settings.gc_mode = GcMode::StwMarkSweep;
@@ -12,14 +24,14 @@ fn captured_vm_inputs_choose_independent_heap_modes() {
     let first = configured_context(
         None,
         crate::pal::fs::default_vfs(),
-        crate::vm::services::freeze(Default::default()),
+        crate::composition::freeze(Default::default()),
         stw,
         crate::corelib::object_protocol(),
     );
     let second = configured_context(
         None,
         crate::pal::fs::default_vfs(),
-        crate::vm::services::freeze(Default::default()),
+        crate::composition::freeze(Default::default()),
         generational,
         crate::corelib::object_protocol(),
     );
@@ -69,7 +81,7 @@ thread_local! { static PROTOCOL_CALLS: Cell<usize> = const { Cell::new(0) }; }
 fn protocol_context(protocol: ObjectProtocol<VmContext, BuiltinError>) -> std::pin::Pin<Box<VmContext>> {
     configured_context(
         None, crate::pal::fs::default_vfs(),
-        crate::vm::services::freeze(Default::default()),
+        crate::composition::freeze(Default::default()),
         RuntimeConfig::from_getter(|_| None).vm_config(), protocol,
     )
 }
@@ -238,7 +250,7 @@ fn stack_allocation_policy_is_per_vm_and_shared_with_workers() {
         let mut settings = RuntimeConfig::from_getter(|_| None);
         settings.stackalloc = Some(value.into());
         let ctx = configured_context(None, crate::pal::fs::default_vfs(),
-            crate::vm::services::freeze(Default::default()), settings.vm_config(),
+            crate::composition::freeze(Default::default()), settings.vm_config(),
             crate::corelib::object_protocol());
         let worker = VmContext::new_with_core(ctx.core.clone());
         assert_eq!(stack_alloc_enabled(&ctx), enabled);
@@ -262,7 +274,7 @@ fn safepoint_policy_is_per_vm_and_shared_by_worker_resets() {
         let mut settings = RuntimeConfig::from_getter(|_| None);
         settings.safepoint_throttle = throttle;
         let ctx = configured_context(None, crate::pal::fs::default_vfs(),
-            crate::vm::services::freeze(Default::default()), settings.vm_config(),
+            crate::composition::freeze(Default::default()), settings.vm_config(),
             crate::corelib::object_protocol());
         let worker = VmContext::new_with_core(ctx.core.clone());
         for view in [&ctx, &worker] {
