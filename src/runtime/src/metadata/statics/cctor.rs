@@ -321,6 +321,18 @@ impl CctorRegistry {
     /// ✅ 那条「已知边界」已消除：判据从命名空间前缀换成**包的符号集合**，
     /// 所以「一个包声明了互不嵌套的多个命名空间」不再影响归属 —— 同包的兄弟命名空间照样重抛，
     /// 别的包也不会被毒。见 [`module_owns_symbol`] 的头注。
+    /// Whether the pending (not-yet-run) module initializer `init_name` owns
+    /// `sym_fq`. The call barrier asks this to fire ONLY the module the
+    /// touched symbol belongs to — "first touch of THIS package's code" is
+    /// the documented module-initializer semantics.
+    pub fn pending_module_owns(&self, init_name: &str, sym_fq: &str) -> bool {
+        self.module_inits
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .any(|e| e.desc.name == init_name && e.owned.contains(sym_fq))
+    }
+
     pub fn failed_module_owning(&self, sym_fq: &str) -> Option<Arc<crate::object::TypeDesc>> {
         if !self.any_module_init_failed() { return None; }
         // 先取快照再拿 map 锁：初始化器是用户代码，遍历时持 module_inits 锁会在重入时自锁。
