@@ -1,0 +1,12 @@
+namespace Demo.Base;
+
+public class Shape {
+    public virtual int Area() { return 0; }
+    public virtual int Calc { get { return 1; } }
+    public virtual int Tag { get { return 5; } }
+}
+
+public class Circle : Shape {
+    public override int Area() { return 7; }
+    public override int Calc { get { return 70; } }
+}

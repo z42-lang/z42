@@ -1,0 +1,13 @@
+namespace Demo.App;
+using Demo.Base;
+using Std;
+using Std.IO;
+
+void Main() {
+    Shape s = new Circle();
+    Console.WriteLine(s.Area().ToString());   // 7 — virtual method control (VCall)
+    Console.WriteLine(s.Calc.ToString());     // 70 — base-typed virtual computed property
+    Console.WriteLine(s.Tag.ToString());      // 5 — not overridden
+    Shape b = new Shape();
+    Console.WriteLine(b.Calc.ToString());     // 1 — base itself
+}
