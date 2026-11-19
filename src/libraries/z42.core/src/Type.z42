@@ -277,5 +277,13 @@ public sealed class Type : MemberInfo, IEquatable {
     [Native("__type_custom_attributes")]
     private extern Attribute[] _fetchAttributes();
 
+    /// 覆写：基类缓存骨架的取数通道。
+    ///
+    /// `--emit-zbc` 子集编译下基类型引用的虚调用会落到基类体（见 MemberInfo
+    /// 类首注释）——此覆写保证该路径也拿到真数据。
+    public override Attribute[] __fetchCustomAttributes() {
+        return this._fetchAttributes();
+    }
+
     // GetAttribute(attributeType) 继承自 MemberInfo（经本覆写取活实例）。
 }

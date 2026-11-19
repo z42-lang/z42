@@ -7,6 +7,10 @@ namespace Std.Reflection;
 /// （`GetCustomAttributes` / `GetAttribute`）在本层实现，子类只覆写
 /// `__fetchCustomAttributes` 接各自的 native 解析通道；`Std.Type` 例外——
 /// 整体覆写 `GetCustomAttributes` 保留 VM 失效缓存契约（见 Type.z42）。
+///
+/// ⚠ 虚方法基类体必须**独立正确**（is-链兜底）：`--emit-zbc` 子集编译器把
+/// 基类型引用的虚调用去虚化为基类方法体直调（corpus 实测），子类覆写只在
+/// 具体类型引用的调用点上可靠。
 public class MemberInfo {
     /// 成员名（非限定）。VM 直接写入。
     public string Name;
@@ -14,12 +18,28 @@ public class MemberInfo {
     /// 声明本成员的上下文（Clang `getDeclContext()` 的泛化）。
     ///
     /// 字段/方法/构造器/属性报声明它的**类型**（继承成员指向基类声明者，C#
-    /// DeclaringType 语义）；参数报声明它的**方法**（覆写；`Method` 是其类型化
-    /// 捷径）；`Std.Type` 自身报嵌套外围类型（覆写）；无可考时为 null。
-    /// `Type` 既是 `MemberInfo`，类型成员的声明上下文可直接当 `Std.Type` 用
-    /// （`(DeclaringContext as Std.Type).FullName`）。
+    /// DeclaringType 语义）；参数报声明它的**方法**（`Method` 是其类型化捷径）；
+    /// `Std.Type` 自身报嵌套外围类型；无可考时为 null。
+    ///
+    /// 各子类覆写为直取捷径；**基类体是 is-链兜底而非 default**——`--emit-zbc`
+    /// 子集编译器会把基类型引用的虚调用去虚化为基类方法体（见类首注释），
+    /// 故基类体必须独立正确。
+    public virtual MemberInfo? DeclaringContext {
+        get {
+            if (this is ParameterInfo) {
+                ParameterInfo p = this as ParameterInfo;
+                if (!Object.ReferenceEquals(p, null)) { return p.__method; }
+            }
+            Std.Type t = this as Std.Type;
+            if (!Object.ReferenceEquals(t, null)) { return t.GetDeclaringType(); }
+            return this.__declaringTypeOf;
+        }
+    }
+
+    /// 本成员 `__qualified`（"<类>.<成员>"）派生的声明类型；仅供
+    /// `DeclaringContext` 基类兜底与子类复用。
     [Native("__memberinfo_declaring_type")]
-    public extern MemberInfo? DeclaringContext { get; }
+    private extern Std.Type? __declaringTypeOf { get; }
 
     // ── 自定义 attribute ─────────────────────────────────────────────────────
     // 缓存骨架与 GetAttribute 循环原先在 FieldInfo / PropertyInfo / MethodInfo /
@@ -59,8 +79,21 @@ public class MemberInfo {
 
     /// 成员种类判别（对标 C# `MemberInfo.MemberType`），各子类覆写返回常量。
     ///
-    /// `Std.Type` 覆写为 `TypeInfo`（嵌套类型报 `NestedType`）。
+    /// 基类体是 is-链兜底而非 default（虚调用在 `--emit-zbc` 子集编译下会去虚化
+    /// 为基类体直调，见类首注释）；`Std.Type` 报 `TypeInfo`（嵌套报 `NestedType`）。
     public virtual MemberTypes MemberType {
-        get { return MemberTypes.TypeInfo; }
+        get {
+            if (this is FieldInfo) { return MemberTypes.Field; }
+            if (this is PropertyInfo) { return MemberTypes.Property; }
+            if (this is MethodInfo) { return MemberTypes.Method; }
+            if (this is ConstructorInfo) { return MemberTypes.Constructor; }
+            if (this is ParameterInfo) { return MemberTypes.Parameter; }
+            Std.Type t = this as Std.Type;
+            if (!Object.ReferenceEquals(t, null)) {
+                if (t.IsNested) { return MemberTypes.NestedType; }
+                return MemberTypes.TypeInfo;
+            }
+            return MemberTypes.TypeInfo;
+        }
     }
 }
