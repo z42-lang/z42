@@ -152,6 +152,12 @@ public sealed class IrGenMemberEmitter {
         int pdPropVis = DeclFacts._visCode(pd.ModFlags, 1);
         int pdGetVis = DeclFacts._visCode(pd.GetModFlags, pdPropVis);
         int pdSetVis = DeclFacts._visCode(pd.SetModFlags, pdPropVis);
+        // fix-emit-zbc-virtual-dispatch：属性的 virtual/abstract/sealed 位随访问器进 IR。
+        // 访问器的合成 MethodDecl ModFlags 为空串，flags 从不从属性继承 ⇒ TsigReconcile 以
+        // IR 为准重建 TSIG 时 IsVirtual 恒 false ⇒ 导入侧 OwnMethodIsVirtual=false ⇒
+        // 跨包基类型引用的属性读被 DepIndex 捷径直呼基类实现（去虚化）。|= 守 sret 位不变式
+        // （同 :64/:122）。反射侧同步修正：GetMethods() 里访问器的 MethodInfo.IsVirtual 不再恒 false。
+        int pdMethodFlags = IrGenFacts._methodFlags(pd.ModFlags);
         if (pd.HasGetBody) {
             string pgKey = ownerKey + ".get_" + pd.Name;
             string pgIrName = this._irOwner(c) + ".get_" + pd.Name;
@@ -166,6 +172,7 @@ public sealed class IrGenMemberEmitter {
                                                       !pdStatic, pdStatic, owner, c.TypeParams.Names, c.TypeParams.Count);
                 IrGenFacts._fillParamMeta(pgIrf, synthPg, !pdStatic);   // add-param-metadata（reconcile 补齐）
                 pgIrf.Visibility = pdGetVis;   // add-accessor-visibility（synthPg.Mods 为空，须显式覆盖）
+                pgIrf.MethodFlags = pgIrf.MethodFlags | pdMethodFlags;   // fix-emit-zbc-virtual-dispatch
                 this._out.AddFunc(pgIrf);
             }
         } else if (pd.HasGet && pdExtern) {
@@ -179,6 +186,7 @@ public sealed class IrGenMemberEmitter {
                                                          synthPd, nat2, pdStatic, rawMem);
                 IrGenFacts._fillParamMeta(pstub, synthPd, !pdStatic);   // add-param-metadata（reconcile 补齐）
                 pstub.Visibility = pdGetVis;   // add-accessor-visibility
+                pstub.MethodFlags = pstub.MethodFlags | pdMethodFlags;   // fix-emit-zbc-virtual-dispatch
                 this._out.AddFunc(pstub);
             }
         } else if (pd.HasGet && !pdExtern) {
@@ -192,12 +200,14 @@ public sealed class IrGenMemberEmitter {
             IrFunction ag = g._stubE._emitAutoPropGetter(getIrNm, backing, retNm, retTag, pdStatic, pd.Span.Line);
             ag.MinArg = 0;   // getter 逻辑参数 0（reconcile：ctor 默认=含 this 总数，需覆盖）
             ag.Visibility = pdGetVis;   // add-accessor-visibility
+            ag.MethodFlags = ag.MethodFlags | pdMethodFlags;   // fix-emit-zbc-virtual-dispatch
             this._out.AddFunc(ag);
             if (pd.HasSet) {
                 string setIrNm = this._irOwner(c) + ".set_" + pd.Name;
                 IrFunction sg = g._stubE._emitAutoPropSetter(setIrNm, backing, retNm, retTag, pdStatic, pd.Span.Line);
                 sg.MinArg = 1;   // setter 逻辑参数 1
                 sg.Visibility = pdSetVis;   // add-accessor-visibility（`private set` 等）
+                sg.MethodFlags = sg.MethodFlags | pdMethodFlags;   // fix-emit-zbc-virtual-dispatch
                 this._out.AddFunc(sg);
             }
         }
@@ -221,6 +231,7 @@ public sealed class IrGenMemberEmitter {
                                                       !pdStatic, pdStatic, owner, c.TypeParams.Names, c.TypeParams.Count);
                 IrGenFacts._fillParamMeta(psIrf, synthPs, !pdStatic);   // add-param-metadata（reconcile 补齐）
                 psIrf.Visibility = pdSetVis;   // add-accessor-visibility（synthPs.Mods 为空，须显式覆盖）
+                psIrf.MethodFlags = psIrf.MethodFlags | pdMethodFlags;   // fix-emit-zbc-virtual-dispatch
                 this._out.AddFunc(psIrf);
             }
         }
