@@ -78,7 +78,7 @@ flowchart TD
 
 ### P0-1 装配对 Host 的反向依赖和策略读取
 
-证据：[vm/assembly.rs](../../src/runtime/src/vm/assembly.rs#L11) 的 `LoadOptions`、`LoadedProgram`，`build` 读取全局配置 `runtime_config_snapshot().jit_config()`；[host/load.rs](../../src/runtime/src/host/load.rs#L59) 反向调用 assembly；[vm/services.rs](../../src/runtime/src/vm/services.rs#L21) 默认装入 host service 和 app state。影响：内部装配契约与宿主选项/返回包装绑定，新的宿主需复用宿主实现细节；同一次准备的 JIT 策略捕获点不明显。改善：先将已解析的内部装配输入及装配结果定义在 VM 组合侧，host 适配公开 `LoadOptions` 并包装 `LoadedProgram`；将 JIT 快照作为显式输入。宿主 service 从宿主组合入口注入或使用既有扩展机制，必须保留默认行为；分独立 PR 实施。`LoadedProgram` 仍是宿主 API，`ProgramInputs` 是内部装配输入，不应机械移成公开 loader 类型。
+证据：[vm/assembly.rs](../../src/runtime/src/vm/assembly.rs#L11) 的 `LoadOptions`、`LoadedProgram`，`build` 读取全局配置 `runtime_config_snapshot().jit_config()`；[host/load.rs](../../src/runtime/src/host/load.rs#L59) 反向调用 assembly；[vm/services.rs](https://github.com/z42-lang/z42/blob/b2a55911475aaf871ca987d77ecf004ed46c8bec/src/runtime/src/vm/services.rs#L21) 默认装入 host service 和 app state。影响：内部装配契约与宿主选项/返回包装绑定，新的宿主需复用宿主实现细节；同一次准备的 JIT 策略捕获点不明显。改善：先将已解析的内部装配输入及装配结果定义在 VM 组合侧，host 适配公开 `LoadOptions` 并包装 `LoadedProgram`；将 JIT 快照作为显式输入。宿主 service 从宿主组合入口注入或使用既有扩展机制，必须保留默认行为；分独立 PR 实施。`LoadedProgram` 仍是宿主 API，`ProgramInputs` 是内部装配输入，不应机械移成公开 loader 类型。
 
 ### P0-2 生命周期横跨构造与装配，失败路径需明确验证
 
