@@ -181,7 +181,8 @@ public static class CompilerFingerprint {
         "reject-intrinsic-size-writes",
         "inline-bound-type-test",
         "indirect-struct-abi-preserve-generic-return-identity",
-        "preserve-native-module-qualification"
+        "preserve-native-module-qualification",
+        "fix-interface-ref-signatures"
     };
 
     // 指纹值：`Entries` 逐条以 `\n` 连接后取内容哈希（`mmh3:` 前缀，同 SourceHash）。

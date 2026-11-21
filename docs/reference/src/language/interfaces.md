@@ -53,7 +53,8 @@ class Bad : IShape { }
 // ✗ E0412: `Bad` implements `IShape` but does not define member `Area`
 ```
 
-签名不一致（参数类型 / 个数对不上）同样报 `E0412`。
+签名不一致（参数类型、个数或 `ref` 修饰符对不上）同样报 `E0412`。
+参数传递方式逐位比较，本包和携带 `ref` 签名元数据的依赖包遵循同一规则。
 实现成员**必须是 `public`**，否则：
 
 ```z42
