@@ -11,6 +11,7 @@
 | `native.rs` | 原生库开库、路径策略、每 VM 映像缓存与符号解析；装载事务归 interop::install |
 | `native_policy.rs` | 每 VM 原生代码来源许可与搜索目录，拒绝发生在探测、入口调用和缓存复用之前 |
 | `artifact.rs` | 稳定产物加载/准备入口与 LazyLoader 默认构造 |
+| `dependency_candidates.rs` | 按包声明与导入命名空间发现惰性加载候选 |
 | `ffi.rs` | static/shared native 链接登记，不操作 host 会话或错误槽 |
 | `code.rs` | 通用原生映像装入、规范路径缓存、符号访问和进程代码保活；不解析消费者 ABI、不创建 VM 实例 |
 | `native_paths.rs` | 组件和独立运行时库共用的通用搜索目录策略 |
