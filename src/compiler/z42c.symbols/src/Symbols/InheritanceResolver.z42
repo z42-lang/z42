@@ -650,6 +650,7 @@ public sealed class InheritanceResolver {
                 MethodSymbol cm = cands[j];
                 if (cm.Signature != null
                     && DispatchKeys.MangleKey(cm.Name, cm.Signature.ParamTypes, cm.Signature.ParamCount) == wantKey) {
+                    if (!this._checkIfaceRefModes(cName, it.Name(), ims, cm, cSpan)) { return; }
                     // fix-iface-satisfaction-gaps #1：MangleKey 命中=「名+形参」对上，但它**不含 static/返回类型**。
                     // 补两项校验，否则 static 接口成员被实现成 instance、或返回类型不符，都静默通过（真洞）。
                     //
@@ -758,6 +759,23 @@ public sealed class InheritanceResolver {
         this._sc.Diags.Error(DiagnosticCodes.InterfaceMismatch,
             "`" + cName + "` implements `" + it.Name() + "` but no overload of `" + ims.Name
             + "` matches the interface signature (want `" + wantKey + "`)", cSpan);
+    }
+
+    private bool _checkIfaceRefModes(string owner, string iface, MethodSymbol contract, MethodSymbol implementation, Span span) {
+        if (!contract.Signature.HasRefInfo() || !implementation.Signature.HasRefInfo()) { return true; }
+        int i = 0;
+        while (i < contract.Signature.ParamCount) {
+            bool needsRef = contract.Signature.IsRefParam(i);
+            if (needsRef != implementation.Signature.IsRefParam(i)) {
+                string expected = needsRef ? "by reference (`ref`)" : "by value";
+                this._sc.Diags.Error(DiagnosticCodes.InterfaceMismatch,
+                    "`" + owner + "` implements `" + iface + "` but parameter " + (i + 1).ToString()
+                    + " of `" + contract.Name + "` must be passed " + expected, span);
+                return false;
+            }
+            i = i + 1;
+        }
+        return true;
     }
 
     // 接口成员签名 → 实现方视角的期望签名。两处替换：

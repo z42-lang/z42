@@ -414,6 +414,7 @@ public static class TsigReconcile {
                 // carry-iface-null-marks：形参的 `?`。接口方法块本身没有 attr 槽 ⇒ 标记住在
                 // **类级** attr-ref 块里，按 (方法下标, 形参下标) 寻址（见 `IrIfaceNullable`）。
                 ps[pi].IsNullable = IrIfaceNullable.Has(cd.Attrs, cd.AttrCount, mi, pi.ToString());
+                ps[pi].IsRef = IrIfaceRef.Has(cd.Attrs, cd.AttrCount, IrIfaceRef.ParamSentinel, IrIfaceRef.ParamSlot(mi, pi));
                 pi = pi + 1;
             }
             // fix-imported-iface-static-fidelity（zbc 1.41）：static 位取自 wire（此前硬编码 false）。
@@ -424,6 +425,7 @@ public static class TsigReconcile {
             // carry-iface-null-marks：返回位的 `?`（同 `ExportedMethodZ.RetIsNullable` 在类那半
             // 由 `$RetNullable` 填的位——消费侧 `ImportedSymbolLoader._fillParamMeta` 是同一个漏斗）。
             methods[mi].RetIsNullable = IrIfaceNullable.Has(cd.Attrs, cd.AttrCount, mi, IrIfaceNullable.RetSlot);
+            methods[mi].RefInfoKnown = IrIfaceRef.Has(cd.Attrs, cd.AttrCount, IrIfaceRef.SignatureSentinel, mi.ToString());
             ipbase = ipbase + ipc;
             mi = mi + 1;
         }

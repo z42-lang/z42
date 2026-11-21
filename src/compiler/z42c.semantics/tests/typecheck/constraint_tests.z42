@@ -620,6 +620,27 @@ void test_instance_interface_member_implemented_as_static_is_reported() {
 }
 
 [Test]
+void test_interface_ref_parameter_requires_ref_implementation() {
+    Assert.Equal("E0412", SemanticDump.FirstErrorCode(
+        "interface I { void Set(int i, ref int x); }\n"
+        + "class C : I { public void Set(int i, int x) { } }\n"));
+}
+
+[Test]
+void test_impl_block_cannot_add_ref_to_interface_parameter() {
+    Assert.Equal("E0412", SemanticDump.FirstErrorCode(
+        "interface I { void Set(int x); }\nclass C { }\n"
+        + "impl I for C { public void Set(ref int x) { } }\n"));
+}
+
+[Test]
+void test_constraint_call_checks_ref_after_self_substitution() {
+    Assert.Equal("E0472", SemanticDump.FirstErrorCode(
+        "interface I { void Copy(ref Self other); }\n"
+        + "void Copy<T>(T x, T y) where T : I { x.Copy(y); }\n"));
+}
+
+[Test]
 void test_wrong_return_type_for_interface_member_is_reported() {
     // 名+形参对上、返回类型不符（`int M()` vs `string M()`）—— MangleKey 不含返回，此前静默。
     Assert.Equal("E0412", SemanticDump.FirstErrorCode(
