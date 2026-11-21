@@ -21,6 +21,7 @@ pub(crate) struct AssemblyOptions<'a> {
     pub mode: crate::zpkg::ExecMode,
     pub jit_config: crate::exec::JitConfig,
     pub components: &'a ComponentInputs,
+    pub freeze_extensions: fn(crate::vm::VmExtensions) -> crate::vm::ExtensionState,
 }
 
 /// Prepare the context before the host publishes a callable program.
@@ -31,7 +32,7 @@ pub(crate) fn build(
     options: AssemblyOptions<'_>,
     initial_events: Vec<(String, Option<u64>)>,
 ) -> Result<Pin<Box<VmContext>>> {
-    let ctx = build_context(module, inputs)?;
+    let ctx = build_context(module, inputs, options.freeze_extensions)?;
     ctx.core().loader().configure_native(options.native)?;
     if let Some(module) = ctx.module() {
         resolve_tokens(&ctx, module);
@@ -70,7 +71,9 @@ pub(crate) struct ProgramInputs {
 }
 
 /// Build the context for a fully merged module (type registry / indices already built).
-fn build_context(mut module: Module, inputs: ProgramInputs) -> anyhow::Result<Pin<Box<VmContext>>> {
+fn build_context(mut module: Module, inputs: ProgramInputs,
+    freeze_extensions: fn(crate::vm::VmExtensions) -> crate::vm::ExtensionState,
+) -> anyhow::Result<Pin<Box<VmContext>>> {
     // Availability needs built type/function indices and a mutable module. Fold
     // before Core takes ownership and before any token is resolved, so unavailable
     // branches never expose unresolved call sites to execution preparation.
@@ -92,6 +95,7 @@ fn build_context(mut module: Module, inputs: ProgramInputs) -> anyhow::Result<Pi
         inputs.vfs,
         Default::default(),
         crate::exec::EngineRegistry::new(None),
+        freeze_extensions,
     );
     // Entry types register initialization facts before any use. The lazy loader
     // does the same when additional types become visible.
