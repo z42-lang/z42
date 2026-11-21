@@ -190,15 +190,19 @@ void test_uncovered_type_param_fails_inference_silently() {
     Assert.Equal(0, countCode(bodyDiags(src), "E0402"));
 }
 
-// ── 阶段 D：callee 真消费型参时，省略尖括号报 E0455 ────────────────────────
-//
-// 推断刻意不回灌 MethodTypeArgs（design D4）⇒ 这类 callee 运行期会读到**空**的
-// frame.method_type_args（静默错值）。本诊断把它换成编译错误。
+// ── 运行期需要的型参必须全部有绑定 ───────────────────────────────────────
 
 [Test]
-void test_consuming_callee_implicit_call_requires_explicit_type_arg() {
+void test_consuming_callee_without_inferable_type_arg_requires_explicit_type_arg() {
     string src = "T[] MakeArr<T>(int n) { return new T[n]; } class Use { void f() { MakeArr(3); } }";
     Assert.Equal(1, countCode(bodyDiags(src), "E0455"));
+}
+
+[Test]
+void test_consuming_callee_accepts_inferred_type_arg() {
+    string src = "T[] MakeArr<T>(T example, int n) { return new T[n]; } "
+        + "class Use { void f() { MakeArr(1, 3); } }";
+    Assert.Equal(0, countCode(bodyDiags(src), "E0455"));
 }
 
 [Test]
@@ -209,8 +213,6 @@ void test_consuming_callee_with_explicit_type_arg_is_fine() {
 
 [Test]
 void test_non_consuming_callee_implicit_call_is_fine() {
-    // `Array.Copy<T>` 的形状：体内只转发，T 纯粹是编译期类型安全装置 ⇒ 不报。
-    // 这条守的是「全仓 112 处隐式泛型调用不被判红」这个不变量。
     string src = "void Cp<T>(T[] a, T[] b) { } "
         + "class Use { void f() { int[] x = new int[2]; int[] y = new int[2]; Cp(x, y); } }";
     Assert.Equal(0, countCode(bodyDiags(src), "E0455"));

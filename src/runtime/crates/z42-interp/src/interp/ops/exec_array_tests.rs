@@ -26,7 +26,8 @@ fn method_level_generic_int_array_zero_inits() {
     let module = empty_module();
     let mut frame = Frame::new(&ctx, &[], 8);
     frame.set(0, Value::I64(3)); // reg0 = size
-    frame.method_type_args = vec!["int".to_string()].into_boxed_slice();
+    let method_type_args = ["int".to_string()];
+    frame.method_type_args = &method_type_args;
 
     // new T[3] where T is method-level type param #0 (kind=1).
     let thrown = array_new(&ctx, &module, &mut frame, 1, 0, TAG_UNKNOWN, crate::object::ElemType::intern("T"), false, 1, 0, None).unwrap();
@@ -48,7 +49,8 @@ fn method_level_generic_ref_array_stays_null() {
     let module = empty_module();
     let mut frame = Frame::new(&ctx, &[], 8);
     frame.set(0, Value::I64(2));
-    frame.method_type_args = vec!["string".to_string()].into_boxed_slice();
+    let method_type_args = ["string".to_string()];
+    frame.method_type_args = &method_type_args;
 
     array_new(&ctx, &module, &mut frame, 1, 0, TAG_UNKNOWN, crate::object::ElemType::intern("T"), false, 1, 0, None).unwrap();
     frame.set(2, Value::I64(0));
