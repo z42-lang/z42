@@ -18,7 +18,7 @@ pub(crate) fn freeze(extensions: VmExtensions) -> ExtensionState {
         release_owned_buffer: crate::interop::release_owned_buffer,
     });
     #[cfg(any(feature = "native-interop", feature = "component-loading"))]
-    add(&mut defaults, crate::loader::native::SearchPaths(crate::loader::native_paths::candidates));
+    add(&mut defaults, crate::loader::native::SearchPaths(native_candidates));
     add(&mut defaults, crate::host::services::services());
     // The service owns only Rust arguments, never the core, so this sharing cannot form a cycle.
     let application = crate::host::app_state::state_for_vm();
@@ -107,3 +107,39 @@ impl VmContext {
         Ok(Self::with_module_and_vfs(module, vfs))
     }
 }
+
+#[cfg(any(feature = "native-interop", feature = "component-loading"))]
+fn repl_candidates() -> Vec<std::path::PathBuf> {
+    let file = crate::pal::dynlib::file_name("z42_repl");
+    let mut out = Vec::new();
+    if let Some(over) = crate::config::runtime_config().repl_native.as_ref() {
+        let p = over.clone();
+        // Accept either a direct file path or a directory containing the lib.
+        out.push(p.join(&file));
+        out.push(p);
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            out.push(dir.join(&file));
+            // <sdk>/programs/z42i/ (beside the interactive payload), via the
+            // shared colocated-native-dependency resolver.
+            if let Some(sdk_root) = dir.parent() {
+                let z42i_dir = sdk_root.join("programs").join("z42i");
+                if let Some(p) = crate::pal::dynlib::resolve_native_beside(&z42i_dir, "z42_repl") {
+                    out.push(p);
+                }
+            }
+        }
+    }
+    out
+}
+
+#[cfg(any(feature = "native-interop", feature = "component-loading"))]
+fn native_candidates(name: &str, policy: &crate::loader::NativeLoading) -> Vec<std::path::PathBuf> {
+    if name == "z42_repl" { return repl_candidates(); }
+    crate::loader::native_paths::candidates(name, policy)
+}
+
+#[cfg(all(test, any(feature = "native-interop", feature = "component-loading")))]
+#[path = "composition_tests.rs"]
+mod tests;

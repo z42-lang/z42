@@ -9,7 +9,7 @@
 | 目录 | 唯一职责 | 边界 |
 |---|---|---|
 | `host/` | 嵌入与应用宿主服务 | CLI、Rust、C 共用加载和调用；组件管理与 VM 机制留在内部 |
-| `composition.rs` | 默认运行时组合 | 为宿主与低层构造入口装配默认服务，VM 构造机制消费显式输入 |
+| `composition.rs` | 默认运行时组合 | 为宿主与低层构造入口装配默认服务和 REPL 来源策略，VM 构造机制消费显式输入 |
 | `main.rs` / `main_startup.rs` | 命令行宿主实现 | main 动态加载 Core 的进程入口；cli feature 下的私有启动/命令实现将环境和相对路径转换为 host 请求，无独立 CLI 目录 |
 | `components/abi.rs` / `components/bridge.rs` | 同构建跨库协议与最小桥 | C 布局表、构建身份及核心布局，独立组件使用，不经 host 转出 |
 | `components/` | VM 内部能力访问与生命周期 | 内部 api、角色绑定、工厂、发现、依赖、实例与租约；不实现具体后端 |

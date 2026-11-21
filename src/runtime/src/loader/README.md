@@ -13,7 +13,7 @@
 | `artifact.rs` | 稳定产物加载/准备入口与 LazyLoader 默认构造 |
 | `ffi.rs` | static/shared native 链接登记，不操作 host 会话或错误槽 |
 | `code.rs` | 通用原生映像装入、规范路径缓存、符号访问和进程代码保活；不解析消费者 ABI、不创建 VM 实例 |
-| `native_paths.rs` | 组件和独立运行时库共用的默认搜索目录策略 |
+| `native_paths.rs` | 组件和独立运行时库共用的通用搜索目录策略 |
 | `native.rs` | 宿主注入的按名称路径服务、通用模块及 Tier 1 注册入口，调用 code 装入映像 |
 | `linked.rs` | 任意合法逻辑库名的已链接符号解析器与组合根入口查询，先于动态候选；不维护具体库白名单 |
 | `state.rs` | `LoaderState`：每 VM 惰性加载器、上下文、初始化队列与 VFS 依赖 |
