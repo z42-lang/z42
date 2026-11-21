@@ -36,7 +36,7 @@
    （[开发环境](../internals/src/devinfra/dev-setup.md) · [怎么跑测试](../internals/src/devinfra/testing.md) ·
    [GREEN gate](../internals/src/devinfra/test-gate.md) · [调试手法](../internals/src/devinfra/debugging.md)）。
 6. **找不到**：按子系统翻 [internals 目录](../internals/src/SUMMARY.md)；某目录 README 的「关联文档」链得不对，
-   修正它属于本次的文档同步（列入 Scope）。
+   修正它属于本次的文档同步。
 
 | 要动什么 | 目录 README | internals | reference | 规则 |
 |---|---|---|---|---|
