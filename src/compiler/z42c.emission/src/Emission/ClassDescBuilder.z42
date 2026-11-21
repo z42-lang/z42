@@ -558,7 +558,7 @@ public sealed partial class ClassDescBuilder {
         // 进去就改了键。标记改挂**类级** attr-ref 块的 `$IfaceNull` 哨兵（见 `IrIfaceNullable`），
         // 下标 = 该方法在 `buf` 里的位置，消费方 `TsigReconcile._rebuildInterface` 按同序解码。
         _IfaceMethodBuf buf = new _IfaceMethodBuf();
-        IrAttrRef[] nullRefs = new IrAttrRef[0];
+        IrAttrRef[] signatureAttrs = new IrAttrRef[0];
         int mj = 0;
         while (mj < c.MemberCount) {
             Decl imem = DeclFacts._unwrap(c.Members[mj]);
@@ -566,10 +566,11 @@ public sealed partial class ClassDescBuilder {
                 MethodDecl imd = imem as MethodDecl;
                 int st = 0; if (Mod.Has(imd.ModFlags, Mod.Static)) { st = 1; }
                 buf.Add(imd.Name, this._typeFieldName(imd.RetType), imd.ParamCount, st);
-                nullRefs = ClassDescBuilder._ifaceNullRef(nullRefs, buf.count - 1, IrIfaceNullable.RetSlot, imd.RetType);
+                signatureAttrs = ClassDescBuilder._ifaceNullRef(signatureAttrs, buf.count - 1, IrIfaceNullable.RetSlot, imd.RetType);
+                signatureAttrs = ClassDescBuilder._ifaceRefAttrs(signatureAttrs, buf.count - 1, imd);
                 int pj = 0;
                 while (pj < imd.ParamCount) {
-                    nullRefs = ClassDescBuilder._ifaceNullRef(nullRefs, buf.count - 1, pj.ToString(), imd.Params[pj].Type);
+                    signatureAttrs = ClassDescBuilder._ifaceNullRef(signatureAttrs, buf.count - 1, pj.ToString(), imd.Params[pj].Type);
                     buf.AddPt(this._typeFieldName(imd.Params[pj].Type)); pj = pj + 1;
                 }
             } else if (imem is PropertyDecl) {
@@ -577,21 +578,21 @@ public sealed partial class ClassDescBuilder {
                 int pst = 0; if (Mod.Has(ipd.ModFlags, Mod.Static)) { pst = 1; }
                 if (ipd.HasGet) {
                     buf.Add("get_" + ipd.Name, this._typeFieldName(ipd.Type), 0, pst);
-                    nullRefs = ClassDescBuilder._ifaceNullRef(nullRefs, buf.count - 1, IrIfaceNullable.RetSlot, ipd.Type);
+                    signatureAttrs = ClassDescBuilder._ifaceNullRef(signatureAttrs, buf.count - 1, IrIfaceNullable.RetSlot, ipd.Type);
                 }
                 if (ipd.HasSet) {
                     buf.Add("set_" + ipd.Name, "void", 1, pst); buf.AddPt(this._typeFieldName(ipd.Type));
                     // setter 的 value 参承载属性类型 ⇒ 标记落在**形参 0**（返回位是 void）。
-                    nullRefs = ClassDescBuilder._ifaceNullRef(nullRefs, buf.count - 1, "0", ipd.Type);
+                    signatureAttrs = ClassDescBuilder._ifaceNullRef(signatureAttrs, buf.count - 1, "0", ipd.Type);
                 }
             } else if (imem is IndexerDecl) {
                 IndexerDecl iid = imem as IndexerDecl;
                 if (iid.HasGet) {
                     buf.Add("get_Item", this._typeFieldName(iid.RetType), iid.ParamCount, 0);
-                    nullRefs = ClassDescBuilder._ifaceNullRef(nullRefs, buf.count - 1, IrIfaceNullable.RetSlot, iid.RetType);
+                    signatureAttrs = ClassDescBuilder._ifaceNullRef(signatureAttrs, buf.count - 1, IrIfaceNullable.RetSlot, iid.RetType);
                     int qj = 0;
                     while (qj < iid.ParamCount) {
-                        nullRefs = ClassDescBuilder._ifaceNullRef(nullRefs, buf.count - 1, qj.ToString(), iid.Params[qj].Type);
+                        signatureAttrs = ClassDescBuilder._ifaceNullRef(signatureAttrs, buf.count - 1, qj.ToString(), iid.Params[qj].Type);
                         buf.AddPt(this._typeFieldName(iid.Params[qj].Type)); qj = qj + 1;
                     }
                 }
@@ -599,12 +600,12 @@ public sealed partial class ClassDescBuilder {
                     buf.Add("set_Item", "void", iid.ParamCount + 1, 0);
                     int qk = 0;
                     while (qk < iid.ParamCount) {
-                        nullRefs = ClassDescBuilder._ifaceNullRef(nullRefs, buf.count - 1, qk.ToString(), iid.Params[qk].Type);
+                        signatureAttrs = ClassDescBuilder._ifaceNullRef(signatureAttrs, buf.count - 1, qk.ToString(), iid.Params[qk].Type);
                         buf.AddPt(this._typeFieldName(iid.Params[qk].Type)); qk = qk + 1;
                     }
                     buf.AddPt(this._typeFieldName(iid.RetType));
                     // 末位 value 参承载索引器类型（下标 = ParamCount）。
-                    nullRefs = ClassDescBuilder._ifaceNullRef(nullRefs, buf.count - 1, iid.ParamCount.ToString(), iid.RetType);
+                    signatureAttrs = ClassDescBuilder._ifaceNullRef(signatureAttrs, buf.count - 1, iid.ParamCount.ToString(), iid.RetType);
                 }
             }
             mj = mj + 1;
@@ -613,7 +614,7 @@ public sealed partial class ClassDescBuilder {
         cd.IfaceMethodParamCounts = buf.pcs; cd.IfaceMethodCount = buf.count;
         cd.IfaceMethodParamTypes = buf.pts; cd.IfaceMethodParamTotal = buf.ptCount;
         cd.IfaceMethodStatic = buf.statics;
-        cd.Attrs = nullRefs; cd.AttrCount = nullRefs.Length;
+        cd.Attrs = signatureAttrs; cd.AttrCount = signatureAttrs.Length;
         return cd;
     }
 
@@ -714,6 +715,19 @@ public sealed partial class ClassDescBuilder {
         if (!(te is NullableType)) { return refs; }
         return ClassDescBuilder._appendAttrRef(refs, IrIfaceNullable.Sentinel,
                                                IrIfaceNullable.Encode(methodIndex, slot));
+    }
+
+    private static IrAttrRef[] _ifaceRefAttrs(IrAttrRef[] attrs, int methodIndex, MethodDecl method) {
+        if (method.ParamCount == 0) { return attrs; }
+        attrs = ClassDescBuilder._appendAttrRef(attrs, IrIfaceRef.SignatureSentinel, methodIndex.ToString());
+        int i = 0;
+        while (i < method.ParamCount) {
+            if (method.Params[i].IsRef) {
+                attrs = ClassDescBuilder._appendAttrRef(attrs, IrIfaceRef.ParamSentinel, IrIfaceRef.ParamSlot(methodIndex, i));
+            }
+            i = i + 1;
+        }
+        return attrs;
     }
 
     private static IrAttrRef[] _appendAttrRef(IrAttrRef[] refs, string typeName, string payload) {

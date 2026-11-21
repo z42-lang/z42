@@ -16,4 +16,8 @@ void Main() {
     int c = 5;
     Ops.ByValue(c);                 // 形参无 ref ⇒ 调用点也不写，按值传
     Console.WriteLine(c);
+
+    IUpdater updater = new Ops();
+    updater.Update(8, ref c);
+    Console.WriteLine(c);
 }

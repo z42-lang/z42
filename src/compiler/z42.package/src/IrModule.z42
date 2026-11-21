@@ -128,6 +128,26 @@ public static class IrIfaceNullable {
     }
 }
 
+// Interface methods have no parameter attribute lists. Store ref metadata in
+// the enclosing TYPE record, keyed by method and parameter index.
+public static class IrIfaceRef {
+    public static string ParamSentinel = "$IfaceByRef";
+    public static string SignatureSentinel = "$IfaceRefSig";
+
+    public static string ParamSlot(int methodIndex, int paramIndex) {
+        return methodIndex.ToString() + ":" + paramIndex.ToString();
+    }
+
+    public static bool Has(IrAttrRef[] attrs, int count, string sentinel, string slot) {
+        int i = 0;
+        while (i < count) {
+            if (attrs[i].TypeName == sentinel && attrs[i].FactoryFunc == slot) { return true; }
+            i = i + 1;
+        }
+        return false;
+    }
+}
+
 public static class IrParamDefault {
     public static string Sentinel = "$Default";          // ConstBlob 常量默认值
     public static string CallerPrefix = "$Caller:";       // caller 宏（+member|line|file|module）

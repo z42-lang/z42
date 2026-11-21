@@ -1,0 +1,10 @@
+namespace Demo.IfaceRefApp;
+
+using Demo.IfaceRefTarget;
+
+public class Updater : IUpdater {
+    public void Reset(int value) {}
+    public void Update(int delta, int value) { value = value + delta; }
+}
+
+void Main() {}

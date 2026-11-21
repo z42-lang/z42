@@ -708,9 +708,7 @@ public sealed class Z42FuncType : Z42Type {
                                     // 本地签名不填——本地命名实参按 MethodDecl 的形参名归位。与 ParamDefaults 同一批搬运点。
     public bool[]    ParamIsRef;    // simplify-ref-parameters：每参是否带 `ref`（空数组 = 未知/全否）。
                                     // **不进 Name()/Dump()** —— `ref` 不参与类型身份、不参与重载判重（同 ParamNames 等平行数组）。
-                                    // ⚠️ 本地签名由 SymbolCollector 填；**跨包目前填不了**——TSIG 格式不记录 `ref`
-                                    // （见 DiagnosticCodes 的 E0465 注释），故导入符号一律为空数组 ⇒ 跨包调用点不强制写 `ref`。
-                                    // 这是已知缺口，由 follow-up change `record-ref-in-signature` 修（需 minor bump）。
+                                    // 本地签名由 SymbolCollector 填，导入签名由包内的属性元数据恢复。
     public Z42FuncType(Z42Type[] paramTypes, int paramCount, Z42Type ret) {
         this.ParamTypes = paramTypes; this.ParamCount = paramCount; this.Ret = ret; this.ParamsFrom = 0 - 1;
         this.ParamDefaults = new string[0]; this.ParamCallers = new string[0]; this.ParamNames = new string[0];
@@ -718,7 +716,7 @@ public sealed class Z42FuncType : Z42Type {
         this.ParamIsNullable = new bool[0]; this.RetIsNullable = false;
     }
     // record-ref-in-signature：ref 信息是否**写全了**，由填充点显式置真。
-    // 本地签名恒真（SymbolCollector 从 AST 填）；导入签名看 `$RefSig` 完备性标记。
+    // 本地方法签名由 AST 填；导入方法签名读取 `$RefSig` 或 `$IfaceRefSig`。
     // ⚠️ **不能按 ParamIsRef 的长度推断**——本变更让导入侧也填之后，「已知全非 ref」与
     // 「旧包，不知道」两种情形的数组长得一模一样，混同会让引用未重编旧包的调用点被误报。
     // define-null-check-marks：引用类型的 `?` 标记。**不进 Name()/Dump()** —— 同 ParamIsRef，
@@ -751,7 +749,7 @@ public sealed class Z42FuncType : Z42Type {
         if (!this.RefInfoKnown) { return false; }
         return this.ParamIsRef != null && this.ParamIsRef.Length == this.ParamCount;
     }
-    // 每参 `ref` 查询：越界 / 未填 → false（跨包导入签名即此情形）。
+    // 查询前用 HasRefInfo 区分已知的值传递与缺失的签名信息。
     public bool IsRefParam(int i) {
         if (this.ParamIsRef == null) { return false; }
         if (i < 0 || i >= this.ParamIsRef.Length) { return false; }
