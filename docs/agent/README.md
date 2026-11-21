@@ -36,7 +36,7 @@
    （[开发环境](../internals/src/devinfra/dev-setup.md) · [怎么跑测试](../internals/src/devinfra/testing.md) ·
    [GREEN gate](../internals/src/devinfra/test-gate.md) · [调试手法](../internals/src/devinfra/debugging.md)）。
 6. **找不到**：按子系统翻 [internals 目录](../internals/src/SUMMARY.md)；某目录 README 的「关联文档」链得不对，
-   修正它属于本次的文档同步（列入 Scope）。
+   修正它属于本次的文档同步。
 
 | 要动什么 | 目录 README | internals | reference | 规则 |
 |---|---|---|---|---|
@@ -59,7 +59,7 @@
 
 | 文件 | 管什么 |
 |------|--------|
-| [workflow.md](rules/workflow.md) | 流程主线（以 PR 为单位）：隔离铁律、阶段 0–6、Spec-First、目标与 Scope、批量授权、持续迭代与发起 PR、自动解决冲突、GREEN 门禁、越界防护、测试要求 |
+| [workflow.md](rules/workflow.md) | 流程主线（以 PR 为单位）：隔离铁律、阶段 0–6、Spec-First、PR 描述、批量授权、持续迭代与发起 PR、自动解决冲突、GREEN 门禁、越界防护、测试要求 |
 | [commit-log.md](rules/commit-log.md) | 提交信息格式 `type(scope): 描述`、scope 子系统表、页脚 |
 | [philosophy.md](rules/philosophy.md) | 做选择时的判准：最终方案优先 / 根因修复 / 不做兼容 / 设计完整性 / 规范冲突检测 / 事实校正 / 延后管理 |
 
