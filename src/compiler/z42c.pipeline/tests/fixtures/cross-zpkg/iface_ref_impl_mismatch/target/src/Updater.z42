@@ -1,0 +1,6 @@
+namespace Demo.IfaceRefTarget;
+
+public interface IUpdater {
+    void Reset(int value);
+    void Update(int delta, ref int value);
+}
