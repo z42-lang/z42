@@ -44,7 +44,7 @@ fn generic_array_args(
     if index < 0 { return (None, None); }
     let index = index as usize;
     match kind {
-        1 => crate::exec::ops::object::array::method_type_param_array_args(&frame.method_type_args, index),
+        1 => crate::exec::ops::object::array::method_type_param_array_args(frame.method_type_args, index),
         2 => crate::exec::ops::object::array::class_type_param_array_args(ctx, frame.get(0).ok(), index, owner),
         _ => (None, None),
     }

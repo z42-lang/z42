@@ -208,7 +208,7 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 | E0446 | 泛型方法调用 `Foo<...>()` 的类型实参数与声明的类型形参数不符；同名有多个重载时 = 没有一个重载声明这么多个类型形参（含全是非泛型重载：「is not generic」） | ✅ MemberResolver.Generic.z42（`BoundCall`）、OverloadBinder.Candidates.z42（`_resolveOverloadCands`，重载预筛） | `Swap<int, string>(a, b)`，而 `Swap<T>` 只有一个型参；`F<int>(1)`，而 `F` 只有非泛型重载 |
 | E0453 | 关联类型：接口里 `type Item;` 未被实现方绑定；实现方写了不带绑定的 `type Item;`；接口自己写了绑定；`where T : IFoo<Zzz = int>` 里 `Zzz` 不是该接口的关联类型；实参绑定与约束要求不符 | ✅ ConstraintChecker.z42（`_buildSet` / `_checkFuncConstraint`）、InheritanceResolver.z42（`_passSealedEnforce`）、MemberCollector.z42（`_passMembers` / `_fillInterface`） | — |
 | E0454 | 经**接口静态类型**调用形参位含 `Self` 的方法。`Self` 在形参位是逆变方向、没有唯一安全上界，放行即运行期类型混淆。替代写法是型参：`bool f<T>(T a, T b) where T : IEq` | ✅ MemberResolver.z42（`BoundCall`） | `IEq a, b; a.Same(b);` |
-| E0455 | 省略尖括号调用一个**方法体真的消费型参**的泛型方法（体内有 `typeof(T)` / `new T()` / `default(T)` / `new T[n]`，或把 `T` 转发给嵌套泛型调用）。这类 callee 在运行期会读到**空**的方法类型实参；本码把静默错值换成编译错误，修法是显式写出 `<T>` | ✅ MemberResolver.z42（`_bindMemberCall`） | `Make()` → 应写 `Make<int>()` |
+| E0455 | 本地泛型方法在运行期使用型参，调用点未能推断出其全部类型实参。显式指定实参即可 | ✅ MemberResolver.Generic.z42（`_inferMethodTypeArgs`） | `Make()` → `Make<int>()` |
 | E0463 | 在**型参收者**（`where T : IEq` 的 `T`）上调用约束接口方法时，给形参位是 `Self` 的形参传了**具体类型**实参。与 E0454 的分工：E0454 管接口静态类型收者，本码管型参收者 | ✅ OverloadBinder.z42（`CheckConstraintIfaceArgs`） | `a.Same("nope")`，`a` 的类型是 `T` |
 
 ### 名字解析

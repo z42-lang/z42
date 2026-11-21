@@ -9,18 +9,14 @@
 //   ② 同一型参绑到两个不同类型 → **整体失败**（不做 C# 式「最佳公共类型」）
 //   ③ 实参类型是 Unknown / Error（含 lambda、target-typed new 的延迟位）→ **跳过该位**；
 //      若因此有型参未绑定 → 落 ①
-// **失败 = 完全按今天行为，不发任何诊断** ⇒ 行为变化被锁在「推断成功」这个子集内。
+// 失败时不返回部分绑定。调用方可对需要运行期类型实参的方法报告诊断。
 //
-// ⚠️ 推断只驱动**诊断**：调用方不把结果写进 `BoundCall.MethodTypeArgs`。写了会让 emit 从
-// `Op.Call` 换成 `Op.CallGeneric`(0xB4) + 重排 zbc 字符串池 + 关掉 `exec_call.rs` 的
-// native 快路径门（`method_type_args.is_empty()`）。全仓普查显示隐式泛型调用 112 处**全部**是
-// `Array.Copy<T>`，而它的 T 不被运行期消费 ⇒ 回灌是纯回归。详见 change 的 design D4。
 namespace Z42.Semantics;
 
 using Z42.Syntax;
 using Z42.Symbols;
 
-// 推断结果：Ok=false 时 Args 无意义（调用方必须原样按今天行为继续）。
+// 推断失败时 Args 为空。
 public sealed class TypeArgBindings {
     public bool      Ok;
     public Z42Type[] Args;    // 按型参**声明序**对齐，供 ConstraintChecker.CheckMethod / 代换直接消费
