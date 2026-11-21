@@ -422,7 +422,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         platforms: NOT_WASM,
         description: "override path to the REPL line-editor cdylib (libz42_repl); accepts the file or its directory",
         default_hint: "unset; searched relative to the z42vm binary",
-        consumed_by: "loader/native_paths.rs",
+        consumed_by: "composition.rs",
         ..DEBUG_KNOB
     },
     KnobSpec {
