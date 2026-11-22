@@ -326,7 +326,7 @@ mod tests {
         assert!(!claims_namespace("A.B", "X.B"));
     }
 
-    // 统计量的 is_noop 决定 app.rs 是否重建派生侧表——折了或剪了都必须非 noop。
+    // 程序准备时依据 is_noop 决定是否重建执行索引，折叠或剪枝都必须返回非 noop。
     #[test]
     fn stats_is_noop_only_when_nothing_happened() {
         assert!(AvailabilityStats::default().is_noop());

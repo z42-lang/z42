@@ -1,0 +1,54 @@
+using Std.IO;
+using Std.Reflection;
+
+// ANCHOR: decl
+class Shape {
+    public int Sides;
+    public Shape() { }
+}
+
+class Square : Shape {
+    private int side;
+    public int Perimeter { get; set; }
+
+    public Square(int side) { this.side = side; this.Perimeter = side * 4; }
+    public int Area() { return this.side * this.side; }
+    public string Describe(string prefix) { return prefix + this.side; }
+}
+// ANCHOR_END: decl
+
+void Main() {
+    // ANCHOR: kinds
+    // 成员总汇：一个数组里混装五种成员，MemberType 一口报种类
+    foreach (MemberInfo m in typeof(Square).GetMembers()) {
+        if (m.Name == "Sides" || m.Name == "side" || m.Name == "Area"
+            || m.Name == "Square" || m.Name == "Perimeter") {
+            Console.WriteLine(m.Name + " 是 " + m.MemberType.ToString());
+        }
+    }
+    // ANCHOR_END: kinds
+
+    // ANCHOR: context
+    // 声明上下文：继承成员指回基类声明者
+    foreach (FieldInfo f in typeof(Square).GetFields()) {
+        Console.WriteLine(f.Name + " 声明在 " + f.DeclaringContext.Name);
+    }
+    foreach (MethodInfo mi in typeof(Square).GetMethods()) {
+        if (mi.Name == "Describe") {
+            Console.WriteLine("Describe 声明在 " + mi.DeclaringContext.Name);
+            ParameterInfo p = mi.GetParameters()[0];
+            Console.WriteLine("它的参数 " + p.Name + " 的上下文是 " + p.DeclaringContext.Name);
+            Console.WriteLine("参数的宿主方法叫 " + p.Method.Name);
+        }
+    }
+    // ANCHOR_END: context
+
+    // ANCHOR: accessors
+    // 属性背后的访问器：拿得到真正的 MethodInfo
+    foreach (PropertyInfo pr in typeof(Square).GetProperties()) {
+        MethodInfo getter = pr.GetGetMethod().Expect("Perimeter 可读");
+        MethodInfo setter = pr.GetSetMethod().Expect("Perimeter 可写");
+        Console.WriteLine(pr.Name + "：读经 " + getter.Name + "，写经 " + setter.Name);
+    }
+    // ANCHOR_END: accessors
+}

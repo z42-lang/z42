@@ -74,18 +74,10 @@ pub(crate) struct ProgramInputs {
 fn build_context(mut module: Module, inputs: ProgramInputs,
     freeze_extensions: fn(crate::vm::VmExtensions) -> crate::vm::ExtensionState,
 ) -> anyhow::Result<Pin<Box<VmContext>>> {
-    // Availability needs built type/function indices and a mutable module. Fold
-    // before Core takes ownership and before any token is resolved, so unavailable
-    // branches never expose unresolved call sites to execution preparation.
-    let avail_stats = crate::loader::fold_availability(
-        &*inputs.vfs,
-        &mut module,
-        &inputs.declared_candidates,
-    );
-    if !avail_stats.is_noop() {
-        // 剪枝改了块集合 → 派生侧表（block_index / branch_targets）必须按剪枝后的 CFG 重建。
-        crate::loader::build_block_indices(&mut module);
-        crate::loader::package::build_func_index(&mut module);
+    // Fold before Core takes ownership and before any token is resolved.
+    if let Some(avail_stats) = crate::loader::prepare_program_availability(
+        &*inputs.vfs, &mut module, &inputs.declared_candidates,
+    ) {
         tracing::debug!("available!: {avail_stats:?}");
     }
 
