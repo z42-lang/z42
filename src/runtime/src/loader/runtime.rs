@@ -25,6 +25,8 @@ impl<'a> RuntimeLoader<'a> {
         self.state.native_loading()
     }
 }
+#[path = "runtime_contexts.rs"]
+mod contexts;
 #[path = "runtime_modules.rs"]
 mod modules;
 
