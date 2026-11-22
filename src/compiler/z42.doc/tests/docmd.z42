@@ -247,8 +247,8 @@ void test_package_page_delegate_and_enum() {
         "namespace App;\n"
         + "/// 回调。\npublic delegate void Handler(int code);\n"
         + "/// 种类。\npublic enum Kind {\n"
-        + "    /// 圆形。\n    /// @generator z42.cli/choice-help 专用圆形\n    Round,\n"
-        + "    /// @generator z42.cli/choice-help 专用多边形\n    Polygon\n"
+        + "    /// 圆形。\n    /// @for-generator z42.cli.help\n    /// @generator choice-help 专用圆形\n    Round,\n"
+        + "    /// @for-generator z42.cli.help\n    /// @generator choice-help 专用多边形\n    Polygon\n"
         + "}\n");
     string page = DocMd.PackagePage("z42.shapes", "src", ix);
     Assert.Contains("```z42\npublic delegate void Handler(int code)\n```", page);

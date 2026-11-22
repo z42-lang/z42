@@ -29,7 +29,7 @@ to = "app/z42.toml"
 args = ["build", "{case}/app", "--release"]
 exit = 0
 file_contains = [["app/dist/demo.cli-doc.cli-help.json", '"Example.Mode.JitOnly": "仅使用 JIT"']]
-file_not_contains = [["app/dist/demo.cli-doc.cli-help.json", "Public JIT summary."]]
+file_not_contains = [["app/dist/demo.cli-doc.cli-help.json", "Public JIT summary."], ["app/dist/demo.cli-doc.cli-help.json", "Other plugin copy"]]
 same_bytes = [["reference/app.zpkg", "app/artifacts/release/build/app.zpkg"]]
 
 [[step]]

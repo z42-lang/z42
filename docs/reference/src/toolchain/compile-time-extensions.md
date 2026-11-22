@@ -343,6 +343,12 @@ kind    = "plugin"
 "demo.gen" = { path = "../gen" }
 ```
 
+### 读取生成器专用文案
+
+[doc 注释的专用字段](../language/doc-comments.md#标记tag)由 `@for-generator` 选择目标，`@generator` 提供字段。
+生成器用自己约定的包名或 `包名/生成器 ID` 读取字段。项目用原有的插件配置选择实际运行哪些插件。
+同一个项目可以启用多个插件，注释中的每组字段由对应目标读取。普通文档输出始终剔除全部专用字段。
+
 ## 写一个 Hook
 
 hook 插件接进 **z42b** 的构建编排。契约在 **`z42.build`**（`BuildHooks` 基类，八个头相位的

@@ -133,7 +133,8 @@ class SetupCommand : Command {
 ```z42
 enum Mode {
     /// 仅使用 JIT 执行，跳过解释器。
-    /// @generator z42.cli/choice-help 仅使用 JIT
+    /// @for-generator z42.cli.help
+    /// @generator choice-help 仅使用 JIT
     JitOnly,
 }
 ```

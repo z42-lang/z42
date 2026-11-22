@@ -7,7 +7,8 @@ using Z42.Doc;
 using Z42.Project;
 
 public sealed class CliHelpHooks : BuildHooks {
-    private static string Field = "z42.cli/choice-help";
+    private static string Target = "z42.cli.help";
+    private static string Field = "choice-help";
 
     public override void AfterCompile(IPipelineContext ctx) {
         ProjectManifest manifest = ctx.Manifest;
@@ -33,7 +34,7 @@ public sealed class CliHelpHooks : BuildHooks {
         GeneratorDoc doc = GeneratorDoc.Parse(item.Doc);
         if (doc.Error != "") { throw new Exception(CliHelpHooks._location(item) + doc.Error); }
         foreach (GeneratorDocField field in doc.Fields) {
-            if (!field.Key.StartsWith("z42.cli/")) { continue; }
+            if (field.Target != CliHelpHooks.Target) { continue; }
             if (field.Key != CliHelpHooks.Field) { throw new Exception(CliHelpHooks._location(item) + "unknown CLI doc field " + field.Key); }
             if (item.Kind != DocKind.EnumMember) { throw new Exception(CliHelpHooks._location(item) + field.Key + " requires an enum member"); }
             members.Set(item.Id, JsonValue.OfString(field.Text));

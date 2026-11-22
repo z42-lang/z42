@@ -86,7 +86,8 @@
 /// @example [no_run|compile_fail|ignore]
 ///     代码（缩进 4 格）
 /// @hidden                               ← public 但不进文档（跨包用的内部入口）
-/// @generator 包名/字段 单行文本          ← 构建插件专用，公开查询和书页省略
+/// @for-generator 包名[/生成器 ID]        ← 选择后续专用字段的接收者
+/// @generator 字段 单行文本              ← 构建插件专用，公开查询和书页省略
 ```
 
 **tag 是闭集**，写了未知 tag 报 W0804。不设 `@deprecated`：弃用只用现有的
@@ -461,7 +462,7 @@ User 裁决：**先把机制全部做完（含测试与示例），最后统一�
 | **P5 产出与生成** | build 产出 `.zdoc`；SDK `[component.docs]`；mdbook 渲染器；`xtask build docs`（按写了 `//!` 的包生效；生成页不入库，发布时现生成） | 🟡 进行中：mdbook 渲染器 + `xtask build docs` 已落地，生成页改为不入库、deploy-book 现生成；同名声明合并页（partial 并为代表、泛型委托各元数一页）、页内 `file:line` 源码位置行（生成物随 gen 重写不腐；经 `SourceBase` 渲染成 GitHub `#L<行>` 直达链接）、成员锚点（`<a id>` = Doc ID）与成员索引行（mdBook SUMMARY 不支持锚点条目，成员级导航在类型页内）、SUMMARY 的 type-split 区段生成（命名空间草稿章 → 类型，配 book.toml fold 逐级展开）已落地；`z42 doc --format zdoc` 可导出语法级旁挂文件，`--zdoc` 可无源码查询。SDK `[component.docs]` 随包安装语法级标准库文档。构建自动产出、语义级产物、stdlib/README 概览表生成待做 |
 | **P6 doctest** | `@example` 合成 `[Test]` 方法，经反射发现；`z42 test --doc` 进 gate | 待做 |
 | **P7 迁移** | 代码注释按包迁移（先 `z42.random`）；stdlib 页改为生成；README 入口点改链接；书里引用清理；W0805 零告警 | ✅ 全部 19 个包已迁移（中文 `//!` + `///` + `@tag`、删历史注记），包页改为生成，README 入口点改链接；`z42.core` 走 `split = "type"`（156 个类型页，9 个手写主题页删除、SUMMARY 区段生成）；`z42.harness` 收录（在 `default_members`、用户可见）。W0805 已由 `xtask check doc-lints` 按零告警检查 |
-| **CLI 文案** | `@generator` 文案解析与公开过滤，构建插件生成包外枚举帮助 | 见正式文档的构建插件专用文案章节 |
+| **CLI 文案** | `@generator` 与 `@for-generator` 分组、独立于插件加载的公开过滤、构建插件生成包外枚举帮助 | 见正式文档的构建插件专用文案章节 |
 | **P8 延伸** | REPL `:doc`；LSP hover 复用 `.zdoc`；英文翻译层（按 Doc ID 叠加） | 按 roadmap 排期 |
 
 ## 8. 风险

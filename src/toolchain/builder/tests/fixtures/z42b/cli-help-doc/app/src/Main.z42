@@ -2,9 +2,13 @@ namespace Example;
 
 enum Mode {
     /// Public JIT summary.
-    /// @generator z42.cli/choice-help 仅使用 JIT
+    /// @for-generator z42.cli.help
+    /// @generator choice-help 仅使用 JIT
+    /// @for-generator demo.other.generator
+    /// @generator choice-help Other plugin copy
     JitOnly,
-    /// @generator z42.cli/choice-help "both" modes
+    /// @for-generator z42.cli.help
+    /// @generator choice-help "both" modes
     Both,
 }
 

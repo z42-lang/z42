@@ -160,7 +160,8 @@ tag、W0805 public 声明缺 `///`、W0806 历史注记（日期 / spec 名模�
 
 ## 构建插件专用文案
 
-`GeneratorDoc.Parse` 从挂靠后的 doc 注释中取出 `@generator` 字段，返回字段文本、公开注释和格式诊断。
+`GeneratorDoc.Parse` 从挂靠后的 doc 注释中解析 `@for-generator` 分组及其 `@generator` 字段，
+返回按目标区分的字段文本、公开注释和格式诊断。过滤发生在文档解析层，插件加载状态与过滤无关。
 `DocParser` 和查询的 JSON 格式都使用公开注释。字段诊断使用 W0804，公开覆盖检查使用剔除专用字段后的文本。
 
 `z42.cli.help` 实现构建钩子 `AfterCompile`，从当前工程清单发现源码，经编译器语法索引读取 enum 成员，
