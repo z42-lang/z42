@@ -27,6 +27,9 @@ public sealed partial class MemberResolver {
     internal BoundExpr _applyMethodTypeArgs(BoundCall bc, CallExpr call, MethodSymbol ms, TypeEnv env,
                                             Z42Type instRecv) {
         if (bc.MethodTypeArgCount > 0) { return bc; }
+        // feat/delegate-object-methods：call=null = 合成调用（无源级 CallExpr，如委托值上 Object
+        // 协议方法向族基类的重派发）——没有类型实参可言，推断也无处可做，原样返回。
+        if (call == null) { return bc; }
         if (call.TypeArgCount == 0) { return this._inferMethodTypeArgs(bc, call, ms, env, instRecv); }
         Z42Type[] targs = new Z42Type[call.TypeArgCount];
         int i = 0;

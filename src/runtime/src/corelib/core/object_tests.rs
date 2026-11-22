@@ -26,3 +26,18 @@ fn identity_hash_is_stable_for_one_object() {
     let b = obj_hash_code(&arr).unwrap();
     assert!(a == b);
 }
+
+#[test]
+fn delegate_hash_matches_equality_shape() {
+    // feat/delegate-object-methods：同一 FnId 的两个 FuncRef ⇒ 相等 ⇒ 同哈希；
+    // 不同 FnId ⇒ 不等 ⇒（大概率）不同哈希；非委托 → 0（与 eq 的 lenient false 对称）。
+    use crate::metadata::ids::tokens::FnId;
+    let a = Value::FuncRef(FnId(7));
+    let b = Value::FuncRef(FnId(7));
+    let c = Value::FuncRef(FnId(9));
+    assert!(delegate_eq(&a, &b));
+    assert!(delegate_hash(&a) == delegate_hash(&b));
+    assert!(!delegate_eq(&a, &c));
+    assert!(delegate_hash(&a) != delegate_hash(&c));
+    assert!(delegate_hash(&Value::I64(5)) == 0);
+}
