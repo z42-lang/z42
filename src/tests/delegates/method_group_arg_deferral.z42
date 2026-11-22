@@ -1,0 +1,43 @@
+// feat/method-group-arg-deferral 回归 golden：重载方法组在**调用实参位**的按目标消解。
+// #1901 落了声明/赋值/return/初始化器位；实参位此前不延迟——`Run(c.F)` 报 E0401（实例绑
+// primary 后转换失败）/ E0425（静态无目标）。本 PR 把延迟谓词扩到 MemberExpr，回填经
+// `BindWithTarget` 与 #1901 同一条精确签名消解。
+//   ① 实例重载组实参位：`RunInt(c.F)` 选 F(int)、`RunStr(c.F)` 选 F(string)
+//   ② 静态重载组实参位：`RunInt(Api.G)` / `RunStr(Api.G)`
+//   ③ 单方法组实参位不回归（急切绑定照常）
+//   ④ 无匹配 / 非委托形参位照旧报错（负例见 typecheck 单测）
+namespace Demo;
+
+using Std;
+using Std.IO;
+
+class Calc {
+    public int Base;
+    public Calc(int b) { this.Base = b; }
+    public int F(int x) { return this.Base + x; }
+    public string F(string s) { return "[" + s + "]"; }
+    public int Single(int x) { return x + 1; }
+}
+
+class Api {
+    public static int G(int x) { return x * 2; }
+    public static string G(string s) { return "(" + s + ")"; }
+}
+
+int RunInt(Func<int, int> f) { return f(5); }
+string RunStr(Func<string, string> f) { return f("x"); }
+
+void Main() {
+    Calc c = new Calc(10);
+
+    // ── ① 实例重载组实参位 ─────────────────────────────────────────────────
+    Console.WriteLine(RunInt(c.F).ToString());      // 15
+    Console.WriteLine(RunStr(c.F));                 // [x]
+
+    // ── ② 静态重载组实参位 ─────────────────────────────────────────────────
+    Console.WriteLine(RunInt(Api.G).ToString());    // 10
+    Console.WriteLine(RunStr(Api.G));               // (x)
+
+    // ── ③ 单方法组实参位（急切绑定，既有形态钉）────────────────────────────
+    Console.WriteLine(RunInt(c.Single).ToString()); // 6
+}
