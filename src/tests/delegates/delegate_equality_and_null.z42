@@ -2,7 +2,7 @@
 // 回归 golden：函数值上的三件事，改动前**全是坏的**，且坏法都属「静默或不可捕获」。
 //
 //   ① `f == f` 恒 **false** —— `Value::PartialEq` 里根本没有 FuncRef / Closure 的臂，
-//      直接落 `_ => false`。判据早就存在（`DelegateOps.ReferenceEquals` 的三变体语义），
+//      直接落 `_ => false`。判据早就存在（`Delegate.ReferenceEquals` 的三变体语义），
 //      只是 `==` 没接上去 ⇒ **静默错答案**（最坏一档：既不报错也不崩）。
 //   ② 调一个为 null 的函数值 → `CallIndirect: expected FuncRef …, got Null`，
 //      **`catch` 接不住、程序当场终止**。而可空委托字段默认就是 null，
@@ -13,7 +13,7 @@
 namespace Demo;
 
 using Std.IO;
-using Std;          // DelegateOps（限定名在表达式位不可用）
+using Std;          // Delegate（限定名在表达式位不可用）
 
 class Btn {
     public Action<int> Clicked;          // 委托字段默认 null
@@ -43,8 +43,8 @@ void Main() {
     Console.WriteLine("cap==cap2 " + (cap == cap2).ToString());
     Console.WriteLine("cap==f " + (cap == f).ToString());
 
-    // `==` 与 `DelegateOps.ReferenceEquals` 必须给同一个答案（同一条判据的两个入口）。
-    Console.WriteLine("agree " + ((cap == cap2) == DelegateOps.ReferenceEquals(cap, cap2)).ToString());
+    // `==` 与 `Delegate.ReferenceEquals` 必须给同一个答案（同一条判据的两个入口）。
+    Console.WriteLine("agree " + ((cap == cap2) == Delegate.ReferenceEquals(cap, cap2)).ToString());
 
     // ── ① null 一侧 ───────────────────────────────────────────────────────
     Btn b = new Btn();

@@ -7,10 +7,12 @@
 // 也因此 `(int) -> int` 与 `Func<int,int>` 双向可互赋：`Z42FuncType.IsAssignableTo`
 // 走**结构比较**（arity + 各形参 + 返回），不看名字。
 //
-// 委托值上**只有 `Invoke` 一个成员**：
+// 委托值上的成员面（feat/delegate-base-class 后）：
 //   `d.Invoke(args)` → 脱糖成与括号调用 `d(args)` **同一个** `BoundIndirectCall` 节点
 //                      （与 `MemberResolver.z42` 那条「任意表达式 callee」路同型）
 //                      ⇒ 发射端零改动（`ExprEmitter.z42` 发 `CallIndirectInstr`）、VM 零改动
+//   `d.Target` / `d.FnName` → 族基类 `Std.Delegate` 的属性 getter（非调用路，
+//                      `_bindInstanceMember` 的 Z42FuncType 分支 → `_bindClassMemberAccess`）
 //   其它成员名   → E0401
 //
 // ## 修之前是什么样
@@ -98,10 +100,11 @@ public sealed partial class MemberResolver {
             return new BoundIndirectCall(recv, args, argCount, ft.Ret, sp);
         }
         // ⚠️ **不套用** prim 那条 stub 豁免（「包装类成员表为空时仍松绑定」）：委托的成员面是
-        // **语言固定的**（只有 `Invoke`），不存在「懒加载导致候选集不完整」的情形 ⇒ 判「不存在」
-        // 不会误报。
+        // **语言固定的**（调用只有 `Invoke`；族基类成员 `Target` / `FnName` 是属性，读不走调用路
+        // ——见 `_bindInstanceMember` 的 Z42FuncType 分支），不存在「懒加载导致候选集不完整」的
+        // 情形 ⇒ 判「不存在」不会误报。
         this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
-            "no method `" + mem.Name + "` on delegate type `" + ft.Name() + "` (only `Invoke` is available)", mem.NameSpan);
+            "no method `" + mem.Name + "` on delegate type `" + ft.Name() + "` (delegate calls go through `Invoke`; base-class properties are `Target` / `FnName`)", mem.NameSpan);
         BoundExpr[] fa = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, null, env);   // 错误路径清 null 占位
         return new BoundIndirectCall(recv, fa, argCount, new Z42ErrorType(), sp);
     }

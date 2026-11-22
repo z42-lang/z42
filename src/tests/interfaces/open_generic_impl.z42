@@ -1,0 +1,25 @@
+using Std.Collections;
+
+interface ISize { int Size(); bool IsElement(object item); }
+
+impl<E> ISize for List<E> {
+    public int Size() { E first = this[0]; return this.Count; }
+    public bool IsElement(object item) { return item is E; }
+}
+
+int Measure<T>(T value) where T : ISize { return value.Size(); }
+
+void Main() {
+    var numbers = new List<int>();
+    numbers.Add(1);
+    numbers.Add(2);
+    Assert.Equal(2, numbers.Size());
+    ISize size = numbers;
+    Assert.Equal(2, size.Size());
+    var words = new List<string>();
+    words.Add("hello");
+    Assert.Equal(1, Measure(words));
+    Assert.True(size.IsElement(2));
+    Assert.False(size.IsElement("hello"));
+    Assert.True(words.IsElement("hello"));
+}

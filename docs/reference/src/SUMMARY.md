@@ -94,7 +94,7 @@
         - [Attribute](stdlib/core.Attribute.md)
         - [BitConverter](stdlib/core.BitConverter.md)
         - [Convert](stdlib/core.Convert.md)
-        - [DelegateOps](stdlib/core.DelegateOps.md)
+        - [Delegate](stdlib/core.Delegate.md)
         - [Action](stdlib/core.Action.md)
         - [Func](stdlib/core.Func.md)
         - [Predicate](stdlib/core.Predicate.md)

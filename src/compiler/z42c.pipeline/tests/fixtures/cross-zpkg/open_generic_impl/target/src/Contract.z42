@@ -1,0 +1,5 @@
+namespace Demo.OpenContract;
+
+public interface ISize { int Size(); bool IsElement(object item); }
+
+public int Measure<T>(T value) where T : ISize { return value.Size(); }

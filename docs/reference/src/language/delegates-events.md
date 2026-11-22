@@ -44,7 +44,7 @@ public delegate bool Predicate<T>(T arg);
 |----|------|
 | 持有量 | 一个实例持 0 或 1 个 handler（target + method）|
 | 实参个数 | **校验**：多传报 E1006、少传报 E1005（`f(args)` 与 `f.Invoke(args)` 同一条）。实参**类型**也查（E0402）。**`delegate` 形参不能写默认值**：委托类型只记参数类型，调用点走间接调用、没有可选参数这一层 ⇒ 默认值永远落不下来，故在**声明处**报错（E0402），而不是让调用点收到一个看起来矛盾的 E1005 |
-| 调用 | `f(arg)` 等价 `f.Invoke(arg)`。**委托类型的字段 / 属性可以直接调用**：`obj.F(arg)`、`C.S(arg)`（静态）等价于先读出成员再调用这个委托值，参数个数与类型照委托签名检查；类上同名**方法优先**，静态性要对得上（经实例调静态字段仍报 E0401）。`.Invoke` 脱糖成与括号调用同一个间接调用。委托值上**除 `Invoke` 之外没有任何成员**，写别的名字报 E0401 |
+| 调用 | `f(arg)` 等价 `f.Invoke(arg)`。**委托类型的字段 / 属性可以直接调用**：`obj.F(arg)`、`C.S(arg)`（静态）等价于先读出成员再调用这个委托值，参数个数与类型照委托签名检查；类上同名**方法优先**，静态性要对得上（经实例调静态字段仍报 E0401）。`.Invoke` 脱糖成与括号调用同一个间接调用。调用路之外，委托值上可读族基类 `Std.Delegate` 的属性（见 §2.6）；其余成员名报 E0401 |
 | null | 调用 null delegate 抛 `Std.NullReferenceException`（可 `catch`，两个后端一致）。**触发前仍应查空**：`var h = X; if (h != null) { h.Invoke(args); }`（委托字段默认就是 null；靠异常发现「没人订阅」不是好写法）。⚠️ `?.Invoke()` **已不可用**——`?.` 已移除（E0480）|
 | 方法组转换 | **自由函数** `Action<int> a = SomeMethod;` 与**实例方法** `obj.Method` 编译期合成 delegate 值。**自由函数重载**按目标委托签名精确消解，见 [§2.5](#25-重载自由函数取引用按目标委托消解)。🔴 **类的静态方法取不了引用** —— `Func<int,int> f = C.F;` 报 `E0401: undefined: C`，**类内不限定写 `F` 也一样**（报 `undefined: F`）。⚠️ 两种形态都试过了，别按「只是限定名的问题」去改。能用的是**自由函数**与**实例方法组** `obj.M`。变通：包一层 lambda（`(int x) => C.F(x)`），或改成自由函数。（已知缺口；⚠️ `internals` 里「静态方法组 → LoadFnCached」指的是**自由函数**，不是类的静态方法）|
 | Lambda 转换 | `Func<int,int> f = x => x*2;` |
@@ -105,8 +105,36 @@ void Run(Btn.OnClick h, int v) { h(v); }
 
 ### 2.4 delegate 值的引用相等
 
-`Std.DelegateOps.ReferenceEquals(a, b)` 判两个 delegate 值是否指向同一 target + method。
+`Std.Delegate.ReferenceEquals(a, b)` 判两个 delegate 值是否指向同一 target + method。
 `MulticastAction.Unsubscribe(handler)` 使用这项身份比较。
+
+### 2.6 族基类 `Std.Delegate`
+
+所有委托类型（`Action<T>` / `Func<..>` / `Predicate<T>` / 用户 `delegate` / `(T) -> R`）
+共享一个族基类 `Std.Delegate`，对标 C# 的 `System.Delegate`——但**值表示不变**：委托在
+运行时仍是函数值，基类只提供族公共接口，不引入堆对象形态（多播仍是独立的
+`Multicast*` 类型）。
+
+```z42
+namespace Std;
+
+public class Delegate {
+    public static extern bool ReferenceEquals(object a, object b);   // 与 == 同判据
+    public extern object Target { get; }        // 方法组 receiver（Closure env[0]）；无目标为 null
+    public extern string FnName { get; }        // 目标函数全限定名（实例方法组为合成 thunk 名）
+    public static extern object MakeClosure(string fnName, object[] env);   // 重建闭包（弱订阅内部用）
+}
+```
+
+- **成员读**：`f.Target` / `f.FnName` 在任意委托类型的值上直接可读（属性，非调用路）。
+- **隐式上转**：`Delegate d = f;` 合法（镜像数组 → `Std.Array`）；反向 `(Action<int>)d`
+  是显式下转，运行期按擦除规则放行。
+- **`is`**：`f is Delegate` 为 true。
+- **泛型约束**：`where TD : Delegate` 可用——函数类型实参满足该约束（订阅包装类的
+  自定义策略可用它收窄）。
+- **反射**：`typeof(任意委托类型).BaseType` 是 `Std.Delegate`；`IsDelegate` 位不受影响。
+- ⚠️ `Target` 返回 `Closure` 的 `env[0]`——实例方法组即 receiver；捕获了值的 lambda
+  是首个捕获槽（表示上无法区分二者）。`FuncRef`（无捕获 lambda / 自由函数）为 null。
 
 ## 3. 多播：三个 Multicast 类
 
@@ -180,8 +208,8 @@ public interface ISubscription<TD> {
 }
 ```
 
-> `Get` / `IsAlive` 都是**方法**（不是属性），且 **`TD` 没有类型约束**——z42 没有统一的
-> `Delegate` 基类，用错类型（如 `ISubscription<int>`）在包装类构造期 fail-fast。
+> `Get` / `IsAlive` 都是**方法**（不是属性）。接口层的 `TD` 故意**不加约束**（保持包装面
+> 最大）；自定义包装类可用 `where TD : Delegate`（见 §2.6）收窄，传错类型在构造期 fail-fast。
 
 ### 4.2 内置包装类
 
@@ -389,7 +417,7 @@ z42 **不提供** per-event once with replay：
 | 协变 / 逆变（`<in T, out R>`）| 推迟到 L3 后期 |
 | `delegate.GetInvocationList()` | 多播是独立类型，不需要此 API |
 | `BeginInvoke` / `EndInvoke` | 用 L3 async/await 替代 |
-| `Delegate` / `MulticastDelegate` 抽象基类 | 类型分离设计下无意义 |
+| `MulticastDelegate` 抽象层 | 族基类 `Std.Delegate` 已提供公共接口（§2.6）；多播语义仍由独立 `Multicast*` 类型承担，不叠床架屋 |
 | 反射式 `DynamicInvoke` | 与反射轨道一并设计 |
 | `[Weak]` / `[Once]` attribute | 由 `ISubscription` 包装替代；声明端零 attribute |
 | per-event once with replay | 见 §8 |

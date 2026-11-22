@@ -146,17 +146,36 @@ emit `MkClos(thunk, [recv])`；thunk 体内对 `env[0]` 做 vcall。合成点在
 
 `WeakRef<TD>` 不能强持原 handler：Closure 自己强持 `env = [receiver]`，持住 handler 就等于
 持住 receiver，弱引用直接失效。所以构造时把 handler **拆解**成 `(WeakHandle → receiver, fnName)`，
-`Get()` 时重建一个新 Closure。这需要 corelib 暴露三个 builtin（注册表在
-`src/runtime/src/corelib/builtins.rs`）：
+`Get()` 时重建一个新 Closure。这需要 corelib 暴露 builtin（注册表在
+`src/runtime/src/corelib/builtins.rs`），全部挂在**委托族基类 `Std.Delegate`** 上
+（`DelegateOps` 静态工具类已退役合并；实例属性 getter 的 `this` 就是原先的 object 形参，
+Rust 侧四个实现零改动）：
 
-| builtin | stdlib 入口（`Std.DelegateOps`）| 语义 |
+| builtin | stdlib 入口（`Std.Delegate`）| 语义 |
 |---|---|---|
-| `__delegate_target` | `GetTarget(object) -> object` | 从 Closure 取 `env[0]`；`FuncRef` / 非 delegate 返回 null |
-| `__delegate_fn_name` | `GetFnName(object) -> string` | 目标函数的全限定名（值里存的是 `FnId`，名字从它指向的 `Function` 取，每次新分配一个串）|
-| `__make_closure` | `MakeClosure(string, object[]) -> object` | 用 `(fn_name, env)` 重建 Closure：名字在这里绑成 `FnId`（与 `MkClos` 同一条路径），解析不到就抛 |
-| `__delegate_eq` | `ReferenceEquals(a, b) -> bool` | 按 `FuncRef` / `Closure` 两变体各自的身份语义比较：`FuncRef` 比 `FnId`，`Closure` 比 `fn_id` + env 指针；跨变体不等；非 delegate 返回 false 不报错。一个函数只有一个 id，所以 id 相等即「同一函数」，与此前按名字比较等价 |
+| `__delegate_target` | `object Target { get; }` | 从 Closure 取 `env[0]`；`FuncRef` / 非 delegate 返回 null |
+| `__delegate_fn_name` | `string FnName { get; }` | 目标函数的全限定名（值里存的是 `FnId`，名字从它指向的 `Function` 取，每次新分配一个串）|
+| `__make_closure` | `static MakeClosure(string, object[]) -> object` | 用 `(fn_name, env)` 重建 Closure：名字在这里绑成 `FnId`（与 `MkClos` 同一条路径），解析不到就抛 |
+| `__delegate_eq` | `static ReferenceEquals(a, b) -> bool` | 按 `FuncRef` / `Closure` 两变体各自的身份语义比较：`FuncRef` 比 `FnId`，`Closure` 比 `fn_id` + env 指针；跨变体不等；非 delegate 返回 false 不报错。一个函数只有一个 id，所以 id 相等即「同一函数」，与此前按名字比较等价 |
 
-`GetTarget` 返回 null 就是"无 receiver 可弱化" → 包装类退化为 strong。
+`Target` 为 null 就是"无 receiver 可弱化" → 包装类退化为 strong。
+
+### 2.3a 族基类的四个编译期挂钩（feat/delegate-base-class）
+
+`Std.Delegate` 是**族基类**（对标数组 → `Std.Array`），不改变值表示（委托仍是 `FuncRef` /
+`Closure`，无 TypeDesc）：
+
+- **成员面**：`_bindInstanceMember` 的 `Z42FuncType` 分支把非调用成员访问整体复用
+  `_bindClassMemberAccess(Std.Delegate)`——`d.Target` / `d.FnName` 绑成非虚 instance
+  直调（receiver 即委托值，绕开 VCall-on-Closure 的 bail）；查无报 E0401。
+- **转换**：`Conversion._classifyBuiltin` 的 C3 分支——任意 `Z42FuncType` → `Delegate`
+  隐式（镜像数组 C2），反向显式下转（运行期擦除判定）。
+- **is/as**：直接目标走 `prim_isa` 的 callable 臂（`Std.Delegate` / `Std.Object` → true）；
+  泛型参数目标走 `callable_isa` 的同名特判（必须抢在注册表查询前——`Std.Delegate` 是真类、
+  `is_delegate()` 位是 **false**，查表会答 false）。
+- **元数据**：`EmitDelegates` 的 `IrClassDesc` 带 `base = "Std.Delegate"`（数据字段非
+  schema，无 format-bump）⇒ 反射 `BaseType` / `IsSubclassOf` 沿基链自然成立；
+  `where TD : Delegate` 约束由 `ConstraintChecker._satisfiesBase` 的 `Z42FuncType` 分支放行。
 
 ### 2.4 订阅调用
 
@@ -185,7 +204,7 @@ advanced[] + advancedAlive[]   ← ISubscription 包装，slow loop 走 IsAlive/
 的全部实现。`SubscribeAdvanced(wrapper)` 进 advanced 数组。
 
 退订走两条路：`Subscribe*` 返回的 `MulticastSubscription` token（`Dispose()` 置
-`alive[idx] = false`），或 `Unsubscribe(handler)`（只扫 strong 通道，`DelegateOps.ReferenceEquals`
+`alive[idx] = false`），或 `Unsubscribe(handler)`（只扫 strong 通道，`Delegate.ReferenceEquals`
 比较，**命中不 break**——同一 handler 订阅多次，一次 `Unsubscribe` 全清，对齐用户对
 `x -= h` 的预期"h 不再被通知"）。
 
@@ -244,7 +263,9 @@ impl<TDelegate> TDelegate where TDelegate : Delegate { ... AsWeak() ... }
 impl<TDelegate> ISubscription<TDelegate> { ... AsWeak() ... }
 ```
 
-**全仓零实现**。根因：SymbolCollector 收集 `impl` 目标时只接受 `NamedType`，**不接受**
+**全仓零实现**。约束那半已解决：`where TDelegate : Delegate` 随族基类落地
+（`ConstraintChecker._satisfiesBase` 的 `Z42FuncType` 分支，见 §2.3a）。剩余根因：
+SymbolCollector 收集 `impl` 目标时只接受 `NamedType`，**不接受**
 泛型实例化 target（`ISubscription<T>` / `Action<T>` 都不行）。要做需 Parser / AST /
 SymbolCollector 三层联动。
 **当前 workaround**：`new CompositeRef<T>(h, ModeFlags.Once | ModeFlags.Weak)` 直接构造，
