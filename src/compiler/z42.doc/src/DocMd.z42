@@ -68,7 +68,7 @@ public static class DocMd {
             while (j < n) { if (groups[j].Name == t.Name) { g = j; break; } j = j + 1; }
             if (g < 0) { groups[n] = new TypeGroup(t); n = n + 1; }
             else if (groups[g].Decls[0].Id == t.Id) {
-                if (groups[g].Decls[0].Doc.Length == 0 && t.Doc.Length > 0) { groups[g].Decls[0] = t; }
+                if (!DocMd._hasPublicDoc(groups[g].Decls[0]) && DocMd._hasPublicDoc(t)) { groups[g].Decls[0] = t; }
             } else { groups[g].Add(t); }
             i = i + 1;
         }
@@ -195,7 +195,7 @@ public static class DocMd {
     public static bool HasNamespaceDoc(DocIndex ix) {
         int i = 0;
         while (i < ix.Count()) {
-            if (ix.At(i).Kind == DocKind.Namespace && ix.At(i).Doc.Length > 0) { return true; }
+            if (ix.At(i).Kind == DocKind.Namespace && DocMd._hasPublicDoc(ix.At(i))) { return true; }
             i = i + 1;
         }
         return false;
@@ -275,12 +275,21 @@ public static class DocMd {
             DocMd._memberIndex(sb, ms);
         }
 
-        // 每个 public 成员一节；枚举成员只进总览块，嵌套类型归迁移期展开。
+        // 每个 public 成员一节；有公开说明的枚举成员也可直接从索引跳转。
         int j = 0;
         while (j < ms.Length) {
-            if (ms[j].Vis == "public" && !ms[j].IsType() && ms[j].Kind != DocKind.EnumMember) { DocMd._member(sb, ms[j]); }
+            if (DocMd._hasMemberSection(ms[j])) { DocMd._member(sb, ms[j]); }
             j = j + 1;
         }
+    }
+
+    private static bool _hasMemberSection(DocItem m) {
+        return m.Vis == "public" && !m.IsType()
+            && (m.Kind != DocKind.EnumMember || DocMd._hasPublicDoc(m));
+    }
+
+    private static bool _hasPublicDoc(DocItem item) {
+        return GeneratorDoc.Parse(item.Doc).PublicText.Trim().Length > 0;
     }
 
     // 成员索引行：一串锚点链接（`[Length](#DocId) · …`），页内点击直达成员小节。
@@ -290,7 +299,7 @@ public static class DocMd {
         int i = 0;
         while (i < ms.Length) {
             DocItem m = ms[i];
-            if (m.Vis == "public" && !m.IsType() && m.Kind != DocKind.EnumMember) {
+            if (DocMd._hasMemberSection(m)) {
                 if (s.Length > 0) { s = s + " · "; }
                 s = s + "[`" + m.Name + "`](#" + DocMd._anchorHref(m) + ")";
             }

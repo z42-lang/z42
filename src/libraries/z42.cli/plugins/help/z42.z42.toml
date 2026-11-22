@@ -1,0 +1,6 @@
+[project]
+name = "z42.cli.help"
+kind = "plugin"
+
+[dependencies]
+"z42.doc" = { path = "../../../../compiler/z42.doc" }

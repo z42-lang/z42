@@ -54,7 +54,7 @@ pub(crate) fn load_artifact_from_bytes_cached(
 
 /// Cache-backed reads use the file bytes as the identity. With no cache, use
 /// the path loader to retain sidecar and indexed package resolution.
-pub(crate) fn load_artifact_cached(
+pub(super) fn load_artifact_cached(
     fs: &dyn Vfs, path: &str, cache: Option<&super::ImageCache>,
 ) -> anyhow::Result<LoadedArtifact> {
     match cache {

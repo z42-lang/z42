@@ -55,6 +55,7 @@ public static class DocParser {
 
     [Suppress("style.fnLinesHard", "61 body lines；拆分见 code-organization.md")]
     public static DocComment Parse(string doc) {
+        doc = GeneratorDoc.Parse(doc).PublicText;
         DocComment c = new DocComment();
         if (doc.Length == 0) { return c; }
         string[] lines = doc.Split("\n");

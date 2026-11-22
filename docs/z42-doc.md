@@ -86,9 +86,11 @@
 /// @example [no_run|compile_fail|ignore]
 ///     代码（缩进 4 格）
 /// @hidden                               ← public 但不进文档（跨包用的内部入口）
+/// @for-generator 包名[/生成器 ID]        ← 选择后续专用字段的接收者
+/// @generator 字段 单行文本              ← 构建插件专用，公开查询和书页省略
 ```
 
-**tag 是闭集**，只有上面 8 个；写了未知 tag 报 W0804。不设 `@deprecated`：弃用只用现有的
+**tag 是闭集**，写了未知 tag 报 W0804。不设 `@deprecated`：弃用只用现有的
 `[Deprecated("msg")]` 属性表达，生成器读属性渲染（同一事实只出现在一个地方）。不设 `@since`：
 不写历史。
 
@@ -287,8 +289,7 @@ reader 都得改（见产物格式的版本纪律）。`.zsym` 已经开了「�
 
 ### 4.4 `z42 doc`（`z42d doc`，launcher 转发）
 
-现状：z42d 的 `devtools_cli` 已经登记了 `doc`，但只打印 "planned"，参数还是 `<project.z42.toml>`；
-launcher 没有任何转发到 z42d 的通道，需要补一个 `_forwardZ42d`，写法对照 `_forwardZ42b`。
+现状：launcher 已通过 `_forwardZ42d` 转发给 z42d，语法级源码查询和 Rust 索引已可用。
 
 **查询模式（agent 主入口，输出刻意极简）**
 
@@ -350,7 +351,6 @@ $ z42 doc --format md --out <dir>                            # 普通工程用
   4. 每个成员一个 `###`：签名、正文、参数表（只有写了 `@param` 的才列）、异常、示例。锚点 = Doc ID slug；
   5. `[Deprecated]` 成员标注删除线和弃用说明，`@hidden` 不输出。
 - 页首写 `<!-- 由 z42 doc 生成，勿手改。源：src/libraries/z42.random/ -->`。
-- **生成的页面提交进仓库**（决策 D3）。好处：mdBook 部署流程不用改；PR diff 里直接看到 API 和文档的变化，起到 API Extractor 的作用；agent 也能直接 grep。
 - `stdlib/README.md` 的「包 → 页 → 类型」索引也改为生成。
 - 页面内容全部来自源码：页首简介、跨类型的用法说明、`## 不支持` 写在包主文件的 `//!` 正文；成员的取值
   范围、边界与异常写在该成员的 `///`；用法代码块写成 `@example`（同时是 doctest）。
@@ -456,12 +456,13 @@ User 裁决：**先把机制全部做完（含测试与示例），最后统一�
 |---|---|---|
 | **P1 挂靠** | Lexer `DocBlock` 旁挂表、Parser 声明入口认领、`Decl.Doc` / `EnumMember.Doc` / `CompilationUnit.Doc`、`--dump-doc`；本文件写入裁决 | ✅ #1276 |
 | **P2a z42 索引与查询** | `z42.doc` 包（语法级索引、增量缓存、名字解析、输出）+ `z42d doc <Sym>` / `--members` / `--search` / `--private` / `--pkg` / `--json`；launcher 转发 `z42 doc`；示例工程；reference / internals / README 同步 | ✅ #1278 |
-| **P2b Rust 索引** | `src/toolchain/devtools/rust-index`（syn）+ `xtask build docs index` → `artifacts/doc/rust.idx`；`z42.doc` 的 `ExternalIndex` 并入、`::` 名字解析、模块 / trait 轮廓、过期提示 | 本 PR |
+| **P2b Rust 索引** | `src/toolchain/devtools/rust-index`（syn）+ `xtask build docs index` → `artifacts/doc/rust.idx`；`z42.doc` 的 `ExternalIndex` 并入、`::` 名字解析、模块 / trait 轮廓、过期提示 | ✅ 已可用 |
 | **P3 书引用检查** | `z42 doc --page`（§4.9） | ✅ 完成：未解析符号链已清零（#1749，1315→0）；批量报告 `check doc-refs` 随之退役 |
 | **P4 模型与校验** | `z42.doc` 包（DocParser / DocId / Zdoc）、`DocChecker`、W0801～W0808、`LintConfig` 扩到内建 doc 规则、`[doc]` 表（两步）；reference `language/doc-comments.md` 与 agent 写法规则 | 🟡 进行中：DocParser + W08xx 语法级首批已落地（`z42.doc` DocLint + `xtask check doc-lints` 零告警检查；W0803 零发射占号）；DocId / Zdoc / 编译器 DocChecker pass（W0803 + `[lints]` 级别决策）/ `[doc]` 表待做 |
-| **P5 产出与生成** | build 产出 `.zdoc`；SDK `[component.docs]`；mdbook 渲染器；`xtask build docs`（按写了 `//!` 的包生效；生成页不入库，发布时现生成） | 🟡 进行中：mdbook 渲染器 + `xtask build docs` 已落地，生成页改为不入库、deploy-book 现生成；同名声明合并页（partial 并为代表、泛型委托各元数一页）、页内 `file:line` 源码位置行（生成物随 gen 重写不腐；经 `SourceBase` 渲染成 GitHub `#L<行>` 直达链接）、成员锚点（`<a id>` = Doc ID）与成员索引行（mdBook SUMMARY 不支持锚点条目，成员级导航在类型页内）、SUMMARY 的 type-split 区段生成（命名空间草稿章 → 类型，配 book.toml fold 逐级展开）已落地；`.zdoc` 产出、SDK `[component.docs]`、stdlib/README 概览表生成待做 |
+| **P5 产出与生成** | build 产出 `.zdoc`；SDK `[component.docs]`；mdbook 渲染器；`xtask build docs`（按写了 `//!` 的包生效；生成页不入库，发布时现生成） | 🟡 进行中：mdbook 渲染器 + `xtask build docs` 已落地，生成页改为不入库、deploy-book 现生成；同名声明合并页（partial 并为代表、泛型委托各元数一页）、页内 `file:line` 源码位置行（生成物随 gen 重写不腐；经 `SourceBase` 渲染成 GitHub `#L<行>` 直达链接）、成员锚点（`<a id>` = Doc ID）与成员索引行（mdBook SUMMARY 不支持锚点条目，成员级导航在类型页内）、SUMMARY 的 type-split 区段生成（命名空间草稿章 → 类型，配 book.toml fold 逐级展开）已落地；`.zdoc` 产出、SDK `[component.docs]`、stdlib/README 概览表已由 `xtask build docs` 生成 |
 | **P6 doctest** | `@example` 合成 `[Test]` 方法，经反射发现；`z42 test --doc` 进 gate | 待做 |
 | **P7 迁移** | 代码注释按包迁移（先 `z42.random`）；stdlib 页改为生成；README 入口点改链接；书里引用清理；W0805 零告警 | ✅ 全部 19 个包已迁移（中文 `//!` + `///` + `@tag`、删历史注记），包页改为生成，README 入口点改链接；`z42.core` 走 `split = "type"`（156 个类型页，9 个手写主题页删除、SUMMARY 区段生成）；`z42.harness` 收录（在 `default_members`、用户可见）。W0805 已由 `xtask check doc-lints` 按零告警检查 |
+| **CLI 文案** | `@generator` 与 `@for-generator` 分组、独立于插件加载的公开过滤、构建插件生成包外枚举帮助 | 见正式文档的构建插件专用文案章节 |
 | **P8 延伸** | REPL `:doc`；LSP hover 复用 `.zdoc`；英文翻译层（按 Doc ID 叠加） | 按 roadmap 排期 |
 
 ## 8. 风险
@@ -480,7 +481,7 @@ User 裁决：**先把机制全部做完（含测试与示例），最后统一�
 |---|---|---|
 | **D1** | doc 注释用什么语言 | **中文**（标识符和代码保持英文）；英文版以后按 Doc ID 加翻译层 |
 | **D2** | 结构化信息的写法 | **单行 `@tag`**（§2.2） |
-| **D3** | 生成的 stdlib 页是否提交 | **提交**，加漂移门禁 |
+| **D3** | 生成的 stdlib 页是否提交 | 发布与文档检查时现生成。生成的目录区段随 SUMMARY 入库。 |
 | **D4** | 文档数据放哪里 | **`.zdoc` 旁挂文件**，不动 zpkg 格式 |
 | **D5** | `public` 缺文档 | stdlib 由 doc-lints 按零告警检查，用户工程默认 allow |
 | **D6** | 书里怎么引用代码 | 页头声明范围 + 正文写短名，检查器解析；禁止行号（§4.9） |
