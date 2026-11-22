@@ -1,0 +1,4 @@
+namespace Demo.Target;
+
+public class Robot { }
+public interface IGreet { string Hello(); }

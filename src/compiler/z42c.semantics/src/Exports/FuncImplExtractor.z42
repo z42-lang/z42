@@ -75,10 +75,10 @@ public static class FuncImplExtractor {
     // 短名 FQ 化：本 CU 作用域解析到类 / 接口 → "<declNs>.<name>"，否则 "<currentNs>.<name>"。
     private static string _fqOf(string name, string currentNs, SymbolTable view) {
         Z42ClassType ct = view.GetClass(name);
-        if (ct != null && ct.Namespace != "") { return ct.Namespace + "." + name; }
+        if (ct != null) { return ct.Fqn(); }
         Z42InterfaceType it = view.GetInterface(name);
-        if (it != null && it.Namespace != "") { return it.Namespace + "." + name; }
-        return currentNs + "." + name;
+        if (it != null) { return it.Fqn(); }
+        return name.IndexOf(".") >= 0 ? name : SymbolTable.QualOf(currentNs, name);
     }
 
     // TypeExpr → 短名（NamedType.Name；非 Named 形态 → ""，镜像 C# ExtractTypeName 返回 null）。
