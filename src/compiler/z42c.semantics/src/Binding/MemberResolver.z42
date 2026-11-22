@@ -211,6 +211,13 @@ public sealed partial class MemberResolver {
             if (itms != null) {
                 itms = MethodTypeArgSubst.ForExplicitTypeArgs(itms, call, env);   // 显式 `<T>` → 先代换签名再绑实参
                 Z42Type itRet = MemberResolver._substGeneric(itms.Signature.Ret, instRecv);
+                // Type deferred operator operands from the concrete receiver. Argument adaptation
+                // below still uses the declared signature for conversions and the erased ABI.
+                if (ProtocolNames.IsCompoundAssignName(mem.Name) && argCount == 1 && args[0] == null
+                    && !ExprTyper.IsNamedArg(rawArgs[0], env)) {
+                    Z42Type operandType = MemberResolver._substGeneric(itms.Signature.ParamTypes[0], instRecv);
+                    args[0] = this._tc._expr.BindWithTarget(rawArgs[0], operandType, env);
+                }
                 BoundExpr[] fa = this._tc._overload._withDefaults(itms, args, rawArgs, argCount, env, sp, false);
                 // add-generic-type-arg-inference 阶段 A：形参位也按 receiver 的 TypeArgs 代换，再查一遍实参。
                 //
