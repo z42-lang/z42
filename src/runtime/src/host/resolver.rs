@@ -17,7 +17,7 @@ use std::ffi::CString;
 use std::os::raw::c_void;
 use std::sync::Arc;
 
-use super::c::config::Z42ZpkgResolverFn;
+use super::config::Z42ZpkgResolverFn;
 
 /// Resolve a namespace name (as written in z42 source, e.g. `"Std.IO"`
 /// or `"z42.core"`) to its zpkg bytes.
