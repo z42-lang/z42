@@ -102,7 +102,7 @@ pub(crate) fn build_declared_candidates(
 // So: version mismatches get named at the point of detection, with the command
 // that fixes them. Every other read failure keeps its warn-and-continue
 // behavior — those really can be optional / unrelated artifacts.
-pub(crate) fn version_mismatch_hint(file: &str, e: &anyhow::Error) -> Option<String> {
+pub(super) fn version_mismatch_hint(file: &str, e: &anyhow::Error) -> Option<String> {
     let m = crate::zpkg::format::as_version_mismatch(e)?;
     Some(format!(
         "`{file}` was built for a different z42 format version than this runtime: {m}.\n\
