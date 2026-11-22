@@ -411,6 +411,8 @@ removed ./artifacts
 | `--root <目录>` | 索引根；缺省是向上第一个 git 仓库根，不在仓库里时取最近的工程目录 |
 | `--json` | 以 JSON 输出命中的条目 |
 | `--format mdbook` | 生成 reference 包页（配合 `--out` 与 `--pkg`） |
+| `--format zdoc` | 导出语法级文档旁挂文件（配合 `--out` 与 `--pkg`） |
+| `--zdoc <文件>` | 直接查询指定的文档旁挂文件 |
 | `--out <目录>` | `--format` 的输出目录 |
 | `--page <md>` | 解析一页书里引用的符号，逐行输出 `符号 → file:line` |
 | `--docs <符号>` | 反查：哪些书页 / README 引用了这个符号 |
@@ -448,6 +450,17 @@ stderr 提示重建，查询照常进行。
 **生成 reference 包页**：`z42 doc --format mdbook --out <目录> --pkg <包名>` 把该包渲染成
 `<目录>/<包名>.md`（页面结构见[标准库](../stdlib/README.md)各页）。`@param` / `@throws` 等标记会渲染成
 参数表与异常条目，private 成员不进页。仓库内批量重生成由 `xtask build docs` 驱动。
+
+**无源码查询**。先导出一个包的文档，再将旁挂文件交给需要查询的人。
+
+```console
+$ z42 doc --format zdoc --pkg z42.random --out ./api
+$ z42 doc --zdoc ./api/z42.random.zdoc Std.Random.Random --members
+```
+
+导出默认收录公开符号，`--private` 同时收录非 public 符号。`@hidden` 声明和 `@for-generator` / `@generator` 文案组在导出时省略。
+用 `--zdoc` 查询只需要旁挂文件，可以查单个符号、展开成员或搜索。安装的 SDK 自带标准库文档。
+符号查询先匹配当前工作区的名称，再查 SDK 中工作区缺少的包。关键词搜索同时包含这些 SDK 包。
 
 **书里的代码引用**：`z42 doc --page <页.md>` 读该页页头声明的「代码」范围，把正文里每个反引号符号解析成
 当前位置，逐行输出 `符号 → file:line`；`--docs <符号>` 反查哪些书页 / README 引用了它。书里不写行号

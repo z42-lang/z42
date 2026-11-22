@@ -14,6 +14,7 @@
 namespace Z42Xtask;
 
 using Std.IO;
+using Z42.Doc;
 
 // 装组件需要的构建上下文。runtime 包只用到 CargoOut；apphost 组件还要求其余四项齐全（缺则报错，不静默跳过）。
 class _PkgInstallCtx {
@@ -56,6 +57,7 @@ int _pkgInstallComponent(string root, _PkgComponent comp, string pkgDir, _PkgIns
     if (comp.kind == "cargo-native")  { return _pkgInstallNative(root, ctx.CargoOut, pkgDir); }
     if (comp.kind == "stdlib-glob")   { return _pkgCopyLibs(_libsDir(root), pkgDir); }
     if (comp.kind == "editor-assets") { return _pkgInstallEditorAssets(root, pkgDir) > 0 ? 0 : 1; }
+    if (comp.kind == "stdlib-docs")  { return _pkgInstallDocs(root, Path.Join(pkgDir, comp.dest)); }
     if (comp.kind == "apphost")       { return _pkgInstallApphost(comp, pkgDir, ctx); }
     ConsoleError.WriteLine("error: packages.toml component '" + comp.name + "' kind '" + comp.kind
         + "' cannot be installed into a package here (apphost-stub belongs to the desktop workload)");
@@ -124,6 +126,19 @@ void _copyAbiHeaders(string root, string destIncludeDir) {
     File.WriteAllText(Path.Join(destIncludeDir, "z42_abi.h"), _runtimeHeaderText(Path.Join(root, "src/runtime/include/z42_abi.h")));
     File.WriteAllText(Path.Join(destIncludeDir, "z42_host.h"), _runtimeHeaderText(Path.Join(root, "src/runtime/include/z42_host.h")));
     File.WriteAllText(Path.Join(destIncludeDir, "z42_native.h"), _runtimeHeaderText(Path.Join(root, "src/runtime/include/z42_native.h")));
+}
+
+int _pkgInstallDocs(string root, string dest) {
+    Directory.Create(dest);
+    foreach (string pkg in _stdlibList(root)) {
+        DocIndex index = DocQuery.BuildIndex(root, pkg, "");
+        if (index.Count() == 0) {
+            ConsoleError.WriteLine("package docs: no documented symbols in " + pkg);
+            return 1;
+        }
+        File.WriteAllText(Path.Join(dest, pkg + ".zdoc"), DocArtifact.Write(pkg, index, false));
+    }
+    return 0;
 }
 
 // Runtime package (z42-runtime-<ver>-<rid>) scaffold: compute the pkg dir, print

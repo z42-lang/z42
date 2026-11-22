@@ -10,6 +10,11 @@ using Z42.Project;   // UserCache
 public static class DocCommand {
     public static int Run(ParseResult pr) {
         string format = pr.GetOption("format");
+        string artifact = pr.GetOption("zdoc");
+        if (artifact.Length > 0 && format.Length > 0) {
+            ConsoleError.WriteLine("z42 doc: --zdoc cannot be used with --format");
+            return 2;
+        }
         string root = pr.GetOption("root");
         if (root.Length == 0) { root = SourceTree.FindRoot(Environment.GetCurrentDirectory()); }
         else if (!Path.IsRooted(root)) { root = Path.Normalize(Path.Join(Environment.GetCurrentDirectory(), root)); }
@@ -29,8 +34,14 @@ public static class DocCommand {
         o.Page    = pr.GetOption("page");
         o.Docs    = pr.GetOption("docs");
         o.Root    = root;
-        o.CachePath = DocCommand._cachePath(root);
-        DocQueryResult r = DocQuery.Run(o);
+        DocQueryResult r;
+        if (artifact.Length > 0) {
+            r = DocQuery.RunArtifact(o, artifact);
+        } else {
+            o.CachePath = DocCommand._cachePath(root);
+            o.SdkDocsDir = Path.Join(EditorInstall.SdkRoot(), "docs");
+            r = DocQuery.Run(o);
+        }
         if (r.Out.Length > 0) { Console.Write(r.Out); }
         if (r.Err.Length > 0) { ConsoleError.WriteLine(r.Err); }
         return r.Exit;
@@ -40,21 +51,23 @@ public static class DocCommand {
     private static int _generate(ParseResult pr, string root, string format) {
         string outDir = pr.GetOption("out");
         string pkg = pr.GetOption("pkg");
-        if (format != "mdbook") {
-            ConsoleError.WriteLine("z42 doc: unknown --format `" + format + "` (only `mdbook`)");
+        if (format != "mdbook" && format != "zdoc") {
+            ConsoleError.WriteLine("z42 doc: unknown --format `" + format + "` (expected `mdbook` or `zdoc`)");
             return 2;
         }
-        if (outDir.Length == 0) { ConsoleError.WriteLine("z42 doc: --format mdbook needs --out <dir>"); return 2; }
-        if (pkg.Length == 0) { ConsoleError.WriteLine("z42 doc: --format mdbook needs --pkg <name>"); return 2; }
+        if (outDir.Length == 0) { ConsoleError.WriteLine("z42 doc: --format needs --out <dir>"); return 2; }
+        if (pkg.Length == 0) { ConsoleError.WriteLine("z42 doc: --format needs --pkg <name>"); return 2; }
         if (!Directory.Exists(outDir)) { Directory.Create(outDir); }
         DocIndex ix = DocQuery.BuildIndex(root, pkg, "");   // 生成不写共享缓存
         if (ix.Count() == 0) {
             ConsoleError.WriteLine("z42 doc: no symbols in package `" + pkg + "`");
             return 1;
         }
-        string page = DocMd.PackagePage(pkg, DocMd.PkgDir(ix), ix);
-        File.WriteAllText(Path.Join(outDir, pkg + ".md"), page);
-        Console.WriteLine("wrote " + Path.Join(outDir, pkg + ".md"));
+        bool zdoc = format == "zdoc";
+        string output = Path.Join(outDir, pkg + (zdoc ? ".zdoc" : ".md"));
+        string contents = zdoc ? DocArtifact.Write(pkg, ix, pr.GetFlag("private")) : DocMd.PackagePage(pkg, DocMd.PkgDir(ix), ix);
+        File.WriteAllText(output, contents);
+        Console.WriteLine("wrote " + output);
         return 0;
     }
 

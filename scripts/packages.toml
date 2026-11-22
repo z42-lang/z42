@@ -40,7 +40,7 @@
 #    runtime 包（docs/internals/src/devinfra/packaging.md §1）。
 [package.sdk]
 artifact = "z42-sdk-{version}-{rid}"
-include  = ["z42vm", "stdlib", "z42c", "launcher", "z42b", "z42d", "z42i", "editor-assets"]
+include  = ["z42vm", "stdlib", "z42c", "launcher", "z42b", "z42d", "z42i", "editor-assets", "docs"]
 manifest = "auto"
 
 # ── 可嵌入运行时：只含 native + stdlib，纯粹给嵌入场景用。
@@ -120,6 +120,10 @@ dest = "libs/"
 [component.editor-assets]
 kind = "editor-assets"   # 编辑器集成资产（`z42d install <target>` 的输入；*.tpl.json 不进包）
 dest = "editors/"        # → editors/vscode/{package.json,language-configuration.json,syntaxes/}
+
+[component.docs]
+kind = "stdlib-docs"
+dest = "docs/"
 
 # ══════════════════════════════════════════════════════════════════════════
 # runtime 域（R1）：runtime 库组件的打包知识单一来源。xtask 从这里读，

@@ -12,6 +12,7 @@ Rust 运行时的索引）一并并入。命令行与打印在 z42d（`src/toolc
 | 源文件 → 条目 | `SyntaxIndexer.IndexSource(src, file)` |
 | doc 原文 → 结构化公开模型 | `DocParser.Parse(doc)` |
 | 生成器专用字段和公开文本 | `GeneratorDoc.Parse(doc)` |
+| 版本化旁挂文件与查询 | `DocArtifact.Write` / `Read`、`DocQuery.RunArtifact` |
 | 包索引 → reference 包页 markdown | `DocMd.PackagePage(pkgName, pkgPath, ix)` |
 | 名字解析 / 成员 / 搜索 | `DocIndex.Find` / `Members` / `Search` |
 | 输出形态 | `DocFormat.Show` / `Outline` / `Candidates` / `SearchResults` / `Json` |
