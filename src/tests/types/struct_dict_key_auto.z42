@@ -1,0 +1,85 @@
+// add-value-auto-iequatable：值类型自动满足 `where TKey : IEquatable`——裸 blob struct
+// 无三件套样板即可作 Dictionary/HashSet 键（对齐 C# 值类型隐式实现 IEquatable<T>）；装箱
+// vcall Equals 的 float-free 原生快路（保留名 Equals$1$synth）与含浮点合成体（逐叶 IR）、
+// 用户三件套行为交叉对账。
+namespace Demo;
+
+using Std.Collections;
+
+struct Pt {
+    public int x;
+    public int y;
+    public int z;
+    public Pt(int x, int y, int z) { this.x = x; this.y = y; this.z = z; }
+}
+
+struct Vec {
+    public double x;
+    public double y;
+    public Vec(double x, double y) { this.x = x; this.y = y; }
+}
+
+struct PtE : IEquatable {
+    public int x;
+    public int y;
+    public PtE(int x, int y) { this.x = x; this.y = y; }
+    public bool Equals(PtE o) { return this.x == o.x && this.y == o.y; }
+    public int GetHashCode() { return this.x * 31 + this.y; }
+}
+
+enum Color { Red = 0, Green = 1, Blue = 2 }
+
+void Main() {
+    // ── 裸 blob struct 键（E0402 在本变更前必红；探测走装箱协议 → Equals$1$synth 原生快路）──
+    var d = new Dictionary<Pt, int>();
+    d[new Pt(1, 2, 3)] = 10;
+    d[new Pt(4, 5, 6)] = 20;
+    Assert.Equal(10, d[new Pt(1, 2, 3)]);        // 同值键命中（不同实例）
+    Assert.Equal(20, d[new Pt(4, 5, 6)]);
+    Assert.Equal(2, d.Count);
+    Assert.False(d.ContainsKey(new Pt(1, 2, 9)));   // 值不等 → 不含
+    Assert.True(d.ContainsKey(new Pt(1, 2, 3)));
+    d[new Pt(1, 2, 3)] = 11;                     // 同值键覆盖（Equals 命中）
+    Assert.Equal(11, d[new Pt(1, 2, 3)]);
+    Assert.Equal(2, d.Count);
+
+    // ── 装箱/未装箱同判（快路 vs 静态位点）──
+    Pt a = new Pt(1, 2, 3);
+    Pt b = new Pt(1, 2, 3);
+    object oa = a;
+    object ob = b;
+    Assert.True(oa.Equals(ob));
+    Assert.Equal(oa.Equals(ob), a == b);
+    Assert.Equal(oa.GetHashCode(), a.GetHashCode());
+
+    // ── 含浮点 struct 键：合成体仍名 Equals$1（逐叶 IR，浮点语义），键契约成立 ──
+    // ⚠️ ±0.0 案例不在本用例：哈希走 FNV 按字节（boxed_hash 文档在案的 pre-1.0 边角），
+    // +0.0/-0.0 哈希不同 → 不同桶，Equals 的浮点语义无从生效——修约在哈希契约役（另开 PR）。
+    var dv = new Dictionary<Vec, int>();
+    dv[new Vec(1.5, 1.0)] = 1;
+    dv[new Vec(2.5, 1.0)] = 2;
+    Assert.Equal(2, dv.Count);
+    Assert.Equal(2, dv[new Vec(2.5, 1.0)]);
+    Assert.True(dv.ContainsKey(new Vec(1.5, 1.0)));
+    Assert.False(dv.ContainsKey(new Vec(9.5, 1.0)));
+
+    // ── 用户三件套键（既有行为不回归）──
+    var de = new Dictionary<PtE, int>();
+    de[new PtE(7, 8)] = 30;
+    Assert.Equal(30, de[new PtE(7, 8)]);
+    Assert.False(de.ContainsKey(new PtE(7, 9)));
+
+    // ── enum 键（wrapper 手写 Equals，自动满足只是补齐形态）──
+    var dc = new Dictionary<Color, string>();
+    dc[Color.Green] = "g";
+    Assert.Equal("g", dc[Color.Green]);
+    Assert.False(dc.ContainsKey(Color.Red));
+
+    // ── HashSet 裸 struct 元素（同约束）──
+    var hs = new HashSet<Pt>();
+    Assert.True(hs.Add(new Pt(1, 2, 3)));
+    Assert.False(hs.Add(new Pt(1, 2, 3)));       // 同值去重
+    Assert.True(hs.Contains(new Pt(1, 2, 3)));
+    Assert.False(hs.Contains(new Pt(9, 9, 9)));
+    Assert.Equal(1, hs.Count);
+}

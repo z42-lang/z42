@@ -10,6 +10,18 @@ public sealed class MemberCollector {
     private SymbolCollector _sc;   // hub 反向引用：共享辅助 + partial 状态 + 编排
     public MemberCollector(SymbolCollector sc) { this._sc = sc; }
 
+    private ConstraintSet _freeMethodConstraints(SymbolTable symbols, MethodDecl method) {
+        if (method.WhereCount == 0) { return null; }
+        ConstraintSet constraints = new ConstraintChecker(null).BuildMethodSet(symbols, method);
+        if (constraints == null) { return null; }
+        foreach (ConstraintBundle bundle in constraints.Bundles) {
+            for (int i = 0; i < bundle.InterfaceCount; i = i + 1) {
+                bundle.InterfaceNames[i] = SymbolTable.IfaceFqnOf(symbols, bundle.InterfaceNames[i]);
+            }
+        }
+        return constraints;
+    }
+
     // Pass B：成员 + 顶层 func
     internal void _passMembers(SymbolTable table, CompilationUnit cu) {
         // E0456 声明位：判据要看**引用方**的 ns + usings，故整个 pass 用带作用域的 per-CU 视图。
@@ -37,6 +49,7 @@ public sealed class MemberCollector {
                 // 有了它才判得出「本包遮蔽了导入包的同 FQN 自由函数」（E0606）。
                 table.NoteFuncOrigin(m.Name, table.ScopeNs, "");
                 MethodSymbol msym = this._sc._methodSymbol(table, m, "", new string[0], 0);
+                msym.TypeParamConstraints = this._freeMethodConstraints(table, m);
                 // fix-free-function-attrs：本地**自由函数**级弃用（镜像 _fillClass 里类方法那行）。
                 // 此前只有类方法 / 字段 / 类三处标记，顶层函数漏了 ⇒ 同包 `[Deprecated] void f()`
                 // 的调用点零告警。注意取 `cu.Decls[i]` 这份**原始**声明——`d` 已被 `_unwrap` 剥掉
