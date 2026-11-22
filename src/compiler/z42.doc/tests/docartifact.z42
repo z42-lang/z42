@@ -8,13 +8,15 @@ using Z42.Doc;
 void test_artifact_round_trip_and_public_projection() {
     string source = "namespace Example;\n"
         + "public enum Mode {\n"
-        + "/// Runs JIT.\n/// @generator z42.cli/choice-help generator-only copy\nJit\n}\n"
+        + "/// Runs JIT.\n/// @for-generator z42.cli.help\n/// @generator choice-help generator-only copy\n/// @for-generator demo.tools/other\n/// @generator choice-help second generator copy\nJit\n}\n"
         + "internal class Internal { public int VisibleWithinType; }\n"
         + "/// @hidden\npublic class Hidden { public int Field; }\n";
     DocIndex index = new DocIndex();
     index.AddAll(SyntaxIndexer.IndexSource(source, "src/Mode.z42"));
     string text = DocArtifact.Write("z42.example", index, false);
     Assert.False(text.Contains("generator-only copy"));
+    Assert.False(text.Contains("second generator copy"));
+    Assert.False(text.Contains("demo.tools"));
     Assert.False(text.Contains("VisibleWithinType"));
     Assert.False(text.Contains("Hidden"));
 

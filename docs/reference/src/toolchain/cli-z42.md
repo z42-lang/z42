@@ -458,7 +458,7 @@ $ z42 doc --format zdoc --pkg z42.random --out ./api
 $ z42 doc --zdoc ./api/z42.random.zdoc Std.Random.Random --members
 ```
 
-导出默认收录公开符号，`--private` 同时收录非 public 符号。`@hidden` 声明和 `@generator` 字段在导出时省略。
+导出默认收录公开符号，`--private` 同时收录非 public 符号。`@hidden` 声明和 `@for-generator` / `@generator` 文案组在导出时省略。
 用 `--zdoc` 查询只需要旁挂文件，可以查单个符号、展开成员或搜索。安装的 SDK 自带标准库文档。
 普通查询优先当前工作区的源码，再查 SDK 中工作区缺少的包。
 
