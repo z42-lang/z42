@@ -40,4 +40,11 @@ public class Delegate {
     /// 引用相等（与 `==` / `ReferenceEquals` 同判据）；非委托实参返回 false。
     [Native("__delegate_eq")]
     public extern bool Equals(object other);
+
+    /// 调用列表快照（对齐 C# `Delegate.GetInvocationList`）。
+    ///
+    /// 单播委托恒为长度 1 的数组（即自身）；null 委托为空数组。多播枚举走
+    /// `MulticastAction<T>.GetInvocationList()` 等（多播是独立类型，各自提供 strong 通道快照）。
+    [Native("__delegate_invocation_list")]
+    public extern Delegate[] GetInvocationList();
 }

@@ -27,3 +27,9 @@ public delegate R Func<T1, T2, T3, T4, R>(T1 a, T2 b, T3 c, T4 d);
 // ── Predicate：返回 bool ────────────────────────────────────────────────────
 /// 单参数、返回 bool。
 public delegate bool Predicate<T>(T arg);
+/// 双参数、返回 bool。
+public delegate bool Predicate<T1, T2>(T1 a, T2 b);
+/// 三参数、返回 bool。
+public delegate bool Predicate<T1, T2, T3>(T1 a, T2 b, T3 c);
+/// 四参数、返回 bool。
+public delegate bool Predicate<T1, T2, T3, T4>(T1 a, T2 b, T3 c, T4 d);

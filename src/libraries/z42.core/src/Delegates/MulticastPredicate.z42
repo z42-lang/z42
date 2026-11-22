@@ -59,6 +59,25 @@ public sealed class MulticastPredicate<T> {
         return new MulticastPredicateSubscription<T>(this, idx, true);
     }
 
+
+    /// strong 通道处理器的快照（COW：取之后再订阅 / 退订不影响本数组）。
+    ///
+    /// advanced 包装通道（OnceRef / WeakRef / 自定义 ISubscription）语义上不可材料化，
+    /// 不在列表内——需要枚举包装订阅时在 SubscribeAdvanced 侧自行记账。
+    public Predicate<T>[] GetInvocationList() {
+        int n = 0;
+        int i = 0;
+        while (i < this.strongCount) { if (this.strongAlive[i]) { n = n + 1; } i = i + 1; }
+        Predicate<T>[] outA = new Predicate<T>[n];
+        int k = 0;
+        i = 0;
+        while (i < this.strongCount) {
+            if (this.strongAlive[i]) { outA[k] = this.strong[i]; k = k + 1; }
+            i = i + 1;
+        }
+        return outA;
+    }
+
     /// 当前活跃订阅总数（strong + advanced）。
     public int Count() {
         int c = 0;
@@ -395,3 +414,1251 @@ public sealed class MulticastPredicateSubscription<T> : IDisposable {
         }
     }
 }
+
+// ── 2 参变体（feat/multicast-arity-family 机械生成，语义同 1 参原版）──
+
+/// 2 参多播 Predicate：Invoke 收集 bool[]，另给 All/Any 短路。
+///
+/// 双通道（strong 直持 `Predicate<T1, T2>` / advanced 持 ISubscription 包装）与 COW 快照语义
+/// 同 2 参以下的既有家族成员，见 MulticastAction 文件头注释。
+
+public sealed class MulticastPredicate<T1, T2> {
+    Predicate<T1, T2>[] strong;
+    bool[] strongAlive;
+    int strongCount;
+    int strongCapacity;
+
+    ISubscription<Predicate<T1, T2>>[] advanced;
+    bool[] advancedAlive;
+    int advancedCount;
+    int advancedCapacity;
+
+    /// 构造空的多播 Predicate。
+    public MulticastPredicate() {
+        this.strongCapacity = 4;
+        this.strong = new Predicate<T1, T2>[4];
+        this.strongAlive = new bool[4];
+        this.strongCount = 0;
+
+        this.advancedCapacity = 4;
+        this.advanced = new ISubscription<Predicate<T1, T2>>[4];
+        this.advancedAlive = new bool[4];
+        this.advancedCount = 0;
+    }
+
+    /// 订阅处理器并返回退订凭据。
+    /// @hidden
+    public IDisposable operator +=(Predicate<T1, T2> handler) { return this.Subscribe(handler); }
+
+    /// 按处理器身份退订。
+    /// @hidden
+    public void operator -=(Predicate<T1, T2> handler) { this.Unsubscribe(handler); }
+
+    /// 裸 handler 订阅 → strong 快路径（零包装开销）。
+    public IDisposable Subscribe(Predicate<T1, T2> handler) {
+        if (this.strongCount == this.strongCapacity) this.GrowStrong();
+        int idx = this.strongCount;
+        this.strong[idx] = handler;
+        this.strongAlive[idx] = true;
+        this.strongCount = this.strongCount + 1;
+        return new MulticastPredicateSubscription<T1, T2>(this, idx, false);
+    }
+
+    /// ISubscription 包装器订阅 → advanced 慢路径（OnceRef / CompositeRef / 用户自定义包装器）。
+    public IDisposable SubscribeAdvanced(ISubscription<Predicate<T1, T2>> wrapper) {
+        if (this.advancedCount == this.advancedCapacity) this.GrowAdvanced();
+        int idx = this.advancedCount;
+        this.advanced[idx] = wrapper;
+        this.advancedAlive[idx] = true;
+        this.advancedCount = this.advancedCount + 1;
+        return new MulticastPredicateSubscription<T1, T2>(this, idx, true);
+    }
+
+
+    /// strong 通道处理器的快照（COW：取之后再订阅 / 退订不影响本数组）。
+    ///
+    /// advanced 包装通道（OnceRef / WeakRef / 自定义 ISubscription）语义上不可材料化，
+    /// 不在列表内——需要枚举包装订阅时在 SubscribeAdvanced 侧自行记账。
+    public Predicate<T1, T2>[] GetInvocationList() {
+        int n = 0;
+        int i = 0;
+        while (i < this.strongCount) { if (this.strongAlive[i]) { n = n + 1; } i = i + 1; }
+        Predicate<T1, T2>[] outA = new Predicate<T1, T2>[n];
+        int k = 0;
+        i = 0;
+        while (i < this.strongCount) {
+            if (this.strongAlive[i]) { outA[k] = this.strong[i]; k = k + 1; }
+            i = i + 1;
+        }
+        return outA;
+    }
+
+    /// 当前活跃订阅总数（strong + advanced）。
+    public int Count() {
+        int c = 0;
+        int i = 0;
+        while (i < this.strongCount) {
+            if (this.strongAlive[i]) c = c + 1;
+            i = i + 1;
+        }
+        i = 0;
+        while (i < this.advancedCount) {
+            if (this.advancedAlive[i] && this.advanced[i].IsAlive()) c = c + 1;
+            i = i + 1;
+        }
+        return c;
+    }
+
+    [Suppress("style.fnLinesHard", "132 body lines；拆分见 code-organization.md")]
+    /// 触发所有活跃 handler，收集返回值进 bool[]（strong-first / advanced-after 顺序）。
+    ///
+    /// `continueOnException = false`（默认）走 fail-fast：首个抛出的异常直接传播。
+    /// `continueOnException = true` 时失败位置占 default(bool) = false，多失败聚合抛
+    /// MulticastException<bool>。
+    public bool[] Invoke(T1 a, T2 b, bool continueOnException = false) {
+        int sn = this.strongCount;
+        Predicate<T1, T2>[] snapStrong = new Predicate<T1, T2>[sn];
+        bool[] snapStrongAlive = new bool[sn];
+        int i = 0;
+        while (i < sn) {
+            snapStrong[i] = this.strong[i];
+            snapStrongAlive[i] = this.strongAlive[i];
+            i = i + 1;
+        }
+
+        int an = this.advancedCount;
+        ISubscription<Predicate<T1, T2>>[] snapAdv = new ISubscription<Predicate<T1, T2>>[an];
+        bool[] snapAdvAlive = new bool[an];
+        i = 0;
+        while (i < an) {
+            snapAdv[i] = this.advanced[i];
+            snapAdvAlive[i] = this.advancedAlive[i];
+            i = i + 1;
+        }
+
+        int total = 0;
+        i = 0;
+        while (i < sn) {
+            if (snapStrongAlive[i]) total = total + 1;
+            i = i + 1;
+        }
+        i = 0;
+        while (i < an) {
+            if (snapAdvAlive[i] && snapAdv[i].IsAlive()) total = total + 1;
+            i = i + 1;
+        }
+
+        bool[] result = new bool[total];
+        int outIdx = 0;
+
+        // ── fail-fast 路径（continueOnException=false）──
+        if (!continueOnException) {
+            i = 0;
+            while (i < sn) {
+                if (snapStrongAlive[i]) {
+                    result[outIdx] = snapStrong[i](a, b);
+                    outIdx = outIdx + 1;
+                }
+                i = i + 1;
+            }
+            i = 0;
+            while (i < an) {
+                if (snapAdvAlive[i]) {
+                    var w = snapAdv[i];
+                    if (w.IsAlive()) {
+                        result[outIdx] = w.Get()(a, b);
+                        w.OnInvoked();
+                        outIdx = outIdx + 1;
+                    }
+                }
+                i = i + 1;
+            }
+            return result;
+        }
+
+        // ── continueOnException=true 路径 ──
+        // 失败位置占 default(bool) = false；多失败聚合抛 MulticastException<bool>。
+        Exception[] failExns = new Exception[8];
+        int[] failIdx = new int[8];
+        int failCap = 8;
+        int failCount = 0;
+
+        i = 0;
+        while (i < sn) {
+            if (snapStrongAlive[i]) {
+                try {
+                    result[outIdx] = snapStrong[i](a, b);
+                } catch (Exception e) {
+                    result[outIdx] = default(bool);
+                    if (failCount == failCap) {
+                        int newCap = failCap * 2;
+                        Exception[] biggerE = new Exception[newCap];
+                        int[] biggerI = new int[newCap];
+                        int k = 0;
+                        while (k < failCount) {
+                            biggerE[k] = failExns[k];
+                            biggerI[k] = failIdx[k];
+                            k = k + 1;
+                        }
+                        failExns = biggerE;
+                        failIdx = biggerI;
+                        failCap = newCap;
+                    }
+                    failExns[failCount] = e;
+                    failIdx[failCount] = outIdx;
+                    failCount = failCount + 1;
+                }
+                outIdx = outIdx + 1;
+            }
+            i = i + 1;
+        }
+        i = 0;
+        while (i < an) {
+            if (snapAdvAlive[i]) {
+                var w = snapAdv[i];
+                if (w.IsAlive()) {
+                    try {
+                        result[outIdx] = w.Get()(a, b);
+                        w.OnInvoked();
+                    } catch (Exception e) {
+                        result[outIdx] = default(bool);
+                        if (failCount == failCap) {
+                            int newCap = failCap * 2;
+                            Exception[] biggerE = new Exception[newCap];
+                            int[] biggerI = new int[newCap];
+                            int k = 0;
+                            while (k < failCount) {
+                                biggerE[k] = failExns[k];
+                                biggerI[k] = failIdx[k];
+                                k = k + 1;
+                            }
+                            failExns = biggerE;
+                            failIdx = biggerI;
+                            failCap = newCap;
+                        }
+                        failExns[failCount] = e;
+                        failIdx[failCount] = outIdx;
+                        failCount = failCount + 1;
+                    }
+                    outIdx = outIdx + 1;
+                }
+            }
+            i = i + 1;
+        }
+
+        if (failCount > 0) {
+            Exception[] trimE = new Exception[failCount];
+            int[] trimI = new int[failCount];
+            int j = 0;
+            while (j < failCount) {
+                trimE[j] = failExns[j];
+                trimI[j] = failIdx[j];
+                j = j + 1;
+            }
+            throw new MulticastException<bool>(trimE, trimI, total, result);
+        }
+        return result;
+    }
+
+    /// 所有活跃 handler 都返回 true 时返回 true。
+    ///
+    /// 一旦遇 false 立即返回 false（短路），后续 handler 不调用。空 bus 返回 true
+    /// （vacuous truth）。
+    public bool All(T1 a, T2 b) {
+        int sn = this.strongCount;
+        Predicate<T1, T2>[] snapStrong = new Predicate<T1, T2>[sn];
+        bool[] snapStrongAlive = new bool[sn];
+        int i = 0;
+        while (i < sn) {
+            snapStrong[i] = this.strong[i];
+            snapStrongAlive[i] = this.strongAlive[i];
+            i = i + 1;
+        }
+        int an = this.advancedCount;
+        ISubscription<Predicate<T1, T2>>[] snapAdv = new ISubscription<Predicate<T1, T2>>[an];
+        bool[] snapAdvAlive = new bool[an];
+        i = 0;
+        while (i < an) {
+            snapAdv[i] = this.advanced[i];
+            snapAdvAlive[i] = this.advancedAlive[i];
+            i = i + 1;
+        }
+
+        i = 0;
+        while (i < sn) {
+            if (snapStrongAlive[i]) {
+                if (!snapStrong[i](a, b)) return false;
+            }
+            i = i + 1;
+        }
+        i = 0;
+        while (i < an) {
+            if (snapAdvAlive[i]) {
+                var w = snapAdv[i];
+                if (w.IsAlive()) {
+                    bool r = w.Get()(a, b);
+                    w.OnInvoked();
+                    if (!r) return false;
+                }
+            }
+            i = i + 1;
+        }
+        return true;
+    }
+
+    /// 任一活跃 handler 返回 true 时返回 true。
+    ///
+    /// 一旦遇 true 立即返回 true（短路）。空 bus 返回 false（vacuous existential）。
+    public bool Any(T1 a, T2 b) {
+        int sn = this.strongCount;
+        Predicate<T1, T2>[] snapStrong = new Predicate<T1, T2>[sn];
+        bool[] snapStrongAlive = new bool[sn];
+        int i = 0;
+        while (i < sn) {
+            snapStrong[i] = this.strong[i];
+            snapStrongAlive[i] = this.strongAlive[i];
+            i = i + 1;
+        }
+        int an = this.advancedCount;
+        ISubscription<Predicate<T1, T2>>[] snapAdv = new ISubscription<Predicate<T1, T2>>[an];
+        bool[] snapAdvAlive = new bool[an];
+        i = 0;
+        while (i < an) {
+            snapAdv[i] = this.advanced[i];
+            snapAdvAlive[i] = this.advancedAlive[i];
+            i = i + 1;
+        }
+
+        i = 0;
+        while (i < sn) {
+            if (snapStrongAlive[i]) {
+                if (snapStrong[i](a, b)) return true;
+            }
+            i = i + 1;
+        }
+        i = 0;
+        while (i < an) {
+            if (snapAdvAlive[i]) {
+                var w = snapAdv[i];
+                if (w.IsAlive()) {
+                    bool r = w.Get()(a, b);
+                    w.OnInvoked();
+                    if (r) return true;
+                }
+            }
+            i = i + 1;
+        }
+        return false;
+    }
+
+    /// 按 handler 取消订阅（仅扫 strong 通道；advanced 通道用 token-based dispose）。
+    public void Unsubscribe(Predicate<T1, T2> handler) {
+        int i = 0;
+        while (i < this.strongCount) {
+            if (this.strongAlive[i]) {
+                if (Delegate.ReferenceEquals(this.strong[i], handler)) {
+                    this.strongAlive[i] = false;
+                }
+            }
+            i = i + 1;
+        }
+    }
+
+    /// 内部：dispose token 入口，把对应通道的 alive[idx] 置 false。
+    public void RemoveAt(int idx, bool isAdvanced) {
+        if (isAdvanced) {
+            if (idx >= 0 && idx < this.advancedCount) {
+                this.advancedAlive[idx] = false;
+            }
+        } else {
+            if (idx >= 0 && idx < this.strongCount) {
+                this.strongAlive[idx] = false;
+            }
+        }
+    }
+
+    void GrowStrong() {
+        int newCap = this.strongCapacity * 2;
+        Predicate<T1, T2>[] biggerH = new Predicate<T1, T2>[newCap];
+        bool[] biggerA = new bool[newCap];
+        int i = 0;
+        while (i < this.strongCount) {
+            biggerH[i] = this.strong[i];
+            biggerA[i] = this.strongAlive[i];
+            i = i + 1;
+        }
+        this.strong = biggerH;
+        this.strongAlive = biggerA;
+        this.strongCapacity = newCap;
+    }
+
+    void GrowAdvanced() {
+        int newCap = this.advancedCapacity * 2;
+        ISubscription<Predicate<T1, T2>>[] biggerH = new ISubscription<Predicate<T1, T2>>[newCap];
+        bool[] biggerA = new bool[newCap];
+        int i = 0;
+        while (i < this.advancedCount) {
+            biggerH[i] = this.advanced[i];
+            biggerA[i] = this.advancedAlive[i];
+            i = i + 1;
+        }
+        this.advanced = biggerH;
+        this.advancedAlive = biggerA;
+        this.advancedCapacity = newCap;
+    }
+}
+
+/// 内部订阅 token —— Subscribe 返回它，Dispose 把 alive[idx] 置 false。
+public sealed class MulticastPredicateSubscription<T1, T2> : IDisposable {
+    MulticastPredicate<T1, T2> bus;
+    int idx;
+    bool isAdvanced;
+
+    /// 构造订阅 token。
+    public MulticastPredicateSubscription(MulticastPredicate<T1, T2> bus, int idx, bool isAdvanced) {
+        this.bus = bus;
+        this.idx = idx;
+        this.isAdvanced = isAdvanced;
+    }
+
+    /// 取消订阅：把对应通道的 alive[idx] 置 false。
+    public void Dispose() {
+        if (this.idx >= 0) {
+            this.bus.RemoveAt(this.idx, this.isAdvanced);
+            this.idx = -1;
+        }
+    }
+}
+
+
+// ── 3 参变体（feat/multicast-arity-family 机械生成，语义同 1 参原版）──
+
+/// 3 参多播 Predicate：Invoke 收集 bool[]，另给 All/Any 短路。
+///
+/// 双通道（strong 直持 `Predicate<T1, T2, T3>` / advanced 持 ISubscription 包装）与 COW 快照语义
+/// 同 3 参以下的既有家族成员，见 MulticastAction 文件头注释。
+
+public sealed class MulticastPredicate<T1, T2, T3> {
+    Predicate<T1, T2, T3>[] strong;
+    bool[] strongAlive;
+    int strongCount;
+    int strongCapacity;
+
+    ISubscription<Predicate<T1, T2, T3>>[] advanced;
+    bool[] advancedAlive;
+    int advancedCount;
+    int advancedCapacity;
+
+    /// 构造空的多播 Predicate。
+    public MulticastPredicate() {
+        this.strongCapacity = 4;
+        this.strong = new Predicate<T1, T2, T3>[4];
+        this.strongAlive = new bool[4];
+        this.strongCount = 0;
+
+        this.advancedCapacity = 4;
+        this.advanced = new ISubscription<Predicate<T1, T2, T3>>[4];
+        this.advancedAlive = new bool[4];
+        this.advancedCount = 0;
+    }
+
+    /// 订阅处理器并返回退订凭据。
+    /// @hidden
+    public IDisposable operator +=(Predicate<T1, T2, T3> handler) { return this.Subscribe(handler); }
+
+    /// 按处理器身份退订。
+    /// @hidden
+    public void operator -=(Predicate<T1, T2, T3> handler) { this.Unsubscribe(handler); }
+
+    /// 裸 handler 订阅 → strong 快路径（零包装开销）。
+    public IDisposable Subscribe(Predicate<T1, T2, T3> handler) {
+        if (this.strongCount == this.strongCapacity) this.GrowStrong();
+        int idx = this.strongCount;
+        this.strong[idx] = handler;
+        this.strongAlive[idx] = true;
+        this.strongCount = this.strongCount + 1;
+        return new MulticastPredicateSubscription<T1, T2, T3>(this, idx, false);
+    }
+
+    /// ISubscription 包装器订阅 → advanced 慢路径（OnceRef / CompositeRef / 用户自定义包装器）。
+    public IDisposable SubscribeAdvanced(ISubscription<Predicate<T1, T2, T3>> wrapper) {
+        if (this.advancedCount == this.advancedCapacity) this.GrowAdvanced();
+        int idx = this.advancedCount;
+        this.advanced[idx] = wrapper;
+        this.advancedAlive[idx] = true;
+        this.advancedCount = this.advancedCount + 1;
+        return new MulticastPredicateSubscription<T1, T2, T3>(this, idx, true);
+    }
+
+
+    /// strong 通道处理器的快照（COW：取之后再订阅 / 退订不影响本数组）。
+    ///
+    /// advanced 包装通道（OnceRef / WeakRef / 自定义 ISubscription）语义上不可材料化，
+    /// 不在列表内——需要枚举包装订阅时在 SubscribeAdvanced 侧自行记账。
+    public Predicate<T1, T2, T3>[] GetInvocationList() {
+        int n = 0;
+        int i = 0;
+        while (i < this.strongCount) { if (this.strongAlive[i]) { n = n + 1; } i = i + 1; }
+        Predicate<T1, T2, T3>[] outA = new Predicate<T1, T2, T3>[n];
+        int k = 0;
+        i = 0;
+        while (i < this.strongCount) {
+            if (this.strongAlive[i]) { outA[k] = this.strong[i]; k = k + 1; }
+            i = i + 1;
+        }
+        return outA;
+    }
+
+    /// 当前活跃订阅总数（strong + advanced）。
+    public int Count() {
+        int c = 0;
+        int i = 0;
+        while (i < this.strongCount) {
+            if (this.strongAlive[i]) c = c + 1;
+            i = i + 1;
+        }
+        i = 0;
+        while (i < this.advancedCount) {
+            if (this.advancedAlive[i] && this.advanced[i].IsAlive()) c = c + 1;
+            i = i + 1;
+        }
+        return c;
+    }
+
+    [Suppress("style.fnLinesHard", "132 body lines；拆分见 code-organization.md")]
+    /// 触发所有活跃 handler，收集返回值进 bool[]（strong-first / advanced-after 顺序）。
+    ///
+    /// `continueOnException = false`（默认）走 fail-fast：首个抛出的异常直接传播。
+    /// `continueOnException = true` 时失败位置占 default(bool) = false，多失败聚合抛
+    /// MulticastException<bool>。
+    public bool[] Invoke(T1 a, T2 b, T3 c, bool continueOnException = false) {
+        int sn = this.strongCount;
+        Predicate<T1, T2, T3>[] snapStrong = new Predicate<T1, T2, T3>[sn];
+        bool[] snapStrongAlive = new bool[sn];
+        int i = 0;
+        while (i < sn) {
+            snapStrong[i] = this.strong[i];
+            snapStrongAlive[i] = this.strongAlive[i];
+            i = i + 1;
+        }
+
+        int an = this.advancedCount;
+        ISubscription<Predicate<T1, T2, T3>>[] snapAdv = new ISubscription<Predicate<T1, T2, T3>>[an];
+        bool[] snapAdvAlive = new bool[an];
+        i = 0;
+        while (i < an) {
+            snapAdv[i] = this.advanced[i];
+            snapAdvAlive[i] = this.advancedAlive[i];
+            i = i + 1;
+        }
+
+        int total = 0;
+        i = 0;
+        while (i < sn) {
+            if (snapStrongAlive[i]) total = total + 1;
+            i = i + 1;
+        }
+        i = 0;
+        while (i < an) {
+            if (snapAdvAlive[i] && snapAdv[i].IsAlive()) total = total + 1;
+            i = i + 1;
+        }
+
+        bool[] result = new bool[total];
+        int outIdx = 0;
+
+        // ── fail-fast 路径（continueOnException=false）──
+        if (!continueOnException) {
+            i = 0;
+            while (i < sn) {
+                if (snapStrongAlive[i]) {
+                    result[outIdx] = snapStrong[i](a, b, c);
+                    outIdx = outIdx + 1;
+                }
+                i = i + 1;
+            }
+            i = 0;
+            while (i < an) {
+                if (snapAdvAlive[i]) {
+                    var w = snapAdv[i];
+                    if (w.IsAlive()) {
+                        result[outIdx] = w.Get()(a, b, c);
+                        w.OnInvoked();
+                        outIdx = outIdx + 1;
+                    }
+                }
+                i = i + 1;
+            }
+            return result;
+        }
+
+        // ── continueOnException=true 路径 ──
+        // 失败位置占 default(bool) = false；多失败聚合抛 MulticastException<bool>。
+        Exception[] failExns = new Exception[8];
+        int[] failIdx = new int[8];
+        int failCap = 8;
+        int failCount = 0;
+
+        i = 0;
+        while (i < sn) {
+            if (snapStrongAlive[i]) {
+                try {
+                    result[outIdx] = snapStrong[i](a, b, c);
+                } catch (Exception e) {
+                    result[outIdx] = default(bool);
+                    if (failCount == failCap) {
+                        int newCap = failCap * 2;
+                        Exception[] biggerE = new Exception[newCap];
+                        int[] biggerI = new int[newCap];
+                        int k = 0;
+                        while (k < failCount) {
+                            biggerE[k] = failExns[k];
+                            biggerI[k] = failIdx[k];
+                            k = k + 1;
+                        }
+                        failExns = biggerE;
+                        failIdx = biggerI;
+                        failCap = newCap;
+                    }
+                    failExns[failCount] = e;
+                    failIdx[failCount] = outIdx;
+                    failCount = failCount + 1;
+                }
+                outIdx = outIdx + 1;
+            }
+            i = i + 1;
+        }
+        i = 0;
+        while (i < an) {
+            if (snapAdvAlive[i]) {
+                var w = snapAdv[i];
+                if (w.IsAlive()) {
+                    try {
+                        result[outIdx] = w.Get()(a, b, c);
+                        w.OnInvoked();
+                    } catch (Exception e) {
+                        result[outIdx] = default(bool);
+                        if (failCount == failCap) {
+                            int newCap = failCap * 2;
+                            Exception[] biggerE = new Exception[newCap];
+                            int[] biggerI = new int[newCap];
+                            int k = 0;
+                            while (k < failCount) {
+                                biggerE[k] = failExns[k];
+                                biggerI[k] = failIdx[k];
+                                k = k + 1;
+                            }
+                            failExns = biggerE;
+                            failIdx = biggerI;
+                            failCap = newCap;
+                        }
+                        failExns[failCount] = e;
+                        failIdx[failCount] = outIdx;
+                        failCount = failCount + 1;
+                    }
+                    outIdx = outIdx + 1;
+                }
+            }
+            i = i + 1;
+        }
+
+        if (failCount > 0) {
+            Exception[] trimE = new Exception[failCount];
+            int[] trimI = new int[failCount];
+            int j = 0;
+            while (j < failCount) {
+                trimE[j] = failExns[j];
+                trimI[j] = failIdx[j];
+                j = j + 1;
+            }
+            throw new MulticastException<bool>(trimE, trimI, total, result);
+        }
+        return result;
+    }
+
+    /// 所有活跃 handler 都返回 true 时返回 true。
+    ///
+    /// 一旦遇 false 立即返回 false（短路），后续 handler 不调用。空 bus 返回 true
+    /// （vacuous truth）。
+    public bool All(T1 a, T2 b, T3 c) {
+        int sn = this.strongCount;
+        Predicate<T1, T2, T3>[] snapStrong = new Predicate<T1, T2, T3>[sn];
+        bool[] snapStrongAlive = new bool[sn];
+        int i = 0;
+        while (i < sn) {
+            snapStrong[i] = this.strong[i];
+            snapStrongAlive[i] = this.strongAlive[i];
+            i = i + 1;
+        }
+        int an = this.advancedCount;
+        ISubscription<Predicate<T1, T2, T3>>[] snapAdv = new ISubscription<Predicate<T1, T2, T3>>[an];
+        bool[] snapAdvAlive = new bool[an];
+        i = 0;
+        while (i < an) {
+            snapAdv[i] = this.advanced[i];
+            snapAdvAlive[i] = this.advancedAlive[i];
+            i = i + 1;
+        }
+
+        i = 0;
+        while (i < sn) {
+            if (snapStrongAlive[i]) {
+                if (!snapStrong[i](a, b, c)) return false;
+            }
+            i = i + 1;
+        }
+        i = 0;
+        while (i < an) {
+            if (snapAdvAlive[i]) {
+                var w = snapAdv[i];
+                if (w.IsAlive()) {
+                    bool r = w.Get()(a, b, c);
+                    w.OnInvoked();
+                    if (!r) return false;
+                }
+            }
+            i = i + 1;
+        }
+        return true;
+    }
+
+    /// 任一活跃 handler 返回 true 时返回 true。
+    ///
+    /// 一旦遇 true 立即返回 true（短路）。空 bus 返回 false（vacuous existential）。
+    public bool Any(T1 a, T2 b, T3 c) {
+        int sn = this.strongCount;
+        Predicate<T1, T2, T3>[] snapStrong = new Predicate<T1, T2, T3>[sn];
+        bool[] snapStrongAlive = new bool[sn];
+        int i = 0;
+        while (i < sn) {
+            snapStrong[i] = this.strong[i];
+            snapStrongAlive[i] = this.strongAlive[i];
+            i = i + 1;
+        }
+        int an = this.advancedCount;
+        ISubscription<Predicate<T1, T2, T3>>[] snapAdv = new ISubscription<Predicate<T1, T2, T3>>[an];
+        bool[] snapAdvAlive = new bool[an];
+        i = 0;
+        while (i < an) {
+            snapAdv[i] = this.advanced[i];
+            snapAdvAlive[i] = this.advancedAlive[i];
+            i = i + 1;
+        }
+
+        i = 0;
+        while (i < sn) {
+            if (snapStrongAlive[i]) {
+                if (snapStrong[i](a, b, c)) return true;
+            }
+            i = i + 1;
+        }
+        i = 0;
+        while (i < an) {
+            if (snapAdvAlive[i]) {
+                var w = snapAdv[i];
+                if (w.IsAlive()) {
+                    bool r = w.Get()(a, b, c);
+                    w.OnInvoked();
+                    if (r) return true;
+                }
+            }
+            i = i + 1;
+        }
+        return false;
+    }
+
+    /// 按 handler 取消订阅（仅扫 strong 通道；advanced 通道用 token-based dispose）。
+    public void Unsubscribe(Predicate<T1, T2, T3> handler) {
+        int i = 0;
+        while (i < this.strongCount) {
+            if (this.strongAlive[i]) {
+                if (Delegate.ReferenceEquals(this.strong[i], handler)) {
+                    this.strongAlive[i] = false;
+                }
+            }
+            i = i + 1;
+        }
+    }
+
+    /// 内部：dispose token 入口，把对应通道的 alive[idx] 置 false。
+    public void RemoveAt(int idx, bool isAdvanced) {
+        if (isAdvanced) {
+            if (idx >= 0 && idx < this.advancedCount) {
+                this.advancedAlive[idx] = false;
+            }
+        } else {
+            if (idx >= 0 && idx < this.strongCount) {
+                this.strongAlive[idx] = false;
+            }
+        }
+    }
+
+    void GrowStrong() {
+        int newCap = this.strongCapacity * 2;
+        Predicate<T1, T2, T3>[] biggerH = new Predicate<T1, T2, T3>[newCap];
+        bool[] biggerA = new bool[newCap];
+        int i = 0;
+        while (i < this.strongCount) {
+            biggerH[i] = this.strong[i];
+            biggerA[i] = this.strongAlive[i];
+            i = i + 1;
+        }
+        this.strong = biggerH;
+        this.strongAlive = biggerA;
+        this.strongCapacity = newCap;
+    }
+
+    void GrowAdvanced() {
+        int newCap = this.advancedCapacity * 2;
+        ISubscription<Predicate<T1, T2, T3>>[] biggerH = new ISubscription<Predicate<T1, T2, T3>>[newCap];
+        bool[] biggerA = new bool[newCap];
+        int i = 0;
+        while (i < this.advancedCount) {
+            biggerH[i] = this.advanced[i];
+            biggerA[i] = this.advancedAlive[i];
+            i = i + 1;
+        }
+        this.advanced = biggerH;
+        this.advancedAlive = biggerA;
+        this.advancedCapacity = newCap;
+    }
+}
+
+/// 内部订阅 token —— Subscribe 返回它，Dispose 把 alive[idx] 置 false。
+public sealed class MulticastPredicateSubscription<T1, T2, T3> : IDisposable {
+    MulticastPredicate<T1, T2, T3> bus;
+    int idx;
+    bool isAdvanced;
+
+    /// 构造订阅 token。
+    public MulticastPredicateSubscription(MulticastPredicate<T1, T2, T3> bus, int idx, bool isAdvanced) {
+        this.bus = bus;
+        this.idx = idx;
+        this.isAdvanced = isAdvanced;
+    }
+
+    /// 取消订阅：把对应通道的 alive[idx] 置 false。
+    public void Dispose() {
+        if (this.idx >= 0) {
+            this.bus.RemoveAt(this.idx, this.isAdvanced);
+            this.idx = -1;
+        }
+    }
+}
+
+
+// ── 4 参变体（feat/multicast-arity-family 机械生成，语义同 1 参原版）──
+
+/// 4 参多播 Predicate：Invoke 收集 bool[]，另给 All/Any 短路。
+///
+/// 双通道（strong 直持 `Predicate<T1, T2, T3, T4>` / advanced 持 ISubscription 包装）与 COW 快照语义
+/// 同 4 参以下的既有家族成员，见 MulticastAction 文件头注释。
+
+public sealed class MulticastPredicate<T1, T2, T3, T4> {
+    Predicate<T1, T2, T3, T4>[] strong;
+    bool[] strongAlive;
+    int strongCount;
+    int strongCapacity;
+
+    ISubscription<Predicate<T1, T2, T3, T4>>[] advanced;
+    bool[] advancedAlive;
+    int advancedCount;
+    int advancedCapacity;
+
+    /// 构造空的多播 Predicate。
+    public MulticastPredicate() {
+        this.strongCapacity = 4;
+        this.strong = new Predicate<T1, T2, T3, T4>[4];
+        this.strongAlive = new bool[4];
+        this.strongCount = 0;
+
+        this.advancedCapacity = 4;
+        this.advanced = new ISubscription<Predicate<T1, T2, T3, T4>>[4];
+        this.advancedAlive = new bool[4];
+        this.advancedCount = 0;
+    }
+
+    /// 订阅处理器并返回退订凭据。
+    /// @hidden
+    public IDisposable operator +=(Predicate<T1, T2, T3, T4> handler) { return this.Subscribe(handler); }
+
+    /// 按处理器身份退订。
+    /// @hidden
+    public void operator -=(Predicate<T1, T2, T3, T4> handler) { this.Unsubscribe(handler); }
+
+    /// 裸 handler 订阅 → strong 快路径（零包装开销）。
+    public IDisposable Subscribe(Predicate<T1, T2, T3, T4> handler) {
+        if (this.strongCount == this.strongCapacity) this.GrowStrong();
+        int idx = this.strongCount;
+        this.strong[idx] = handler;
+        this.strongAlive[idx] = true;
+        this.strongCount = this.strongCount + 1;
+        return new MulticastPredicateSubscription<T1, T2, T3, T4>(this, idx, false);
+    }
+
+    /// ISubscription 包装器订阅 → advanced 慢路径（OnceRef / CompositeRef / 用户自定义包装器）。
+    public IDisposable SubscribeAdvanced(ISubscription<Predicate<T1, T2, T3, T4>> wrapper) {
+        if (this.advancedCount == this.advancedCapacity) this.GrowAdvanced();
+        int idx = this.advancedCount;
+        this.advanced[idx] = wrapper;
+        this.advancedAlive[idx] = true;
+        this.advancedCount = this.advancedCount + 1;
+        return new MulticastPredicateSubscription<T1, T2, T3, T4>(this, idx, true);
+    }
+
+
+    /// strong 通道处理器的快照（COW：取之后再订阅 / 退订不影响本数组）。
+    ///
+    /// advanced 包装通道（OnceRef / WeakRef / 自定义 ISubscription）语义上不可材料化，
+    /// 不在列表内——需要枚举包装订阅时在 SubscribeAdvanced 侧自行记账。
+    public Predicate<T1, T2, T3, T4>[] GetInvocationList() {
+        int n = 0;
+        int i = 0;
+        while (i < this.strongCount) { if (this.strongAlive[i]) { n = n + 1; } i = i + 1; }
+        Predicate<T1, T2, T3, T4>[] outA = new Predicate<T1, T2, T3, T4>[n];
+        int k = 0;
+        i = 0;
+        while (i < this.strongCount) {
+            if (this.strongAlive[i]) { outA[k] = this.strong[i]; k = k + 1; }
+            i = i + 1;
+        }
+        return outA;
+    }
+
+    /// 当前活跃订阅总数（strong + advanced）。
+    public int Count() {
+        int c = 0;
+        int i = 0;
+        while (i < this.strongCount) {
+            if (this.strongAlive[i]) c = c + 1;
+            i = i + 1;
+        }
+        i = 0;
+        while (i < this.advancedCount) {
+            if (this.advancedAlive[i] && this.advanced[i].IsAlive()) c = c + 1;
+            i = i + 1;
+        }
+        return c;
+    }
+
+    [Suppress("style.fnLinesHard", "132 body lines；拆分见 code-organization.md")]
+    /// 触发所有活跃 handler，收集返回值进 bool[]（strong-first / advanced-after 顺序）。
+    ///
+    /// `continueOnException = false`（默认）走 fail-fast：首个抛出的异常直接传播。
+    /// `continueOnException = true` 时失败位置占 default(bool) = false，多失败聚合抛
+    /// MulticastException<bool>。
+    public bool[] Invoke(T1 a, T2 b, T3 c, T4 d, bool continueOnException = false) {
+        int sn = this.strongCount;
+        Predicate<T1, T2, T3, T4>[] snapStrong = new Predicate<T1, T2, T3, T4>[sn];
+        bool[] snapStrongAlive = new bool[sn];
+        int i = 0;
+        while (i < sn) {
+            snapStrong[i] = this.strong[i];
+            snapStrongAlive[i] = this.strongAlive[i];
+            i = i + 1;
+        }
+
+        int an = this.advancedCount;
+        ISubscription<Predicate<T1, T2, T3, T4>>[] snapAdv = new ISubscription<Predicate<T1, T2, T3, T4>>[an];
+        bool[] snapAdvAlive = new bool[an];
+        i = 0;
+        while (i < an) {
+            snapAdv[i] = this.advanced[i];
+            snapAdvAlive[i] = this.advancedAlive[i];
+            i = i + 1;
+        }
+
+        int total = 0;
+        i = 0;
+        while (i < sn) {
+            if (snapStrongAlive[i]) total = total + 1;
+            i = i + 1;
+        }
+        i = 0;
+        while (i < an) {
+            if (snapAdvAlive[i] && snapAdv[i].IsAlive()) total = total + 1;
+            i = i + 1;
+        }
+
+        bool[] result = new bool[total];
+        int outIdx = 0;
+
+        // ── fail-fast 路径（continueOnException=false）──
+        if (!continueOnException) {
+            i = 0;
+            while (i < sn) {
+                if (snapStrongAlive[i]) {
+                    result[outIdx] = snapStrong[i](a, b, c, d);
+                    outIdx = outIdx + 1;
+                }
+                i = i + 1;
+            }
+            i = 0;
+            while (i < an) {
+                if (snapAdvAlive[i]) {
+                    var w = snapAdv[i];
+                    if (w.IsAlive()) {
+                        result[outIdx] = w.Get()(a, b, c, d);
+                        w.OnInvoked();
+                        outIdx = outIdx + 1;
+                    }
+                }
+                i = i + 1;
+            }
+            return result;
+        }
+
+        // ── continueOnException=true 路径 ──
+        // 失败位置占 default(bool) = false；多失败聚合抛 MulticastException<bool>。
+        Exception[] failExns = new Exception[8];
+        int[] failIdx = new int[8];
+        int failCap = 8;
+        int failCount = 0;
+
+        i = 0;
+        while (i < sn) {
+            if (snapStrongAlive[i]) {
+                try {
+                    result[outIdx] = snapStrong[i](a, b, c, d);
+                } catch (Exception e) {
+                    result[outIdx] = default(bool);
+                    if (failCount == failCap) {
+                        int newCap = failCap * 2;
+                        Exception[] biggerE = new Exception[newCap];
+                        int[] biggerI = new int[newCap];
+                        int k = 0;
+                        while (k < failCount) {
+                            biggerE[k] = failExns[k];
+                            biggerI[k] = failIdx[k];
+                            k = k + 1;
+                        }
+                        failExns = biggerE;
+                        failIdx = biggerI;
+                        failCap = newCap;
+                    }
+                    failExns[failCount] = e;
+                    failIdx[failCount] = outIdx;
+                    failCount = failCount + 1;
+                }
+                outIdx = outIdx + 1;
+            }
+            i = i + 1;
+        }
+        i = 0;
+        while (i < an) {
+            if (snapAdvAlive[i]) {
+                var w = snapAdv[i];
+                if (w.IsAlive()) {
+                    try {
+                        result[outIdx] = w.Get()(a, b, c, d);
+                        w.OnInvoked();
+                    } catch (Exception e) {
+                        result[outIdx] = default(bool);
+                        if (failCount == failCap) {
+                            int newCap = failCap * 2;
+                            Exception[] biggerE = new Exception[newCap];
+                            int[] biggerI = new int[newCap];
+                            int k = 0;
+                            while (k < failCount) {
+                                biggerE[k] = failExns[k];
+                                biggerI[k] = failIdx[k];
+                                k = k + 1;
+                            }
+                            failExns = biggerE;
+                            failIdx = biggerI;
+                            failCap = newCap;
+                        }
+                        failExns[failCount] = e;
+                        failIdx[failCount] = outIdx;
+                        failCount = failCount + 1;
+                    }
+                    outIdx = outIdx + 1;
+                }
+            }
+            i = i + 1;
+        }
+
+        if (failCount > 0) {
+            Exception[] trimE = new Exception[failCount];
+            int[] trimI = new int[failCount];
+            int j = 0;
+            while (j < failCount) {
+                trimE[j] = failExns[j];
+                trimI[j] = failIdx[j];
+                j = j + 1;
+            }
+            throw new MulticastException<bool>(trimE, trimI, total, result);
+        }
+        return result;
+    }
+
+    /// 所有活跃 handler 都返回 true 时返回 true。
+    ///
+    /// 一旦遇 false 立即返回 false（短路），后续 handler 不调用。空 bus 返回 true
+    /// （vacuous truth）。
+    public bool All(T1 a, T2 b, T3 c, T4 d) {
+        int sn = this.strongCount;
+        Predicate<T1, T2, T3, T4>[] snapStrong = new Predicate<T1, T2, T3, T4>[sn];
+        bool[] snapStrongAlive = new bool[sn];
+        int i = 0;
+        while (i < sn) {
+            snapStrong[i] = this.strong[i];
+            snapStrongAlive[i] = this.strongAlive[i];
+            i = i + 1;
+        }
+        int an = this.advancedCount;
+        ISubscription<Predicate<T1, T2, T3, T4>>[] snapAdv = new ISubscription<Predicate<T1, T2, T3, T4>>[an];
+        bool[] snapAdvAlive = new bool[an];
+        i = 0;
+        while (i < an) {
+            snapAdv[i] = this.advanced[i];
+            snapAdvAlive[i] = this.advancedAlive[i];
+            i = i + 1;
+        }
+
+        i = 0;
+        while (i < sn) {
+            if (snapStrongAlive[i]) {
+                if (!snapStrong[i](a, b, c, d)) return false;
+            }
+            i = i + 1;
+        }
+        i = 0;
+        while (i < an) {
+            if (snapAdvAlive[i]) {
+                var w = snapAdv[i];
+                if (w.IsAlive()) {
+                    bool r = w.Get()(a, b, c, d);
+                    w.OnInvoked();
+                    if (!r) return false;
+                }
+            }
+            i = i + 1;
+        }
+        return true;
+    }
+
+    /// 任一活跃 handler 返回 true 时返回 true。
+    ///
+    /// 一旦遇 true 立即返回 true（短路）。空 bus 返回 false（vacuous existential）。
+    public bool Any(T1 a, T2 b, T3 c, T4 d) {
+        int sn = this.strongCount;
+        Predicate<T1, T2, T3, T4>[] snapStrong = new Predicate<T1, T2, T3, T4>[sn];
+        bool[] snapStrongAlive = new bool[sn];
+        int i = 0;
+        while (i < sn) {
+            snapStrong[i] = this.strong[i];
+            snapStrongAlive[i] = this.strongAlive[i];
+            i = i + 1;
+        }
+        int an = this.advancedCount;
+        ISubscription<Predicate<T1, T2, T3, T4>>[] snapAdv = new ISubscription<Predicate<T1, T2, T3, T4>>[an];
+        bool[] snapAdvAlive = new bool[an];
+        i = 0;
+        while (i < an) {
+            snapAdv[i] = this.advanced[i];
+            snapAdvAlive[i] = this.advancedAlive[i];
+            i = i + 1;
+        }
+
+        i = 0;
+        while (i < sn) {
+            if (snapStrongAlive[i]) {
+                if (snapStrong[i](a, b, c, d)) return true;
+            }
+            i = i + 1;
+        }
+        i = 0;
+        while (i < an) {
+            if (snapAdvAlive[i]) {
+                var w = snapAdv[i];
+                if (w.IsAlive()) {
+                    bool r = w.Get()(a, b, c, d);
+                    w.OnInvoked();
+                    if (r) return true;
+                }
+            }
+            i = i + 1;
+        }
+        return false;
+    }
+
+    /// 按 handler 取消订阅（仅扫 strong 通道；advanced 通道用 token-based dispose）。
+    public void Unsubscribe(Predicate<T1, T2, T3, T4> handler) {
+        int i = 0;
+        while (i < this.strongCount) {
+            if (this.strongAlive[i]) {
+                if (Delegate.ReferenceEquals(this.strong[i], handler)) {
+                    this.strongAlive[i] = false;
+                }
+            }
+            i = i + 1;
+        }
+    }
+
+    /// 内部：dispose token 入口，把对应通道的 alive[idx] 置 false。
+    public void RemoveAt(int idx, bool isAdvanced) {
+        if (isAdvanced) {
+            if (idx >= 0 && idx < this.advancedCount) {
+                this.advancedAlive[idx] = false;
+            }
+        } else {
+            if (idx >= 0 && idx < this.strongCount) {
+                this.strongAlive[idx] = false;
+            }
+        }
+    }
+
+    void GrowStrong() {
+        int newCap = this.strongCapacity * 2;
+        Predicate<T1, T2, T3, T4>[] biggerH = new Predicate<T1, T2, T3, T4>[newCap];
+        bool[] biggerA = new bool[newCap];
+        int i = 0;
+        while (i < this.strongCount) {
+            biggerH[i] = this.strong[i];
+            biggerA[i] = this.strongAlive[i];
+            i = i + 1;
+        }
+        this.strong = biggerH;
+        this.strongAlive = biggerA;
+        this.strongCapacity = newCap;
+    }
+
+    void GrowAdvanced() {
+        int newCap = this.advancedCapacity * 2;
+        ISubscription<Predicate<T1, T2, T3, T4>>[] biggerH = new ISubscription<Predicate<T1, T2, T3, T4>>[newCap];
+        bool[] biggerA = new bool[newCap];
+        int i = 0;
+        while (i < this.advancedCount) {
+            biggerH[i] = this.advanced[i];
+            biggerA[i] = this.advancedAlive[i];
+            i = i + 1;
+        }
+        this.advanced = biggerH;
+        this.advancedAlive = biggerA;
+        this.advancedCapacity = newCap;
+    }
+}
+
+/// 内部订阅 token —— Subscribe 返回它，Dispose 把 alive[idx] 置 false。
+public sealed class MulticastPredicateSubscription<T1, T2, T3, T4> : IDisposable {
+    MulticastPredicate<T1, T2, T3, T4> bus;
+    int idx;
+    bool isAdvanced;
+
+    /// 构造订阅 token。
+    public MulticastPredicateSubscription(MulticastPredicate<T1, T2, T3, T4> bus, int idx, bool isAdvanced) {
+        this.bus = bus;
+        this.idx = idx;
+        this.isAdvanced = isAdvanced;
+    }
+
+    /// 取消订阅：把对应通道的 alive[idx] 置 false。
+    public void Dispose() {
+        if (this.idx >= 0) {
+            this.bus.RemoveAt(this.idx, this.isAdvanced);
+            this.idx = -1;
+        }
+    }
+}
+
