@@ -61,11 +61,28 @@ tag 区从第一个行首 `@` 开始，每个 tag 独占一行，续行缩进 �
 | `@warning` | `@warning 说明` | 醒目提示（线程安全、非 CSPRNG 之类） |
 | `@example` | `@example [run\|no_run\|compile_fail\|ignore]`，下一行起缩进 4 格写代码 | 示例；也是 doctest 的来源（`z42 test --doc`，尚未接，见「不支持」） |
 | `@hidden` | `@hidden` | public 但不进文档（跨包用的内部入口） |
-| `@generator` | `@generator 包名/字段 文本` | 构建插件专用的单行纯文本 |
+| `@for-generator` | `@for-generator 包名[/生成器 ID]` | 开始一组构建插件专用字段 |
+| `@generator` | `@generator 字段 文本` | 当前组的一条单行纯文本 |
 
-`@generator` 从去掉 `/// ` 后的行首开始。键的包名段使用小写字母、数字、点或连字符，
-字段段使用小写字母、数字或连字符。每个声明上同一个键只写一次。专用文本从
-`z42 doc` 的文本和 JSON 输出以及生成的参考页中省略。需要公开说明时，另写在摘要或正文里。
+两个 tag 都从去掉 `/// ` 后的行首开始。先写 `@for-generator`，再写一个或多个 `@generator`。
+下一条 `@for-generator`、普通 doc tag 或注释末尾结束当前组。包名用小写字母、数字、点或连字符。
+独立插件可直接用包名。同一个插件提供多个生成器时，可加 `/生成器 ID`，ID 和字段使用小写字母、数字或连字符。
+同一声明中的同一目标和字段只能出现一次，不同生成器可以使用同名字段。
+
+```z42
+enum Mode {
+    /// 只使用 JIT 执行，跳过解释器。
+    /// @for-generator z42.cli.help
+    /// @generator choice-help 仅使用 JIT
+    /// @for-generator demo.tools/completion
+    /// @generator choice-help 在补全菜单显示的文字
+    JitOnly,
+}
+```
+
+是否加载哪个插件由工程清单配置。专用 tag 只是构建工具的输入，doc 工具始终从文本查询、JSON、
+生成参考页与公开文档资产中剔除两种 tag 和专用内容。即使某个插件没有安装或没有启用，这条规则也适用。
+需要公开说明时，把它写在摘要或正文里。
 
 **类型位置参数**（`[Record]` / 主构造器的参数）不用 `@param`：参数直接各带一行 `///`，挂到展开后的字段上
 （见 [`[Record]` 与主构造器](record-attribute.md)）：
