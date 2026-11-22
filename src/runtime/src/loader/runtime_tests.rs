@@ -25,7 +25,7 @@ fn lookup_and_queue_drain_need_no_vm_heap_or_execution_engine() {
 
 #[test]
 fn context_load_registers_a_private_assembly_and_rejects_inactive_contexts() {
-    use crate::loader::contexts::ContextLoadError;
+    use crate::loader::contexts::{ContextLoadError, UnloadOutcome};
 
     static CATALOG: crate::metadata::builtins::BuiltinCatalog =
         crate::metadata::builtins::BuiltinCatalog::new(&[]);
@@ -41,7 +41,7 @@ fn context_load_registers_a_private_assembly_and_rejects_inactive_contexts() {
     let events = crate::diagnostics::RuntimeObserverRegistry::new();
     let loader = RuntimeLoader::new(&state, &metadata, &cache, &events);
     loader.install_lazy_loader(None, 0);
-    let context = state.context_registry.lock().create_collectible("plugins");
+    let context = loader.create_collectible_context("plugins");
 
     assert!(matches!(
         loader.load_context_artifact(context, "/missing.zbc"),
@@ -50,19 +50,16 @@ fn context_load_registers_a_private_assembly_and_rejects_inactive_contexts() {
     let assembly = loader
         .load_context_artifact(context, "/fixtures/plugin.zbc")
         .unwrap();
-    let functions = {
-        let registry = state.context_registry.lock();
-        assert_eq!(registry.assembly_name(assembly).as_deref(), Some("plugin"));
-        assert_eq!(registry.context_assemblies(context), [assembly]);
-        registry.assembly_function_names(assembly)
-    };
+    assert_eq!(loader.assembly_name(assembly).as_deref(), Some("plugin"));
+    assert_eq!(loader.context_assemblies(context), [assembly]);
+    let functions = loader.assembly_function_names(assembly);
     assert!(!functions.is_empty());
     assert!(functions.iter().all(|name| loader.try_lookup_function(name).is_none()));
 
-    state.context_registry.lock().unload(context);
+    assert_eq!(loader.unload_context(context), UnloadOutcome::Marked);
     assert!(matches!(
         loader.load_context_artifact(context, "/missing.zbc"),
         Err(ContextLoadError::Inactive)
     ));
-    assert_eq!(state.context_registry.lock().context_assemblies(context), [assembly]);
+    assert_eq!(loader.context_assemblies(context), [assembly]);
 }
