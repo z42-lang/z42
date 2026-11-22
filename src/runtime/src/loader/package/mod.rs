@@ -16,14 +16,17 @@ use crate::metadata::Module;
 use crate::loader::locate::namespace::extract_import_namespaces_from_module;
 use crate::metadata::types::{build_type_registry, verify_constraints};
 use crate::zpkg::format::{ZpkgDep, ZBC_MAGIC, ZPKG_MAGIC};
-use crate::loader::package::merge::merge_modules;
 use crate::zpkg::reader::{
     parse_zbc_sidecar, parse_zpkg_sidecar, read_build_id, read_zbc, read_zpkg_file_entries,
     read_zpkg_meta, read_zpkg_modules,
 };
 
+use crate::loader::package::merge::merge_modules;
+pub mod artifact;
+/// Intra-zpkg assembly: a package's internal compilation units merge into
+/// its single module at decode (zpkg-format semantics; the eager cross-package
+/// merge is retired — merge-retirement M4).
 pub mod merge;
-mod artifact;
 mod indices;
 
 pub use artifact::LoadedArtifact;

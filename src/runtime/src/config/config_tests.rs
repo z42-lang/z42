@@ -738,8 +738,6 @@ const TEST_ONLY_ENV_NAMES: &[&str] = &[
     "Z42_DEFINITELY_NOT_SET_XYZZY_KEY",
     "Z42_PARENT_VAR",
     "Z42_STRESS_SEED", // 压力测试种子，与 Z42_STRESS_ITERS 成对；仅测试代码消费
-    "Z42_NO_EAGER_MERGE", // merge 退役 M1 双轨开关（旧名，保留一个过渡期）
-    "Z42_EAGER_MERGE", // merge 退役 M4 干跑：逐包注册为默认，此变量是回退到合并轨的逃生口
     "Z42_TEST_VAR",
     "Z42_X",
 ];
