@@ -90,7 +90,7 @@ fn actual_dynamic_module_registers_calls_isolates_vms_and_retains_code() {
     let worker = VmContext::new_with_core(first.core_arc());
     assert_eq!(call(&worker), Some(crate::object::Value::I64(2)));
     assert_eq!(call(&second), Some(crate::object::Value::I64(1)));
-    let pointer = crate::loader::native::resolve_symbol(&first, "z42_fixture", "z42_fixture_drop_count").unwrap();
+    let pointer = crate::interop::resolve_native_symbol(&first, "z42_fixture", "z42_fixture_drop_count").unwrap();
     let drops: extern "C" fn() -> u64 = unsafe { std::mem::transmute(pointer) };
     assert_eq!(drops(), 0);
     drop(first);
