@@ -9,3 +9,5 @@ public class Gadget : IShow {
 }
 
 public T KeepAnimal<T>(T animal) where T : Animal { return animal; }
+
+public string ForwardShown<U>(U value) where U : IShow { return TypeNameOfShown(value); }

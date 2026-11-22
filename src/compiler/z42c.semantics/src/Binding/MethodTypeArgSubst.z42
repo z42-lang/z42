@@ -124,6 +124,25 @@ public static class MethodTypeArgSubst {
         r.MethodErasedSig = MethodTypeArgSubst.ErasedSig(ms);
         return r;
     }
+    // Caller and callee type parameters belong to different scopes. Infer before
+    // comparing their types, but preserve the signature used for argument lowering.
+    public static Z42FuncType ForwardingCheckSignature(MethodSymbol method, Z42FuncType signature,
+                                                        BoundExpr[] args, int count, TypeEnv env) {
+        int arity = method.TypeParamCount;
+        if (arity == 0 || method.TypeParamNames.Length != arity || method.MethodErasedSig != null) {
+            return signature;
+        }
+        for (int i = 0; i < count; i = i + 1) {
+            if (args[i] != null && Conversion._hasGenericParam(args[i].Type())) {
+                TypeArgBindings inferred = TypeArgInference.Infer(env.GetSymbols(), method.Signature,
+                    method.TypeParamNames, arity, args, count);
+                if (!inferred.Ok) { return signature; }
+                return MethodTypeArgSubst.Substitute(method, inferred.Args).Signature;
+            }
+        }
+        return signature;
+    }
+
     // add-generic-type-arg-inference 阶段 B：按方法级型参名做代换后补查实参。
     public static void CheckSubstMethodArgs(TypeChecker tc, BoundCall bc, Z42FuncType sig,
                                               string[] names, int nameCount, Z42Type[] targs, TypeEnv env) {
