@@ -84,7 +84,7 @@ void test_single_candidate_mismatch_still_arg_error() {
 void test_duplicate_ref_signatures_are_rejected() {
     string src = "class C {"
         + " public static int F(ref int first) { return first; }"
-        + " public static int F(ref Int32 second) { return second; }"
+        + " public static int F(ref int second) { return second; }"
         + "}";
     Assert.Equal("E0408", SemanticDump.FirstErrorCode(src));
 }
