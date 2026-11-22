@@ -31,7 +31,7 @@ public static class DocMd {
         DocItem[] tops = ix.Members(nsId);
         int i = 0;
         while (i < tops.Length) {
-            if (tops[i].IsType() && tops[i].Vis == "public") { DocMd._type(sb, ix, tops[i], "## "); }
+            if (tops[i].IsType() && DocMd._isPublic(tops[i])) { DocMd._type(sb, ix, tops[i], "## "); }
             i = i + 1;
         }
         return sb.ToString();
@@ -44,7 +44,7 @@ public static class DocMd {
         int n = 0;
         int i = 0;
         while (i < all.Length) {
-            if (all[i].IsType() && all[i].Vis == "public") { acc[n] = all[i]; n = n + 1; }
+            if (all[i].IsType() && DocMd._isPublic(all[i])) { acc[n] = all[i]; n = n + 1; }
             i = i + 1;
         }
         DocItem[] r = new DocItem[n];
@@ -268,7 +268,7 @@ public static class DocMd {
             sb.Append("```z42\n").Append(t.Sig).Append(" {\n");
             int i = 0;
             while (i < ms.Length) {
-                if (ms[i].Vis == "public") { sb.Append("    ").Append(DocMd._memberSig(ms[i])).Append("\n"); }
+                if (DocMd._isPublic(ms[i])) { sb.Append("    ").Append(DocMd._memberSig(ms[i])).Append("\n"); }
                 i = i + 1;
             }
             sb.Append("}\n```\n\n");
@@ -284,8 +284,12 @@ public static class DocMd {
     }
 
     private static bool _hasMemberSection(DocItem m) {
-        return m.Vis == "public" && !m.IsType()
+        return DocMd._isPublic(m) && !m.IsType()
             && (m.Kind != DocKind.EnumMember || DocMd._hasPublicDoc(m));
+    }
+
+    private static bool _isPublic(DocItem item) {
+        return item.Vis == "public" && !DocParser.Parse(item.Doc).Hidden;
     }
 
     private static bool _hasPublicDoc(DocItem item) {

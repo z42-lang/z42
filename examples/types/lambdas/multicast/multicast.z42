@@ -1,11 +1,11 @@
 using Std.IO;
 
-class Bus { public event MulticastAction<int> Ev; }
+class Bus { public MulticastAction<int> Ev = new MulticastAction<int>(); }
 
 void Main() {
     // ANCHOR: token
     Bus bus = new Bus();
-    bus.Ev += (int x) => Console.WriteLine("  常驻 " + x);
+    bus.Ev.Subscribe((int x) => Console.WriteLine("  常驻 " + x));
 
     // Subscribe 返回一张退订票
     IDisposable token = bus.Ev.Subscribe((int x) => Console.WriteLine("  临时 " + x));

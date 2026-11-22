@@ -18,6 +18,7 @@ public static class Mod {
     public static int Extern    = 512;
     public static int Async     = 1024;
     public static int New       = 2048;
+    // The seed MemberCollector reads this when the current syntax package is prebuilt.
     public static int Event     = 4096;
     public static int Partial   = 8192;
     public static int Readonly  = 16384;
@@ -52,7 +53,6 @@ public static class Mod {
         if (w == "extern") { return Mod.Extern; }
         if (w == "async") { return Mod.Async; }
         if (w == "new") { return Mod.New; }
-        if (w == "event") { return Mod.Event; }
         if (w == "partial") { return Mod.Partial; }
         if (w == "readonly") { return Mod.Readonly; }
         if (w == "const") { return Mod.Const; }

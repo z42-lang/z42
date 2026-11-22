@@ -53,6 +53,19 @@ void test_fields() {
 }
 
 [Test]
+void test_event_is_an_identifier() {
+    Assert.Equal("", parseErrorCodes("class C { public int event; }"));
+    Assert.Equal("(unit (class C (field public int event)))",
+                 parseUnit("class C { public int event; }"));
+}
+
+[Test]
+void test_event_modifier_is_rejected() {
+    Assert.True(parseErrorCodes("class C { public event Action<int> Changed; }") != "");
+    Assert.True(parseErrorCodes("interface I { event Action<int> Changed; }") != "");
+}
+
+[Test]
 void test_compound_assignment_operators() {
     Assert.Equal("", parseErrorCodes("class C { public int operator +=(int x) { return x; } public void operator -=(int x) {} }"));
     Assert.Equal("E0495", parseErrorCodes("class C { public static void operator +=(int x) {} }"));

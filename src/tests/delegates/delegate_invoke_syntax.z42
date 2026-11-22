@@ -1,15 +1,4 @@
-// add-delegate-invoke-syntax regression golden：委托值上的 `.Invoke(args)` 运行期正确性。
-//
-// 改动前这里每一条 `.Invoke` 都崩 `VCall: expected object, got FuncRef(...)`（编译期零诊断，
-// 且**不可 catch**）。三种载体（局部变量 / 普通字段 / event 字段）与 arity 1、2 全中。
-// 参考手册 `delegates-events.md:62,264-266` 把 `h.Invoke(args)` 当单播 event 的官方触发模板，
-// 所以这是「照着文档写必崩」那一档。
-//
-// 末尾两组是**阴性对照**：`MulticastAction<T>.Invoke` 与反射 `MethodInfo.Invoke` 都是**真类的
-// 真方法**，必须一字不变地继续工作 —— 新分支只认 `Z42FuncType` 收者，真类走 class 分支，
-// 压根到不了。定位阶段曾怀疑 `CallEmitter` 的 DepIndex 捷径可能把 `Invoke/arity-N` 劫持到
-// `MulticastAction.Invoke`、发**直接 Call 到错函数**（比崩更隐蔽）；实测 arity 1/2 未复现，
-// 但这两组要留 —— 它们是「静默调错函数」这一最坏档的唯一守门。
+// 覆盖委托值 Invoke 和同名普通方法，不同调用路径各自保留。
 namespace Demo;
 
 using Std.Reflection;
@@ -19,11 +8,10 @@ public delegate int IntFn2(int a, int b);
 
 class Holder {
     public IntFn1 Plain;                        // 普通字段
-    public event Action<string> OnKey;          // 单播 event 字段
+    public Action<string> OnKey;
     public string Last = "";
 
     public void Key(string s) {
-        // 这正是参考手册教的单播 event 触发模板
         var h = this.OnKey;
         if (h != null) { h.Invoke(s); }
     }
@@ -63,8 +51,8 @@ void Main() {
     h.Plain = (int x) => x * 3;
     Assert.Equal(12, h.Plain.Invoke(4));
 
-    // ⑥ event 字段上的 .Invoke（手册的官方触发模板）
-    h.OnKey += (string s) => { h.Last = s; };
+    // ⑥ 可空委托字段读取后调用 Invoke
+    h.OnKey = (string s) => { h.Last = s; };
     h.Key("Enter");
     Assert.Equal("Enter", h.Last);
 

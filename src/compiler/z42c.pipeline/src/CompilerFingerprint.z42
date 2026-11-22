@@ -191,6 +191,7 @@ public static class CompilerFingerprint {
         "support-open-generic-impls",
         "overload-compound-assignment",
         "bind-open-impl-self",
+        "remove-event-keyword",
         "emit-static-interface-witnesses"
     };
 

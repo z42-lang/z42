@@ -37,7 +37,15 @@ public sealed class MulticastAction<T> {
         this.advancedCount = 0;
     }
 
-    /// 裸 handler 订阅 → strong 快路径（零包装开销）。
+    /// 订阅处理器并返回退订凭据。
+    /// @hidden
+    public IDisposable operator +=(Action<T> handler) { return this.Subscribe(handler); }
+
+    /// 按处理器身份退订。
+    /// @hidden
+    public void operator -=(Action<T> handler) { this.Unsubscribe(handler); }
+
+    /// 裸 handler 订阅，返回退订凭据。也可以用 `+=` 注册。
     public IDisposable Subscribe(Action<T> handler) {
         if (this.strongCount == this.strongCapacity) this.GrowStrong();
         int idx = this.strongCount;

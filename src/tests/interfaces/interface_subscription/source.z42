@@ -1,0 +1,35 @@
+namespace Demo;
+using Std;
+using Std.IO;
+
+public interface IBus {
+    IDisposable Subscribe(Action<int> handler);
+    void Unsubscribe(Action<int> handler);
+}
+
+public class Bus : IBus {
+    private MulticastAction<int> _clicked = new MulticastAction<int>();
+
+    public IDisposable Subscribe(Action<int> handler) { return this._clicked.Subscribe(handler); }
+    public void Unsubscribe(Action<int> handler) { this._clicked.Unsubscribe(handler); }
+
+    public void fire(int x) {
+        this._clicked.Invoke(x);
+    }
+}
+
+void Main() {
+    Bus bus = new Bus();
+    IBus iface = bus;          // upcast to interface
+
+    iface.Subscribe((int x) => Console.WriteLine($"a:{x}"));
+    iface.Subscribe((int x) => Console.WriteLine($"b:{x}"));
+
+    bus.fire(1);                // a:1 / b:1（vtable dispatch 到 Bus 实现）
+
+    Action<int> hC = (int x) => Console.WriteLine($"c:{x}");
+    iface.Subscribe(hC);
+    bus.fire(2);                // a:2 / b:2 / c:2
+    iface.Unsubscribe(hC);
+    bus.fire(3);                // a:3 / b:3
+}

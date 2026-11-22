@@ -1,15 +1,11 @@
-// 2026-05-03 add-event-keyword-multicast (D2c-多播) regression golden.
-// 端到端验证 event keyword：auto-init + add_X/remove_X 合成 + `+=` / `-=`
-// desugar + 内部 Invoke。
 namespace Demo;
 using Std;
 using Std.IO;
 
 public class Bus {
-    public event MulticastAction<int> Clicked;
+    public MulticastAction<int> Clicked = new MulticastAction<int>();
 
     public void fire(int x) {
-        // 内部直接 Invoke 字段（access control 留 Spec 2b，本 spec 不限制）
         this.Clicked.Invoke(x);
     }
 
@@ -18,22 +14,33 @@ public class Bus {
     }
 }
 
-void Main() {
-    var bus = new Bus();
-    Console.WriteLine(bus.count());      // 0 (auto-init MulticastAction<int>)
+class Counter {
+    public int Value;
 
-    // `+=` desugar 到 add_Clicked → bus.Clicked.Subscribe(h)
+    public void add_Value(int amount) { this.Value = 99; }
+    public void remove_Value(int amount) { this.Value = 99; }
+}
+
+void Main() {
+    Counter counter = new Counter();
+    counter.Value += 4;
+    counter.Value -= 1;
+    Assert.Equal(3, counter.Value);
+
+    var bus = new Bus();
+    Console.WriteLine(bus.count());      // 0
+
     bus.Clicked += (int x) => Console.WriteLine($"a:{x}");
     bus.Clicked += (int x) => Console.WriteLine($"b:{x}");
     Console.WriteLine(bus.count());      // 2
 
     bus.fire(1);                          // a:1 / b:1
 
-    // `-=` desugar 到 remove_Clicked → bus.Clicked.Unsubscribe(h)
     Action<int> hC = (int x) => Console.WriteLine($"c:{x}");
-    bus.Clicked += hC;
+    IDisposable token = bus.Clicked += hC;
     bus.fire(2);                          // a:2 / b:2 / c:2
     bus.Clicked -= hC;
     bus.fire(3);                          // a:3 / b:3
+    token.Dispose();
     Console.WriteLine(bus.count());      // 2
 }

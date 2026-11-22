@@ -172,30 +172,14 @@ b[1];             // 2 —— 经接口静态类型读
 b[1] = 99;        // 经接口静态类型写
 ```
 
-### 事件
+### 订阅接口
 
-```z42
-interface IBus {
-    event MulticastAction<int> Clicked;
-}
-
-class Bus : IBus {
-    public event MulticastAction<int> Clicked;
-    public void Fire(int x) { this.Clicked.Invoke(x); }
-}
-
-Bus bus = new Bus();
-IBus iface = bus;
-iface.Clicked += (int x) => Console.WriteLine($"click {x}");   // 经接口订阅
-bus.Fire(7);                                                   // click 7
-```
-
-`+=` / `-=` 在接口引用上同样脱糖成 `add_Clicked` / `remove_Clicked`，按虚表派发到实现类。
-事件与多播委托的完整语义见[委托与事件](delegates-events.md)。
+订阅可用普通接口方法声明，例如 `IDisposable Subscribe(Action<int> handler);`。实现类将处理器注册到私有多播对象上，
+并返回退订凭据。完整示例见[委托与事件](delegates-events.md)。
 
 ### 不能出现在接口里的成员
 
-接口**只能**声明方法、属性、索引器、事件、关联类型。**字段**（静态/实例）和**嵌套类型**报 **E0481**：
+接口**只能**声明方法、属性、索引器、关联类型。**字段**（静态/实例）和**嵌套类型**报 **E0481**：
 
 ```z42
 interface I {
@@ -398,7 +382,7 @@ class G : IGreet { public string Name() { return "z"; } }
 
 - [类](classes.md) / [结构体](structs.md)——两种实现方
 - [属性与索引器](properties-indexers.md)——接口属性与接口索引器
-- [委托与事件](delegates-events.md)——接口 `event`
+- [委托与事件](delegates-events.md)——订阅接口
 - [泛型约束](generic-constraints.md)——`where T : IFoo`、`Self`、型参上的运算符派发
 - [模式匹配](pattern-matching.md)——`is` / `switch` 里的类型模式
 - [`[Forward]`（成员转发）](member-forwarding.md)——把接口面转发给内部字段

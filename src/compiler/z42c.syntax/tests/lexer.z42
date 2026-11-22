@@ -28,6 +28,14 @@ void test_keywords() {
 }
 
 [Test]
+void test_event_is_an_ordinary_token() {
+    var lx = new Lexer("event", "t.z42");
+    lx.Tokenize();
+    Assert.Equal(TokenKind.Identifier, lx.TokenAt(0).Kind);
+    Assert.Equal("event", lx.TokenAt(0).Text);
+}
+
+[Test]
 void test_underscore_is_own_token() {
     var lx = new Lexer("_", "t.z42");
     lx.Tokenize();

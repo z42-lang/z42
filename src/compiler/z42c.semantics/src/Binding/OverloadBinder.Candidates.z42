@@ -129,6 +129,25 @@ public sealed partial class OverloadBinder {
         return false;
     }
 
+    internal MethodSymbol ResolveCompoundOverload(Z42InstantiatedType receiver, string name, BoundExpr[] args,
+                                                  int argCount, Expr[] rawArgs, TypeEnv env, Span sp) {
+        MethodSymbol[] declared = this._collectOverloads(env.Symbols, receiver.Def, name);
+        MethodSymbol[] substituted = new MethodSymbol[declared.Length];
+        int i = 0;
+        while (i < declared.Length) {
+            substituted[i] = declared[i].WithSignature(MemberResolver._substGenericSig(declared[i].Signature, receiver));
+            i = i + 1;
+        }
+        MethodSymbol selected = this._resolveOverloadCands(env.Symbols, substituted, name, args, argCount, null, sp, rawArgs, env);
+        // Use the concrete signatures for selection and the original method for the call ABI.
+        i = 0;
+        while (i < substituted.Length) {
+            if (substituted[i] == selected) { return declared[i]; }
+            i = i + 1;
+        }
+        return null;
+    }
+
     // feat/method-group-target-typed：同名**实例**方法候选（含基链、按有效签名去重）——
     // 重载方法组按目标委托消解的候选面。静态方法组走 MemberResolver 的 ms.Name 扫表
     //（静态恒 mangle 无裸键，见其注释）。

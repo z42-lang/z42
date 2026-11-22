@@ -201,7 +201,8 @@ lambda 里可以直接用外层的局部变量，这样的 lambda 叫**闭包**�
 
 ## 事件：让别人挂处理器
 
-`event` 修饰的字段可以被外部用 `+=` 挂上处理器、用 `-=` 摘下来。**能挂几个由字段类型决定**：
+委托字段保存一个回调。需要多个回调时，创建多播对象，用 `+=` 或 `Subscribe` 注册处理器。
+两种写法都能拿到退订凭据。
 
 ```z42
 // examples/types/lambdas/events/events.z42
@@ -213,11 +214,7 @@ lambda 里可以直接用外层的局部变量，这样的 lambda 叫**闭包**�
 | `MulticastAction<T>` / `MulticastFunc<..>` / `MulticastPredicate<T>` | 任意多个 | `X.Invoke(args)`，没人挂就什么都不做 |
 | `Action<T>` / `Func<..>` / `Predicate<T>` | 至多一个 | 先取到局部变量再查空 |
 
-> 熟悉 C# 的读者请注意：这是与 C# **最大的差别**。C# 的 `Action<T>` 本身就是多播的，
-> 而 z42 的 `Action<T>` 永远只有一个处理器；要多播就写出 `MulticastAction<T>`。
-> **类型说的就是实话**，不用猜 `event` 背后是几个。
-
-多播字段由编译器自动初始化，所以**不用查空**：
+多播对象在字段声明中初始化。调用 `Invoke` 时会按订阅顺序调用处理器。
 
 ```z42
 // examples/types/lambdas/events/events.z42
@@ -228,9 +225,7 @@ lambda 里可以直接用外层的局部变量，这样的 lambda 叫**闭包**�
 {{#include ../../../../examples/types/lambdas/events/run.console:multi}}
 ```
 
-单播字段默认是 `null`，触发前得先取到局部变量再查空（`var h = this.KeyDown;`
-`if (h != null) { h.Invoke(k); }`）——**不能**写成 `this.KeyDown?.Invoke(k)`，z42 没有 `?.`。
-已经有主了再挂一个会抛：
+单播字段默认是 `null`。调用前先把它读到局部变量并查空，用赋值安装回调，用 `null` 清除。
 
 ```z42
 // examples/types/lambdas/events/events.z42
@@ -345,7 +340,7 @@ lambda 里可以直接用外层的局部变量，这样的 lambda 叫**闭包**�
 {{#include ../../../../examples/types/lambdas/identity/run.console:nullcall}}
 ```
 
-单播 `event` 字段默认就是 `null`，所以上面那步查空仍然是**该写的**——依赖异常来发现
+单播委托字段默认就是 `null`，所以上面那步查空仍然是**该写的**——依赖异常来发现
 「没人订阅」不是好写法。
 
 **一个函数值最多绑一个目标**，所以 `f += g` 这种「把两个处理器加起来」的写法不存在，
@@ -403,8 +398,7 @@ lambda 里可以直接用外层的局部变量，这样的 lambda 叫**闭包**�
   要把结果传出闭包，写进一个引用类型对象的字段。
 - `Action` / `Func` / `Predicate` 就是起好名字的函数类型，两者可以互相赋值；
   `f(x)` 与 `f.Invoke(x)` 等价；具名函数可以直接当值传。
-- `event` 能挂几个处理器**由字段类型决定**：`MulticastAction<T>` 任意多个（自动初始化、
-  不用查空），`Action<T>` 至多一个（默认 null、必须查空，挂第二个会抛）。
+- `Action<T>` 字段保存一个回调，调用前先查空。创建 `MulticastAction<T>` 后可以订阅多个处理器。
 - 多播还给了退订票（配 `using` 更省事）、`continueOnException` 的异常聚合、
   `OnceRef` / `WeakRef` 订阅策略。
 - 函数值用 `==` 比**身份**；调 `null` 的函数值抛 `NullReferenceException`；`f += g` 不存在

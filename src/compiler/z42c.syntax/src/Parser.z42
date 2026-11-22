@@ -765,23 +765,6 @@ public sealed class Parser {
     // class / struct / interface 共用：消费关键字 + 名字 + 基类/接口列表 + 成员块。
     // 三者结构同构（仅 Kind 不同）；语义差异（struct 值类型、interface 仅签名）留给后端。
 
-    // event 字段类型是否多播（MulticastAction/Func/Predicate）→ 走 Subscribe/Unsubscribe 访问器合成。
-
-    // 合成单个 event 访问器（add_X / remove_X），multicast（镜像 C# SynthesizeClassEvent）：
-    //   add_X(h): IDisposable { return this.X.Subscribe(h); }
-    //   remove_X(h): void     { this.X.Unsubscribe(h); }
-    // hasBody=false（interface）→ 仅签名。handler 类型 = Action/Func/Predicate<同型参>。
-
-    // event 字段类型是否单播（Action/Func/Predicate）。
-
-    // 合成单播 event 访问器（D-7，镜像 C# SynthesizeClassEvent 单播分支）：
-    //   add_X(h): IDisposable {
-    //     if (this.X != null) throw new InvalidOperationException("single-cast event already bound");
-    //     this.X = h; return Disposable.From(() => this.remove_X(h));
-    //   }
-    //   remove_X(h): void { if (Delegate.ReferenceEquals(this.X, h)) this.X = null; }
-    // handler 类型 = 字段裸类型（Action<T> 自身）。hasBody=false（interface）→ 仅签名。
-
     // impl <Trait> for <Target> { methods }  —— 跨包 trait 实现（port-z42c-impl-block）。
     // 镜像 C# ParseImplDecl：消费 impl → trait 类型 → for → target 类型 → 成员块（方法）。
     // 方法经 _parseMember（owner = target 简名）解析；extern 校验留给 semantics。

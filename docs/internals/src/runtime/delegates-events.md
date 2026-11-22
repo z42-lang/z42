@@ -3,7 +3,7 @@
 > 用户视角的语法与 API 见参考手册的「委托与事件」；本页只回答
 > 「为什么这样设计、编译期和运行期各做了什么、在哪改」。
 
-涉及三层：编译器（`delegate`/`event` 的解析与脱糖、方法组转换）、运行时（closure 值表示 +
+涉及三层：编译器（`delegate` 的解析、方法组转换）、运行时（closure 值表示 +
 四个 `__delegate_*` builtin）、stdlib（三个 Multicast 类的双通道存储）。
 
 ## 1. 选型决策（为什么是现在这个形状）
@@ -20,8 +20,6 @@
 
 | 路径 | 描述 | 决策 |
 |------|------|------|
-| 关键字修饰 | `weak event` / `once event` | ❌ 关键字堆叠 |
-| Attribute 标注 | `[Weak] event` / `[Once] event` | ❌ 声明端责任倒置（是**订阅方**要弱引用，不是声明方）|
 | 包装类 | `SubscribeAdvanced(new WeakRef<..>(h))` | ⭐ **采用** |
 
 ### 1.3 关键决策
@@ -30,8 +28,6 @@
 |----|------|------|
 | K1 | 单播 = 编译期 `delegate` 类型；多播 = `sealed class` | 两类语义不同，类型层面就分开 |
 | K2 | 多播命名 = `Multicast` + 单播名 | 严格对称单播 |
-| K3 | `event` 关键字统一单播 + 多播 | 类型决定 cardinality；`+=`/`-=` 按类型 dispatch |
-| K4 | `event Action<T>` = 单播；`event MulticastAction<T>` = 多播 | 类型 100% 诚实、无歧义 |
 | K5 | `Invoke(arg, bool continueOnException = false)` | 默认 fail-fast = C# 语义 |
 | K6 | `continueOnException=false` 时**不包装**异常 | 单 handler 场景与 C# 100% 一致 |
 | K7 | `continueOnException=true` 时抛 `MulticastException` | opt-in 包装 |
@@ -40,7 +36,6 @@
 | K10 | `MulticastPredicate` 提供短路的 `All` / `Any` | LINQ 习惯；性能优势 |
 | K11 | 订阅策略全部走 `ISubscription` 包装类 | 责任归属订阅者；零 attribute；无限可扩展 |
 | K12 | 不做 variadic generics | 复杂度过高；C# / Rust 都没做 |
-| K13 | `event` 关键字 = 多播类型字段的语法糖 | C# 视觉一致；底层无新机制 |
 | K14 | 三个性能优化是实现强约束 | strong 路径必须达 C# 等价；见 §4 |
 
 **K8 的形状**：`Failures` 是 `Exception[]` + `int[] FailureIndices` **平行数组**
@@ -186,28 +181,12 @@ Rust 侧四个实现零改动）：
   schema，无 format-bump）⇒ 反射 `BaseType` / `IsSubclassOf` 沿基链自然成立；
   `where TD : Delegate` 约束由 `ConstraintChecker._satisfiesBase` 的 `Z42FuncType` 分支放行。
 
-### 2.4 `event` 脱糖在哪
+### 2.4 订阅调用
 
-- **解析 + 访问器合成**：`src/compiler/z42c.syntax/src/MemberParser.z42`
-  （`_synthEventAccessor` 多播 / `_synthSinglecastAccessor` 单播 / `_isMulticastEventType` 判别）。
-  多播 event 字段无初始化器时在这里补 `new MulticastXxx<...>()`。
-- **`+=` / `-=` 改写**：`src/compiler/z42c.semantics/src/Binding/AssignTyper.z42` 的 `+=`/`-=` 分支，
-  在接收者类型上查 `add_X` / `remove_X`（class / instantiated / interface 三种接收者类型都查），
-  查到就整体绑成一次 `BoundCall`。**这是脱糖的唯一判据——不看"这个字段是不是 event"，
-  而看"有没有同名访问器"。**
-- 类型侧的 `Z42ClassType.EventFields`（`Z42Type.z42`）由 `MemberCollector.z42` 收集。
+委托字段初始化和多播对象构造走普通字段初始化。订阅、退订和触发都是标准的成员调用，
+接口上的订阅方法走接口派发。复合赋值只使用普通绑定规则。
 
-### 2.5 `E0414` 定义了但从不发射
-
-`DiagnosticCodes.EventFieldExternalAccess = "E0414"`（`z42c.core/src/DiagnosticCodes.z42`）
-声明了"event 字段外部直接读 / 直接 `Invoke` / 直接赋值"的诊断，`EventFields` 也确实在
-`MemberCollector` 里被收集了——**但 TypeChecker 从不查询这张表，E0414 全仓零发射点。**
-
-后果：外部代码今天可以 `button.Clicked.Invoke(...)`、`button.OnKeyDown = h`，编译通过。
-参考手册已按"未实现"叙述。要补的话，挂载点是 `BindMemberExpr`（`+=`/`-=` 已在
-`AssignTyper` 阶段被吃掉，不会误伤）。
-
-### 2.6 嵌套 delegate
+### 2.5 嵌套 delegate
 
 `MemberParser._parseMemberBody` 有 `delegate` 分支解析嵌套 `delegate` 声明
 （golden：`src/tests/delegates/nested_delegate_dotted.z42`）；实现走 `NestedFlatten` 的 `Outer+Inner` 展平（与嵌套 class/enum 同机制），引用侧写
@@ -310,8 +289,6 @@ per-arity 特殊路径，加 5–16 是纯机械重复。
 
 ### 其他未决
 
-- `+=` 脱糖规则若通用化到非 event 场景（所有重载 `+=` 的类型都改成方法调用语义），会影响
-  `List<T>` 等，未评估。
 - `continueOnException=true` 时**包装类自身**抛异常（不是 handler 抛）应聚合还是隔离，未定；
   当前实现是聚合（与 handler 异常同处理）。
 
