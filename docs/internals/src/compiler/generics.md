@@ -343,6 +343,8 @@ TypeDesc {
 含 `class` 的约束也为直接以 `Self` 为按值形参或返回类型的成员分配槽。绑定泛型体时，
 `Self` 精确替换为方法类型形参。调用点以具体类型替换 `Self`，按代换后的完整签名选择函数。
 这类调用沿用普通引用类型的传递约定，型参转发无需改变 Witness。
+签名中的具名非泛型结构体使用已知布局。发射器为按值实参复制结构体，并为复合结构体返回值分配调用方返回槽。
+Witness 指向具体静态方法，间接调用沿用这个返回槽。
 
 绑定期按「**方法级就近优先**」分流（`TypeOpTyper._bindTypeofExpr` /
 `ExprTyper._bindDefault` / `_bindArrayNew` / `ConstructTyper._bindNew` 同序）：方法级先查，同名时遮蔽类级。

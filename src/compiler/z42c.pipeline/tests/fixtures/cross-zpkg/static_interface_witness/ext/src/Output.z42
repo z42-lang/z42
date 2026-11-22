@@ -23,3 +23,16 @@ public class ReferenceWriter : IReferenceWriter {
     public static void Write(ReferenceWriter value) { Console.WriteLine(value.Value); }
     public static void Write(string value) { Console.WriteLine("wrong Self overload"); }
 }
+
+public class BlobWriter : IBlobWriter {
+    public static Payload Create() { return new Payload(41, "original"); }
+
+    public static void Write(Payload value) {
+        value.Number = value.Number + 1;
+        Console.WriteLine(value.Number);
+        Console.WriteLine(value.Label);
+        value.Label = "changed";
+    }
+
+    public static void Write(int value) { Console.WriteLine("wrong Payload overload"); }
+}

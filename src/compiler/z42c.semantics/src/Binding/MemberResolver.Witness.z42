@@ -76,7 +76,10 @@ public sealed partial class MemberResolver {
     }
 
     private static bool _isWitnessType(Z42Type type, bool allowsSelf) {
-        return type.IsScalarType() || (allowsSelf && type is Z42GenericParamType && type.Name() == "Self");
+        Z42ClassType declared = type as Z42ClassType;
+        return type.IsScalarType()
+            || (declared != null && declared.IsStruct && declared.GenericParamCount == 0)
+            || (allowsSelf && type is Z42GenericParamType && type.Name() == "Self");
     }
 
     private BoundExpr _bindStaticWitness(MemberExpr member, IdentExpr target, BoundExpr[] args,
@@ -173,15 +176,25 @@ public sealed partial class MemberResolver {
     private static bool _matchesStaticWitness(MethodSymbol candidate, Z42FuncType want) {
         if (!candidate.IsStatic || candidate.TypeParamCount != 0 || candidate.Signature == null) { return false; }
         Z42FuncType have = candidate.Signature;
-        if (have.ParamCount != want.ParamCount || DispatchKeys.TypeKey(have.Ret) != DispatchKeys.TypeKey(want.Ret)) {
+        if (have.ParamCount != want.ParamCount || !MemberResolver._sameWitnessType(have.Ret, want.Ret)) {
             return false;
         }
         for (int i = 0; i < have.ParamCount; i = i + 1) {
-            if (have.IsRefParam(i) || DispatchKeys.TypeKey(have.ParamTypes[i]) != DispatchKeys.TypeKey(want.ParamTypes[i])) {
+            if (have.IsRefParam(i) || !MemberResolver._sameWitnessType(have.ParamTypes[i], want.ParamTypes[i])) {
                 return false;
             }
         }
         return true;
+    }
+
+    private static bool _sameWitnessType(Z42Type actual, Z42Type expected) {
+        Z42ClassType actualClass = actual as Z42ClassType;
+        Z42ClassType expectedClass = expected as Z42ClassType;
+        if (actualClass != null && expectedClass != null
+            && !actualClass.IsBuiltinType() && !expectedClass.IsBuiltinType()) {
+            return actualClass.Fqn() == expectedClass.Fqn();
+        }
+        return DispatchKeys.TypeKey(actual) == DispatchKeys.TypeKey(expected);
     }
 
     private string _forwardStaticWitness(string parameter, StaticWitnessSlot required, TypeEnv env) {

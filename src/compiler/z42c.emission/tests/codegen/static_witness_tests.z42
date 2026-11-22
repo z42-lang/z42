@@ -1,0 +1,17 @@
+namespace Z42cStaticWitnessCodegenTests;
+
+using Std.Harness;
+using Z42.Emission;
+
+[Test]
+void test_struct_witness_uses_a_return_slot_and_argument_copy() {
+    string src = "struct Payload { public int Number; public string Label; } "
+        + "interface IWriter { static Payload Create(); static void Write(Payload value); } "
+        + "Payload Dispatch<T>() where T : IWriter { Payload value = T.Create(); T.Write(value); return value; }";
+    string ir = IrDump.DumpFunc(src, "Dispatch");
+    Assert.True(ir.Contains("load_method_witness"));
+    Assert.True(ir.Contains("struct_alloc Payload"));
+    Assert.True(ir.Contains("struct_copy"));
+    Assert.True(ir.Contains("call_ind"));
+    Assert.False(ir.Contains("box_struct"));
+}
