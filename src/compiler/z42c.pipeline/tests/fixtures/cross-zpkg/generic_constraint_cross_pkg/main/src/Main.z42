@@ -38,4 +38,9 @@ void Main() {
     // 三包链路：约束在 ctarget、Gadget 在 cext、实例化在本包
     var g = new ShowBox<Gadget>(new Gadget());
     Console.WriteLine(g.item.Show());
+    Console.WriteLine(Reveal(new Gadget()));
+    Console.WriteLine(Constrained.RequireAnimal<Animal>(new Animal()).Kind());
+    Console.WriteLine(Constrained.Build<NoArgCtor>().v);
+    Console.WriteLine(Constrained.Keep(new Animal(), new Dog()).Kind());
+    Console.WriteLine(KeepAnimal(new Dog()).Kind());
 }

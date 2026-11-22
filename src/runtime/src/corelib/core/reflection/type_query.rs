@@ -7,14 +7,15 @@ pub fn type_full_name(ty: &Value) -> Value {
 }
 
 /// `__memberinfo_declaring_type(memberObj) -> Std.Type | null` — the Type of the class
-/// that declared this member (`MemberInfo.DeclaringType`). Derived from the
+/// that declared this member. Backs the private `MemberInfo.__declaringTypeOf` helper
+/// (the type-member arm of `MemberInfo.DeclaringContext`). Derived from the
 /// `__qualified` identity slot ("<declaring class FQ>.<member>") every member-info
 /// constructor fills (fields / methods / constructors / properties) — strip the
 /// trailing member segment (its own dots only ever come from overload mangling
 /// `$N$types`, which stays inside the last segment) and resolve the class prefix.
 /// Inherited members carry the DECLARING class's name, so a base-declared member
 /// reached through a derived class reports the base — C# semantics. `Std.Type`
-/// overrides the getter with `GetDeclaringType` (nested-type declaring class);
+/// answers via `GetDeclaringType` (nested-type declaring class) instead;
 /// any other receiver without `__qualified` answers null.
 pub fn member_declaring_type(ctx: &VmContext, this: &Value) -> Value {
     match read_type_slot_of(this, "__qualified") {
@@ -174,10 +175,12 @@ pub fn type_interfaces(ctx: &VmContext, ty: &Value) -> Value {
 }
 
 /// `__type_members(typeObj) -> MemberInfo[]` — fields, then methods, then
-/// properties. Built in Rust to sidestep z42 array covariance (the mixed array
-/// holds FieldInfo + MethodInfo + PropertyInfo, all `MemberInfo` subclasses).
-/// Mirrors C# `GetMembers()`, which surfaces properties alongside their backing
-/// `get_`/`set_` accessor methods (the accessors remain in the methods slice).
+/// properties, then constructors. Built in Rust to sidestep z42 array covariance
+/// (the mixed array holds FieldInfo + MethodInfo + PropertyInfo +
+/// ConstructorInfo, all `MemberInfo` subclasses). Mirrors C# `GetMembers()`,
+/// which surfaces properties alongside their backing `get_`/`set_` accessor
+/// methods (the accessors remain in the methods slice) and includes the type's
+/// constructors (MemberTypes.Constructor; Name = the class simple name).
 pub fn type_members(ctx: &VmContext, ty: &Value) -> Value {
     let mut out = Vec::new();
 
@@ -185,13 +188,15 @@ pub fn type_members(ctx: &VmContext, ty: &Value) -> Value {
         super::fields::type_fields as fn(&VmContext, &Value) -> Result<Value, BuiltinError>,
         super::methods::type_methods,
         super::properties::type_properties,
+        super::methods::type_constructors,
     ] {
         if let Value::Array(a) = part(ctx, ty).unwrap_or(Value::Null) {
             out.extend(a.borrow().iter_boxed());
         }
     }
     // add-nested-types: C# GetMembers() surfaces nested types (MemberTypes.NestedType)
-    // alongside fields/methods/properties (Type : MemberInfo, so covariance holds).
+    // alongside fields/methods/properties/constructors (Type : MemberInfo, so covariance
+    // holds).
     if let Value::Array(n) = type_nested_types(ctx, ty) {
         out.extend(n.borrow().iter_boxed());
     }
@@ -421,7 +426,7 @@ pub mod typed {
     #[builtin(name = "__type_full_name")]
     pub fn full_name(ty: &Value) -> Value { type_full_name(ty) }
 
-    #[builtin(name = "__memberinfo_declaring_type", this = "DeclaringType", reenters)]
+    #[builtin(name = "__memberinfo_declaring_type", this = "__declaringTypeOf", reenters)]
     pub fn member_declaring_type_of(ctx: &VmContext, this: &Value) -> Value { member_declaring_type(ctx, this) }
 
     #[builtin(name = "__type_identity_equals")]

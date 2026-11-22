@@ -6,19 +6,19 @@ use crate::metadata::Module;
 
 // ── L3-G3a: constraint verification pass ───────────────────────────────────
 
-/// Run after `build_type_registry` to validate that every constraint reference
-/// (base class or interface) resolves to a known class/interface in the type
-/// registry, or (for `Std.*` names) is left to the lazy loader to resolve later.
-///
-/// Reports the first unresolved reference and aborts load, surfacing the name
-/// in the error message so zbc tampering is flagged clearly.
+/// Validate constraint references after `build_type_registry`. A base-class
+/// constraint on a type must resolve unless it is supplied by `Std.*`.
+/// Method constraints and interface references may name lazy dependencies.
 pub fn verify_constraints(module: &Module) -> Result<()> {
     for cls in module.type_registry.values() {
         let tp_names: Vec<&str> = cls.type_params().iter().map(|s| s.as_str()).collect();
         for bundle in cls.type_param_constraints() {
+            check_one(bundle.base_class.as_deref(), &module.type_registry, &cls.name, false)?;
             check_constraint_refs(bundle, &module.type_registry, &cls.name, &tp_names)?;
         }
     }
+    // A method constraint can name a base class from a lazy dependency.
+    // Its satisfaction is checked at compile time.
     for f in &module.functions {
         let tp_names: Vec<&str> = f.type_params().iter().map(|s| s.as_str()).collect();
         for bundle in f.type_param_constraints() {
@@ -34,9 +34,6 @@ fn check_constraint_refs(
     owner: &str,
     type_params: &[&str],
 ) -> Result<()> {
-    // Base-class refs stay strict: a bogus base is a layout/dispatch integrity
-    // problem, and cross-zpkg base *constraints* are vanishingly rare.
-    check_one(b.base_class.as_deref(), registry, owner, /*soft_allow_unresolved=*/ false)?;
     // fix-runtime-constraint-unresolved-refs (C1): interface refs are soft.
     // `verify_constraints` runs before the program context installs its lazy loader, so a
     // constraint naming an interface in a not-yet-loaded dependency zpkg is legitimately

@@ -2,11 +2,11 @@ namespace Std.Reflection;
 
 /// 反射方法参数，对标 C# `System.Reflection.ParameterInfo`（只读子集）。
 ///
-/// 由 `MethodInfo.GetParameters()` 填充。
-public class ParameterInfo {
-    /// 参数名。
-    public string Name;
-
+/// 由 `MethodBase.GetParameters()` 填充（`MethodInfo` 与 `ConstructorInfo` 共用）。
+/// 继承 `MemberInfo`（与 C# 一致）：`Name` 即参数名，attribute 家族走基类缓存骨架；
+/// `DeclaringContext` 覆写为声明本参数的**方法**（参数的声明上下文是方法而非
+/// 类型，对标 Clang `getDeclContext()`），`Method` 是其类型化便捷通道。
+public class ParameterInfo : MemberInfo {
     /// 参数的声明类型，如 `typeof(int)`。
     public Std.Type ParameterType;
 
@@ -22,39 +22,30 @@ public class ParameterInfo {
     /// 注意：`DefaultValue == null` 不代表没有默认值，判有无看 `IsOptional`。
     public object? DefaultValue;
 
-    // ── 自定义 attribute ─────────────────────────────────────────────────────
+    /// 声明本参数的方法/构造器（VM 在构建参数对象时写入；构造泛型方法的构造版参数
+    /// 指向构造版）。`Method` / `Owner` 据此返回，无需按名重解析。
+    public MethodBase __method;
+
+    /// 声明本参数的方法（`MethodInfo`）或构造器（`ConstructorInfo`）。
+    public MethodBase Method { get { return this.__method; } }
+
+    /// 覆写：参数的声明上下文是声明它的方法（与 `Method` 同源）。
+    public override MemberInfo? DeclaringContext { get { return this.__method; } }
+
+    /// 覆写：参数有自己的种类（z42 自有档；C# 谎报 `Method`，见 MemberTypes 文档）。
+    public override MemberTypes MemberType { get { return MemberTypes.Parameter; } }
+
+    // Name / attribute 家族（GetCustomAttributes / GetAttribute）继承自 MemberInfo。
 
     /// 后备方法/函数的全限定名（VM 写入），与 `Position` 一起用于解析本参数的 attribute 工厂。
     public string __qualified;
-
-    /// 缓存的 attribute 实例（缓存理由见 `Type.GetCustomAttributes`）。
-    public Std.Attribute[] __attrCache;
 
     /// 按全限定名与参数位置取 attribute 定义的 native 通道。
     [Native("__param_custom_attributes")]
     public extern Std.Attribute[] __customAttributes(string qualified, int position);
 
-    /// 本参数上应用的 attribute，以活实例返回；首次调用后缓存。
-    public Std.Attribute[] GetCustomAttributes() {
-        if (this.__attrCache != null) {
-            return this.__attrCache;
-        }
-        this.__attrCache = this.__customAttributes(this.__qualified, this.Position);
-        return this.__attrCache;
-    }
-
-    /// 指定类型的单个 attribute，无则返回 null。按实例运行期类型的 FullName 比较，子类 attribute 也匹配。
-    public Std.Attribute? GetAttribute(Std.Type attributeType) {
-        Std.Attribute[] all = this.GetCustomAttributes();
-        int i = 0;
-        while (i < all.Length) {
-            Std.Attribute a = all[i];
-            Std.Type at = a.GetType();
-            if (at.FullName == attributeType.FullName) {
-                return a;
-            }
-            i = i + 1;
-        }
-        return null;
+    /// 覆写：走参数通道（宿主函数全限定名 + 位置）取本参数的 attribute 实例。
+    public override Std.Attribute[] __fetchCustomAttributes() {
+        return this.__customAttributes(this.__qualified, this.Position);
     }
 }

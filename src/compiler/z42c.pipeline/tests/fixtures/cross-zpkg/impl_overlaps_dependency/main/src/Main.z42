@@ -1,0 +1,8 @@
+namespace Demo.App;
+using Demo.Target;
+
+impl IGreet for Robot {
+    public string Hello() { return "local"; }
+}
+
+void Main() { }

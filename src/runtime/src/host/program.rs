@@ -40,6 +40,13 @@ impl Default for LoadOptions {
     }
 }
 
+impl crate::vm::assembly::ComponentInputs {
+    pub(crate) fn for_request(options: &LoadOptions) -> Self {
+        Self { profiler: if options.allow_profiling { Default::default() }
+            else { crate::components::api::BackendSource::Disabled }, ..Default::default() }
+    }
+}
+
 /// One loaded module and its VM. Initialization is shared by all entry invocations.
 /// Drive a context from one thread at a time; worker execution uses its own context.
 pub struct LoadedProgram {
@@ -91,9 +98,7 @@ impl LoadedProgram {
         options: LoadOptions,
         image_cache: &crate::loader::ImageCache,
     ) -> Result<Self> {
-        let artifact = image_cache.artifact_for(&crate::loader::content_id(bytes), || {
-            crate::loader::load_artifact_from_bytes(bytes)
-        })?;
+        let artifact = crate::loader::load_artifact_from_bytes_cached(bytes, Some(image_cache))?;
         super::load::prepare(artifact, None, &options, &crate::vm::assembly::ComponentInputs::for_request(&options), Some(image_cache))
     }
 

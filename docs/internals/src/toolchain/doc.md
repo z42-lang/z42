@@ -2,7 +2,7 @@
 
 > 代码：`src/compiler/z42.doc/src/`（引擎，含 `DocParser.z42` / `DocLint.z42` / `DocRefs.z42` / `DocMd.z42`）、`src/toolchain/devtools/core/doc_cmd.z42`（`DocCommand`）、
 > `src/toolchain/devtools/rust-index/`（Rust 索引器）、`scripts/src/build/docs/generate.z42`（`build docs` / `build docs index` CLI）、
-> `scripts/src/build/docs/index.z42`（Rust 索引构建）、`scripts/src/test/check/doc_lints.z42` / `scripts/src/test/check/doc_refs.z42`（检查与报告）、
+> `scripts/src/build/docs/index.z42`（Rust 索引构建）、`scripts/src/test/check/doc_lints.z42`（注释检查）、
 > `src/toolchain/launcher/core/launcher_cli.z42`（`_forwardZ42d`）、`src/compiler/z42c.syntax/src/DocBlock.z42`（doc 挂靠）
 >
 > 要查**怎么用**（旗标、输出、名字怎么写）→ 语言与库参考的 `z42` 命令页与 doc 注释页。
@@ -94,7 +94,8 @@ z42 doc <args>                      launcher：`doc` 原样转发
 
 `z42d doc --format mdbook --out <dir> --pkg <name>` 渲染一个包到 `<dir>/<name>.md`（生成不写共享索引缓存）。
 `xtask build docs` 生成全部写了 `//!` 的包的页面到 `docs/reference/src/stdlib/`，并删掉不再生成的旧页（该目录除
-`README.md` 外全归 gen 所有）；内容不变的页不重写。**生成页不入库**（`.gitignore`），由用到它们的地方现生成：
+`README.md` 外全归 gen 所有）；内容不变的页不重写。**生成页不入库**（`.gitignore`）。标准库首页的总览表从同一批包的命名空间摘要更新，表外介绍保持手写。
+文档检查和发布都会运行生成器：
 
 | 谁 | 何时 |
 |---|---|
@@ -155,14 +156,56 @@ tag、W0805 public 声明缺 `///`、W0806 历史注记（日期 / spec 名模�
 范围只有 stdlib：编译器域的注释按 doc-system「契约不显然时写」，不要求 W0805 全覆盖。W0803（链接与
 `@throws` 类型能否解析）需要语义信息，归编译器的 DocChecker pass，不在此列。
 
-「由 z42 doc 生成」标记）自带随 gen 重写的 `file:line`，不查；learn 的引用对象在 `examples/`、不进符号索引，
+带「由 z42 doc 生成」标记的页面自带随生成重写的 `file:line`，不查；learn 的引用对象在 `examples/`、不进符号索引，
 归 learn↔examples 重放检查，也不查。
+
+## 构建插件专用文案
+
+`GeneratorDoc.Parse` 从挂靠后的 doc 注释中解析 `@for-generator` 分组及其 `@generator` 字段，
+返回按目标区分的字段文本、公开注释和格式诊断。过滤发生在文档解析层，插件加载状态与过滤无关。
+`DocParser` 和查询的 JSON 格式都使用公开注释。字段诊断使用 W0804，公开覆盖检查使用剔除专用字段后的文本。
+
+`z42.cli.help` 实现构建钩子 `AfterCompile`，从当前工程清单发现源码，经编译器语法索引读取 enum 成员，
+再按完整成员名生成独立的 JSON 帮助资产。插件和语法索引都在构建进程中执行，应用产物的写入流程不读取帮助资产。
+
+## 文档旁挂文件
+
+`DocArtifact` 将语法索引写为版本化 JSON。头部记录 `format`、`level` 与 `package`，
+`items` 记录 Doc ID、成员归属、签名、来源位置和公开文档。编码时按声明及其祖先筛选
+可见性和 `@hidden`，公开文档经同一投影去除专用字段。读取端验证格式版本和索引级别，
+重建 `DocIndex`，复用 `DocQuery` 的符号查询逻辑。
+
+当前由 `z42 doc --format zdoc` 显式导出，索引级别为 `syntax`。`--zdoc` 查询只访问指定文件。
+SDK 的 `[component.docs]` 从同版本源码生成标准库旁挂文件并安装到 `docs/`。
+普通查询用 SDK 文档补齐工作区缺少的包。项目构建自动输出和语义级索引尚待接入。
 
 ## 9. 边界与限制
 
-- 只有语法级：没有继承文档、实现者列表。`@tag` 的语法级检查（§8 的 DocLint）已有；链接与 `@throws` 类型解析
-  （W0803）需要语义，归编译器 DocChecker pass，尚未落地。
+- 语法索引保留源码中的类型拼写。跨包符号链接、继承文档和实现者查询需要语义索引。
 - `z42 doc` 查询用的 Rust 索引不会自己更新：手动 `xtask build docs index`（过期会提示）。
-- doctest（`@example` 合成测试、`z42 test --doc`）尚未接。
 
-以上后续阶段见仓库根 `docs/z42-doc.md`。
+## Deferred
+
+### doc-future-semantic-index：语义索引与编译期诊断
+
+- **来源**：文档语义检查与跨包查询设计。
+- **触发原因**：语法索引足以查询签名与位置，当前标准库门禁只依赖语法级检查。
+- **前置依赖**：编译器绑定阶段提供声明的类型、作用域与继承关系。接入 W08xx 时复用诊断管线的 `[lints]` 和抑制规则。
+- **触发条件**：实现 W0803（链接、`@throws` 类型解析）或跨包文档解析时，同步设计全限定 Doc ID、继承文档与实现者查询。
+- **当前用法**：用 `xtask check doc-lints` 检查标准库的语法级问题，用 `z42 doc` 查源码与 SDK 文档。
+
+### doc-future-build-emission：项目构建输出旁挂文件
+
+- **来源**：`.zdoc` 的项目构建集成。
+- **触发原因**：显式导出已经覆盖 SDK 发布和单包分发。项目构建目前没有文档输出选项。
+- **前置依赖**：确定 `[doc]` 清单、构建输出位置与增量失效规则。语义级导出依赖语义索引，文档继续以独立文件交付。
+- **触发条件**：接入项目自动导出时定义 `emit`、`private` 的默认值及覆盖规则，同时明确 `split` 的生成粒度配置。
+- **当前用法**：用 `z42 doc --format zdoc` 显式导出，配合 `--private` 收录非公开符号。标准库的分类型配置由 xtask 维护。
+
+### doc-future-doctest：执行文档示例
+
+- **来源**：`@example` 的可执行示例设计。
+- **触发原因**：现有解析和渲染仅展示代码块。独立编译、预期失败和输出断言需要测试驱动支持。
+- **前置依赖**：定义示例作用域和测试隔离方式。可复用 `[Test]` 发现，给 `run`、`no_run`、`compile_fail`、`ignore` 各自定义判定规则。
+- **触发条件**：实现 `z42 test --doc` 时一并验证 `// =>` 预期输出和标准库门禁的耗时。
+- **当前用法**：需要执行验证的代码放入测试或 `examples/` 会话脚本。

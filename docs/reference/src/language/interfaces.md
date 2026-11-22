@@ -53,13 +53,19 @@ class Bad : IShape { }
 // ✗ E0412: `Bad` implements `IShape` but does not define member `Area`
 ```
 
-签名不一致（参数类型 / 个数对不上）同样报 `E0412`。
+签名不一致（参数类型、个数或 `ref` 修饰符对不上）同样报 `E0412`。
+参数传递方式逐位比较，本包和携带 `ref` 签名元数据的依赖包遵循同一规则。
 实现成员**必须是 `public`**，否则：
 
 ```z42
 class C : IA { int A() { return 3; } }
 // ✗ E0412: `C` implements `IA` but `A` must be implemented `public` (it is `private` here)
 ```
+
+## 在类型外声明实现
+
+`impl Interface for Type { ... }` 可以为已有的类或结构体实现接口。对于具体的非泛型接口和类型，
+同一对接口与类型只能有一条显式 `impl`。本包或同时可见的依赖包提供重复实现时，编译器报 `E0413`。
 
 ## 经接口调用：按签名找实现
 
@@ -261,11 +267,12 @@ var copy = c.Copy();               // 经接口静态类型调用 ⇒ 结果类�
 标准库的 `IEquatable` / `IComparable` / `INumber` 都是**非泛型 + `Self`** 的形态。
 完整规则、实现模型与 `E0463` 见[泛型约束的 `Self` 类型](generic-constraints.md)。
 
-## `static abstract` 成员（部分实现）
+## 静态成员
 
-接口可以声明 `static abstract` 成员，实现方用 `static override` 提供。
-目前**可靠可用的是标准库的 `Std.INumber`**——它把 5 个二元算术运算符声明成 `static abstract`，
-让泛型代码在型参上直接写 `a + b`：
+无函数体的静态方法是接口要求实现的签名，例如 `static Self Create();`。
+实现方可以用普通的 `public static` 方法。旧写法 `static abstract` 和 `static override` 仍可使用。
+
+`Std.INumber` 的五个静态算术方法允许泛型代码在型参上写 `a + b`。
 
 ```z42
 using Std;
@@ -273,11 +280,11 @@ using Std;
 struct Money : INumber {
     public long Cents;
     public Money(long c) { this.Cents = c; }
-    public static override Money op_Add(Money a, Money b)      { return new Money(a.Cents + b.Cents); }
-    public static override Money op_Subtract(Money a, Money b) { return new Money(a.Cents - b.Cents); }
-    public static override Money op_Multiply(Money a, Money b) { return new Money(a.Cents * b.Cents); }
-    public static override Money op_Divide(Money a, Money b)   { return new Money(a.Cents / b.Cents); }
-    public static override Money op_Modulo(Money a, Money b)   { return new Money(a.Cents % b.Cents); }
+    public static Money op_Add(Money a, Money b)      { return new Money(a.Cents + b.Cents); }
+    public static Money op_Subtract(Money a, Money b) { return new Money(a.Cents - b.Cents); }
+    public static Money op_Multiply(Money a, Money b) { return new Money(a.Cents * b.Cents); }
+    public static Money op_Divide(Money a, Money b)   { return new Money(a.Cents / b.Cents); }
+    public static Money op_Modulo(Money a, Money b)   { return new Money(a.Cents % b.Cents); }
 }
 
 T Sum3<T>(T a, T b, T c) where T : INumber { return a + b + c; }
@@ -288,17 +295,8 @@ Sum3(1, 2, 3);                                          // 6 —— 基元类型
 
 实现方必须实现 `INumber` 的**全部 5 个**运算符，否则报 `E0412`。
 
-> ### ⚠️ 这只是一个子集
->
-> 派发是**由接收者的值驱动**的——运行期看实参的具体类型选实现。因此：
->
-> - **没有值可派发的形态用不了**：`where T : IZero` 下写 `T.Zero()` 报
->   `E0401: undefined: T`。
-> - **自定义的 `static abstract` 接口目前不可靠**：同样形状的用户接口
->   （`interface ICombine { static abstract Self op_Add(Self a, Self b); }`）
->   在运行期抛 `MissingSymbolException`。
->
-> 需要这类能力时，请实现标准库的 `Std.INumber`，而不是自己声明 `static abstract` 接口。
+现有泛型算术依赖操作数的运行时类型。`T.Create()` 等直接在类型形参上调用静态方法的语法尚未支持，
+用户定义的静态算术接口也尚未得到完整的泛型派发支持。
 
 ## 接口继承：成员可见，且构成子类型
 

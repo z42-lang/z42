@@ -387,6 +387,20 @@ pub(super) fn simple_method_name(qualified: &str) -> &str {
     qualified.rsplit('.').next().unwrap_or(qualified)
 }
 
+/// Overwrite `slot_name` on an already-published heap object, firing the write
+/// barrier for the reference it now holds. Companion to `alloc_named` for the
+/// chicken-and-egg case where a slot's value can only exist after the object
+/// itself is allocated (a `ParameterInfo` lists its owning `MethodBase` while
+/// the method object lists `__parameters`). VM-made values only — same contract
+/// as `ScriptObject::set_field_value`; missing slot / non-object → no-op.
+pub(super) fn write_published_slot(ctx: &VmContext, obj: &Value, slot_name: &str, v: &Value) {
+    let Value::Object(rc) = obj else { return };
+    let Some(slot) = rc.type_desc().field_index.get(slot_name).copied() else { return };
+    if let Ok(wrote) = rc.borrow().try_set_field_value(slot, v) {
+        wrote.with_barrier_value(v, |stored| ctx.heap().write_barrier_field(obj, slot, stored));
+    }
+}
+
 /// 单 receiver 读取 string slot —— typed-builtin 形态（P1-8 批次 1）。
 pub(super) fn read_type_slot_of(ty: &Value, field: &str) -> Value {
     if let Value::Object(rc) = ty {

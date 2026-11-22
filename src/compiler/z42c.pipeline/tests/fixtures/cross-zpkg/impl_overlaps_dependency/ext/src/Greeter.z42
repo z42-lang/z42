@@ -1,0 +1,5 @@
+namespace Demo.Greeter;
+
+impl Demo.Target.IGreet for Demo.Target.Robot {
+    public string Hello() { return "extension"; }
+}

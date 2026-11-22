@@ -1,0 +1,15 @@
+namespace Example;
+
+enum Mode {
+    /// Public JIT summary.
+    /// @for-generator z42.cli.help
+    /// @generator choice-help 仅使用 JIT
+    /// @for-generator demo.other.generator
+    /// @generator choice-help Other plugin copy
+    JitOnly,
+    /// @for-generator z42.cli.help
+    /// @generator choice-help "both" modes
+    Both,
+}
+
+void Main() {}

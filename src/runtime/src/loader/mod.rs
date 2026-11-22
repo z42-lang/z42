@@ -27,8 +27,16 @@ mod runtime;
 pub use runtime::RuntimeLoader;
 
 mod artifact;
+mod dependency_candidates;
+pub(crate) use dependency_candidates::build_declared_candidates;
+mod eager;
+pub(crate) use eager::load_eager_dependencies;
+mod prelude;
+pub(crate) use prelude::{load_prelude, PRELUDE_FILE};
+mod program;
+pub(crate) use program::prepare_program_modules;
 pub use artifact::{load_artifact, load_artifact_from_bytes, build_block_indices, fold_availability};
-pub(crate) use artifact::FUSION_INPUTS;
+pub(crate) use artifact::{load_artifact_from_bytes_cached, FUSION_INPUTS};
 
 mod native_policy;
 pub use native_policy::NativeLoading;

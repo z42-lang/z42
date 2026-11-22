@@ -33,11 +33,12 @@ struct Vec2 : INumber {
     public long X;
     public long Y;
     public Vec2(long x, long y) { this.X = x; this.Y = y; }
-    public static override Vec2 op_Add(Vec2 a, Vec2 b)      { return new Vec2(a.X + b.X, a.Y + b.Y); }
-    public static override Vec2 op_Subtract(Vec2 a, Vec2 b) { return new Vec2(a.X - b.X, a.Y - b.Y); }
-    public static override Vec2 op_Multiply(Vec2 a, Vec2 b) { return new Vec2(a.X * b.X, a.Y * b.Y); }
-    public static override Vec2 op_Divide(Vec2 a, Vec2 b)   { return new Vec2(a.X / b.X, a.Y / b.Y); }
-    public static override Vec2 op_Modulo(Vec2 a, Vec2 b)   { return new Vec2(a.X % b.X, a.Y % b.Y); }
+    public static Vec2 op_Add(Vec2 a, long b)   { return new Vec2(a.X + b, a.Y + b); }
+    public static Vec2 op_Add(Vec2 a, Vec2 b)   { return new Vec2(a.X + b.X, a.Y + b.Y); }
+    public static Vec2 op_Subtract(Vec2 a, Vec2 b) { return new Vec2(a.X - b.X, a.Y - b.Y); }
+    public static Vec2 op_Multiply(Vec2 a, Vec2 b) { return new Vec2(a.X * b.X, a.Y * b.Y); }
+    public static Vec2 op_Divide(Vec2 a, Vec2 b) { return new Vec2(a.X / b.X, a.Y / b.Y); }
+    public static Vec2 op_Modulo(Vec2 a, Vec2 b) { return new Vec2(a.X % b.X, a.Y % b.Y); }
 }
 
 T Add<T>(T a, T b) where T: INumber { return a + b; }
@@ -78,4 +79,5 @@ void Main() {
     Vec2 s2 = p + q;
     Assert.Equal(22, s2.Y);
     Assert.Equal(11, Vec2.op_Add(p, q).X);      // 显式静态调用（另一条以 RegKey 作目标名的站点）
+    Assert.Equal(4, Vec2.op_Add(p, 3L).X);
 }

@@ -393,6 +393,9 @@ MB1 起同步建立边界检查；MB6 完成覆盖，不以历史依赖基线为
 | 条目 | 当前边界 | 机制页 |
 |---|---|---|
 | `runtime-future-wasm-module-loading` | 当前为最终 WASM 模块静态链接；独立模块的宿主实例化、注册和跨实例 ABI 尚未实现 | [组件化运行时](internals/src/runtime/componentized-runtime.md#runtime-future-wasm-module-loading独立-wasm-模块加载) |
+| `doc-future-semantic-index` | 语义索引、跨包文档解析与编译期 W08xx | [文档索引](internals/src/toolchain/doc.md#doc-future-semantic-index语义索引与编译期诊断) |
+| `doc-future-build-emission` | 项目构建自动生成 `.zdoc` 及 `[doc]` 清单配置 | [文档索引](internals/src/toolchain/doc.md#doc-future-build-emission项目构建输出旁挂文件) |
+| `doc-future-doctest` | 编译和执行 `@example` | [文档索引](internals/src/toolchain/doc.md#doc-future-doctest执行文档示例) |
 
 > 所有显式延后特性的横向索引；条目正文存于 internals 对应机制页的 `## Deferred` 节（reference 页为「不支持」节）。新增延后项时：① 在对应书页写清当前行为与延后条目 ② 在本表加索引行。
 
@@ -597,6 +600,7 @@ MB1 起同步建立边界检查；MB6 完成覆盖，不以历史依赖基线为
 
 | 方向 | 描述 | 触发 |
 |------|------|------|
+| 文档工具 | REPL `:doc`、LSP hover 读取 `.zdoc`、按 Doc ID 叠加英文翻译 | 对应消费端集成时 |
 | `add-cli-version-flag` | `--version` 内建进 `Std.Cli`（今天每个 CLI 自己手写）。todo#3 | 工具链命令面打磨时 |
 | `add-union-types` | 联合类型（组合类型的快速访问）。todo#13 —— 与 `T?`、模式匹配同一片设计区，需 DRAFT | L2 类型系统阶段 |
 | `rename-toolchain-and-libs` | 命名收敛：标准库明确 `std` / `z42` / `z42c` / `z42b` 分界；`z42vm` → `z42r`；`z42.package` → `z42.package`。todo#17 —— ⚠️ 命名空间互换实测**跨 nightly**（种子 driver 会从正在重建的 libs 解析旧 FQN），须按 协作规范的「support 先行」分阶段引入纪律 的 support→use 分阶段走 | 有一个 nightly 窗口时 |

@@ -13,12 +13,13 @@ public sealed class DocQueryOptions {
     public bool   Private;   // 轮廓与搜索里也列 private 成员（直接查名字时总是可见）
     public string Pkg;       // 非空 = 只看这个包
     public string Root;      // 索引根（绝对路径）
+    public string SdkDocsDir; // SDK 文档目录，空为不查
     public string CachePath; // "" = 不用缓存
     public string Page;      // 非空 = 书页路径：解析页里引用的符号，输出 `符号 → file:line`
     public string Docs;      // 非空 = 反查：哪些书页 / README 引用了这个符号
     public DocQueryOptions() {
         this.Query = ""; this.Search = ""; this.Members = false; this.Json = false; this.Private = false;
-        this.Pkg = ""; this.Root = ""; this.CachePath = ""; this.Page = ""; this.Docs = "";
+        this.Pkg = ""; this.Root = ""; this.CachePath = ""; this.Page = ""; this.Docs = ""; this.SdkDocsDir = "";
     }
 }
 
@@ -37,9 +38,35 @@ public static class DocQuery {
         DocIndex ix = DocQuery.BuildIndex(o.Root, o.Pkg, o.CachePath);
         // 外部索引（仓库里 Rust 运行时的条目）放在索引根的 artifacts/doc/ 下；过期提示随结果一起给出。
         string warn = ExternalIndex.LoadDir(o.Root, Path.Join(o.Root, "artifacts/doc"), o.Pkg, ix);
-        DocQueryResult r = DocQuery._answer(o, ix);
+        DocQueryResult r = null;
+        if (o.Page == "" && o.Docs == "" && o.SdkDocsDir != "") {
+            if (o.Search == "") { r = DocQuery._answer(o, ix, false); }
+            if (r == null || r.Exit == 1) {
+                warn = warn + DocArtifact.LoadDirectory(o.SdkDocsDir, o.Pkg, ix);
+                r = null;
+            }
+        }
+        if (r == null) { r = DocQuery._answer(o, ix); }
         if (warn.Length > 0) { r.Err = (r.Err.Length > 0) ? warn + r.Err : warn.TrimEnd(); }
         return r;
+    }
+
+    public static DocQueryResult RunArtifact(DocQueryOptions o, string path) {
+        if (o.Page.Length > 0 || o.Docs.Length > 0) {
+            return new DocQueryResult("", "z42 doc: --zdoc cannot be used with --page or --docs", 2);
+        }
+        if (o.Query.Length == 0 && o.Search.Length == 0) {
+            return new DocQueryResult("", "z42 doc: --zdoc requires a symbol or --search <text>", 2);
+        }
+        try {
+            DocArtifact artifact = DocArtifact.Read(File.ReadAllText(path));
+            if (o.Pkg.Length > 0 && o.Pkg != artifact.Package) {
+                return new DocQueryResult("", "z42 doc: package " + o.Pkg + " is absent from " + path, 1);
+            }
+            return DocQuery._answer(o, artifact.Index);
+        } catch (Exception e) {
+            return new DocQueryResult("", "z42 doc: " + path + ": " + e.Message, 2);
+        }
     }
 
     // 一页书里的符号引用 → 当前位置。读页头声明的范围，解析每个反引号符号，逐行输出 `符号 → file:line`。
@@ -132,7 +159,7 @@ public static class DocQuery {
         }
     }
 
-    private static DocQueryResult _answer(DocQueryOptions o, DocIndex ix) {
+    private static DocQueryResult _answer(DocQueryOptions o, DocIndex ix, bool fuzzy = true) {
         if (o.Page.Length > 0) { return DocQuery._page(o, ix); }
         if (o.Docs.Length > 0) { return DocQuery._docs(o, ix); }
         if (o.Search.Length > 0) {
@@ -147,7 +174,7 @@ public static class DocQuery {
             if (o.Json) { return DocQuery._ok(DocFormat.Json(tops)); }
             return DocQuery._ok(DocFormat.Outline(nsHead, tops));
         }
-        DocItem[] m = ix.Find(o.Query);
+        DocItem[] m = fuzzy ? ix.Find(o.Query) : ix.Resolve(o.Query);
         if (m.Length == 0) { return DocQuery._none(o.Query); }
         if (o.Members) {
             DocItem head = DocQuery._singleContainer(m);

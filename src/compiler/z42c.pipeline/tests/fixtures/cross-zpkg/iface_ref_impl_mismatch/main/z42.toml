@@ -1,0 +1,8 @@
+[project]
+name = "demo.ifacerefapp"
+version = "0.1.0"
+kind = "exe"
+pack = true
+
+[dependencies]
+"demo.ifacereftarget" = "0.1.0"

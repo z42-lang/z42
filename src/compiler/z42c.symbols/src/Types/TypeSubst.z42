@@ -61,6 +61,8 @@ public static class TypeSubst {
         r.ParamDefaults = sig.ParamDefaults;
         r.ParamCallers = sig.ParamCallers;
         r.ParamNames = sig.ParamNames;
+        r.ParamIsRef = sig.ParamIsRef;
+        r.RefInfoKnown = sig.RefInfoKnown;
         return r;
     }
 }

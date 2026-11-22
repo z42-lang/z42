@@ -132,11 +132,8 @@ fn load_zbc_bytes(raw: &[u8], fusion_inputs: FusionInputSource) -> Result<Loaded
 
     let mut module = Module::from_ir(read_zbc(raw).context("cannot parse binary zbc")?);
 
-    build_type_registry(&mut module);
-    verify_constraints(&module)
+    prepare_module(&mut module, fusion_inputs)
         .with_context(|| format!("constraint verification failed for module `{}`", module.name))?;
-    build_block_indices_with_fusion(&mut module, fusion_inputs);
-    build_func_index(&mut module);
 
     let import_namespaces = extract_import_namespaces_from_module(&module);
 
@@ -264,11 +261,8 @@ fn assemble_zpkg_artifact(
     let modules: Vec<Module> = module_pairs.into_iter().map(|(m, _)| m).collect();
     let mut module = merge_modules(modules).context("merging zpkg modules")?;
 
-    build_type_registry(&mut module);
-    verify_constraints(&module)
+    prepare_module(&mut module, fusion_inputs)
         .with_context(|| format!("constraint verification failed for module `{}`", module.name))?;
-    build_block_indices_with_fusion(&mut module, fusion_inputs);
-    build_func_index(&mut module);
 
     Ok(LoadedArtifact {
         module,

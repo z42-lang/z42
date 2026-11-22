@@ -17,6 +17,14 @@ public enum Color { Red, Green }
 
 public class NoArgCtor { public int v; public NoArgCtor() { this.v = 7; } }
 
+public string Reveal<T>(T value) where T : IShow { return value.Show(); }
+
+public static class Constrained {
+    public static T RequireAnimal<T>(T value) where T : Animal { return value; }
+    public static T Build<T>() where T : new() { return new T(); }
+    public static B Keep<A, B>(A first, B second) where B : A { return second; }
+}
+
 // 接口约束
 public class ShowBox<T> where T : IShow {
     public T item;

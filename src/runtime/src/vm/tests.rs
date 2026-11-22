@@ -1,6 +1,31 @@
 use super::*;
 use crate::object::Value;
 
+#[test]
+fn registered_worker_keeps_core_alive_until_context_is_dropped() {
+    let parent = VmContext::new();
+    let core = parent.core_arc();
+    let weak = std::sync::Arc::downgrade(&core);
+    let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        let ctx = VmContext::new_with_core(core);
+        ready_tx.send(()).unwrap();
+        release_rx.recv().unwrap();
+        drop(ctx);
+    });
+    ready_rx.recv().unwrap();
+    assert_eq!(parent.core().threads.vm_contexts.lock().len(), 2);
+    drop(parent);
+    {
+        let core = weak.upgrade().expect("worker retains the shared core");
+        assert_eq!(core.threads.vm_contexts.lock().len(), 1);
+    }
+    release_tx.send(()).unwrap();
+    worker.join().unwrap();
+    assert!(weak.upgrade().is_none(), "core must be released with its final context");
+}
+
 // ── static fields ──────────────────────────────────────────────────────────────
 
 #[test]

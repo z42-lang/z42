@@ -67,6 +67,38 @@ int dupCount(string[] msgs, string code) {
     return n;
 }
 
+[Test]
+void crosspkg_duplicate_impl_reports_both_packages() {
+    ExportedModuleZ[] modules = new ExportedModuleZ[3];
+    modules[0] = FrontEnd.ExtractExports("namespace Demo.Owner; public interface I {} public class C {}", "owner.z42", "Demo.Owner");
+    modules[1] = FrontEnd.ExtractExports("namespace Demo.Alpha; public class Alpha {}", "alpha.z42", "Demo.Alpha");
+    modules[2] = FrontEnd.ExtractExports("namespace Demo.Beta; public class Beta {}", "beta.z42", "Demo.Beta");
+    ExportedImplZ entry = new ExportedImplZ("Demo.Owner.C", "Demo.Owner.I", new string[0], 0, new ExportedMethodZ[0], 0);
+    modules[1].Impls = new ExportedImplZ[]{entry};
+    modules[2].Impls = new ExportedImplZ[]{entry};
+    modules[1].ImplCount = 1;
+    modules[2].ImplCount = 1;
+    string[] pkgs = new string[]{"demo.owner", "demo.alpha", "demo.beta"};
+    ImportedSymbols imported = ImportedSymbolLoader.Load(modules, pkgs, 3, new string[]{"Demo.Owner"}, 1, "", pkgs, 3);
+    string[] diagnostics = dupDiags("namespace Demo.App; class C {}", imported);
+    Assert.Equal(1, dupCount(diagnostics, "E0413"));
+    Assert.Equal(1, dupCount(diagnostics, "in packages `demo.alpha` and `demo.beta`"));
+}
+
+[Test]
+void concrete_impl_registry_spans_files_and_keeps_namespaces_distinct() {
+    string[] files = new string[]{"one.z42", "two.z42", "three.z42"};
+    string[] sources = new string[]{
+        "namespace One; interface I {} class C {} impl I for C {}",
+        "namespace Two; interface I {} class C {} impl I for C {}",
+        "namespace Three; impl One.I for One.C {}"
+    };
+    CompiledModuleZ[] modules = IrDump.BuildPackage(sources, files, 3, null, null, false);
+    Assert.Equal(0, dupCount(modules[0].DiagMsgs, "E0413"));
+    Assert.Equal(0, dupCount(modules[1].DiagMsgs, "E0413"));
+    Assert.Equal(1, dupCount(modules[2].DiagMsgs, "E0413"));
+}
+
 // 两个**不同的包**各声明 Demo.Dup.Widget（真·同 FQN）。
 ImportedSymbols dupTwoPkgs() {
     string[] srcs = new string[2];

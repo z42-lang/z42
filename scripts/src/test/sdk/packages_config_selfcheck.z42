@@ -41,16 +41,16 @@ int _testPackagesConfig() {
     _PackagesConfig cfg = _pkgcfgLoad(root);
 
     _pkgAssertLen("package count", 3, cfg.packages.Length);
-    _pkgAssertLen("component count", 10, cfg.components.Length);  // R1：native-ext 退役后 10（z42vm 携闭包）
+    _pkgAssertLen("component count", 11, cfg.components.Length);
 
     _PkgPackage sdk = _pkgcfgFindPackage(cfg, "sdk");
     _pkgAssertEq("sdk.artifact", "z42-sdk-{version}-{rid}", sdk.artifact);
     _pkgAssertEq("sdk.manifest", "auto", sdk.manifest);
-    _pkgAssertLen("sdk.include", 8, sdk.include.Length);
+    _pkgAssertLen("sdk.include", 9, sdk.include.Length);
 
     _PkgComponent[] sdkComps = _pkgcfgResolveInclude(cfg, "sdk");
     // R1：native-ext 退役 —— SDK 的 native/ 闭包由 z42vm（native_closure）装出。
-    _pkgAssertLen("sdk resolved components", 8, sdkComps.Length);
+    _pkgAssertLen("sdk resolved components", 9, sdkComps.Length);
     _pkgAssertEq("sdk.include[0].name", "z42vm", sdkComps[0].name);
     _pkgAssertEq("sdk.include[0].kind", "cargo-bin", sdkComps[0].kind);
     // ⚠️ 改 `[package.sdk].include` 的顺序/条数就必须同步这些下标 —— 这正是本自检存在的理由。
@@ -60,6 +60,9 @@ int _testPackagesConfig() {
     _pkgAssertEq("sdk.include[7].name", "editor-assets", sdkComps[7].name);
     _pkgAssertEq("sdk.include[7].kind", "editor-assets", sdkComps[7].kind);
     _pkgAssertEq("sdk.include[7].dest", "editors/", sdkComps[7].dest);
+    _pkgAssertEq("sdk.include[8].name", "docs", sdkComps[8].name);
+    _pkgAssertEq("sdk.include[8].kind", "stdlib-docs", sdkComps[8].kind);
+    _pkgAssertEq("sdk.include[8].dest", "docs/", sdkComps[8].dest);
 
     // z42d/z42i: apphost kind, same producer path as launcher/z42c/z42b.
     _PkgComponent z42d = _pkgcfgFindComponent(cfg, "z42d");

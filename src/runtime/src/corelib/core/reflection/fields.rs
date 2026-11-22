@@ -51,6 +51,30 @@ pub fn type_fields(ctx: &VmContext, ty: &Value) -> Result<Value, BuiltinError> {
     };
     let mut roots = ProjectionRoots::new(ctx);
     let mut out = Vec::with_capacity(td.fields.len() + td.static_fields().len());
+    // Declaring class per instance field: the flattened `td.fields` has no per-slot
+    // owner marker, but `own_fields()` along the base chain identifies each slot's
+    // declarer. Root-first fill so a base slot keeps its base attribution (the
+    // flattened slot IS the base's; a derived same-name shadow does not retarget
+    // it) — mirrors the `field_scopes` base-first first-wins fill above. Statics
+    // below already walk the same chain per declaring class.
+    let mut declarers: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    {
+        let mut chain: Vec<Arc<TypeDesc>> = Vec::new();
+        let mut cur = Some(td.clone());
+        while let Some(c) = cur {
+            chain.push(c.clone());
+            cur = c.base_name.as_ref().and_then(|b| {
+                ctx.module()
+                    .and_then(|m| m.type_registry.get(b).cloned().map(|td| ctx.core().runtime().current_type_desc(td)))
+                    .or_else(|| ctx.loader().try_lookup_type(b))
+            });
+        }
+        for c in chain.iter().rev() {
+            for declared in c.own_fields() {
+                declarers.entry(declared.name.to_string()).or_insert_with(|| c.name.to_string());
+            }
+        }
+    }
     // Instance fields (already base-first — cross-zpkg fixup merges inherited
     // instance fields into `td.fields`; IsStatic = false). Auto-property backing
     // fields (compiler-synthesized `__prop_<Name>`, see IrGen auto-prop stubs) are
@@ -60,7 +84,8 @@ pub fn type_fields(ctx: &VmContext, ty: &Value) -> Result<Value, BuiltinError> {
         if is_autoprop_backing(&f.name) {
             continue;
         }
-        let info = build_field_info(ctx, &td.name, &f.name, field_type(i, f), false, f.visibility)
+        let declaring = declarers.get(&*f.name).map(String::as_str).unwrap_or(td.name.as_str());
+        let info = build_field_info(ctx, declaring, &f.name, field_type(i, f), false, f.visibility)
             .map_err(BuiltinError::Legacy)?;
         out.push(if scopes.has_inherited() { roots.pin(info) } else { info });
     }

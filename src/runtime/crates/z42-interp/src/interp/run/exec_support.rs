@@ -122,9 +122,7 @@ pub(crate) fn exec_function_with_type_args(
         return outcome;
     }
     let mut frame = Frame::new(ctx, args, func.max_reg);
-    if !method_type_args.is_empty() {
-        frame.method_type_args = method_type_args.into();
-    }
+    frame.method_type_args = method_type_args;
     exec_function_body(ctx, module, func, frame)
 }
 
@@ -174,7 +172,7 @@ pub(super) fn try_osr(ctx: &VmContext, frame: &mut Frame, func: &Function, loop_
     if frame.back_edge_count != tier.osr_threshold { return None; }
     tier.osr(ctx, func, loop_header, crate::exec::OsrState {
         regs: &frame.regs, frame_id: frame.frame_id_if_taken(),
-        method_type_args: &frame.method_type_args,
+        method_type_args: frame.method_type_args,
         has_ref_writebacks: !frame.ref_writebacks.is_empty(),
     })
 }
@@ -200,7 +198,7 @@ pub(crate) fn exec_function_from_regs(
 ) -> Result<ExecOutcome> {
     // fix-callee-entry-safepoint-drops-args: safepoint moved into `exec_function_body`.
     let mut frame = Frame::new_from_regs(ctx, caller_regs, arg_indices, func.max_reg)?;
-    if !method_type_args.is_empty() { frame.method_type_args = method_type_args.into(); }
+    frame.method_type_args = method_type_args;
     exec_function_body(ctx, module, func, frame)
 }
 
@@ -215,7 +213,7 @@ pub(crate) fn exec_function_from_receiver_regs(
 ) -> Result<ExecOutcome> {
     // fix-callee-entry-safepoint-drops-args: safepoint moved into `exec_function_body`.
     let mut frame = Frame::new_from_receiver_regs(ctx, receiver, caller_regs, arg_indices, func.max_reg)?;
-    if !method_type_args.is_empty() { frame.method_type_args = method_type_args.into(); }
+    frame.method_type_args = method_type_args;
     exec_function_body(ctx, module, func, frame)
 }
 /// Spec impl-ref-out-in-runtime: copy-out for `ref`/`out` params. Iterate

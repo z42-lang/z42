@@ -112,6 +112,7 @@ public static class ZpkgIndexedWriter {
                 // 方法级泛型型参名（add-reflective-invoke 起 SIGS 写真实值）——此前漏 intern。
                 int tpi = 0;
                 while (tpi < f.TypeParamCount) { pool.Intern(f.TypeParams[tpi]); tpi = tpi + 1; }
+                ZbcWriter.InternConstraintBundles(f.TypeParamConstraints, pool);
                 int pdk = 0;
                 while (pdk < f.ParamDefaultKinds.Length) { if (f.ParamDefaultKinds[pdk] == 5) { pool.Intern(f.ParamDefaultStrs[pdk]); } pdk = pdk + 1; }
                 int a = 0;

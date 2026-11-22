@@ -145,7 +145,7 @@ VM 上下文只组合领域状态并管理生命周期；执行、对象、加�
 
 ## VM 组合与状态行为归属（必须遵守）
 
-- 不建立 context 万能目录，也不在各模块散布 `impl VmContext` 承载域行为。`vm/mod.rs` 只组合状态、管理固定地址与生命周期、提供最小借用入口；默认输入与服务装配集中在 `vm/defaults.rs`、`vm/services.rs`、`vm/assembly.rs`，host 只适配宿主请求。
+- 不建立 context 万能目录，也不在各模块散布 `impl VmContext` 承载域行为。`vm/mod.rs` 只组合状态、管理固定地址与生命周期、提供最小借用入口；默认服务和兼容构造入口集中在运行时组合根 `composition.rs`，`vm/defaults.rs` 与 `vm/assembly.rs` 接收明确的服务输入，host 只适配宿主请求。
 - 帧、arena 和异常交接使用 `ctx.exec()`；包安装、查询与延迟加载使用 `ctx.loader()`，loader 的服务不能持有整个 VmContext 或依赖堆/执行器。
 - 静态字段存储使用 `ctx.statics()`，类型/包初始化执行使用 `ctx.initialization()`；加载只登记初始化事实，执行屏障负责运行托管代码。
 - 观察与统计归 diagnostics，线程注册/GC 停顿归 threads。注销计数转移和汇总必须持同一注册表锁，GC 回调保持 Weak 核心引用。

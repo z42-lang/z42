@@ -66,6 +66,8 @@ public static class MethodTypeArgSubst {
         subst.ParamDefaults = sig.ParamDefaults;
         subst.ParamCallers = sig.ParamCallers;
         subst.ParamNames = sig.ParamNames;
+        subst.ParamIsRef = sig.ParamIsRef;
+        subst.RefInfoKnown = sig.RefInfoKnown;
         MethodSymbol r = ms.WithSignature(subst);
         r.MethodErasedSig = MethodTypeArgSubst.ErasedSig(ms);
         return r;
@@ -116,6 +118,8 @@ public static class MethodTypeArgSubst {
         subst.ParamDefaults = sig.ParamDefaults;
         subst.ParamCallers = sig.ParamCallers;
         subst.ParamNames = sig.ParamNames;
+        subst.ParamIsRef = sig.ParamIsRef;
+        subst.RefInfoKnown = sig.RefInfoKnown;
         MethodSymbol r = ms.WithSignature(subst);
         r.MethodErasedSig = MethodTypeArgSubst.ErasedSig(ms);
         return r;
