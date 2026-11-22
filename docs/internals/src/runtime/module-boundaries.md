@@ -91,7 +91,7 @@ TypeKeyCell / `alloc_type_id_block`，零 crate 依赖）从 `metadata/ids/token
 跨域身份词汇家；`metadata::ids::tokens` 以模块再导出保活铸造/注册侧路径（全仓引用零改动）。
 对象表示对 metadata 的身份依赖就此归零，缺口表清空。
 
-C 适配归能力所有者转长期留档：`host/c/` 五文件归组是当前最优形态（单一 C 面、集中可发现）；
+C 适配归能力所有者转长期留档：C 适配五文件已拍平回 host 根（与 Rust 宿主面同层，单一 C 面、集中可发现）；
 分域搬移的触发条件为出现第二个 C 面（per-domain 头文件）或适配规模显著超出五文件，届时随真实
 能力边界分域，不预做分散。
 
