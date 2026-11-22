@@ -55,7 +55,7 @@ match exec::ops::object::field::field_get(vm_ctx_ref(ctx), recv, name, ic) {
 ## 关联文档
 
 - 机制：[interp / JIT 语义单一真相源 · 对象操作：objops](../../../../../../docs/internals/src/runtime/interp-jit-semantics.md#对象操作objops)
-- 对象模型改造（R0–R9）的计划：`docs/runtime-audit.md` §7「对象模型（M10 + M11）已定方案」
+- [对象 ABI 和存储布局](../../../../../../docs/internals/src/runtime/object-abi.md)
 
 ## 待办
 

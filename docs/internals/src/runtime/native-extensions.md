@@ -45,3 +45,12 @@ Repl 区分 console 输入与交互终端。PAL 每次调用检查平台和标�
 带 `lib` 但不带 `type` 的脚本声明生成 `CallNative(module=lib, type="", symbol=entry)`。interp 与 JIT 通过共享执行入口按 `(provider, export)` 查询：指定提供方不存在或未导出该函数时抛 `MissingSymbolException`，不回落 core 或其他模块的同名函数。已有模块声明仍经 loader 惰性物化；查询和调用不枚举其他动态库。模块函数不依赖 typed FFI，静态 WASM 同样可用。diagnostics 与 harness 的内部描述符由 host 分别注册到 `z42_diagnostics` / `z42_harness`，模块不必为限定查询改用另一套 ABI。无 lib 的 core 声明继续生成索引派发的 Builtin。已有 typed native 声明继续通过 Tier 1 的类型描述符、`CallNative` 和 libffi 调用。通用模块 ABI 的脚本回调已实现，旧 Tier 1 C 入口 `z42_invoke` / `z42_invoke_method` 仍未实现，二者不能混为一谈。
 
 模块注册/调用由 `interop/providers_tests.rs`、`interop/module_tests.rs` 覆盖；真实动态镜像由 `loader/native_tests.rs` 覆盖；静态解析由 `loader/linked_tests.rs` 覆盖；Repl 会话与 SDK 编组分别在各自 crate 测试。完整验证使用 `xtask test` 和 `xtask package sdk --verify`。布局与搜索策略见[原生库布局](native-libraries.md)，跨平台产物及 WASM 链接模型见[组件化运行时](componentized-runtime.md)。
+
+## Deferred
+
+### runtime-tier1-registration-table: Tier 1 注册函数表
+
+`interop::install::load_library` 调用无参数的注册入口。Tier 1 类型库在该入口中调用核心导出的
+`z42_register_type`。未向库提供这组符号的宿主可使用自描述模块协议交付兼容的功能。
+若需支持这种宿主的 Tier 1 类型注册，应先定义可供扩展调用的版本化注册函数表，验证库与宿主的
+符号边界、错误传播和注册上下文，并覆盖现有库的兼容路径。
