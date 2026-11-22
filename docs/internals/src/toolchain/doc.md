@@ -94,7 +94,8 @@ z42 doc <args>                      launcher：`doc` 原样转发
 
 `z42d doc --format mdbook --out <dir> --pkg <name>` 渲染一个包到 `<dir>/<name>.md`（生成不写共享索引缓存）。
 `xtask build docs` 生成全部写了 `//!` 的包的页面到 `docs/reference/src/stdlib/`，并删掉不再生成的旧页（该目录除
-`README.md` 外全归 gen 所有）；内容不变的页不重写。**生成页不入库**（`.gitignore`），由用到它们的地方现生成：
+`README.md` 外全归 gen 所有）；内容不变的页不重写。**生成页不入库**（`.gitignore`）。标准库首页的总览表从同一批包的命名空间摘要更新，表外介绍保持手写。
+文档检查和发布都会运行生成器：
 
 | 谁 | 何时 |
 |---|---|
