@@ -128,10 +128,7 @@ pub unsafe extern "C" fn jit_call_indirect(
             let data = crate::object::closure_data_of(c);
             (data.fn_id, Some(Value::Array(data.env.clone())))
         }
-        // fix-null-delegate-invoke: same as interp's `call_indirect` — a null callee is
-        // reachable from ordinary code (an unassigned single-cast `event` field), so it
-        // gets a catchable `Std.NullReferenceException` rather than a raw string. Both
-        // backends must do this: fixing only one leaves the bug alive under the other.
+        // Match the interpreter's catchable exception for null delegate invocation.
         Value::Null => {
             let module = super::jit_module(ctx);
             let exc = crate::exec::exception::make_stdlib_exception(

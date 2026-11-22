@@ -1,4 +1,6 @@
-# 委托与事件（delegate / event）
+# 委托与事件
+
+## 1. 委托与订阅类型
 
 z42 把"可调用值"拆成**两类互不混淆的类型**：
 
@@ -7,23 +9,8 @@ z42 把"可调用值"拆成**两类互不混淆的类型**：
 - **多播** —— stdlib 的 `MulticastAction<T>` / `MulticastFunc<TArg, TResult>` /
   `MulticastPredicate<T>` 三个 sealed class，一次注册 **N 个** handler。
 
-`event` 关键字**不决定**单播还是多播——**字段类型决定**。它只做访问控制糖：把外部的
-`+=` / `-=` 改写成对合成访问器 `add_X` / `remove_X` 的调用。
-
-与 C# 的最大差别：C# 的 `Action<T>` 本身就是多播的（`MulticastDelegate`），z42 的
-`Action<T>` 永远只有一个 handler；要多播就写出 `MulticastAction<T>`。类型 100% 诚实。
-
-## 1. 设计目标
-
-| # | 目标 | 衡量标准 |
-|---|------|---------|
-| 1 | C# 用户零迁移成本 | 表层语法（`delegate` / `event` / `+=` / `-=`）与 C# 视觉一致 |
-| 2 | 消除 C# delegate/event 的长期痛点 | 见 [§9 改进项映射](#9-改进项映射c--z42) |
-| 3 | API 表面极简 | 1 个 `event` 关键字；0 个订阅策略 attribute |
-| 4 | 关键字 / 修饰符不堆叠 | 不会出现 `[Weak] [Once] event ...` 这种链式修饰符 |
-| 5 | 默认路径零开销 | 裸 `+= h` 订阅不分配包装对象 |
-| 6 | 未来扩展不动语法 | 新订阅策略 = 加一个 `ISubscription` 实现类 |
-| 7 | 单播 / 多播视觉与心智统一 | 都用 `event TYPE NAME` + `+=` / `-=`；类型决定语义 |
+发布者可以用委托字段保存一个可选回调，或用多播对象管理订阅。公开订阅接口可以只暴露
+订阅方法，把调用权限留在发布者内部。
 
 ## 2. 单播：`delegate` 类型
 
@@ -58,12 +45,12 @@ public delegate bool Predicate<T>(T arg);
 | 持有量 | 一个实例持 0 或 1 个 handler（target + method）|
 | 实参个数 | **校验**：多传报 E1006、少传报 E1005（`f(args)` 与 `f.Invoke(args)` 同一条）。实参**类型**也查（E0402）。**`delegate` 形参不能写默认值**：委托类型只记参数类型，调用点走间接调用、没有可选参数这一层 ⇒ 默认值永远落不下来，故在**声明处**报错（E0402），而不是让调用点收到一个看起来矛盾的 E1005 |
 | 调用 | `f(arg)` 等价 `f.Invoke(arg)`。**委托类型的字段 / 属性可以直接调用**：`obj.F(arg)`、`C.S(arg)`（静态）等价于先读出成员再调用这个委托值，参数个数与类型照委托签名检查；类上同名**方法优先**，静态性要对得上（经实例调静态字段仍报 E0401）。`.Invoke` 脱糖成与括号调用同一个间接调用。调用路之外，委托值上可读族基类 `Std.Delegate` 的属性（见 §2.6）；其余成员名报 E0401 |
-| null | 调用 null delegate 抛 `Std.NullReferenceException`（可 `catch`，两个后端一致）。**触发前仍应查空**：`var h = X; if (h != null) { h.Invoke(args); }`（单播 event 字段默认就是 null；靠异常发现「没人订阅」不是好写法）。⚠️ `?.Invoke()` **已不可用**——`?.` 已移除（E0480）|
+| null | 调用 null delegate 抛 `Std.NullReferenceException`（可 `catch`，两个后端一致）。**触发前仍应查空**：`var h = X; if (h != null) { h.Invoke(args); }`（委托字段默认就是 null；靠异常发现「没人订阅」不是好写法）。⚠️ `?.Invoke()` **已不可用**——`?.` 已移除（E0480）|
 | 方法组转换 | **自由函数** `Action<int> a = SomeMethod;`、**实例方法** `obj.Method` 与**类静态方法** `C.F`（含全限定 `Ns.C.F` 与类内裸名 `F`，沿基类链按声明类取）都编译期合成 delegate 值。**重载的按目标消解三族同规**：自由函数 / 实例 / 静态方法组在有目标委托类型的写法位（声明 / 赋值 / return / 初始化器）都按签名精确选中，无匹配报 E0477、见 [§2.5](#25-重载自由函数取引用按目标委托消解)；无目标写法（`var f = …`）静态报 E0425、实例绑 primary。**实参位**目前只有自由函数延迟消解，方法组实参不延迟（见 §2.5 注）。经派生类名取基类静态方法引用与调用路同口径拒绝（E0401 点名声明类）|
 | Lambda 转换 | `Func<int,int> f = x => x*2;` |
 | 目标何时解析 | **创建 delegate 值时**（lambda、方法组转换求值的那一刻），不是第一次调用时。目标函数所在的包在这时加载；目标找不到（例如运行时缺了它所在的依赖包）就在**创建处**抛 `Std.MissingSymbolException`（可 `catch`），之后的调用不再查找名字 |
 | 名字查找 | 用户 `delegate` 的身份是全限定名：两个命名空间里的同名 `delegate` 是两个类型，各用各的签名。写短名按[命名空间规则](namespaces.md)找（外围 → `using` → prelude），找不到报 `E0436`。**依赖包导出的 `public delegate` 同样可用**（`using` 它的命名空间后当类型写：局部 / 形参 / 字段，lambda 与方法组都能转进去）|
-| `+=` / `-=` | 单播类型上这两个操作符**只在 `event` 字段上**有意义（见 §5）。用在**普通函数值**上（`f += g`，想串起两个处理器）是编译错误 E0402，消息直接指向 `MulticastAction<T>` / `Subscribe` —— 一个函数值最多绑一个目标 |
+| `+=` / `-=` | 委托值上的 `f += g` 和 `f -= g` 报 E0402。多个处理器通过多播对象的 `Subscribe` 和 `Unsubscribe` 管理。 |
 
 ### 2.5 重载自由函数取引用：按目标委托消解
 
@@ -122,7 +109,7 @@ void Run(Btn.OnClick h, int v) { h(v); }
 ### 2.4 delegate 值的引用相等
 
 `Std.Delegate.ReferenceEquals(a, b)` 判两个 delegate 值是否指向同一 target + method。
-`MulticastAction.Unsubscribe(handler)` 与单播 event 的 `-=` 都走它。
+`MulticastAction.Unsubscribe(handler)` 使用这项身份比较。
 
 ### 2.6 族基类 `Std.Delegate`
 
@@ -275,131 +262,39 @@ bus.SubscribeAdvanced(new CompositeRef<Action<int>>(handler, ModeFlags.Once | Mo
 ### 4.3 自定义策略
 
 实现 `ISubscription<TD>` 即可接入 `SubscribeAdvanced`——throttle / debounce / 调度到指定
-线程等策略都是"再写一个类"，**不动 `event` 关键字、不加 attribute**。
+订阅策略可扩展为新的 `ISubscription` 实现。
 
-## 5. `event` 关键字
+## 5. 回调字段与订阅接口
 
-### 5.1 角色
-
-`event` **不假设 cardinality**，它的职责只有两条：
-
-1. 把外部的 `+=` / `-=` 改写成 `add_X` / `remove_X` 调用；
-2. 为 interface 中声明的 event 自动合成 `add_X` / `remove_X` 契约，class 侧写同名 event
-   字段即满足契约。
-
-cardinality 100% 由字段类型决定。
-
-### 5.2 类型 → 行为分派
-
-| 字段类型 | cardinality | `target.X += h` | `target.X -= h` | 类内触发 |
-|---------|:----------:|----------------|----------------|---------|
-| `event Action<T>` | 单播 | X 为 null → 设置；已设 → 抛 `InvalidOperationException` | 引用相等 → 清空；否则 no-op | `var h = X; if (h != null) { h.Invoke(args); }` |
-| `event Func<TArg,TResult>` | 单播 | 同上 | 同上 | 同上 |
-| `event Predicate<T>` | 单播 | 同上 | 同上 | 同上 |
-| `event MulticastAction<T>` | 多播 | `Subscribe(h)` | `Unsubscribe(h)` | `X.Invoke(args)`，空链 = no-op |
-| `event MulticastFunc<TArg,TResult>` | 多播 | 同上 | 同上 | `TResult[] r = X.Invoke(args)` |
-| `event MulticastPredicate<T>` | 多播 | 同上 | 同上 | `bool[] b = X.Invoke(args)` |
-
-**多播 event 字段自动初始化**：`public event MulticastAction<T> Bar;` 无初始化器时编译器
-补 `= new MulticastAction<T>()`，所以多播字段**不需要查空**，直接 `Bar.Invoke(...)`。
-**单播 event 字段不自动初始化**，默认 null ⇒ 触发前必须先取到局部再查空
-（`?.` 已移除，见 [operators.md](operators.md#-----已移除e0480)）。
-
-**`+=` 只接受裸 handler**：合成的 `add_X` 只有**一个**重载，形参类型是对应的单播 delegate
-（`MulticastAction<T>` → `Action<T>`，`MulticastFunc` → `Func`，`MulticastPredicate` →
-`Predicate`）。`ISubscription` 包装**不能**经 `+=` 传入——走字段自身的
-`bus.Clicked.SubscribeAdvanced(wrapper)`。
-
-### 5.3 Desugar 规则
+`event` 是普通标识符。单个回调用委托字段保存，通过赋值替换，通过赋 `null` 清除。
+显式创建多播对象后，用 `+= handler` 注册，用 `-= handler` 按身份退订。三个多播类型都提供
+[复合赋值重载](operators.md#复合赋值重载)，注册表达式返回 `IDisposable`。
+发布者可通过接口公开订阅方法，把多播对象留作私有字段。
 
 ```z42
-// === 单播事件 ===
-public event Action<T> Foo;
-// ⇣ 合成（字段保留原名，不改名成 _Foo）
-public IDisposable add_Foo(Action<T> h) {
-    if (this.Foo != null) throw new InvalidOperationException("single-cast event already bound");
-    this.Foo = h;
-    return Disposable.From(() => this.remove_Foo(h));
-}
-public void remove_Foo(Action<T> h) {
-    if (Delegate.ReferenceEquals(this.Foo, h)) this.Foo = null;
+public interface IClickSource {
+    IDisposable SubscribeClick(Action<int> handler);
 }
 
-// === 多播事件 ===
-public event MulticastAction<T> Bar;        // 隐式 `= new MulticastAction<T>()`
-// ⇣
-public IDisposable add_Bar(Action<T> h) => this.Bar.Subscribe(h);
-public void remove_Bar(Action<T> h) => this.Bar.Unsubscribe(h);
+public class Button : IClickSource {
+    private MulticastAction<int> _clicked = new MulticastAction<int>();
+    public Action<string> KeyDown;
+
+    public IDisposable SubscribeClick(Action<int> handler) {
+        return this._clicked.Subscribe(handler);
+    }
+
+    private void RaiseClick(int value) { this._clicked.Invoke(value); }
+
+    private void RaiseKeyDown(string key) {
+        var handler = this.KeyDown;
+        if (handler != null) { handler(key); }
+    }
+}
 ```
 
-`Std.Disposable` 是通用 `IDisposable` 实现，`Disposable.From(Action)` 工厂返回一个
-**幂等**（多次 `Dispose()` 只触发一次）的 token。
-
-### 5.4 用户视角
-
-```z42
-public class Button {
-    // 多播事件（最常见）
-    public event MulticastAction<MouseArgs> Clicked;
-    public event MulticastFunc<int, bool> Validate;
-
-    // 单播事件（Cocoa 风格的回调属性）
-    public event Action<KeyArgs> OnKeyDown;
-    public event Func<DialogResult, bool> ShouldClose;
-
-    void Fire(MouseArgs a) { this.Clicked.Invoke(a); }   // 类内直接触发
-}
-
-// 外部使用
-button.Clicked += args => log(args.X);
-button.Clicked -= someHandler;
-
-// 高级订阅走字段自身（不经 +=）
-button.Clicked.SubscribeAdvanced(new OnceRef<Action<MouseArgs>>(handler));
-
-button.OnKeyDown += handleKey;       // 单播：set
-button.OnKeyDown += otherHandler;    // ✗ InvalidOperationException
-button.OnKeyDown -= handleKey;       // 清空
-
-// scoped 订阅：`using` 管住生命周期（订阅 token 实现 `Std.IDisposable`）
-using (button.Clicked.Subscribe(handler)) {
-    DoStuff();
-}                    // 块的任一退出路径（含 return / break / continue / 抛异常）都退订
-
-// 或者拿住 token 自己 Dispose
-IDisposable sub = button.Clicked.Subscribe(handler);
-DoStuff();
-sub.Dispose();       // 退订
-```
-
-> `using` 语句自 add-using-statement（批 3）起可用 —— 见[`using` 语句](using-statement.md)。
-> 它与 `using` **指令**（命名空间导入 / 类型别名）是同一个关键字的两种用法，靠后随 token 区分。
-
-### 5.5 interface event
-
-```z42
-public interface IBus {
-    event MulticastAction<int> Clicked;
-}
-
-public class Bus : IBus {
-    public event MulticastAction<int> Clicked;   // 写同名 event 字段即满足契约
-}
-
-IBus iface = new Bus();
-iface.Clicked += x => Console.WriteLine(x);      // 经 interface 引用 +=，vtable 派发
-```
-
-interface 里的 event 声明合成 abstract 的 `add_X` / `remove_X` 签名，implementer **无需**
-手写访问器。
-
-### 5.6 访问控制：现状
-
-> ⚠️ **`event` 字段目前没有编译期访问控制。** 设计上保留了 `E0414`
-> （event 字段外部直接读 / 直接 `Invoke` / 直接赋值），**但编译器从不发射它**：
-> 字段名集合在符号收集阶段被收集，TypeChecker 从不查询。今天外部代码可以直接
-> `button.Clicked.Invoke(...)` 或 `button.OnKeyDown = h`，编译通过。
-> 需要真的封闭时，把字段声明为 `private` 并另外暴露方法。
+`Subscribe(handler)` 与 `+= handler` 都返回 `IDisposable`，用 `Dispose()` 或 [`using`](using-statement.md) 结束订阅。
+持有多播对象时，也可以用原处理器调用 `Unsubscribe`，或用 `SubscribeAdvanced` 安装弱引用和一次性订阅。
 
 ## 6. 异常聚合：`MulticastException`
 
@@ -467,7 +362,7 @@ try {
 
 | 订阅方式 | Subscribe 时的分配 | Invoke 每 handler 的开销 |
 |---------|--------------|------------------|
-| 裸 `+= h` / `Subscribe(h)` | **0**（直接进 strong 数组）| 1 次直接调用，与单播 delegate 等价 |
+| 裸 `Subscribe(h)` | **0**（直接进 strong 数组）| 1 次直接调用，与单播 delegate 等价 |
 | `SubscribeAdvanced(OnceRef)` | 1 个包装对象 | 1 次 `IsAlive()` + `Get()` + 调用 + `OnInvoked()` |
 | `SubscribeAdvanced(WeakRef)` | 1 个包装对象 | 额外 1 次弱引用 upgrade + 重建 closure |
 | `CompositeRef(Once\|Weak)` | **1**（组合成一个对象）| 同上 + 1 次 flag 检查 |
@@ -477,10 +372,9 @@ try {
 | 选项 | 用法 | 适用场景 |
 |------|------|--------|
 | 只接裸 delegate | 不对外暴露 `SubscribeAdvanced` | 极致性能事件（60fps 渲染 / 高频输入）|
-| 直接用 `MulticastAction<T>` 字段 | 不写 `event` 关键字 | 不需要 `+=` 糖时 |
-| 退化到单播 `event Action<T>` | 至多 1 handler | 只有 1 个 listener 的场景 |
+| 使用单播 `Action<T>` | 至多 1 handler | 只有 1 个 listener 的场景 |
 
-## 8. Promise / 一次性 + 回放 —— 不属于 event
+## 8. 一次性订阅与回放
 
 > C# 里"事件触发一次后晚来的订阅者拿历史值"通常用 `TaskCompletionSource<T>` 表达，
 > 而不是 event。z42 同样把这两件事分开。
@@ -508,15 +402,13 @@ z42 **不提供** per-event once with replay：
 | 匿名 lambda 不可比较，难以退订 | `Subscribe` 返回 `IDisposable` token，不依赖 `==` |
 | 变型必须显式 `in`/`out` | 暂不支持变型（见 §10）|
 
-### 9.2 event 侧
+### 9.2 订阅侧
 
 | C# 缺陷 | z42 改良 |
 |--------|---------|
 | lapsed-listener 内存泄漏 | `IDisposable` token + `WeakRef` 包装 |
-| 触发前的查空模板冗余 | 多播 event 字段自动初始化，空链 = no-op ⇒ 多播侧不必查空 |
 | invoke 异常不隔离 | `continueOnException` + `MulticastException` |
 | `EventHandler<T>` 强制 sender + args | 推荐 plain `Action<T>`，需要 sender 时显式塞进 T |
-| interface event 必须显式写 add/remove | 自动合成 |
 | 无 once / weak / scoped 订阅 | `OnceRef` / `WeakRef` / `CompositeRef` + `IDisposable` |
 | invoke 多线程不安全 | COW snapshot |
 
@@ -531,38 +423,10 @@ z42 **不提供** per-event once with replay：
 | `MulticastDelegate` 抽象层 | 族基类 `Std.Delegate` 已提供公共接口（§2.6）；多播语义仍由独立 `Multicast*` 类型承担，不叠床架屋 |
 | 反射式 `DynamicInvoke` | 与反射轨道一并设计 |
 | `[Weak]` / `[Once]` attribute | 由 `ISubscription` 包装替代；声明端零 attribute |
-| `weak event` / `once event` 修饰符 | 同上；订阅端包装完全替代 |
-| per-event once with replay | 不属于 event，见 §8 |
-
-## 11. 与 C# 视觉对照
-
-```z42
-// === C# 用户看 z42 代码 ===
-public class Button {
-    public event MulticastAction<MouseArgs> Clicked;   // 比 C# `event Action<T>` 多一个 Multicast 前缀
-    public event Action<KeyArgs> OnKeyDown;            // 单播事件 —— C# 无对应（C# Action 是多播）
-}
-
-button.Clicked += args => Console.WriteLine(args.X);   // 与 C# 一字不差
-button.Clicked -= someHandler;                         // 与 C# 一字不差
-
-// z42 新增：异常不中断 + 完整审计（C# 必须自己写 GetInvocationList 循环）
-button.Clicked.Invoke(args, continueOnException: true);
-
-// z42 新增：弱引用 / 一次性订阅（走字段，不走 +=）
-button.Clicked.SubscribeAdvanced(new WeakRef<Action<MouseArgs>>(handler));
-button.Clicked.SubscribeAdvanced(new OnceRef<Action<MouseArgs>>(handler));
-```
-
-**迁移要点**：
-
-- `event Action<T>` → `event MulticastAction<T>`（语义诚实的代价）；
-- `Count` 属性 → `Count()` 方法；
-- 手写 `WeakReference + WeakEventManager` → `WeakRef` 包装；
-- 手写 `GetInvocationList` 循环 → `continueOnException: true` + `MulticastException`。
+| per-event once with replay | 见 §8 |
 
 ## 关联文档
 
-- [访问权限控制](access-control.md) —— `public` / `private` 等修饰符（event 字段当前不受额外限制）
+- [访问权限控制](access-control.md) —— `public` / `private` 等修饰符
 - [泛型约束](generic-constraints.md) —— `ISubscription<TD>` 的 `TD` 为什么没有约束
-- [命名约定](../conventions/naming.md) —— delegate / event 类型的命名规则
+- [命名约定](../conventions/naming.md) —— 委托类型的命名规则

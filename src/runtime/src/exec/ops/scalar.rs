@@ -338,9 +338,8 @@ pub const NULL_REF_EXC:     &str = "Std.NullReferenceException";
 /// fix-null-delegate-invoke：调用一个为 null 的函数值 / 委托的消息。两个后端共用一份
 /// （interp 的 `CallIndirect`、JIT 的 `jit_call_indirect`）——此前两处各 `bail!` /
 /// `set_exception(Str)` 一条 Rust Debug 串，**`catch` 接不住、程序当场终止**，而这正是
-/// 单播 event 字段默认值（null）最常见的踩法。
 pub fn null_invoke_msg() -> String {
-    "cannot invoke a null function value (an unassigned delegate / event field)".to_string()
+    "cannot invoke a null function value (an unassigned delegate field)".to_string()
 }
 
 /// 目标 tag 的用户可读名。

@@ -268,7 +268,6 @@ public sealed class MemberCollector {
                 if (fconst) { this._collectConstField(fd, fsym, c.Name, classConstEnv); }   // add-const-keyword：求值 + 登记 ConstVal + 诊断
                 if (HandlerRegistry.HasDeprecated(c.Members[j])) { fsym.IsDeprecated = true; fsym.DeprecationMsg = HandlerRegistry.DeprecatedMsg(c.Members[j]); }   // add-deprecated-directive：本地字段级
                 ct.Fields.Put(fd.Name, fsym);
-                if (Mod.Has(fd.ModFlags, Mod.Event)) { ct.EventFields.Put(fd.Name, "1"); }   // add-event-keyword-multicast
 
                 // G18：实例字段记有序元数据（声明序 + TSIG 规范拼写）供 TSIG 继承字段展开；static 不入（C# 不继承合并 static）。
                 // 用 resolved Z42Type.Name() 镜像 C# TypeToString(sym.Type)：接口→裸名、Predicate<T>→Func<T,bool>、

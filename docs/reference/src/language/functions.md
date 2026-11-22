@@ -388,6 +388,6 @@ Apply(5, add);                              // 15
 - [参数修饰符 `ref` / `out` / `in`](parameter-modifiers.md)
 - [元组](tuples.md)——多返回值
 - [泛型方法](generic-methods.md) / [泛型约束](generic-constraints.md)
-- [委托与事件](delegates-events.md)——单播 / 多播委托与 `event`
+- [委托与事件](delegates-events.md)——单播委托与多播订阅
 - [实例构造器与初始化子句](constructors.md)——构造器是另一套规则
 - [属性与索引器](properties-indexers.md)——`get` / `set` 访问器也是方法

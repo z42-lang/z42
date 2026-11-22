@@ -301,11 +301,8 @@ pub(super) fn call_indirect(
             let data = crate::object::closure_data_of(&c);
             (data.fn_id, Some(Value::Array(data.env.clone())))
         }
-        // fix-null-delegate-invoke: a *null* callee is the one case here that ordinary
-        // user code reaches — a single-cast `event` field defaults to null, and the
-        // reference manual's own trigger pattern is "snapshot, check null, invoke". Hand
-        // back a catchable `Std.NullReferenceException` instead of a `bail!`, whose Rust
-        // Debug string no `catch` can intercept (the program died on the spot).
+        // An unassigned delegate field can yield a null callee. Raise a catchable
+        // exception, with the same type and message as the JIT.
         Value::Null => {
             return Ok(Some(crate::exec::exception::make_stdlib_exception(
                 ctx, module, crate::exec::ops::scalar::NULL_REF_EXC, crate::exec::ops::scalar::null_invoke_msg(),

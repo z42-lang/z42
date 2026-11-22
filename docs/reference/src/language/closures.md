@@ -137,6 +137,6 @@ z42 目前**没有** `spawn` / `task` 语法，也没有自动 move 捕获或 `S
 ## 相关
 
 - [函数与方法](functions.md)——lambda 字面量、`(T) -> R` 函数类型、局部函数的写法
-- [委托与事件](delegates-events.md)——单播 / 多播委托、`event`、`+=` / `-=`、引用相等
+- [委托与事件](delegates-events.md)——单播委托、多播订阅与引用相等
 - [所有权与内存模型](memory-model.md)——值类型 / 引用类型的复制规则
 - [迭代（foreach）](iteration.md)——接收谓词的高阶 API

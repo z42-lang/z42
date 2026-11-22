@@ -113,7 +113,7 @@ void Main() {
 
     m = "";
     try { fire(nullAction()); } catch (NullReferenceException e) { m = e.Message; }
-    Assert.Equal("cannot invoke a null function value (an unassigned delegate / event field)", m);
+    Assert.Equal("cannot invoke a null function value (an unassigned delegate field)", m);
 
     // ── 都是 Exception，通配 catch 同样接得住；抛完照常继续 ───────────────────
     bool caught = false;

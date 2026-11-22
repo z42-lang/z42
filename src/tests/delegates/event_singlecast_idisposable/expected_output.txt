@@ -1,6 +1,0 @@
-first bind ok
-double bind throws
-single-cast event already bound
-disposed
-rebind ok
-dispose idempotent

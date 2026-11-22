@@ -6,5 +6,4 @@ $ z42 run events.z42
 # ANCHOR_END: multi
 # ANCHOR: uni
   按下了 Enter
-  再挂一个：InvalidOperationException
 # ANCHOR_END: uni

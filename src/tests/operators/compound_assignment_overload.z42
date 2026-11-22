@@ -31,6 +31,11 @@ class Counter {
     }
 }
 
+class Choice<T> {
+    public int operator +=(T value) { return 1; }
+    public int operator +=(int value) { return 2; }
+}
+
 void Main() {
     Fixture fixture = new Fixture();
     int[] total = new int[1];
@@ -57,4 +62,10 @@ void Main() {
     Assert.Equal(3, alias.Value);
     Assert.Equal(3, value);
     Assert.Equal(7, sum.Value);
+
+    Choice<string> choice = new Choice<string>();
+    int strings = choice += "text";
+    int numbers = choice += 42;
+    Assert.Equal(1, strings);
+    Assert.Equal(2, numbers);
 }

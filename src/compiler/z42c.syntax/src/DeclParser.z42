@@ -108,7 +108,6 @@ public sealed class DeclParser {
         if (k == TokenKind.Public || k == TokenKind.Private || k == TokenKind.Protected || k == TokenKind.Internal) { return true; }
         if (k == TokenKind.Static || k == TokenKind.Abstract || k == TokenKind.Sealed || k == TokenKind.Override) { return true; }
         if (k == TokenKind.Virtual || k == TokenKind.Extern || k == TokenKind.Async || k == TokenKind.New) { return true; }
-        if (k == TokenKind.Event) { return true; }   // add-event-keyword-multicast：event 作字段修饰（Mods 含 "event"）
         if (k == TokenKind.Partial) { return true; }  // add-partial-types：partial 作类型/方法修饰（Mods 含 "partial"，Mod.Partial 派生 IsPartial）
         if (k == TokenKind.Readonly) { return true; }  // add-readonly-fields-opt：readonly 作字段修饰（Mods 含 "readonly"）
         if (k == TokenKind.Const) { return true; }     // add-const-keyword：const 作字段修饰（Mods 含 "const"，隐式 static、无存储）
@@ -144,7 +143,6 @@ public sealed class DeclParser {
         WhereList wl = this._p._typeP._parseWhereClause();
         Decl[] members = new Decl[16];
         int mc = 0;
-        bool isIface = (kind == "interface");
         // 位置参数就地展开：字段 + 主构造器，见 _expandPrimaryParams（fnlines 抽离）。
         if (primaryPc > 0) {
             Decl[] pm = this._expandPrimaryParams(name, attrs, primaryParams, primaryPc, sp, docTok);
@@ -165,28 +163,7 @@ public sealed class DeclParser {
         this._p._expect(TokenKind.LBrace, "{");
         while (this._p._peek().Kind != TokenKind.RBrace && this._p._peek().Kind != TokenKind.Eof) {
             Decl mem = this._p._memberP._parseMember(name, kind == "class");
-            // event 字段 → 合成 add_X/remove_X 访问器（镜像 C# SynthesizeClassEvent）。
-            // multicast（MulticastAction/Func/Predicate）：add 体 `return this.X.Subscribe(h)`、
-            // remove 体 `this.X.Unsubscribe(h)`。interface：丢 backing field，仅留签名（无 body）。
-            if ((mem is FieldDecl) && Mod.Has((mem as FieldDecl).ModFlags, Mod.Event)
-                && this._p._memberP._isMulticastEventType((mem as FieldDecl).Type)) {
-                FieldDecl ev = mem as FieldDecl;
-                if (!isIface) { members = this._growDecls(members, mc); members[mc] = ev; mc = mc + 1; }
-                MethodDecl addM = this._p._memberP._synthEventAccessor(ev, true, !isIface);
-                MethodDecl rmM  = this._p._memberP._synthEventAccessor(ev, false, !isIface);
-                members = this._growDecls(members, mc); members[mc] = addM; mc = mc + 1;
-                members = this._growDecls(members, mc); members[mc] = rmM;  mc = mc + 1;
-            } else if ((mem is FieldDecl) && Mod.Has((mem as FieldDecl).ModFlags, Mod.Event)
-                && this._p._memberP._isSinglecastEventType((mem as FieldDecl).Type)) {
-                FieldDecl ev = mem as FieldDecl;
-                if (!isIface) { members = this._growDecls(members, mc); members[mc] = ev; mc = mc + 1; }
-                MethodDecl addM = this._p._memberP._synthSinglecastAccessor(ev, true, !isIface);
-                MethodDecl rmM  = this._p._memberP._synthSinglecastAccessor(ev, false, !isIface);
-                members = this._growDecls(members, mc); members[mc] = addM; mc = mc + 1;
-                members = this._growDecls(members, mc); members[mc] = rmM;  mc = mc + 1;
-            } else {
-                members = this._growDecls(members, mc); members[mc] = mem; mc = mc + 1;
-            }
+            members = this._growDecls(members, mc); members[mc] = mem; mc = mc + 1;
         }
         this._p._expect(TokenKind.RBrace, "}");
         ClassDecl cd = new ClassDecl(kind, mods, name, typeParams, bases, bc, wl.Items, wl.Count, members, mc, sp);

@@ -212,13 +212,16 @@ public sealed partial class MemberResolver {
         if (rt is Z42InstantiatedType) {
             Z42InstantiatedType instRecv = rt as Z42InstantiatedType;
             Z42ClassType itDef2 = instRecv.Def;
-            MethodSymbol itms = this._tc._overload._resolveOverload(env.Symbols, itDef2, mem.Name, args, argCount, MethodTypeArgSubst.ExplicitTypeArgs(call, env), sp, rawArgs, env);
+            bool compound = ProtocolNames.IsCompoundAssignName(mem.Name);
+            MethodSymbol itms = compound
+                ? this._tc._overload.ResolveCompoundOverload(instRecv, mem.Name, args, argCount, rawArgs, env, sp)
+                : this._tc._overload._resolveOverload(env.Symbols, itDef2, mem.Name, args, argCount, MethodTypeArgSubst.ExplicitTypeArgs(call, env), sp, rawArgs, env);
             if (itms != null) {
                 itms = MethodTypeArgSubst.ForExplicitTypeArgs(itms, call, env);   // 显式 `<T>` → 先代换签名再绑实参
                 Z42Type itRet = MemberResolver._substGeneric(itms.Signature.Ret, instRecv);
                 // Type deferred operator operands from the concrete receiver. Argument adaptation
                 // below still uses the declared signature for conversions and the erased ABI.
-                if (ProtocolNames.IsCompoundAssignName(mem.Name) && argCount == 1 && args[0] == null
+                if (compound && argCount == 1 && args[0] == null
                     && !ExprTyper.IsNamedArg(rawArgs[0], env)) {
                     Z42Type operandType = MemberResolver._substGeneric(itms.Signature.ParamTypes[0], instRecv);
                     args[0] = this._tc._expr.BindWithTarget(rawArgs[0], operandType, env);

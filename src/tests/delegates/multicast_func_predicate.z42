@@ -1,13 +1,10 @@
-// 2026-05-03 add-multicast-func-predicate (D2d-1) regression golden.
-// 端到端验证 MulticastFunc / MulticastPredicate 双 vec 路径 +
-// All / Any 短路 + event keyword 接受三种 multicast 类型。
 namespace Demo;
 
 using Std;
 
 public class Validators {
-    public event MulticastFunc<int, bool> Validate;
-    public event MulticastPredicate<int> Filter;
+    public MulticastFunc<int, bool> Validate = new MulticastFunc<int, bool>();
+    public MulticastPredicate<int> Filter = new MulticastPredicate<int>();
 
     public bool[] runValidate(int x) {
         return this.Validate.Invoke(x);
@@ -53,17 +50,17 @@ void Main() {
     pred.Subscribe((int x) => x == 99);
     Assert.False(pred.All(5));   // 3rd handler false
 
-    // ── event keyword 多类型 ──
+    // ── 委托集合字段 ──
     var v = new Validators();
 
     v.Validate += (int x) => x > 0;
-    v.Validate += (int x) => x < 100;
+    v.Validate.Subscribe((int x) => x < 100);
     bool[] vr = v.runValidate(50);
     Assert.True(vr[0]);
     Assert.True(vr[1]);
 
     v.Filter += (int x) => x > 0;
-    v.Filter += (int x) => x % 2 == 0;
+    v.Filter.Subscribe((int x) => x % 2 == 0);
     Assert.True(v.allFilter(4));
     Assert.False(v.allFilter(3)); // odd
     Assert.True(v.anyFilter(3));  // positive

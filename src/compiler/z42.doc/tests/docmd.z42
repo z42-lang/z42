@@ -260,3 +260,13 @@ void test_package_page_delegate_and_enum() {
     Assert.True(!page.Contains("### Polygon"));
     Assert.True(!page.Contains("专用"));
 }
+
+[Test]
+void test_hidden_member_is_absent_from_book() {
+    DocIndex ix = _index("namespace App; public class Visible {\n"
+        + "/// Internal convenience.\n/// @hidden\npublic int Shortcut() { return 1; }\n"
+        + "/// Public entry.\npublic int Documented() { return 1; }\n}");
+    string page = DocMd.PackagePage("test", "src", ix);
+    Assert.Contains("Documented", page);
+    Assert.False(page.Contains("Shortcut"));
+}
