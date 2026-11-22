@@ -342,9 +342,7 @@ struct 的完整对象协议。unboxed struct 仍无 vtable（这些方法经装
   均按 boxed 处理、内部 `AsCast` 拆箱到 callee 帧 arena StructRef**（避开 JIT 帧无 frame_id），再复用
   `_emitStructEquality` 逐叶子比较（NaN 精确、嵌套递归、string 内容 / object 引用）。
 - **`GetHashCode()`**：**native `__struct_hash_code`**（VM boxed-vcall 臂路由）——对 boxed blob 的 `bytes`
-  FNV-1a + 混入引用叶子哈希（string 内容；object/array 叶子走地址身份哈希 `identity_hash`（GC 不移动
-  对象 ⇒ 稳定；add-value-hash-ref-leaves——此前贡献常量 0，引用叶子互异的 struct 全落同一桶）；null/委托
-  叶子保持常量贡献，Equals 按身份比较的语义下 collisions 合法）。
+  FNV-1a + 混入引用叶子哈希（string 内容；object/array 叶子弱贡献常量，因 Equals 对引用叶子按引用比较）。
   `& 0x7fffffff` 非负（Dictionary 契约）。同值 → 同 `bytes`/`refs` → 同哈希。
 - **`ToString()`**：VM boxed-vcall 臂直接返回**短类型名**（C# `ValueType.ToString` 默认；字段 dump 留后续）。
 - **`GetType()`**：`builtin_obj_get_type`（PR2a）。
