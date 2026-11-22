@@ -1,0 +1,52 @@
+namespace Z42.Symbols;
+
+using Z42.Syntax;
+
+public static class ImplTargets {
+    public static Z42ClassType Resolve(SymbolTable table, ImplDecl declaration) {
+        NamedType named = declaration.TargetType as NamedType;
+        if (named == null) { return null; }
+        if (declaration.TypeParams.Count == 0) { return table.GetClass(named.Name); }
+        Z42InstantiatedType target = table.ResolveTypeP(named, declaration.TypeParams.Names,
+                                                         declaration.TypeParams.Count) as Z42InstantiatedType;
+        return target == null ? null : target.Def;
+    }
+
+    internal static string[] Match(ImplDecl declaration, Z42ClassType target) {
+        NamedType named = declaration.TargetType as NamedType;
+        int count = declaration.TypeParams.Count;
+        if (target == null || target.IsStruct || named == null
+            || named.ArgCount != count || target.GenericParamCount != count) { return null; }
+        bool[] used = new bool[count];
+        string[] names = new string[count];
+        for (int i = 0; i < count; i = i + 1) {
+            NamedType arg = named.Args[i] as NamedType;
+            if (arg == null || arg.ArgCount != 0) { return null; }
+            int p = 0;
+            while (p < count && declaration.TypeParams.Names[p] != arg.Name) { p = p + 1; }
+            if (p == count || used[p]) { return null; }
+            used[p] = true;
+            names[i] = arg.Name;
+        }
+        return names;
+    }
+
+    internal static Z42FuncType NormalizeSignature(Z42FuncType signature, string[] aliases, Z42ClassType target) {
+        Z42FuncType normalized = TypeSubst.ApplySig(signature, new ImplParamNames(aliases, target.GenericParamNames));
+        normalized.ParamIsNullable = signature.ParamIsNullable;
+        normalized.RetIsNullable = signature.RetIsNullable;
+        return normalized;
+    }
+}
+
+internal sealed class ImplParamNames : ITypeParamMap {
+    private string[] _aliases;
+    private string[] _formal;
+    public ImplParamNames(string[] aliases, string[] formal) { this._aliases = aliases; this._formal = formal; }
+    public Z42Type Map(Z42GenericParamType parameter) {
+        for (int i = 0; i < this._aliases.Length; i = i + 1) {
+            if (this._aliases[i] == parameter.Name()) { return new Z42GenericParamType(this._formal[i]); }
+        }
+        return null;
+    }
+}

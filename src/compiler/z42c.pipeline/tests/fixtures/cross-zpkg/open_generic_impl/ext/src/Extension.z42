@@ -1,0 +1,8 @@
+namespace Demo.OpenExtension;
+using Std.Collections;
+using Demo.OpenContract;
+
+impl<U> ISize for List<U> {
+    public int Size() { U first = this[0]; return this.Count; }
+    public bool IsElement(object item) { return item is U; }
+}
