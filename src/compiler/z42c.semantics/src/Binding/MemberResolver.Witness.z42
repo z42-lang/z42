@@ -26,8 +26,10 @@ public sealed partial class MemberResolver {
             ConstraintBundle bundle = constraints.Bundles[pi];
             var seen = new StrMap();
             var members = new StrMap();
+            // A class constraint guarantees that a bare Self uses the ordinary reference ABI.
             for (int i = 0; i < bundle.InterfaceCount; i = i + 1) {
-                this._collectWitnessMembers(symbols, symbols.GetInterface(bundle.InterfaceNames[i]), seen, members);
+                this._collectWitnessMembers(symbols, symbols.GetInterface(bundle.InterfaceNames[i]),
+                                            bundle.RequiresClass, seen, members);
             }
             string[] keys = members.Keys();
             for (int j = 1; j < keys.Length; j = j + 1) {
@@ -47,29 +49,34 @@ public sealed partial class MemberResolver {
         return slots.ToArray();
     }
 
-    private void _collectWitnessMembers(SymbolTable symbols, Z42InterfaceType iface, StrMap seen, StrMap members) {
+    private void _collectWitnessMembers(SymbolTable symbols, Z42InterfaceType iface, bool allowsSelf,
+                                        StrMap seen, StrMap members) {
         if (iface == null || iface.TypeParamCount != 0 || seen.ContainsKey(iface.Fqn())) { return; }
         seen.Put(iface.Fqn(), iface);
         foreach (string name in iface.Methods.Keys()) {
             MethodSymbol method = iface.Methods.Get(name) as MethodSymbol;
-            if (MemberResolver._hasScalarWitnessSignature(method)) {
+            if (MemberResolver._hasWitnessSignature(method, allowsSelf)) {
                 members.Put(iface.Fqn() + "#" + method.Name, new IfaceMethodHit(method, iface));
             }
         }
         for (int i = 0; i < iface.BaseCount; i = i + 1) {
-            this._collectWitnessMembers(symbols, InterfaceClosure.BaseAt(symbols, iface, i), seen, members);
+            this._collectWitnessMembers(symbols, InterfaceClosure.BaseAt(symbols, iface, i), allowsSelf, seen, members);
         }
     }
 
-    private static bool _hasScalarWitnessSignature(MethodSymbol method) {
+    private static bool _hasWitnessSignature(MethodSymbol method, bool allowsSelf) {
         if (method == null || !method.IsStatic || method.TypeParamCount != 0
             || method.Signature == null) { return false; }
         Z42FuncType signature = method.Signature;
-        if (!(signature.Ret is Z42VoidType) && !signature.Ret.IsScalarType()) { return false; }
+        if (!(signature.Ret is Z42VoidType) && !MemberResolver._isWitnessType(signature.Ret, allowsSelf)) { return false; }
         for (int i = 0; i < signature.ParamCount; i = i + 1) {
-            if (!signature.ParamTypes[i].IsScalarType() || signature.IsRefParam(i)) { return false; }
+            if (!MemberResolver._isWitnessType(signature.ParamTypes[i], allowsSelf) || signature.IsRefParam(i)) { return false; }
         }
         return true;
+    }
+
+    private static bool _isWitnessType(Z42Type type, bool allowsSelf) {
+        return type.IsScalarType() || (allowsSelf && type is Z42GenericParamType && type.Name() == "Self");
     }
 
     private BoundExpr _bindStaticWitness(MemberExpr member, IdentExpr target, BoundExpr[] args,
@@ -94,12 +101,17 @@ public sealed partial class MemberResolver {
         }
         if (selected < 0) { return this._missingStaticWitness(member, target.Name); }
 
-        MethodSymbol method = slots[selected].Member;
-        BoundExpr[] values = this._tc._overload._withDefaults(method, args, rawArgs, count, env, call.Span, true);
+        StaticWitnessSlot slot = slots[selected];
+        MethodSymbol method = slot.Member;
+        Z42FuncType signature = MemberResolver._substSelfSig(method.Signature, new Z42GenericParamType(target.Name));
+        BoundExpr[] values = this._tc._overload._withDefaults(method.WithSignature(signature),
+            args, rawArgs, count, env, call.Span, true);
+        this._tc._overload.CheckConstraintIfaceArgs(values, null, values.Length, method.Signature,
+                                                   target.Name, member.Name, slot.Contract);
         var bound = new BoundCall("witness", false, null, "", member.Name, values, values.Length,
-            method.Signature.Ret, member.Span);
+            signature.Ret, member.Span);
         bound.WitnessSlot = owner.TypeParams.Count + selected;
-        return BoundCall.Marked(bound, method.Signature);
+        return BoundCall.Marked(bound, signature);
     }
 
     private BoundExpr _missingStaticWitness(MemberExpr member, string parameter) {
@@ -144,9 +156,10 @@ public sealed partial class MemberResolver {
         Z42ClassType owner = type as Z42ClassType;
         if (owner == null || owner.GenericParamCount != 0
             || !env.Symbols.Implements(owner.Fqn(), slot.Contract)) { return ""; }
+        Z42FuncType signature = MemberResolver._substSelfSig(slot.Member.Signature, type);
         while (owner != null) {
             foreach (MethodSymbol candidate in owner.OverloadsOf(slot.Member.Name)) {
-                if (candidate.Visibility == "public" && MemberResolver._matchesStaticWitness(candidate, slot.Member)) {
+                if (candidate.Visibility == "public" && MemberResolver._matchesStaticWitness(candidate, signature)) {
                     string target = owner.Fqn() + "." + candidate.CallKey();
                     env.Symbols.NoteDepUse(owner.Namespace, env.Symbols.ImportedPkgOf(owner.Fqn()), target);
                     return "$witness:" + target;
@@ -157,15 +170,16 @@ public sealed partial class MemberResolver {
         return "";
     }
 
-    private static bool _matchesStaticWitness(MethodSymbol candidate, MethodSymbol member) {
-        if (!MemberResolver._hasScalarWitnessSignature(candidate)) { return false; }
+    private static bool _matchesStaticWitness(MethodSymbol candidate, Z42FuncType want) {
+        if (!candidate.IsStatic || candidate.TypeParamCount != 0 || candidate.Signature == null) { return false; }
         Z42FuncType have = candidate.Signature;
-        Z42FuncType want = member.Signature;
         if (have.ParamCount != want.ParamCount || DispatchKeys.TypeKey(have.Ret) != DispatchKeys.TypeKey(want.Ret)) {
             return false;
         }
         for (int i = 0; i < have.ParamCount; i = i + 1) {
-            if (DispatchKeys.TypeKey(have.ParamTypes[i]) != DispatchKeys.TypeKey(want.ParamTypes[i])) { return false; }
+            if (have.IsRefParam(i) || DispatchKeys.TypeKey(have.ParamTypes[i]) != DispatchKeys.TypeKey(want.ParamTypes[i])) {
+                return false;
+            }
         }
         return true;
     }
