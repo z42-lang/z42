@@ -32,13 +32,13 @@ public struct Int64 : IComparable, IEquatable, INumber {
     }
 
     /// 加法。
-    public static override long op_Add(long a, long b)      { return a + b; }
+    public static long op_Add(long a, long b)      { return a + b; }
     /// 减法。
-    public static override long op_Subtract(long a, long b) { return a - b; }
+    public static long op_Subtract(long a, long b) { return a - b; }
     /// 乘法。
-    public static override long op_Multiply(long a, long b) { return a * b; }
+    public static long op_Multiply(long a, long b) { return a * b; }
     /// 除法。
-    public static override long op_Divide(long a, long b)   { return a / b; }
+    public static long op_Divide(long a, long b)   { return a / b; }
     /// 取模。
-    public static override long op_Modulo(long a, long b)   { return a % b; }
+    public static long op_Modulo(long a, long b)   { return a % b; }
 }

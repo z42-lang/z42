@@ -229,7 +229,7 @@ F-bounded 自引用形态（`IEquatable<T>` / `IComparable<T>` / `INumber<T>`）
 ```z42
 public interface IEquatable  { bool Equals(Self other); int GetHashCode(); }
 public interface IComparable { int CompareTo(Self other); }
-public interface INumber     { static abstract Self op_Add(Self a, Self b); … }
+public interface INumber     { static Self op_Add(Self a, Self b); … }
 
 public struct Int32 : IComparable, IEquatable, INumber { … }          // 不写 <int>
 public class Dictionary<TKey, TValue> where TKey : IEquatable { … }   // 不写 <TKey>
@@ -400,7 +400,7 @@ T Sum<T>(T a, T b) where T : INumber { return a + b; }
 ```
 
 绑定路径（`ExprTyper._bindBinary`）：左操作数是 `Z42GenericParamType` → 到该型参的 where 约束
-接口里找 `static abstract op_Add`（沿父接口链找；方法级与类级约束都查）→ 发**接收者驱动的
+接口里找 `static op_Add`（沿父接口链找；方法级与类级约束都查）→ 发**接收者驱动的
 VCall**（`vcall a.op_Add(b)`），运行期由 `a` 的具体类决定跑哪个实现。与手写 `a.op_Add(b)`
 （`generic_inumber.z42` 的写法）**发同一条指令**，只是省掉了显式方法名。
 
@@ -413,12 +413,11 @@ VCall**（`vcall a.op_Add(b)`），运行期由 `a` 的具体类决定跑哪个�
   接口，其签名经 `ImportedSymbolLoader` 还原后返回类型已不是型参形态。）
 - **实现方可以是多字段（blob）struct**：`struct Vec2 : INumber`（两个字段）在泛型里照常
   `a + b`。它要多一道桥接 —— 见下方「blob struct 的返回位」。
-- **实现方必须写 `static override`**：`public static override T op_Add(T a, T b)`。只写 `static`
-  的方法注册到另一个键，运行期会 `VCall: function X.op_Add not found`。
+- 实现方声明 `public static T op_Add(T a, T b)`，其中 `T` 是实现类型。
 
 ### blob struct 的返回位
 
-返回**多字段 struct** 的运算符实现（`static override Vec2 op_Add(Vec2, Vec2)`）比其它实现多一件事：
+返回**多字段 struct** 的运算符实现（`static Vec2 op_Add(Vec2, Vec2)`）比其它实现多一件事：
 blob struct 走 **sret**（调用方传一个隐藏返回槽），而泛型体里 `T` 已擦除、调用点按引用发码、不传该槽。
 
 这一格由编译器**自动桥接**处理，用户无需写任何东西：裸名槽放一个无 sret 的桥接（内部调具体实现、
@@ -429,8 +428,7 @@ blob struct 走 **sret**（调用方传一个隐藏返回槽），而泛型体�
 
 ### 实现接口静态成员：四项校验（含跨包）
 
-接口成员可以是 `static abstract`（`INumber` 的五个 `op_X` 就是）。实现方**必须**写
-`public static override`，且满足性校验会逐项比对——
+无函数体的静态接口方法要求实现方提供 `public static` 方法。满足性校验会逐项比对。
 `MangleKey` 只比「名 + 形参」，所以 static 位与返回类型要另行比对：
 
 | 比对项 | 口径 | 不符 |
@@ -441,11 +439,11 @@ blob struct 走 **sret**（调用方传一个隐藏返回槽），而泛型体�
 | **返回类型** | `TypeKey` 归一相等，或**协变**（子类 / 实现该接口）。数值拓宽 `int→long` **不**放行 | **E0412** |
 
 ```z42
-interface INum2 { static abstract int MakeZero(); }
+interface INum2 { static int MakeZero(); }
 
-struct Good : INum2 { public static override int MakeZero() { return 0; } }   // ✅
+struct Good : INum2 { public static int MakeZero() { return 0; } }   // ✅
 struct Bad  : INum2 { public int MakeZero() { return 0; } }                   // ❌ E0412：接口里是 static，这里是实例方法
-struct Priv : INum2 { static override int MakeZero() { return 0; } }          // ❌ E0412：默认 private，必须写 public
+struct Priv : INum2 { static int MakeZero() { return 0; } }          // ❌ E0412：默认 private，必须写 public
 ```
 
 发射点：`InheritanceResolver.z42` 的 `_nearestBaseMethod`（static）/ `_checkAssocBindingsComplete`（可见性）

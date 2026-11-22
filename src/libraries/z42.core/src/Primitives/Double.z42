@@ -66,13 +66,13 @@ public struct Double : IComparable, IEquatable, INumber {
     }
 
     /// 加法。
-    public static override double op_Add(double a, double b)      { return a + b; }
+    public static double op_Add(double a, double b)      { return a + b; }
     /// 减法。
-    public static override double op_Subtract(double a, double b) { return a - b; }
+    public static double op_Subtract(double a, double b) { return a - b; }
     /// 乘法。
-    public static override double op_Multiply(double a, double b) { return a * b; }
+    public static double op_Multiply(double a, double b) { return a * b; }
     /// 除法。
-    public static override double op_Divide(double a, double b)   { return a / b; }
+    public static double op_Divide(double a, double b)   { return a / b; }
     /// 取模。
-    public static override double op_Modulo(double a, double b)   { return a % b; }
+    public static double op_Modulo(double a, double b)   { return a % b; }
 }

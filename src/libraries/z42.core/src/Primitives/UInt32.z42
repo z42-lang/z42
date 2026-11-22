@@ -31,13 +31,13 @@ public struct UInt32 : IComparable, IEquatable, INumber {
     }
 
     /// 加法。
-    public static override uint op_Add(uint a, uint b)      { return (uint)(a + b); }
+    public static uint op_Add(uint a, uint b)      { return (uint)(a + b); }
     /// 减法。
-    public static override uint op_Subtract(uint a, uint b) { return (uint)(a - b); }
+    public static uint op_Subtract(uint a, uint b) { return (uint)(a - b); }
     /// 乘法。
-    public static override uint op_Multiply(uint a, uint b) { return (uint)(a * b); }
+    public static uint op_Multiply(uint a, uint b) { return (uint)(a * b); }
     /// 除法。
-    public static override uint op_Divide(uint a, uint b)   { return (uint)(a / b); }
+    public static uint op_Divide(uint a, uint b)   { return (uint)(a / b); }
     /// 取模。
-    public static override uint op_Modulo(uint a, uint b)   { return (uint)(a % b); }
+    public static uint op_Modulo(uint a, uint b)   { return (uint)(a % b); }
 }
