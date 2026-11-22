@@ -3,9 +3,7 @@
 //! initializer registration and lazy-loader seeding precede any execution.
 
 use crate::vm::VmContext;
-use crate::loader::lazy::ZpkgCandidate;
 use crate::metadata::Module;
-use std::path::PathBuf;
 use std::pin::Pin;
 
 use anyhow::Result;
@@ -50,42 +48,19 @@ pub(crate) fn build(
     Ok(ctx)
 }
 
-/// Everything besides the merged module that the context needs to find more code later.
+/// File system and package inputs for a prepared entry module.
 pub(crate) struct ProgramInputs {
-    /// The file system the VM reads and writes through (the caller probed its packages on it).
     pub vfs: std::sync::Arc<dyn crate::pal::fs::Vfs>,
-    /// Directories the lazy loader searches for not-yet-loaded packages.
-    pub search_dirs: Vec<PathBuf>,
-    /// Declared-but-not-loaded packages (namespace → candidate). Also decides `available!`.
-    pub declared_candidates: Vec<(String, ZpkgCandidate)>,
-    /// File names of the packages already merged into the module.
-    pub initially_loaded: Vec<String>,
-    /// `impl` pairs contributed by the eagerly merged artifacts (user module included).
-    pub eager_impl_pairs: Vec<(String, String)>,
-    /// precise-pkg-refs: DEPS lists of the eagerly merged artifacts (user module included) —
-    /// their symbol lists seed the lazy loader's "which package defines this name" table.
-    pub eager_deps: Vec<crate::zpkg::format::ZpkgDep>,
-    /// M1 no-eager-merge track: decoded dep artifacts registered per-package
-    /// through the lazy loader after construction (empty on the merged track).
-    pub eager_packages: Vec<crate::loader::LoadedArtifact>,
+    pub packages: crate::loader::StartupPackages,
 }
 
-/// Build the context for a fully merged module (type registry / indices already built).
 fn build_context(mut module: Module, inputs: ProgramInputs,
     freeze_extensions: fn(crate::vm::VmExtensions) -> crate::vm::ExtensionState,
 ) -> anyhow::Result<Pin<Box<VmContext>>> {
-    // Availability needs built type/function indices and a mutable module. Fold
-    // before Core takes ownership and before any token is resolved, so unavailable
-    // branches never expose unresolved call sites to execution preparation.
-    let avail_stats = crate::loader::fold_availability(
-        &*inputs.vfs,
-        &mut module,
-        &inputs.declared_candidates,
-    );
-    if !avail_stats.is_noop() {
-        // 剪枝改了块集合 → 派生侧表（block_index / branch_targets）必须按剪枝后的 CFG 重建。
-        crate::loader::build_block_indices(&mut module);
-        crate::loader::package::build_func_index(&mut module);
+    // Fold before Core takes ownership and before any token is resolved.
+    if let Some(avail_stats) = crate::loader::prepare_program_availability(
+        &*inputs.vfs, &mut module, &inputs.packages.declared_candidates,
+    ) {
         tracing::debug!("available!: {avail_stats:?}");
     }
 
@@ -104,26 +79,7 @@ fn build_context(mut module: Module, inputs: ProgramInputs,
             ctx.initialization().register_cctor_of(td);
         }
     }
-    ctx.loader().install_lazy_loader_with_deps(
-        inputs.search_dirs,
-        string_pool_len,
-        inputs.declared_candidates,
-        inputs.initially_loaded,
-    );
-    // Seed lazy loader with merged module's TypeDescs (cross-zpkg base classes)
-    // and eagerly-loaded artifacts' impl pairs.
-    if let Some(m) = ctx.module() {
-        let func_names: Vec<String> = m.functions.iter().map(|f| f.name.clone()).collect();
-        ctx.loader().seed_lazy_loader_types(&m.type_registry, &func_names);
-    }
-    // M1 no-eager-merge track: register decoded dep packages through the lazy
-    // loader's own machinery BEFORE the entry's types are seeded, so entry
-    // definitions win any name conflict (closest to the merged last-wins).
-    for artifact in inputs.eager_packages {
-        ctx.loader().register_eager_artifact(artifact)?;
-    }
-    ctx.loader().seed_lazy_loader_impls(&inputs.eager_impl_pairs);
-    ctx.loader().seed_lazy_loader_symbol_owners(&inputs.eager_deps);
+    ctx.loader().install_startup_packages(string_pool_len, inputs.packages)?;
     Ok(ctx)
 }
 

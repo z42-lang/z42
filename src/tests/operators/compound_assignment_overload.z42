@@ -1,0 +1,60 @@
+class Signal<T> {
+    private MulticastAction<T> _handlers = new MulticastAction<T>();
+
+    public IDisposable operator +=(Action<T> handler) { return this._handlers.Subscribe(handler); }
+    public void operator -=(Action<T> handler) { this._handlers.Unsubscribe(handler); }
+    public void Invoke(T value) { this._handlers.Invoke(value); }
+}
+
+class Fixture {
+    public int Evaluations;
+    private readonly Signal<int> _signal = new Signal<int>();
+
+    public Signal<int> Get() {
+        this.Evaluations += 1;
+        return this._signal;
+    }
+}
+
+class Counter {
+    public int Value;
+
+    public int operator +=(int amount) {
+        this.Value += amount;
+        return this.Value;
+    }
+
+    public static Counter operator +(Counter counter, int amount) {
+        Counter sum = new Counter();
+        sum.Value = counter.Value + amount;
+        return sum;
+    }
+}
+
+void Main() {
+    Fixture fixture = new Fixture();
+    int[] total = new int[1];
+    Action<int> handler = (int value) => { total[0] += value; };
+    IDisposable token = fixture.Get() += handler;
+    Assert.Equal(1, fixture.Evaluations);
+    Signal<int> signal = fixture.Get();
+    signal.Invoke(5);
+    Assert.Equal(5, total[0]);
+    token.Dispose();
+    signal.Invoke(9);
+    Assert.Equal(5, total[0]);
+
+    signal += value => { total[0] += value; };
+    signal += handler;
+    signal -= handler;
+    signal.Invoke(2);
+    Assert.Equal(7, total[0]);
+
+    Counter counter = new Counter();
+    Counter alias = counter;
+    int value = counter += 3;
+    Counter sum = counter + 4;
+    Assert.Equal(3, alias.Value);
+    Assert.Equal(3, value);
+    Assert.Equal(7, sum.Value);
+}

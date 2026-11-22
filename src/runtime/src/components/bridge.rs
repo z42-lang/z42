@@ -75,5 +75,5 @@ pub fn test_embedding_hello() -> Option<(&'static [u8], &'static str)> {
 #[cfg(feature = "jit-test-support")]
 #[doc(hidden)]
 pub fn test_host_jit_compiled() -> bool {
-    crate::host::c::state::with_state_read(|s| s.modules[0].context().core().diagnostics().snapshot(s.modules[0].context().core().threads()).jit_methods_compiled).is_some_and(|n| n > 0)
+    crate::host::state::with_state_read(|s| s.modules[0].context().core().diagnostics().snapshot(s.modules[0].context().core().threads()).jit_methods_compiled).is_some_and(|n| n > 0)
 }

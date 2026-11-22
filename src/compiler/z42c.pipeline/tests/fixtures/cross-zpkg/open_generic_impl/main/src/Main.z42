@@ -1,0 +1,25 @@
+namespace Demo.OpenApp;
+using Std.Collections;
+using Std.IO;
+using Demo.OpenContract;
+using Demo.OpenExtension;
+
+void Main() {
+    var items = new List<int>();
+    items.Add(1);
+    items.Add(2);
+    Console.WriteLine(items.Size());
+    ISize size = items;
+    Console.WriteLine(size.Size());
+    var words = new List<string>();
+    words.Add("hello");
+    Console.WriteLine(Measure(words));
+    Assert.True(size.IsElement(2));
+    Assert.True(words.IsElement("hello"));
+    Assert.False(words.IsElement(2));
+    List<string> emptyWords = words.Empty();
+    Assert.True(emptyWords.Count == 0);
+    Assert.False(SameSize(words, emptyWords));
+    ISize empty = size.Empty();
+    Assert.True(empty is List<int>);
+}

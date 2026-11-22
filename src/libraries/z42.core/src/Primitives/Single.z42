@@ -66,13 +66,13 @@ public struct Single : IComparable, IEquatable, INumber {
     }
 
     /// 加法。
-    public static override float op_Add(float a, float b)      { return a + b; }
+    public static float op_Add(float a, float b)      { return a + b; }
     /// 减法。
-    public static override float op_Subtract(float a, float b) { return a - b; }
+    public static float op_Subtract(float a, float b) { return a - b; }
     /// 乘法。
-    public static override float op_Multiply(float a, float b) { return a * b; }
+    public static float op_Multiply(float a, float b) { return a * b; }
     /// 除法。
-    public static override float op_Divide(float a, float b)   { return a / b; }
+    public static float op_Divide(float a, float b)   { return a / b; }
     /// 取模。
-    public static override float op_Modulo(float a, float b)   { return a % b; }
+    public static float op_Modulo(float a, float b)   { return a % b; }
 }

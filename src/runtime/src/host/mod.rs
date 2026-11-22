@@ -49,14 +49,21 @@ pub mod signal;
 pub mod error;
 /// C embedding adapter (`z42_host` ABI): config, session, marshaling and the
 /// `extern "C"` entry points. Reached only through this module's re-exports.
-pub(crate) mod c;
+/// C embedding adapter files (`z42_host` ABI): config validation, the
+/// process session, marshaling and the `extern "C"` entry points live flat
+/// here; the Rust embedding surface shares the root.
+pub(crate) mod config;
+pub(crate) mod ffi;
+pub(crate) mod marshal;
+pub(crate) mod ops;
+pub(crate) mod state;
 mod app;
 mod load;
 pub(crate) mod app_state;
 pub(crate) mod services;
 pub use z42_zpkg::{ExecMode, image::PackageImage};
-pub use c::config::{Z42ExecMode, Z42_HOST_ABI_VERSION, Z42HostConfig};
-pub use c::ffi::{
+pub use config::{Z42ExecMode, Z42_HOST_ABI_VERSION, Z42HostConfig};
+pub use ffi::{
     Z42Host, Z42Module, Z42Entry, z42_host_initialize, z42_host_shutdown,
     z42_host_load_zbc, z42_host_resolve_entry, z42_host_invoke,
     z42_host_set_stdout_sink, z42_host_set_stderr_sink, z42_host_last_error,

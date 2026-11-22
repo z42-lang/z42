@@ -36,13 +36,13 @@ public struct UInt64 : IComparable, IEquatable, INumber {
     // `ulong op ulong` 仍推成 int，转型是必需的；新编译器（ArithmeticResult 补 ulong 档）
     // 之下它是恒等转换，两者皆合法。
     /// 加法。
-    public static override ulong op_Add(ulong a, ulong b)      { return (ulong)(a + b); }
+    public static ulong op_Add(ulong a, ulong b)      { return (ulong)(a + b); }
     /// 减法。
-    public static override ulong op_Subtract(ulong a, ulong b) { return (ulong)(a - b); }
+    public static ulong op_Subtract(ulong a, ulong b) { return (ulong)(a - b); }
     /// 乘法。
-    public static override ulong op_Multiply(ulong a, ulong b) { return (ulong)(a * b); }
+    public static ulong op_Multiply(ulong a, ulong b) { return (ulong)(a * b); }
     /// 除法。
-    public static override ulong op_Divide(ulong a, ulong b)   { return (ulong)(a / b); }
+    public static ulong op_Divide(ulong a, ulong b)   { return (ulong)(a / b); }
     /// 取模。
-    public static override ulong op_Modulo(ulong a, ulong b)   { return (ulong)(a % b); }
+    public static ulong op_Modulo(ulong a, ulong b)   { return (ulong)(a % b); }
 }

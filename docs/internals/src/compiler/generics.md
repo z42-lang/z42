@@ -612,6 +612,8 @@ Parser 在 `impl` 块见到 `extern` 修饰符直接报错（`TopLevelParser.Par
 **跨 zpkg 传播**：
 - zpkg 的 `IMPL` section 承载本 CU 所有
   `impl Trait for Type` 声明（仅签名，方法 body 仍在 MODS）
+- 当目标是泛型类定义而接口是非泛型接口时，`IMPL` 的类型实参向量按目标签名顺序记录实现形参名。
+  导入端先用这些名字解析方法签名，再归一为目标定义的形参名。实例方法从接收者读取类型实参。
 - 消费者 `ImportedSymbolLoader` 的 Phase 3 合并把 impl 方法 TryAdd
   到 imported `Z42ClassType.Methods`，trait 加进 `ClassInterfaces[target]`
 - 详细机制见 [架构总览](architecture.md) 的跨 zpkg impl 块传播

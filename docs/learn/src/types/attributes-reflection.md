@@ -123,7 +123,9 @@
 {{#include ../../../../examples/types/attributes-reflection/members/run.console:methods}}
 ```
 
-`GetProperties()` 把那些访问器归并成属性视图——有 getter 就可读，有 setter 就可写：
+`GetProperties()` 把那些访问器归并成属性视图——有 getter 就可读，有 setter 就可写。
+索引器 `this[...]` 也是属性（名字固定 `Item`）：`GetIndexParameters()` 查索引形参，
+`GetValue(obj, new object[]{ i })` / `SetValue(obj, new object[]{ i }, v)` 带索引实参读写：
 
 ```z42
 // examples/types/attributes-reflection/members/members.z42
@@ -255,6 +257,85 @@
 ```console
 {{#include ../../../../examples/types/attributes-reflection/methodof/run.console:free}}
 ```
+
+## 成员的家谱：`MemberInfo` 与它的家族
+
+前面拿到的 `FieldInfo` / `MethodInfo` / `PropertyInfo` / `ConstructorInfo` /
+`ParameterInfo` 全都是同一个基类 **`MemberInfo`** 的子类（`Std.Type` 自己也是）。
+基类上有一张所有成员共通的面孔：`Name`、`MemberType`（种类）、
+`DeclaringContext`（声明上下文）、attribute 查询（`GetCustomAttributes` /
+`GetAttribute`，字段那节的用法对所有成员都成立）。
+
+下面这个类贯穿本节：
+
+```z42
+// examples/types/attributes-reflection/family/family.z42
+{{#include ../../../../examples/types/attributes-reflection/family/family.z42:decl}}
+```
+
+### 一口报种类：`MemberType`
+
+`GetMembers()` 返回的总汇数组里混装着五种成员，不用写一串 `is` 判断，
+`MemberType` 直接给种类（`MemberTypes` 枚举：`Field` / `Method` / `Property` /
+`Constructor` / `Parameter` / `TypeInfo` / `NestedType`）：
+
+```z42
+// examples/types/attributes-reflection/family/family.z42
+{{#include ../../../../examples/types/attributes-reflection/family/family.z42:kinds}}
+```
+
+```console
+{{#include ../../../../examples/types/attributes-reflection/family/run.console:kinds}}
+```
+
+注意 `Sides` 继承自 `Shape` 也照样出现在 `Square` 的总汇里——继承成员一并给出。
+
+### 声明上下文：`DeclaringContext`
+
+「这个成员是谁声明的？」——字段、方法报**声明它的类型**（继承成员指回基类声明者，
+和 C# 的 `DeclaringType` 同语义）；**参数**报的是声明它的**方法**而不是类型；
+`typeof` 拿到的 `Type` 自己报嵌套外围类型。参数还有个类型化捷径 `Method`，
+直接拿到宿主的 `MethodBase`：
+
+```z42
+// examples/types/attributes-reflection/family/family.z42
+{{#include ../../../../examples/types/attributes-reflection/family/family.z42:context}}
+```
+
+```console
+{{#include ../../../../examples/types/attributes-reflection/family/run.console:context}}
+```
+
+### 属性背后的访问器
+
+属性那一节说过 `GetMethods()` 里能看到 `get_X` / `set_X`——
+`GetGetMethod()` / `GetSetMethod()` 把它们作为真正的 `MethodInfo` 交给你
+（只读属性没有 setter，返回 `null`）。例子里的 `.Expect("理由")` 是可空结果的
+惯用解法：`GetGetMethod()` 的返回类型带 `?`，不检查就解引用会被 `E0478`
+当场拦下——
+
+```z42
+// examples/types/attributes-reflection/family/family.z42
+{{#include ../../../../examples/types/attributes-reflection/family/family.z42:accessors}}
+```
+
+```console
+{{#include ../../../../examples/types/attributes-reflection/family/run.console:accessors}}
+```
+
+`E0478` 拦的就是这种写法（下面这个文件故意编不过）：
+
+```z42
+// examples/types/attributes-reflection/family/null-deref.z42
+{{#include ../../../../examples/types/attributes-reflection/family/null-deref.z42}}
+```
+
+```console
+{{#include ../../../../examples/types/attributes-reflection/family/run.console:null-deref}}
+```
+
+`.Expect("理由")` 带着理由做**真检查**：值非空原样通过，为 null 当场抛出、
+理由进消息——等于一行完成「我确信它非空，错了你来找我」。
 
 ## 用现成的 attribute
 
@@ -451,18 +532,18 @@ attribute + 反射最典型的用法：让代码**按数据驱动**，而不是�
 
 要在代码里精确指代一个方法，优先用上面的 `methodof`——它是编译期检查的。
 
-### 还有一处
-
-- **索引器不出现在 `GetProperties()` 里**：`this[int]` 降解成 `get_Item(int)`，
-  只在 `GetMethods()` 里作为普通方法出现。
-
 ## 小结
 
 - **反射**读的是类型自带的元数据：`typeof(T)` / `obj.GetType()` 拿 `Std.Type`，
   `Type.GetType("名字")` 按名字查（找不到给 `null`）。
 - 反射报的名字是包装类型的拼写（`int` → `Int32`），写断言前先对一眼。
 - 四个枚举方法：`GetFields()`（含私有与静态、藏起自动属性的后备字段）/ `GetMethods()`
-  （含继承与访问器、**不含构造器**）/ `GetProperties()` / `GetConstructors()`。
+  （含继承与访问器、**不含构造器**）/ `GetProperties()` / `GetConstructors()`；
+  `GetMembers()` 是总汇（字段、方法、属性、构造器、嵌套类型，按这个顺序）。
+- 所有 `*Info` 共享 `MemberInfo` 基类：`Name` / `MemberType` 报种类 /
+  `DeclaringContext` 报声明者（继承成员指回基类，参数报宿主方法，`p.Method` 取宿主）；
+  `GetGetMethod()` / `GetSetMethod()` 拿属性访问器的 `MethodInfo`。可空结果直接
+  解引用会被 `E0478` 拦，惯用解法 `.Expect("理由")`。
 - 能动真格：`FieldInfo.GetValue` / `SetValue`、`PropertyInfo` 同名的一对、
   `MethodInfo.Invoke(接收者, object[])`、`Activator.CreateInstance` 与
   `ConstructorInfo.Invoke`。写不进去的值会抛异常且**字段保持原值**。
@@ -470,7 +551,7 @@ attribute + 反射最典型的用法：让代码**按数据驱动**，而不是�
 - **attribute** 是贴在声明上的数据：类名必须以 `Attribute` 结尾（`E0444`），应用时剥后缀，
   全部状态走构造器，查询用真实类名。能贴在类 / 方法 / 字段 / 自动属性 / 形参五处。
   实参必须是编译期常量（含 `typeof` / `methodof` / 数组），否则报 `E0500`。
-- 🔴 记住三个边界：顶层函数的 attribute 反射拿不到（挪进类当 `static`）、计算属性带不了
-  attribute、没有按名取单个成员的 API（索引器也不在 `GetProperties()` 里）。
+- 🔴 记住两个边界：顶层函数的 attribute 反射拿不到（挪进类当 `static`）、计算属性带不了
+  attribute。没有按名取单个成员的 API——索引器已是属性视图（`Item`），照常枚举后筛。
 
 下一部分转向**标准库实战**，从文件与目录开始。

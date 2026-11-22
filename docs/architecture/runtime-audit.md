@@ -29,7 +29,7 @@
 - 根生产 crate 不依赖具体解释器/JIT，`EngineRegistry` 按调用/层级使用现有动态分发，组件先绑定能力并保留代码租约（[Cargo.toml](../../src/runtime/Cargo.toml)、[exec/engine.rs](../../src/runtime/src/exec/engine.rs#L11)、[components/api.rs](../../src/runtime/src/components/api.rs#L54)）。这不是逐指令组件查表；不建议再造通用 backend trait。
 - `GcToVm` 明确暂停和根访问安全条件，`CoreRoots` 用 `Weak<VmCore>`，对象协议对 Context/Error 泛型化（[gc/to_vm.rs](../../src/runtime/src/gc/to_vm.rs#L5)、[threads/roots.rs](../../src/runtime/src/threads/roots.rs#L7)、[object/protocol.rs](../../src/runtime/src/object/protocol.rs#L9)）。必要的 roots、写屏障及类型布局协作并非可直接消除的循环。
 - 解释器和 JIT 已共用 scalar、struct、array 等操作：例如 [interp/ops/mod.rs](../../src/runtime/crates/z42-interp/src/interp/ops/mod.rs#L54)、[jit/helpers/arith.rs](../../src/runtime/crates/z42-jit/src/jit/helpers/arith.rs#L7)、[jit/helpers/array.rs](../../src/runtime/crates/z42-jit/src/jit/helpers/array.rs#L3)。JIT 的内联 fast path 与解释器不同是实现差异，不能仅凭重复判断语义不一致。
-- CLI、Rust、C 的主要程序执行路径已复用 `LoadedProgram` / `run_app`，字节加载有会话 `ImageCache`；不是三份完全独立 VM 初始化（[host/program.rs](../../src/runtime/src/host/program.rs#L74)、[host/c/ops.rs](../../src/runtime/src/host/c/ops.rs#L44)、[host/app.rs](../../src/runtime/src/host/app.rs#L48)）。`Aot` 目前显式报未实现，不应把 feature 标志误认为完整后端（[exec/engine.rs](../../src/runtime/src/exec/engine.rs#L87)）。
+- CLI、Rust、C 的主要程序执行路径已复用 `LoadedProgram` / `run_app`，字节加载有会话 `ImageCache`；不是三份完全独立 VM 初始化（[host/program.rs](../../src/runtime/src/host/program.rs#L74)、[host/ops.rs](../../src/runtime/src/host/ops.rs#L44)、[host/app.rs](../../src/runtime/src/host/app.rs#L48)）。`Aot` 目前显式报未实现，不应把 feature 标志误认为完整后端（[exec/engine.rs](../../src/runtime/src/exec/engine.rs#L87)）。
 
 ## 当前依赖图（代表性源码引用，不是 Cargo 的完整传递闭包）
 

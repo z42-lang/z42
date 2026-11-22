@@ -31,13 +31,13 @@ public struct Int16 : IComparable, IEquatable, INumber {
     }
 
     /// 加法。
-    public static override short op_Add(short a, short b)      { return (short)(a + b); }
+    public static short op_Add(short a, short b)      { return (short)(a + b); }
     /// 减法。
-    public static override short op_Subtract(short a, short b) { return (short)(a - b); }
+    public static short op_Subtract(short a, short b) { return (short)(a - b); }
     /// 乘法。
-    public static override short op_Multiply(short a, short b) { return (short)(a * b); }
+    public static short op_Multiply(short a, short b) { return (short)(a * b); }
     /// 除法。
-    public static override short op_Divide(short a, short b)   { return (short)(a / b); }
+    public static short op_Divide(short a, short b)   { return (short)(a / b); }
     /// 取模。
-    public static override short op_Modulo(short a, short b)   { return (short)(a % b); }
+    public static short op_Modulo(short a, short b)   { return (short)(a % b); }
 }

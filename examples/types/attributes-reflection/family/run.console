@@ -1,0 +1,24 @@
+# ANCHOR: kinds
+$ z42 run family.z42
+Sides 是 Field
+side 是 Field
+Area 是 Method
+Perimeter 是 Property
+Square 是 Constructor
+# ANCHOR_END: kinds
+# ANCHOR: context
+Sides 声明在 Shape
+side 声明在 Square
+Describe 声明在 Square
+它的参数 prefix 的上下文是 Describe
+参数的宿主方法叫 Describe
+# ANCHOR_END: context
+# ANCHOR: accessors
+Perimeter：读经 get_Perimeter，写经 set_Perimeter
+# ANCHOR_END: accessors
+# ANCHOR: null-deref
+$ z42 run null-deref.z42
+z42c build: 1 error(s) in null-deref.z42
+  null-deref.z42(11,27): E0478: `getter` is marked `?` and may be null here — check it before dereferencing (e.g. `if (getter != null) { … }`)
+[exit: 1]
+# ANCHOR_END: null-deref

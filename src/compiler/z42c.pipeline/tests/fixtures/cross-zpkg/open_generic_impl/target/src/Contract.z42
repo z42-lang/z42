@@ -1,0 +1,8 @@
+namespace Demo.OpenContract;
+
+public interface ISameSize { bool SameSize(Self other); }
+public interface ISize : ISameSize { int Size(); bool IsElement(object item); Self Empty(); }
+
+public int Measure<T>(T value) where T : ISize { return value.Size(); }
+
+public bool SameSize<T>(T a, T b) where T : ISize { return a.SameSize(b); }
