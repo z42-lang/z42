@@ -175,7 +175,7 @@ VM 的每条线程都跑 JIT 代码：主线程和 `__thread_spawn` 的 worker�
 | by-name 表 | 无，冷路径经 `id_by_name` 路由回 by-id | 消除第二套内部可变结构 |
 | 计数器 | `jit_methods_compiled` = **实际编译数** | 更真实；`JitModuleCompiled` 事件仍每模块一次（报模块规模 + setup 耗时） |
 | 上下文参数 | **运行线程自己的 `VmContext`**；共享 JIT 状态放 `VmCore.exec.engines` | 任何线程都能跑原生码，不经共享的单一 `vm_ctx` 指针；热字段按偏移读，少一次间接 |
-| 编译在哪 | 调用线程、编译锁内 | 批量和后台调度见 [JIT 设计](jit-design.md#runtime-jit-background-compilation批量或后台编译) |
+| 编译在哪 | 调用线程、编译锁内 | 批量和后台调度见 [JIT 设计](jit-design.md#runtime-jit-background-compilation-批量或后台编译) |
 
 ## 覆盖不变（与 interp 的关系）
 

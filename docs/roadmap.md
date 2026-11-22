@@ -392,9 +392,9 @@ MB1 起同步建立边界检查；MB6 完成覆盖，不以历史依赖基线为
 
 | 条目 | 当前边界 | 机制页 |
 |---|---|---|
-| `runtime-package-miss-io` | 惰性加载未命中时在写锁内读取并解码包 | [VM 实现](internals/src/runtime/vm-architecture.md#runtime-package-miss-io惰性加载的读包与发布) |
-| `runtime-gc-array-cards` | minor 按记忆集属主扫描整份数组 | [GC](internals/src/runtime/gc.md#runtime-gc-array-cards数组记忆集分段) |
-| `runtime-jit-background-compilation` | JIT 在调用线程持锁编译 | [JIT 设计](internals/src/runtime/jit-design.md#runtime-jit-background-compilation批量或后台编译) |
+| `runtime-package-miss-io` | 惰性加载未命中时在写锁内读取并解码包 | [VM 实现](internals/src/runtime/vm-architecture.md#runtime-package-miss-io-惰性加载的读包与发布) |
+| `runtime-gc-array-cards` | minor 按记忆集属主扫描整份数组 | [GC](internals/src/runtime/gc.md#runtime-gc-array-cards-数组记忆集分段) |
+| `runtime-jit-background-compilation` | JIT 在调用线程持锁编译 | [JIT 设计](internals/src/runtime/jit-design.md#runtime-jit-background-compilation-批量或后台编译) |
 | `runtime-tier1-registration-table` | Tier 1 类型注册依赖核心导出的符号 | [原生扩展](internals/src/runtime/native-extensions.md#runtime-tier1-registration-table-tier-1-注册函数表) |
 | `runtime-future-wasm-module-loading` | 当前为最终 WASM 模块静态链接；独立模块的宿主实例化、注册和跨实例 ABI 尚未实现 | [组件化运行时](internals/src/runtime/componentized-runtime.md#runtime-future-wasm-module-loading独立-wasm-模块加载) |
 | `doc-future-semantic-index` | 语义索引、跨包文档解析与编译期 W08xx | [文档索引](internals/src/toolchain/doc.md#doc-future-semantic-index语义索引与编译期诊断) |

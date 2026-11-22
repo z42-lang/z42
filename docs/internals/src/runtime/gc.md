@@ -465,7 +465,7 @@ fn write_barrier_array_elem(&self, arr: &Value, idx: usize, new: &Value);
 - **出根**：minor 的 `seed_from_remembered` 逐个「穿过」记忆集里的属主（老属主不标记，只把年轻孩子入队），
   **不再有年轻孩子就清位、出集**。已死（tombstone 还没排出）的跳过并出集，增量 major 清扫期的 doomed 属主同样跳过。
 - **粒度是属主**：一个记着的数组每次 minor 被整个穿过，直到它不再持有年轻元素；没有按元素段的卡。
-  大 `object[]` 持续新增年轻元素时，minor 会重新扫描整个数组。见 [数组记忆集分段的前置条件](#runtime-gc-array-cards数组记忆集分段)。
+  大 `object[]` 持续新增年轻元素时，minor 会重新扫描整个数组。见 [数组记忆集分段的前置条件](#runtime-gc-array-cards-数组记忆集分段)。
 - **死亡**：带 `REMEMBERED_BIT` 的块被 tombstone 时进「带标记的死块」列表，`process_flagged_dead` 在 chunk 回收之前把它从记忆集删掉，
   所以记忆集里的地址永远是一个块头。
 - **晋升线降低**（adaptive promotion）有两个时机。没有周期开着时就在**定下降线的那次 minor 之后**
