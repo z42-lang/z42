@@ -5,7 +5,9 @@ use super::*;
 /// variable's **live value** from its static-field slot (key
 /// `Repl.R{N}.Vars{N}.{var}`, see loader.rs static-field FQN convention), then
 /// returns the names of its runtime type's members (fields/methods/properties/
-/// nested — same set as `Type.GetMembers()`). Reading a stored static field is
+/// nested — `Type.GetMembers()` minus constructors: a ctor's Name is the class
+/// simple name, useless as an `obj.`-completion candidate since members-access
+/// can't invoke it). Reading a stored static field is
 /// side-effect-free (no expression re-evaluation), which is why session-variable
 /// `obj.` completion is safe here (D2). Null / primitive / unloaded → empty.
 pub fn member_names_of_static_value(ctx: &VmContext, fqn: &str) -> anyhow::Result<Value> {
@@ -34,6 +36,13 @@ pub fn member_names_of_static_value(ctx: &VmContext, fqn: &str) -> anyhow::Resul
     let mut names: Vec<Value> = Vec::new();
     if let Value::Array(a) = members {
         for m in a.borrow().iter_boxed() {
+            // Constructors are not completable members (their Name is the class
+            // simple name and members-access cannot invoke a ctor) — skip them.
+            if let Value::Object(rc) = &m {
+                if rc.type_desc().name == STD_REFLECTION_CONSTRUCTORINFO {
+                    continue;
+                }
+            }
             if let Some(n) = member_name_of(&m) {
                 names.push(Value::Str(n.into()));
             }
