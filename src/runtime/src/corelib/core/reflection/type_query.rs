@@ -175,10 +175,12 @@ pub fn type_interfaces(ctx: &VmContext, ty: &Value) -> Value {
 }
 
 /// `__type_members(typeObj) -> MemberInfo[]` — fields, then methods, then
-/// properties. Built in Rust to sidestep z42 array covariance (the mixed array
-/// holds FieldInfo + MethodInfo + PropertyInfo, all `MemberInfo` subclasses).
-/// Mirrors C# `GetMembers()`, which surfaces properties alongside their backing
-/// `get_`/`set_` accessor methods (the accessors remain in the methods slice).
+/// properties, then constructors. Built in Rust to sidestep z42 array covariance
+/// (the mixed array holds FieldInfo + MethodInfo + PropertyInfo +
+/// ConstructorInfo, all `MemberInfo` subclasses). Mirrors C# `GetMembers()`,
+/// which surfaces properties alongside their backing `get_`/`set_` accessor
+/// methods (the accessors remain in the methods slice) and includes the type's
+/// constructors (MemberTypes.Constructor; Name = the class simple name).
 pub fn type_members(ctx: &VmContext, ty: &Value) -> Value {
     let mut out = Vec::new();
 
@@ -186,13 +188,15 @@ pub fn type_members(ctx: &VmContext, ty: &Value) -> Value {
         super::fields::type_fields as fn(&VmContext, &Value) -> Result<Value, BuiltinError>,
         super::methods::type_methods,
         super::properties::type_properties,
+        super::methods::type_constructors,
     ] {
         if let Value::Array(a) = part(ctx, ty).unwrap_or(Value::Null) {
             out.extend(a.borrow().iter_boxed());
         }
     }
     // add-nested-types: C# GetMembers() surfaces nested types (MemberTypes.NestedType)
-    // alongside fields/methods/properties (Type : MemberInfo, so covariance holds).
+    // alongside fields/methods/properties/constructors (Type : MemberInfo, so covariance
+    // holds).
     if let Value::Array(n) = type_nested_types(ctx, ty) {
         out.extend(n.borrow().iter_boxed());
     }

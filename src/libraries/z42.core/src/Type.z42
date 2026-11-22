@@ -193,7 +193,7 @@ public sealed class Type : MemberInfo, IEquatable {
     [Native("__type_constructors")]
     public extern Std.Reflection.ConstructorInfo[] GetConstructors();
 
-    /// 字段与方法合在一起。
+    /// 成员总汇（按序）：字段、方法、属性、构造器、嵌套类型（对标 C# GetMembers）。
     [Native("__type_members")]
     public extern Std.Reflection.MemberInfo[] GetMembers();
 

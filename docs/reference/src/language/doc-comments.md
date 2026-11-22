@@ -59,7 +59,7 @@ tag 区从第一个行首 `@` 开始，每个 tag 独占一行，续行缩进 �
 | `@throws` | `@throws 类型 何时` | 抛出的异常类型与触发条件 |
 | `@see` | `@see [`符号`]` | 关联符号 |
 | `@warning` | `@warning 说明` | 醒目提示（线程安全、非 CSPRNG 之类） |
-| `@example` | `@example [run\|no_run\|compile_fail\|ignore]`，下一行起缩进 4 格写代码 | 示例；也是 doctest 的来源（`z42 test --doc`，尚未接，见「不支持」） |
+| `@example` | `@example [run\|no_run\|compile_fail\|ignore]`，下一行起缩进 4 格写代码 | 展示代码示例 |
 | `@hidden` | `@hidden` | public 但不进文档（跨包用的内部入口） |
 | `@for-generator` | `@for-generator 包名[/生成器 ID]` | 开始一组构建插件专用字段 |
 | `@generator` | `@generator 字段 文本` | 当前组的一条单行纯文本 |
@@ -96,12 +96,8 @@ enum Mode {
     double Y);
 ```
 
-全部 tag 都可选。只为签名表达不了的东西写，不为每个参数都补 `@param`。tag 的校验规则是 W0801–W0808
-（全表见[错误码](../appendix/error-codes.md)）：`@param` / `@typeparam` 的名字必须是真实形参（W0802）、tag 必须在
-上面的闭集里（W0804）、`@throws` 类型与 ``[`Sym`]`` 链接必须能解析（W0803）。
-
-> ⚠️ 目前 `z42c` 构建**不检查** doc 注释——由编译器内建 pass 发出 W08xx 的设计尚未落地。本仓库对标准库经
-> `xtask check doc-lints` 做其中不需要语义的几条（W0801 / W0802 / W0804–W0808）；W0803 连门禁里也还没有。
+全部 tag 都可选。只为签名表达不了的东西写。使用 `@param` 或 `@typeparam` 时，填入签名里的形参名。
+标准库的语法级检查会报告无效的参数名（W0802）和未知 tag（W0804），完整编号见[错误码](../appendix/error-codes.md)。
 
 ```z42
 /// 返回 `[min, max)` 内的整数。

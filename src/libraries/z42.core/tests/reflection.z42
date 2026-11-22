@@ -1005,3 +1005,18 @@ void test_declaring_context_field_and_property() {
         }
     }
 }
+
+[Test]
+void test_getmembers_includes_constructors() {
+    // GetMembers 对齐 C#：构造器入列（MemberTypes.Constructor，Name = 类简单名）。
+    bool sawCtor = false;
+    foreach (var m in typeof(CtorHolder).GetMembers()) {
+        if (m.MemberType == MemberTypes.Constructor) {
+            sawCtor = true;
+            Assert.Equal("CtorHolder", m.Name);
+            Assert.True(m is ConstructorInfo);
+            Assert.True(m.DeclaringContext is Std.Type);
+        }
+    }
+    Assert.True(sawCtor);
+}
