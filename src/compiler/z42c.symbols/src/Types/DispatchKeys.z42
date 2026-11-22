@@ -7,13 +7,23 @@ namespace Z42.Symbols;
 public static class DispatchKeys {
     // 统一签名键：每个方法（含唯一方法）一律编码完整签名 `名$参数数$类型键…`。
     public static string MangleKey(string name, Z42Type[] paramTypes, int paramCount) {
+        return DispatchKeys.MethodKey(name, paramTypes, paramCount, null);
+    }
+
+    public static string MethodKey(string name, Z42Type[] paramTypes, int paramCount, Z42FuncType signature) {
         string s = name + "$" + paramCount.ToString();
         int i = 0;
         while (i < paramCount) {
-            s = s + "$" + DispatchKeys.TypeKey(paramTypes[i]);
+            // ':' is reserved for generic instantiations in emitted function names.
+            string mode = signature != null && signature.IsRefParam(i) ? "&" : "";
+            s = s + "$" + mode + DispatchKeys.TypeKey(paramTypes[i]);
             i = i + 1;
         }
         return s;
+    }
+
+    public static string MethodKey(string name, Z42FuncType signature) {
+        return DispatchKeys.MethodKey(name, signature.ParamTypes, signature.ParamCount, signature);
     }
 
     // 单个形参类型 → 键片段：Canon 归一（基本别名 + 剥 nullable）后剥空白（泛型名含 ", "）。

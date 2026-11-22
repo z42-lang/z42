@@ -1,0 +1,53 @@
+interface IRefUpdate {
+    int Update(ref int value);
+}
+
+class Updater : IRefUpdate {
+    public static int Select(int value) { return value + 1; }
+    public static int Select(ref int value) { value = value + 2; return value; }
+
+    public int Update(ref int value) { value = value + 3; return value; }
+    public int Update(int value) { return value + 4; }
+}
+
+struct GenericUpdater {
+    public static T Replace<T>(ref T value, T replacement) { value = replacement; return value; }
+    public static T Replace<T>(T value, T replacement) { return value; }
+}
+
+class VirtualUpdater {
+    public virtual int Read(int value) { return value + 1; }
+    public virtual int Read(ref int value) { value = value + 2; return value; }
+}
+
+class DerivedUpdater : VirtualUpdater {
+    public override int Read(ref int value) { value = value + 3; return value; }
+    public override int Read(int value) { return value + 4; }
+}
+
+void Main() {
+    int value = 10;
+    Assert.Equal(11, Updater.Select(value));
+    Assert.Equal(10, value);
+    Assert.Equal(12, Updater.Select(ref value));
+    Assert.Equal(12, value);
+
+    var updater = new Updater();
+    Assert.Equal(16, updater.Update(value));
+    Assert.Equal(15, updater.Update(ref value));
+    IRefUpdate contract = updater;
+    Assert.Equal(18, contract.Update(ref value));
+    Assert.Equal(18, value);
+
+    Assert.Equal(18, GenericUpdater.Replace(value, 20));
+    Assert.Equal(20, GenericUpdater.Replace<int>(ref value, 20));
+    Assert.Equal(21, GenericUpdater.Replace(ref value, 21));
+    Assert.Equal(21, value);
+
+    VirtualUpdater derived = new DerivedUpdater();
+    Assert.Equal(25, derived.Read(value));
+    Assert.Equal(24, derived.Read(ref value));
+    Assert.Equal(24, value);
+
+    Assert.Equal(25, Updater.Select(value: value));
+}

@@ -520,6 +520,7 @@ public sealed partial class OverloadBinder {
                 if (args != null && i < args.Length && args[i] != null) { t = args[i].Type(); }
                 else if (raw != null) { t = this._typeOfArgExpr(raw, env); }
                 a.PosTypes[pos] = t;
+                a.PosByRef[pos] = raw is RefArgExpr || (args != null && i < args.Length && args[i] is BoundRefArg);
                 pos = pos + 1;
             }
             i = i + 1;
@@ -723,6 +724,10 @@ public sealed partial class OverloadBinder {
             return this._resolveMappedOrReport(all, this._argShape(args, rawArgs, argCount, env), name, sp,
                                                env == null ? null : env.Symbols);
         }
+        bool hasOverloads = all.Length > 1;
+        if (hasOverloads) {
+            all = RefArgCheck.MatchingOverloads(all, args, argCount);
+        }
         // add-target-typed-new：延迟绑定的 target-typed new 实参（null 位）无类型 → 无法参与基于类型的重载决议。
         // arity 唯一时（下方 na==1）不需类型可直接选中；否则报 E0437 让用户写显式类名。
         bool anyDeferred = false;
@@ -746,7 +751,7 @@ public sealed partial class OverloadBinder {
             // fix-overload-defaults-named-args：没有形参个数恰好相等的非 params 候选时，还有「少给实参、靠默认值
             // 才适用」的候选。此前它们从不进候选集 ⇒ 要么「找不到方法」，要么静默选中能接住的 params 重载
             // （`Q(string a, int n = 2)` + `Q(params object[] xs)` 的 `Q("a")` 选了后者）。与 params 结果一起按 C# 规则比较。
-            if (all.Length > 1 && env != null && this._anyNeedsDefaults(all, argCount)) {
+            if (hasOverloads && env != null && this._anyNeedsDefaults(all, argCount)) {
                 MethodSymbol[] pool = new MethodSymbol[all.Length];
                 int pn = 0;
                 int pi = 0;
@@ -767,7 +772,7 @@ public sealed partial class OverloadBinder {
             if (viaParams != null) { return viaParams; }
             // 无 arity 匹配但全类只有一个同名非 params 方法 → 返回它（镜像旧 _overloadKey 的 bare 兜底：
             // 忽略 arity，如 `Int32.ToString(cp)` 静态形式调用实例 arity-0 ToString，接收者作首参）。
-            if (all.Length == 1 && all[0].Signature.ParamsFrom < 0) { return all[0]; }
+            if (!hasOverloads && all[0].Signature.ParamsFrom < 0) { return all[0]; }
             if (anyDeferred) {
                 this._tc._diags.Error(DiagnosticCodes.TargetTypedNewNeedsType,
                     "target-typed `new` argument to overloaded `" + name + "` needs an explicit type", sp);

@@ -65,7 +65,7 @@ public sealed class DeclBinder {
         if (ct != null && md.RegKey != "") {
             MethodSymbol dms = ct.Methods.Get(md.RegKey) as MethodSymbol;
             if (dms != null && dms.Signature != null) {
-                return OverloadResolver.MangleKey(md.Name, dms.Signature.ParamTypes, dms.Signature.ParamCount);
+                return DispatchKeys.MethodKey(md.Name, dms.Signature);
             }
         }
         return md.RegKey;   // 符号缺失（decl-only partial 等）→ 回落老行为
@@ -99,7 +99,7 @@ public sealed class DeclBinder {
                         string sk = this._dupSigKey(ct, md);
                         if (seenKey.ContainsKey(sk)) {
                             this._tc._diags.Error(DiagnosticCodes.DuplicateDeclaration,
-                                "duplicate overload `" + md.Name + "` — parameter types are identical once " +
+                                "duplicate overload `" + md.Name + "` — parameter signatures are identical once " +
                                 "aliases (e.g. int/Int32) and nullability are normalized", md.Span);
                         } else {
                             seenKey.Put(sk, "1");

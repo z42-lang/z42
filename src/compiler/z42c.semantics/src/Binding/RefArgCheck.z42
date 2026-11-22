@@ -32,4 +32,33 @@ public static class RefArgCheck {
                 "argument " + (i + 1).ToString() + " must not be passed with `ref` — the parameter is not `ref`", sp);
         }
     }
+    // Keep the original candidates when no mode fits so binding can report the
+    // modifier error on the selected signature.
+    public static MethodSymbol[] MatchingOverloads(MethodSymbol[] methods, BoundExpr[] args, int count) {
+        int keep = 0;
+        foreach (var method in methods) {
+            if (RefArgCheck._matches(method.Signature, args, count)) { keep = keep + 1; }
+        }
+        if (keep == 0 || keep == methods.Length) { return methods; }
+        MethodSymbol[] filtered = new MethodSymbol[keep];
+        int i = 0;
+        foreach (var method in methods) {
+            if (RefArgCheck._matches(method.Signature, args, count)) {
+                filtered[i] = method;
+                i = i + 1;
+            }
+        }
+        return filtered;
+    }
+
+    private static bool _matches(Z42FuncType sig, BoundExpr[] args, int count) {
+        if (sig == null || !sig.HasRefInfo()) { return true; }
+        int i = 0;
+        while (i < count) {
+            if (sig.IsRefParam(i) != (args[i] is BoundRefArg)) { return false; }
+            i = i + 1;
+        }
+        return true;
+    }
+
 }

@@ -11,4 +11,8 @@ public class Ops : IUpdater {
     public static void ByValue(int x) { x = 999; }
     public void IncInst(ref int x) { x = x + 10; }   // 实例方法：验 this 槽不错位
     public void Update(int delta, ref int value) { value = value + delta; }
+    public void Update(int delta, int value) { value = value + delta; }
+
+    public static T Choose<T>(T item, T other) { return item; }
+    public static T Choose<T>(ref T item, T other) { item = other; return item; }
 }

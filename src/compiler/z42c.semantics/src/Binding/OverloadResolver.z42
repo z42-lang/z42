@@ -30,12 +30,14 @@ public sealed class OverloadResult {
 public sealed class ArgShape {
     public int       PosCount;
     public Z42Type[] PosTypes;
+    public bool[]    PosByRef;
     public string[]  Names;
     public Z42Type[] NamedTypes;
     public int       NamedCount;
     public ArgShape(int posCount, int namedCount) {
         this.PosCount = posCount; this.PosTypes = new Z42Type[posCount];
         this.NamedCount = namedCount; this.Names = new string[namedCount]; this.NamedTypes = new Z42Type[namedCount];
+        this.PosByRef = new bool[posCount];
     }
 }
 
@@ -214,6 +216,7 @@ public sealed class OverloadResolver {
         int i = 0;
         while (i < a.PosCount) {
             Z42Type at = a.PosTypes[i];
+            if (sig.HasRefInfo() && sig.IsRefParam(i) != a.PosByRef[i]) { return r; }
             if (i < fixedCount) {
                 Z42Type pt = sig.ParamTypes[i];
                 if (at != null && !OverloadResolver._assignable(at, pt, symbols)) { return r; }
@@ -239,6 +242,7 @@ public sealed class OverloadResolver {
             if (!CallParams.CanName(m)) { return r; }   // 无形参名（导入符号未带名）→ 命名实参不可映射
             int idx = CallParams.IndexOf(m, a.Names[j]);
             if (idx < 0 || idx >= pc || filled[idx]) { return r; }
+            if (sig.HasRefInfo() && sig.IsRefParam(idx)) { return r; }
             Z42Type npt = sig.ParamTypes[idx];
             Z42Type nat = a.NamedTypes[j];
             if (nat != null && !OverloadResolver._assignable(nat, npt, symbols)) { return r; }
