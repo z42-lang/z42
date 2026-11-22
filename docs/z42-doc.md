@@ -326,7 +326,7 @@ $ z42 doc z42::gc::heap::Heap --members  # Rust 符号（仓库内开发用）
      原文 doc 与 `file:line`，私有成员也收录。按文件 (size, mtime) 缓存，只重解析改过的文件，所以改完代码
      立即可查、不必先 build。
   2. **语义级 `.zdoc`**：SDK 内的 stdlib（没有源码）与 `z42 build` 产出的 `.zdoc`，额外带解析后的链接、
-     异常类型、继承文档与实现者列表。同一符号两者都有时取语义级。
+     异常类型、继承文档与实现者列表。当前工作区源码优先，未在工作区的包从 SDK 旁挂文件补齐。
   3. **Rust 索引**：仓库内开发用。一个基于 `syn` 的小工具扫 `src/runtime/` 各 crate，输出同一格式（`fn` /
      `struct` / `trait` / `impl` 方法、首段 rustdoc、`file:line`）。
 - `--page`：读一页书的「代码」页头声明的范围，解析正文里每个反引号符号，逐行输出 `符号 → file:line`；
@@ -459,7 +459,7 @@ User 裁决：**先把机制全部做完（含测试与示例），最后统一�
 | **P2b Rust 索引** | `src/toolchain/devtools/rust-index`（syn）+ `xtask build docs index` → `artifacts/doc/rust.idx`；`z42.doc` 的 `ExternalIndex` 并入、`::` 名字解析、模块 / trait 轮廓、过期提示 | ✅ 已可用 |
 | **P3 书引用检查** | `z42 doc --page`（§4.9） | ✅ 完成：未解析符号链已清零（#1749，1315→0）；批量报告 `check doc-refs` 随之退役 |
 | **P4 模型与校验** | `z42.doc` 包（DocParser / DocId / Zdoc）、`DocChecker`、W0801～W0808、`LintConfig` 扩到内建 doc 规则、`[doc]` 表（两步）；reference `language/doc-comments.md` 与 agent 写法规则 | 🟡 进行中：DocParser + W08xx 语法级首批已落地（`z42.doc` DocLint + `xtask check doc-lints` 零告警检查；W0803 零发射占号）；DocId / Zdoc / 编译器 DocChecker pass（W0803 + `[lints]` 级别决策）/ `[doc]` 表待做 |
-| **P5 产出与生成** | build 产出 `.zdoc`；SDK `[component.docs]`；mdbook 渲染器；`xtask build docs`（按写了 `//!` 的包生效；生成页不入库，发布时现生成） | 🟡 进行中：mdbook 渲染器 + `xtask build docs` 已落地，生成页改为不入库、deploy-book 现生成；同名声明合并页（partial 并为代表、泛型委托各元数一页）、页内 `file:line` 源码位置行（生成物随 gen 重写不腐；经 `SourceBase` 渲染成 GitHub `#L<行>` 直达链接）、成员锚点（`<a id>` = Doc ID）与成员索引行（mdBook SUMMARY 不支持锚点条目，成员级导航在类型页内）、SUMMARY 的 type-split 区段生成（命名空间草稿章 → 类型，配 book.toml fold 逐级展开）已落地；`.zdoc` 产出、SDK `[component.docs]`、stdlib/README 概览表已由 `xtask build docs` 生成 |
+| **P5 产出与生成** | build 产出 `.zdoc`；SDK `[component.docs]`；mdbook 渲染器；`xtask build docs`（按写了 `//!` 的包生效；生成页不入库，发布时现生成） | 🟡 进行中：mdbook 渲染器 + `xtask build docs` 已落地，生成页改为不入库、deploy-book 现生成；同名声明合并页（partial 并为代表、泛型委托各元数一页）、页内 `file:line` 源码位置行（生成物随 gen 重写不腐；经 `SourceBase` 渲染成 GitHub `#L<行>` 直达链接）、成员锚点（`<a id>` = Doc ID）与成员索引行（mdBook SUMMARY 不支持锚点条目，成员级导航在类型页内）、SUMMARY 的 type-split 区段生成（命名空间草稿章 → 类型，配 book.toml fold 逐级展开）已落地；`z42 doc --format zdoc` 可导出语法级旁挂文件，`--zdoc` 可无源码查询。SDK `[component.docs]` 随包安装语法级标准库文档。标准库首页总览表由 `xtask build docs` 生成。构建自动产出、语义级产物待做 |
 | **P6 doctest** | `@example` 合成 `[Test]` 方法，经反射发现；`z42 test --doc` 进 gate | 待做 |
 | **P7 迁移** | 代码注释按包迁移（先 `z42.random`）；stdlib 页改为生成；README 入口点改链接；书里引用清理；W0805 零告警 | ✅ 全部 19 个包已迁移（中文 `//!` + `///` + `@tag`、删历史注记），包页改为生成，README 入口点改链接；`z42.core` 走 `split = "type"`（156 个类型页，9 个手写主题页删除、SUMMARY 区段生成）；`z42.harness` 收录（在 `default_members`、用户可见）。W0805 已由 `xtask check doc-lints` 按零告警检查 |
 | **CLI 文案** | `@generator` 与 `@for-generator` 分组、独立于插件加载的公开过滤、构建插件生成包外枚举帮助 | 见正式文档的构建插件专用文案章节 |
