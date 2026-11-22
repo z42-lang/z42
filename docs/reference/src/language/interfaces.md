@@ -296,8 +296,43 @@ Sum3(1, 2, 3);                                          // 6 —— 基元类型
 
 实现方必须实现 `INumber` 的**全部 5 个**运算符，否则报 `E0412`。
 
-现有泛型算术依赖操作数的运行时类型。`T.Create()` 等直接在类型形参上调用静态方法的语法尚未支持，
-用户定义的静态算术接口也尚未得到完整的泛型派发支持。
+### 通过类型形参调用
+
+自由泛型函数可以通过接口约束调用标量签名的静态成员。
+
+```z42
+interface IWriter {
+    static int Create();
+    static void Write(int value);
+}
+
+void Run<T>() where T : IWriter {
+    T.Write(T.Create());
+}
+```
+
+调用方按接口签名选定具体实现，并把函数引用传入共享泛型体。自由泛型函数可继续转发已有约束，
+跨包调用沿用同一规则。当前支持非泛型接口和非泛型实现类型，形参为按值传递的标量，
+返回为标量或 `void`。
+
+当约束包含 `class` 时，静态成员的按值形参或返回类型也可以直接写 `Self`。
+在泛型体内，`Self` 对应当前类型形参，例如下列 `T.Write` 接受 `T`，`T.Create` 返回 `T`。
+
+```z42
+interface IReferenceWriter {
+    static Self Create();
+    static void Write(Self value);
+}
+
+T Run<T>() where T : class + IReferenceWriter {
+    T value = T.Create();
+    T.Write(value);
+    return value;
+}
+```
+
+接口静态成员的同名重载、类级约束和值结构体的 `Self` 签名留待后续。
+`INumber` 的泛型算术继续依赖操作数的运行时类型。
 
 ## 接口继承：成员可见，且构成子类型
 

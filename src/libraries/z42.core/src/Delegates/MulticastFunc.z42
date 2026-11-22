@@ -65,6 +65,25 @@ public sealed class MulticastFunc<TArg, TResult> {
         return new MulticastFuncSubscription<TArg, TResult>(this, idx, true);
     }
 
+
+    /// strong 通道处理器的快照（COW：取之后再订阅 / 退订不影响本数组）。
+    ///
+    /// advanced 包装通道（OnceRef / WeakRef / 自定义 ISubscription）语义上不可材料化，
+    /// 不在列表内——需要枚举包装订阅时在 SubscribeAdvanced 侧自行记账。
+    public Func<TArg, TResult>[] GetInvocationList() {
+        int n = 0;
+        int i = 0;
+        while (i < this.strongCount) { if (this.strongAlive[i]) { n = n + 1; } i = i + 1; }
+        Func<TArg, TResult>[] outA = new Func<TArg, TResult>[n];
+        int k = 0;
+        i = 0;
+        while (i < this.strongCount) {
+            if (this.strongAlive[i]) { outA[k] = this.strong[i]; k = k + 1; }
+            i = i + 1;
+        }
+        return outA;
+    }
+
     /// 当前活跃订阅总数（strong + advanced）。
     public int Count() {
         int c = 0;
@@ -312,3 +331,990 @@ public sealed class MulticastFuncSubscription<TArg, TResult> : IDisposable {
         }
     }
 }
+
+// ── 2 参变体（feat/multicast-arity-family 机械生成，语义同 1 参原版）──
+
+/// 2 参多播 Func：Invoke 收集全部返回值进 TResult[]（strong-first 顺序）。
+///
+/// 双通道（strong 直持 `Func<T1, T2, TResult>` / advanced 持 ISubscription 包装）与 COW 快照语义
+/// 同 2 参以下的既有家族成员，见 MulticastAction 文件头注释。
+
+public sealed class MulticastFunc<T1, T2, TResult> {
+    // ── strong fast path ──
+    Func<T1, T2, TResult>[] strong;
+    bool[] strongAlive;
+    int strongCount;
+    int strongCapacity;
+
+    // ── advanced slow path ──
+    ISubscription<Func<T1, T2, TResult>>[] advanced;
+    bool[] advancedAlive;
+    int advancedCount;
+    int advancedCapacity;
+
+    /// 构造空的多播 Func。
+    public MulticastFunc() {
+        this.strongCapacity = 4;
+        this.strong = new Func<T1, T2, TResult>[4];
+        this.strongAlive = new bool[4];
+        this.strongCount = 0;
+
+        this.advancedCapacity = 4;
+        this.advanced = new ISubscription<Func<T1, T2, TResult>>[4];
+        this.advancedAlive = new bool[4];
+        this.advancedCount = 0;
+    }
+
+    /// 订阅处理器并返回退订凭据。
+    /// @hidden
+    public IDisposable operator +=(Func<T1, T2, TResult> handler) { return this.Subscribe(handler); }
+
+    /// 按处理器身份退订。
+    /// @hidden
+    public void operator -=(Func<T1, T2, TResult> handler) { this.Unsubscribe(handler); }
+
+    /// 裸 handler 订阅 → strong 快路径（零包装开销）。
+    public IDisposable Subscribe(Func<T1, T2, TResult> handler) {
+        if (this.strongCount == this.strongCapacity) this.GrowStrong();
+        int idx = this.strongCount;
+        this.strong[idx] = handler;
+        this.strongAlive[idx] = true;
+        this.strongCount = this.strongCount + 1;
+        return new MulticastFuncSubscription<T1, T2, TResult>(this, idx, false);
+    }
+
+    /// ISubscription 包装器订阅 → advanced 慢路径（OnceRef / CompositeRef / 用户自定义包装器）。
+    public IDisposable SubscribeAdvanced(ISubscription<Func<T1, T2, TResult>> wrapper) {
+        if (this.advancedCount == this.advancedCapacity) this.GrowAdvanced();
+        int idx = this.advancedCount;
+        this.advanced[idx] = wrapper;
+        this.advancedAlive[idx] = true;
+        this.advancedCount = this.advancedCount + 1;
+        return new MulticastFuncSubscription<T1, T2, TResult>(this, idx, true);
+    }
+
+
+    /// strong 通道处理器的快照（COW：取之后再订阅 / 退订不影响本数组）。
+    ///
+    /// advanced 包装通道（OnceRef / WeakRef / 自定义 ISubscription）语义上不可材料化，
+    /// 不在列表内——需要枚举包装订阅时在 SubscribeAdvanced 侧自行记账。
+    public Func<T1, T2, TResult>[] GetInvocationList() {
+        int n = 0;
+        int i = 0;
+        while (i < this.strongCount) { if (this.strongAlive[i]) { n = n + 1; } i = i + 1; }
+        Func<T1, T2, TResult>[] outA = new Func<T1, T2, TResult>[n];
+        int k = 0;
+        i = 0;
+        while (i < this.strongCount) {
+            if (this.strongAlive[i]) { outA[k] = this.strong[i]; k = k + 1; }
+            i = i + 1;
+        }
+        return outA;
+    }
+
+    /// 当前活跃订阅总数（strong + advanced）。
+    public int Count() {
+        int c = 0;
+        int i = 0;
+        while (i < this.strongCount) {
+            if (this.strongAlive[i]) c = c + 1;
+            i = i + 1;
+        }
+        i = 0;
+        while (i < this.advancedCount) {
+            if (this.advancedAlive[i] && this.advanced[i].IsAlive()) c = c + 1;
+            i = i + 1;
+        }
+        return c;
+    }
+
+    [Suppress("style.fnLinesHard", "132 body lines；拆分见 code-organization.md")]
+    /// 触发所有活跃 handler，收集返回值进 TResult[]（strong-first / advanced-after 顺序）。
+    ///
+    /// `continueOnException = false`（默认）走 fail-fast：首个抛出的异常直接传播。
+    /// `continueOnException = true` 时失败位置占 default(TResult)，多失败聚合抛
+    /// MulticastException<TResult>（携带 Results 与失败索引 / 异常并行数组）。
+    public TResult[] Invoke(T1 a, T2 b, bool continueOnException = false) {
+        // ── strong snapshot + fast loop ──
+        int sn = this.strongCount;
+        Func<T1, T2, TResult>[] snapStrong = new Func<T1, T2, TResult>[sn];
+        bool[] snapStrongAlive = new bool[sn];
+        int i = 0;
+        while (i < sn) {
+            snapStrong[i] = this.strong[i];
+            snapStrongAlive[i] = this.strongAlive[i];
+            i = i + 1;
+        }
+
+        // ── advanced snapshot + slow loop ──
+        int an = this.advancedCount;
+        ISubscription<Func<T1, T2, TResult>>[] snapAdv = new ISubscription<Func<T1, T2, TResult>>[an];
+        bool[] snapAdvAlive = new bool[an];
+        i = 0;
+        while (i < an) {
+            snapAdv[i] = this.advanced[i];
+            snapAdvAlive[i] = this.advancedAlive[i];
+            i = i + 1;
+        }
+
+        // 先统计活跃 handler 总数确定 result 长度
+        int total = 0;
+        i = 0;
+        while (i < sn) {
+            if (snapStrongAlive[i]) total = total + 1;
+            i = i + 1;
+        }
+        i = 0;
+        while (i < an) {
+            if (snapAdvAlive[i] && snapAdv[i].IsAlive()) total = total + 1;
+            i = i + 1;
+        }
+
+        TResult[] result = new TResult[total];
+        int outIdx = 0;
+
+        // ── fail-fast 路径（continueOnException=false）──
+        if (!continueOnException) {
+            i = 0;
+            while (i < sn) {
+                if (snapStrongAlive[i]) {
+                    result[outIdx] = snapStrong[i](a, b);
+                    outIdx = outIdx + 1;
+                }
+                i = i + 1;
+            }
+            i = 0;
+            while (i < an) {
+                if (snapAdvAlive[i]) {
+                    var w = snapAdv[i];
+                    if (w.IsAlive()) {
+                        result[outIdx] = w.Get()(a, b);
+                        w.OnInvoked();
+                        outIdx = outIdx + 1;
+                    }
+                }
+                i = i + 1;
+            }
+            return result;
+        }
+
+        // ── continueOnException=true 路径：累积失败 + 占位 default(TResult) ──
+        Exception[] failExns = new Exception[8];
+        int[] failIdx = new int[8];
+        int failCap = 8;
+        int failCount = 0;
+
+        i = 0;
+        while (i < sn) {
+            if (snapStrongAlive[i]) {
+                try {
+                    result[outIdx] = snapStrong[i](a, b);
+                } catch (Exception e) {
+                    result[outIdx] = default(TResult);
+                    if (failCount == failCap) {
+                        int newCap = failCap * 2;
+                        Exception[] biggerE = new Exception[newCap];
+                        int[] biggerI = new int[newCap];
+                        int k = 0;
+                        while (k < failCount) {
+                            biggerE[k] = failExns[k];
+                            biggerI[k] = failIdx[k];
+                            k = k + 1;
+                        }
+                        failExns = biggerE;
+                        failIdx = biggerI;
+                        failCap = newCap;
+                    }
+                    failExns[failCount] = e;
+                    failIdx[failCount] = outIdx;
+                    failCount = failCount + 1;
+                }
+                outIdx = outIdx + 1;
+            }
+            i = i + 1;
+        }
+        i = 0;
+        while (i < an) {
+            if (snapAdvAlive[i]) {
+                var w = snapAdv[i];
+                if (w.IsAlive()) {
+                    try {
+                        result[outIdx] = w.Get()(a, b);
+                        w.OnInvoked();
+                    } catch (Exception e) {
+                        result[outIdx] = default(TResult);
+                        if (failCount == failCap) {
+                            int newCap = failCap * 2;
+                            Exception[] biggerE = new Exception[newCap];
+                            int[] biggerI = new int[newCap];
+                            int k = 0;
+                            while (k < failCount) {
+                                biggerE[k] = failExns[k];
+                                biggerI[k] = failIdx[k];
+                                k = k + 1;
+                            }
+                            failExns = biggerE;
+                            failIdx = biggerI;
+                            failCap = newCap;
+                        }
+                        failExns[failCount] = e;
+                        failIdx[failCount] = outIdx;
+                        failCount = failCount + 1;
+                    }
+                    outIdx = outIdx + 1;
+                }
+            }
+            i = i + 1;
+        }
+
+        if (failCount > 0) {
+            Exception[] trimE = new Exception[failCount];
+            int[] trimI = new int[failCount];
+            int j = 0;
+            while (j < failCount) {
+                trimE[j] = failExns[j];
+                trimI[j] = failIdx[j];
+                j = j + 1;
+            }
+            throw new MulticastException<TResult>(trimE, trimI, total, result);
+        }
+        return result;
+    }
+
+    /// 按 handler 取消订阅（仅扫 strong 通道；advanced 通道用 token-based dispose）。
+    public void Unsubscribe(Func<T1, T2, TResult> handler) {
+        int i = 0;
+        while (i < this.strongCount) {
+            if (this.strongAlive[i]) {
+                if (Delegate.ReferenceEquals(this.strong[i], handler)) {
+                    this.strongAlive[i] = false;
+                }
+            }
+            i = i + 1;
+        }
+    }
+
+    /// 内部：dispose token 入口，把对应通道的 alive[idx] 置 false。
+    public void RemoveAt(int idx, bool isAdvanced) {
+        if (isAdvanced) {
+            if (idx >= 0 && idx < this.advancedCount) {
+                this.advancedAlive[idx] = false;
+            }
+        } else {
+            if (idx >= 0 && idx < this.strongCount) {
+                this.strongAlive[idx] = false;
+            }
+        }
+    }
+
+    void GrowStrong() {
+        int newCap = this.strongCapacity * 2;
+        Func<T1, T2, TResult>[] biggerH = new Func<T1, T2, TResult>[newCap];
+        bool[] biggerA = new bool[newCap];
+        int i = 0;
+        while (i < this.strongCount) {
+            biggerH[i] = this.strong[i];
+            biggerA[i] = this.strongAlive[i];
+            i = i + 1;
+        }
+        this.strong = biggerH;
+        this.strongAlive = biggerA;
+        this.strongCapacity = newCap;
+    }
+
+    void GrowAdvanced() {
+        int newCap = this.advancedCapacity * 2;
+        ISubscription<Func<T1, T2, TResult>>[] biggerH = new ISubscription<Func<T1, T2, TResult>>[newCap];
+        bool[] biggerA = new bool[newCap];
+        int i = 0;
+        while (i < this.advancedCount) {
+            biggerH[i] = this.advanced[i];
+            biggerA[i] = this.advancedAlive[i];
+            i = i + 1;
+        }
+        this.advanced = biggerH;
+        this.advancedAlive = biggerA;
+        this.advancedCapacity = newCap;
+    }
+}
+
+/// 内部订阅 token —— Subscribe 返回它，Dispose 把 alive[idx] 置 false。
+public sealed class MulticastFuncSubscription<T1, T2, TResult> : IDisposable {
+    MulticastFunc<T1, T2, TResult> bus;
+    int idx;
+    bool isAdvanced;
+
+    /// 构造订阅 token。
+    public MulticastFuncSubscription(MulticastFunc<T1, T2, TResult> bus, int idx, bool isAdvanced) {
+        this.bus = bus;
+        this.idx = idx;
+        this.isAdvanced = isAdvanced;
+    }
+
+    /// 取消订阅：把对应通道的 alive[idx] 置 false。
+    public void Dispose() {
+        if (this.idx >= 0) {
+            this.bus.RemoveAt(this.idx, this.isAdvanced);
+            this.idx = -1;
+        }
+    }
+}
+
+
+// ── 3 参变体（feat/multicast-arity-family 机械生成，语义同 1 参原版）──
+
+/// 3 参多播 Func：Invoke 收集全部返回值进 TResult[]（strong-first 顺序）。
+///
+/// 双通道（strong 直持 `Func<T1, T2, T3, TResult>` / advanced 持 ISubscription 包装）与 COW 快照语义
+/// 同 3 参以下的既有家族成员，见 MulticastAction 文件头注释。
+
+public sealed class MulticastFunc<T1, T2, T3, TResult> {
+    // ── strong fast path ──
+    Func<T1, T2, T3, TResult>[] strong;
+    bool[] strongAlive;
+    int strongCount;
+    int strongCapacity;
+
+    // ── advanced slow path ──
+    ISubscription<Func<T1, T2, T3, TResult>>[] advanced;
+    bool[] advancedAlive;
+    int advancedCount;
+    int advancedCapacity;
+
+    /// 构造空的多播 Func。
+    public MulticastFunc() {
+        this.strongCapacity = 4;
+        this.strong = new Func<T1, T2, T3, TResult>[4];
+        this.strongAlive = new bool[4];
+        this.strongCount = 0;
+
+        this.advancedCapacity = 4;
+        this.advanced = new ISubscription<Func<T1, T2, T3, TResult>>[4];
+        this.advancedAlive = new bool[4];
+        this.advancedCount = 0;
+    }
+
+    /// 订阅处理器并返回退订凭据。
+    /// @hidden
+    public IDisposable operator +=(Func<T1, T2, T3, TResult> handler) { return this.Subscribe(handler); }
+
+    /// 按处理器身份退订。
+    /// @hidden
+    public void operator -=(Func<T1, T2, T3, TResult> handler) { this.Unsubscribe(handler); }
+
+    /// 裸 handler 订阅 → strong 快路径（零包装开销）。
+    public IDisposable Subscribe(Func<T1, T2, T3, TResult> handler) {
+        if (this.strongCount == this.strongCapacity) this.GrowStrong();
+        int idx = this.strongCount;
+        this.strong[idx] = handler;
+        this.strongAlive[idx] = true;
+        this.strongCount = this.strongCount + 1;
+        return new MulticastFuncSubscription<T1, T2, T3, TResult>(this, idx, false);
+    }
+
+    /// ISubscription 包装器订阅 → advanced 慢路径（OnceRef / CompositeRef / 用户自定义包装器）。
+    public IDisposable SubscribeAdvanced(ISubscription<Func<T1, T2, T3, TResult>> wrapper) {
+        if (this.advancedCount == this.advancedCapacity) this.GrowAdvanced();
+        int idx = this.advancedCount;
+        this.advanced[idx] = wrapper;
+        this.advancedAlive[idx] = true;
+        this.advancedCount = this.advancedCount + 1;
+        return new MulticastFuncSubscription<T1, T2, T3, TResult>(this, idx, true);
+    }
+
+
+    /// strong 通道处理器的快照（COW：取之后再订阅 / 退订不影响本数组）。
+    ///
+    /// advanced 包装通道（OnceRef / WeakRef / 自定义 ISubscription）语义上不可材料化，
+    /// 不在列表内——需要枚举包装订阅时在 SubscribeAdvanced 侧自行记账。
+    public Func<T1, T2, T3, TResult>[] GetInvocationList() {
+        int n = 0;
+        int i = 0;
+        while (i < this.strongCount) { if (this.strongAlive[i]) { n = n + 1; } i = i + 1; }
+        Func<T1, T2, T3, TResult>[] outA = new Func<T1, T2, T3, TResult>[n];
+        int k = 0;
+        i = 0;
+        while (i < this.strongCount) {
+            if (this.strongAlive[i]) { outA[k] = this.strong[i]; k = k + 1; }
+            i = i + 1;
+        }
+        return outA;
+    }
+
+    /// 当前活跃订阅总数（strong + advanced）。
+    public int Count() {
+        int c = 0;
+        int i = 0;
+        while (i < this.strongCount) {
+            if (this.strongAlive[i]) c = c + 1;
+            i = i + 1;
+        }
+        i = 0;
+        while (i < this.advancedCount) {
+            if (this.advancedAlive[i] && this.advanced[i].IsAlive()) c = c + 1;
+            i = i + 1;
+        }
+        return c;
+    }
+
+    [Suppress("style.fnLinesHard", "132 body lines；拆分见 code-organization.md")]
+    /// 触发所有活跃 handler，收集返回值进 TResult[]（strong-first / advanced-after 顺序）。
+    ///
+    /// `continueOnException = false`（默认）走 fail-fast：首个抛出的异常直接传播。
+    /// `continueOnException = true` 时失败位置占 default(TResult)，多失败聚合抛
+    /// MulticastException<TResult>（携带 Results 与失败索引 / 异常并行数组）。
+    public TResult[] Invoke(T1 a, T2 b, T3 c, bool continueOnException = false) {
+        // ── strong snapshot + fast loop ──
+        int sn = this.strongCount;
+        Func<T1, T2, T3, TResult>[] snapStrong = new Func<T1, T2, T3, TResult>[sn];
+        bool[] snapStrongAlive = new bool[sn];
+        int i = 0;
+        while (i < sn) {
+            snapStrong[i] = this.strong[i];
+            snapStrongAlive[i] = this.strongAlive[i];
+            i = i + 1;
+        }
+
+        // ── advanced snapshot + slow loop ──
+        int an = this.advancedCount;
+        ISubscription<Func<T1, T2, T3, TResult>>[] snapAdv = new ISubscription<Func<T1, T2, T3, TResult>>[an];
+        bool[] snapAdvAlive = new bool[an];
+        i = 0;
+        while (i < an) {
+            snapAdv[i] = this.advanced[i];
+            snapAdvAlive[i] = this.advancedAlive[i];
+            i = i + 1;
+        }
+
+        // 先统计活跃 handler 总数确定 result 长度
+        int total = 0;
+        i = 0;
+        while (i < sn) {
+            if (snapStrongAlive[i]) total = total + 1;
+            i = i + 1;
+        }
+        i = 0;
+        while (i < an) {
+            if (snapAdvAlive[i] && snapAdv[i].IsAlive()) total = total + 1;
+            i = i + 1;
+        }
+
+        TResult[] result = new TResult[total];
+        int outIdx = 0;
+
+        // ── fail-fast 路径（continueOnException=false）──
+        if (!continueOnException) {
+            i = 0;
+            while (i < sn) {
+                if (snapStrongAlive[i]) {
+                    result[outIdx] = snapStrong[i](a, b, c);
+                    outIdx = outIdx + 1;
+                }
+                i = i + 1;
+            }
+            i = 0;
+            while (i < an) {
+                if (snapAdvAlive[i]) {
+                    var w = snapAdv[i];
+                    if (w.IsAlive()) {
+                        result[outIdx] = w.Get()(a, b, c);
+                        w.OnInvoked();
+                        outIdx = outIdx + 1;
+                    }
+                }
+                i = i + 1;
+            }
+            return result;
+        }
+
+        // ── continueOnException=true 路径：累积失败 + 占位 default(TResult) ──
+        Exception[] failExns = new Exception[8];
+        int[] failIdx = new int[8];
+        int failCap = 8;
+        int failCount = 0;
+
+        i = 0;
+        while (i < sn) {
+            if (snapStrongAlive[i]) {
+                try {
+                    result[outIdx] = snapStrong[i](a, b, c);
+                } catch (Exception e) {
+                    result[outIdx] = default(TResult);
+                    if (failCount == failCap) {
+                        int newCap = failCap * 2;
+                        Exception[] biggerE = new Exception[newCap];
+                        int[] biggerI = new int[newCap];
+                        int k = 0;
+                        while (k < failCount) {
+                            biggerE[k] = failExns[k];
+                            biggerI[k] = failIdx[k];
+                            k = k + 1;
+                        }
+                        failExns = biggerE;
+                        failIdx = biggerI;
+                        failCap = newCap;
+                    }
+                    failExns[failCount] = e;
+                    failIdx[failCount] = outIdx;
+                    failCount = failCount + 1;
+                }
+                outIdx = outIdx + 1;
+            }
+            i = i + 1;
+        }
+        i = 0;
+        while (i < an) {
+            if (snapAdvAlive[i]) {
+                var w = snapAdv[i];
+                if (w.IsAlive()) {
+                    try {
+                        result[outIdx] = w.Get()(a, b, c);
+                        w.OnInvoked();
+                    } catch (Exception e) {
+                        result[outIdx] = default(TResult);
+                        if (failCount == failCap) {
+                            int newCap = failCap * 2;
+                            Exception[] biggerE = new Exception[newCap];
+                            int[] biggerI = new int[newCap];
+                            int k = 0;
+                            while (k < failCount) {
+                                biggerE[k] = failExns[k];
+                                biggerI[k] = failIdx[k];
+                                k = k + 1;
+                            }
+                            failExns = biggerE;
+                            failIdx = biggerI;
+                            failCap = newCap;
+                        }
+                        failExns[failCount] = e;
+                        failIdx[failCount] = outIdx;
+                        failCount = failCount + 1;
+                    }
+                    outIdx = outIdx + 1;
+                }
+            }
+            i = i + 1;
+        }
+
+        if (failCount > 0) {
+            Exception[] trimE = new Exception[failCount];
+            int[] trimI = new int[failCount];
+            int j = 0;
+            while (j < failCount) {
+                trimE[j] = failExns[j];
+                trimI[j] = failIdx[j];
+                j = j + 1;
+            }
+            throw new MulticastException<TResult>(trimE, trimI, total, result);
+        }
+        return result;
+    }
+
+    /// 按 handler 取消订阅（仅扫 strong 通道；advanced 通道用 token-based dispose）。
+    public void Unsubscribe(Func<T1, T2, T3, TResult> handler) {
+        int i = 0;
+        while (i < this.strongCount) {
+            if (this.strongAlive[i]) {
+                if (Delegate.ReferenceEquals(this.strong[i], handler)) {
+                    this.strongAlive[i] = false;
+                }
+            }
+            i = i + 1;
+        }
+    }
+
+    /// 内部：dispose token 入口，把对应通道的 alive[idx] 置 false。
+    public void RemoveAt(int idx, bool isAdvanced) {
+        if (isAdvanced) {
+            if (idx >= 0 && idx < this.advancedCount) {
+                this.advancedAlive[idx] = false;
+            }
+        } else {
+            if (idx >= 0 && idx < this.strongCount) {
+                this.strongAlive[idx] = false;
+            }
+        }
+    }
+
+    void GrowStrong() {
+        int newCap = this.strongCapacity * 2;
+        Func<T1, T2, T3, TResult>[] biggerH = new Func<T1, T2, T3, TResult>[newCap];
+        bool[] biggerA = new bool[newCap];
+        int i = 0;
+        while (i < this.strongCount) {
+            biggerH[i] = this.strong[i];
+            biggerA[i] = this.strongAlive[i];
+            i = i + 1;
+        }
+        this.strong = biggerH;
+        this.strongAlive = biggerA;
+        this.strongCapacity = newCap;
+    }
+
+    void GrowAdvanced() {
+        int newCap = this.advancedCapacity * 2;
+        ISubscription<Func<T1, T2, T3, TResult>>[] biggerH = new ISubscription<Func<T1, T2, T3, TResult>>[newCap];
+        bool[] biggerA = new bool[newCap];
+        int i = 0;
+        while (i < this.advancedCount) {
+            biggerH[i] = this.advanced[i];
+            biggerA[i] = this.advancedAlive[i];
+            i = i + 1;
+        }
+        this.advanced = biggerH;
+        this.advancedAlive = biggerA;
+        this.advancedCapacity = newCap;
+    }
+}
+
+/// 内部订阅 token —— Subscribe 返回它，Dispose 把 alive[idx] 置 false。
+public sealed class MulticastFuncSubscription<T1, T2, T3, TResult> : IDisposable {
+    MulticastFunc<T1, T2, T3, TResult> bus;
+    int idx;
+    bool isAdvanced;
+
+    /// 构造订阅 token。
+    public MulticastFuncSubscription(MulticastFunc<T1, T2, T3, TResult> bus, int idx, bool isAdvanced) {
+        this.bus = bus;
+        this.idx = idx;
+        this.isAdvanced = isAdvanced;
+    }
+
+    /// 取消订阅：把对应通道的 alive[idx] 置 false。
+    public void Dispose() {
+        if (this.idx >= 0) {
+            this.bus.RemoveAt(this.idx, this.isAdvanced);
+            this.idx = -1;
+        }
+    }
+}
+
+
+// ── 4 参变体（feat/multicast-arity-family 机械生成，语义同 1 参原版）──
+
+/// 4 参多播 Func：Invoke 收集全部返回值进 TResult[]（strong-first 顺序）。
+///
+/// 双通道（strong 直持 `Func<T1, T2, T3, T4, TResult>` / advanced 持 ISubscription 包装）与 COW 快照语义
+/// 同 4 参以下的既有家族成员，见 MulticastAction 文件头注释。
+
+public sealed class MulticastFunc<T1, T2, T3, T4, TResult> {
+    // ── strong fast path ──
+    Func<T1, T2, T3, T4, TResult>[] strong;
+    bool[] strongAlive;
+    int strongCount;
+    int strongCapacity;
+
+    // ── advanced slow path ──
+    ISubscription<Func<T1, T2, T3, T4, TResult>>[] advanced;
+    bool[] advancedAlive;
+    int advancedCount;
+    int advancedCapacity;
+
+    /// 构造空的多播 Func。
+    public MulticastFunc() {
+        this.strongCapacity = 4;
+        this.strong = new Func<T1, T2, T3, T4, TResult>[4];
+        this.strongAlive = new bool[4];
+        this.strongCount = 0;
+
+        this.advancedCapacity = 4;
+        this.advanced = new ISubscription<Func<T1, T2, T3, T4, TResult>>[4];
+        this.advancedAlive = new bool[4];
+        this.advancedCount = 0;
+    }
+
+    /// 订阅处理器并返回退订凭据。
+    /// @hidden
+    public IDisposable operator +=(Func<T1, T2, T3, T4, TResult> handler) { return this.Subscribe(handler); }
+
+    /// 按处理器身份退订。
+    /// @hidden
+    public void operator -=(Func<T1, T2, T3, T4, TResult> handler) { this.Unsubscribe(handler); }
+
+    /// 裸 handler 订阅 → strong 快路径（零包装开销）。
+    public IDisposable Subscribe(Func<T1, T2, T3, T4, TResult> handler) {
+        if (this.strongCount == this.strongCapacity) this.GrowStrong();
+        int idx = this.strongCount;
+        this.strong[idx] = handler;
+        this.strongAlive[idx] = true;
+        this.strongCount = this.strongCount + 1;
+        return new MulticastFuncSubscription<T1, T2, T3, T4, TResult>(this, idx, false);
+    }
+
+    /// ISubscription 包装器订阅 → advanced 慢路径（OnceRef / CompositeRef / 用户自定义包装器）。
+    public IDisposable SubscribeAdvanced(ISubscription<Func<T1, T2, T3, T4, TResult>> wrapper) {
+        if (this.advancedCount == this.advancedCapacity) this.GrowAdvanced();
+        int idx = this.advancedCount;
+        this.advanced[idx] = wrapper;
+        this.advancedAlive[idx] = true;
+        this.advancedCount = this.advancedCount + 1;
+        return new MulticastFuncSubscription<T1, T2, T3, T4, TResult>(this, idx, true);
+    }
+
+
+    /// strong 通道处理器的快照（COW：取之后再订阅 / 退订不影响本数组）。
+    ///
+    /// advanced 包装通道（OnceRef / WeakRef / 自定义 ISubscription）语义上不可材料化，
+    /// 不在列表内——需要枚举包装订阅时在 SubscribeAdvanced 侧自行记账。
+    public Func<T1, T2, T3, T4, TResult>[] GetInvocationList() {
+        int n = 0;
+        int i = 0;
+        while (i < this.strongCount) { if (this.strongAlive[i]) { n = n + 1; } i = i + 1; }
+        Func<T1, T2, T3, T4, TResult>[] outA = new Func<T1, T2, T3, T4, TResult>[n];
+        int k = 0;
+        i = 0;
+        while (i < this.strongCount) {
+            if (this.strongAlive[i]) { outA[k] = this.strong[i]; k = k + 1; }
+            i = i + 1;
+        }
+        return outA;
+    }
+
+    /// 当前活跃订阅总数（strong + advanced）。
+    public int Count() {
+        int c = 0;
+        int i = 0;
+        while (i < this.strongCount) {
+            if (this.strongAlive[i]) c = c + 1;
+            i = i + 1;
+        }
+        i = 0;
+        while (i < this.advancedCount) {
+            if (this.advancedAlive[i] && this.advanced[i].IsAlive()) c = c + 1;
+            i = i + 1;
+        }
+        return c;
+    }
+
+    [Suppress("style.fnLinesHard", "132 body lines；拆分见 code-organization.md")]
+    /// 触发所有活跃 handler，收集返回值进 TResult[]（strong-first / advanced-after 顺序）。
+    ///
+    /// `continueOnException = false`（默认）走 fail-fast：首个抛出的异常直接传播。
+    /// `continueOnException = true` 时失败位置占 default(TResult)，多失败聚合抛
+    /// MulticastException<TResult>（携带 Results 与失败索引 / 异常并行数组）。
+    public TResult[] Invoke(T1 a, T2 b, T3 c, T4 d, bool continueOnException = false) {
+        // ── strong snapshot + fast loop ──
+        int sn = this.strongCount;
+        Func<T1, T2, T3, T4, TResult>[] snapStrong = new Func<T1, T2, T3, T4, TResult>[sn];
+        bool[] snapStrongAlive = new bool[sn];
+        int i = 0;
+        while (i < sn) {
+            snapStrong[i] = this.strong[i];
+            snapStrongAlive[i] = this.strongAlive[i];
+            i = i + 1;
+        }
+
+        // ── advanced snapshot + slow loop ──
+        int an = this.advancedCount;
+        ISubscription<Func<T1, T2, T3, T4, TResult>>[] snapAdv = new ISubscription<Func<T1, T2, T3, T4, TResult>>[an];
+        bool[] snapAdvAlive = new bool[an];
+        i = 0;
+        while (i < an) {
+            snapAdv[i] = this.advanced[i];
+            snapAdvAlive[i] = this.advancedAlive[i];
+            i = i + 1;
+        }
+
+        // 先统计活跃 handler 总数确定 result 长度
+        int total = 0;
+        i = 0;
+        while (i < sn) {
+            if (snapStrongAlive[i]) total = total + 1;
+            i = i + 1;
+        }
+        i = 0;
+        while (i < an) {
+            if (snapAdvAlive[i] && snapAdv[i].IsAlive()) total = total + 1;
+            i = i + 1;
+        }
+
+        TResult[] result = new TResult[total];
+        int outIdx = 0;
+
+        // ── fail-fast 路径（continueOnException=false）──
+        if (!continueOnException) {
+            i = 0;
+            while (i < sn) {
+                if (snapStrongAlive[i]) {
+                    result[outIdx] = snapStrong[i](a, b, c, d);
+                    outIdx = outIdx + 1;
+                }
+                i = i + 1;
+            }
+            i = 0;
+            while (i < an) {
+                if (snapAdvAlive[i]) {
+                    var w = snapAdv[i];
+                    if (w.IsAlive()) {
+                        result[outIdx] = w.Get()(a, b, c, d);
+                        w.OnInvoked();
+                        outIdx = outIdx + 1;
+                    }
+                }
+                i = i + 1;
+            }
+            return result;
+        }
+
+        // ── continueOnException=true 路径：累积失败 + 占位 default(TResult) ──
+        Exception[] failExns = new Exception[8];
+        int[] failIdx = new int[8];
+        int failCap = 8;
+        int failCount = 0;
+
+        i = 0;
+        while (i < sn) {
+            if (snapStrongAlive[i]) {
+                try {
+                    result[outIdx] = snapStrong[i](a, b, c, d);
+                } catch (Exception e) {
+                    result[outIdx] = default(TResult);
+                    if (failCount == failCap) {
+                        int newCap = failCap * 2;
+                        Exception[] biggerE = new Exception[newCap];
+                        int[] biggerI = new int[newCap];
+                        int k = 0;
+                        while (k < failCount) {
+                            biggerE[k] = failExns[k];
+                            biggerI[k] = failIdx[k];
+                            k = k + 1;
+                        }
+                        failExns = biggerE;
+                        failIdx = biggerI;
+                        failCap = newCap;
+                    }
+                    failExns[failCount] = e;
+                    failIdx[failCount] = outIdx;
+                    failCount = failCount + 1;
+                }
+                outIdx = outIdx + 1;
+            }
+            i = i + 1;
+        }
+        i = 0;
+        while (i < an) {
+            if (snapAdvAlive[i]) {
+                var w = snapAdv[i];
+                if (w.IsAlive()) {
+                    try {
+                        result[outIdx] = w.Get()(a, b, c, d);
+                        w.OnInvoked();
+                    } catch (Exception e) {
+                        result[outIdx] = default(TResult);
+                        if (failCount == failCap) {
+                            int newCap = failCap * 2;
+                            Exception[] biggerE = new Exception[newCap];
+                            int[] biggerI = new int[newCap];
+                            int k = 0;
+                            while (k < failCount) {
+                                biggerE[k] = failExns[k];
+                                biggerI[k] = failIdx[k];
+                                k = k + 1;
+                            }
+                            failExns = biggerE;
+                            failIdx = biggerI;
+                            failCap = newCap;
+                        }
+                        failExns[failCount] = e;
+                        failIdx[failCount] = outIdx;
+                        failCount = failCount + 1;
+                    }
+                    outIdx = outIdx + 1;
+                }
+            }
+            i = i + 1;
+        }
+
+        if (failCount > 0) {
+            Exception[] trimE = new Exception[failCount];
+            int[] trimI = new int[failCount];
+            int j = 0;
+            while (j < failCount) {
+                trimE[j] = failExns[j];
+                trimI[j] = failIdx[j];
+                j = j + 1;
+            }
+            throw new MulticastException<TResult>(trimE, trimI, total, result);
+        }
+        return result;
+    }
+
+    /// 按 handler 取消订阅（仅扫 strong 通道；advanced 通道用 token-based dispose）。
+    public void Unsubscribe(Func<T1, T2, T3, T4, TResult> handler) {
+        int i = 0;
+        while (i < this.strongCount) {
+            if (this.strongAlive[i]) {
+                if (Delegate.ReferenceEquals(this.strong[i], handler)) {
+                    this.strongAlive[i] = false;
+                }
+            }
+            i = i + 1;
+        }
+    }
+
+    /// 内部：dispose token 入口，把对应通道的 alive[idx] 置 false。
+    public void RemoveAt(int idx, bool isAdvanced) {
+        if (isAdvanced) {
+            if (idx >= 0 && idx < this.advancedCount) {
+                this.advancedAlive[idx] = false;
+            }
+        } else {
+            if (idx >= 0 && idx < this.strongCount) {
+                this.strongAlive[idx] = false;
+            }
+        }
+    }
+
+    void GrowStrong() {
+        int newCap = this.strongCapacity * 2;
+        Func<T1, T2, T3, T4, TResult>[] biggerH = new Func<T1, T2, T3, T4, TResult>[newCap];
+        bool[] biggerA = new bool[newCap];
+        int i = 0;
+        while (i < this.strongCount) {
+            biggerH[i] = this.strong[i];
+            biggerA[i] = this.strongAlive[i];
+            i = i + 1;
+        }
+        this.strong = biggerH;
+        this.strongAlive = biggerA;
+        this.strongCapacity = newCap;
+    }
+
+    void GrowAdvanced() {
+        int newCap = this.advancedCapacity * 2;
+        ISubscription<Func<T1, T2, T3, T4, TResult>>[] biggerH = new ISubscription<Func<T1, T2, T3, T4, TResult>>[newCap];
+        bool[] biggerA = new bool[newCap];
+        int i = 0;
+        while (i < this.advancedCount) {
+            biggerH[i] = this.advanced[i];
+            biggerA[i] = this.advancedAlive[i];
+            i = i + 1;
+        }
+        this.advanced = biggerH;
+        this.advancedAlive = biggerA;
+        this.advancedCapacity = newCap;
+    }
+}
+
+/// 内部订阅 token —— Subscribe 返回它，Dispose 把 alive[idx] 置 false。
+public sealed class MulticastFuncSubscription<T1, T2, T3, T4, TResult> : IDisposable {
+    MulticastFunc<T1, T2, T3, T4, TResult> bus;
+    int idx;
+    bool isAdvanced;
+
+    /// 构造订阅 token。
+    public MulticastFuncSubscription(MulticastFunc<T1, T2, T3, T4, TResult> bus, int idx, bool isAdvanced) {
+        this.bus = bus;
+        this.idx = idx;
+        this.isAdvanced = isAdvanced;
+    }
+
+    /// 取消订阅：把对应通道的 alive[idx] 置 false。
+    public void Dispose() {
+        if (this.idx >= 0) {
+            this.bus.RemoveAt(this.idx, this.isAdvanced);
+            this.idx = -1;
+        }
+    }
+}
+

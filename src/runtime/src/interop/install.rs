@@ -95,7 +95,10 @@ pub fn load_native_module(ctx: &VmContext, path: &Path) -> Result<()> {
     let descriptor = unsafe { entry() };
     let module = unsafe { super::module::NativeModule::parse(descriptor)? };
     unsafe { super::register_native_module(ctx, descriptor)? };
-    crate::loader::native::install_module_image(ctx, &module.name, image)
+    let libraries = ctx
+        .ext::<crate::loader::native::Libraries>()
+        .ok_or_else(|| anyhow!("missing native loader VM state"))?;
+    crate::loader::native::install_module_image(libraries, &module.name, image)
 }
 
 #[cfg(all(test, any(feature = "native-interop", feature = "component-loading")))]

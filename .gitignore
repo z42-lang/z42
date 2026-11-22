@@ -56,9 +56,10 @@ src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/*/*/libs/
 /xtask
 
 # Two-generation bootstrap scratch dirs created at the repo root by
-# .github/actions/ci-bootstrap (seed / gen1 run). Ephemeral (rm -rf'd + recreated
+# .github/actions/ci-bootstrap (seed / gen0 libraries / gen1 run). Ephemeral (rm -rf'd + recreated
 # each run) — must never be committed (a `git add -A` once swept ~4MB of zpkgs in).
 /.ci-seed/
+/.ci-gen0libs/
 /.ci-gen1run/
 
 # Guard against publish output leaking into the source tree (add-build-toolchain,

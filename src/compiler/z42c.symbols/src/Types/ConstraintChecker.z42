@@ -614,6 +614,15 @@ public sealed class ConstraintChecker {
     // arg 满足接口约束（裸名匹配，design D1——不校验接口的类型实参，与运行期
     // `constraint_satisfied_by` 拿到的同样是常量池裸名，两边不产生分歧）。
     private bool _satisfiesInterface(SymbolTable symbols, Z42Type arg, string ifaceName) {
+        // add-value-auto-iequatable：值类型自动满足 IEquatable（Self 版）——blob struct 的
+        // Equals/GetHashCode 由编译器合成、enum 经 Std.Int64 重定向，语义上都是「自相等」；
+        // 对齐 C#「所有值类型隐式实现 IEquatable<T>」，裸 struct 无三件套样板即可作
+        // Dictionary/HashSet 键。运行期 reflection 自检（generics.rs constraint_satisfied_by）
+        // 有同款臂，两边不分歧。裸名/限定名两种拼写都认（下方 design D1 的约束名形态）。
+        string bare = ifaceName;
+        int dot = ifaceName.LastIndexOf('.');
+        if (dot >= 0) { bare = ifaceName.Substring(dot + 1); }
+        if (bare == "IEquatable" && TypeFacts.IsNonNullableValueType(arg)) { return true; }
         if (arg is Z42ClassType) { return symbols.Implements((arg as Z42ClassType).Fqn(), ifaceName); }
         if (arg is Z42InstantiatedType) { return symbols.Implements((arg as Z42InstantiatedType).Def.Fqn(), ifaceName); }
         if (arg is Z42InterfaceType) {

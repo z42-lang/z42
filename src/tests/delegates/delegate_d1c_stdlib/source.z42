@@ -26,4 +26,15 @@ void Main() {
     Predicate<int> isEven = (int x) => x % 2 == 0;
     Console.WriteLine(isEven(4));
     Console.WriteLine(isEven(5));
+
+    // Predicate<T1, T2> / <T1..T4> — feat/delegate-invocation-list 合批：多参谓词
+    Predicate<int, int> inRange = (int x, int lo) => x >= lo;
+    Console.WriteLine(inRange(5, 3));
+    Predicate<int, int, int> between = (int x, int lo, int hi) => x >= lo && x <= hi;
+    Console.WriteLine(between(4, 1, 5));
+    Predicate<int, int, int, int> allPos = (int a, int b, int c, int d) => a > 0 && b > 0 && c > 0 && d > 0;
+    Console.WriteLine(allPos(1, 2, 3, 4));
+    // 与 Func<.., bool> 结构互通（同一结构化函数类型）
+    Func<int, int, bool> same = inRange;
+    Console.WriteLine(same(2, 9));
 }

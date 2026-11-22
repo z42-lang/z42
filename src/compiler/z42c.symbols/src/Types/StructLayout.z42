@@ -483,6 +483,25 @@ public sealed partial class StructLayout {
         return this.ObjectLayoutOf(className).FieldCount > 0;
     }
 
+    // add-value-auto-iequatable：布局（递归含嵌套 struct 字段）是否含浮点叶子。blob 按位比较与浮点
+    // Eq 语义（+0.0==-0.0 为真、NaN!=NaN）不等价——合成 Equals 的保留名 `Equals$1$synth`（runtime
+    // 据此走原生 blob 比较）只对 float-free 布局启用；含浮点（或查无布局）返回 true → 调用方回落
+    // 既有逐叶路径。叶子类型名是 canonical 拼写（`float`/`double`）。
+    public bool HasFloatLeaf(string typeName) {
+        StructLayoutInfo li = this.LayoutOf(typeName);
+        int i = 0;
+        while (i < li.FieldCount) {
+            string ft = li.FieldTypeNames[i];
+            if (li.FieldKinds[i] == StructLeafKind.Struct) {
+                if (this.HasFloatLeaf(ft)) { return true; }
+            } else {
+                if (ft == "float" || ft == "Single" || ft == "double" || ft == "Double") { return true; }
+            }
+            i = i + 1;
+        }
+        return false;
+    }
+
     // 计算（或取缓存）某 struct 类型的布局。环检测命中 → 记 ErrorType 并返回空布局（size 0）打断递归。
     public StructLayoutInfo LayoutOf(string typeName) {
         string key = LayoutKey.Norm(typeName);

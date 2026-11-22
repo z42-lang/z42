@@ -189,7 +189,7 @@ pub(crate) fn materialize(
         return Ok(module);
     }
     let entry_name = format!("{}_module_v1", module.name);
-    let pointer = crate::loader::native::resolve_symbol(ctx, module.name, &entry_name)?;
+    let pointer = super::resolve_native_symbol(ctx, module.name, &entry_name)?;
     let entry: abi::ModuleEntry = unsafe { std::mem::transmute(pointer) };
     let descriptor = unsafe { entry() };
     let implementation = unsafe { NativeModule::parse(descriptor)? };
@@ -276,7 +276,7 @@ pub(crate) fn load_named(ctx: &crate::vm::VmContext, name: &str) -> Result<Arc<N
     crate::loader::linked::validate_name(name)?;
     if let Some(module) = resolve_native_module(ctx, name)? { return Ok(module); }
     let symbol = format!("{name}_module_v1");
-    let pointer = crate::loader::native::resolve_symbol(ctx, name, &symbol).map_err(ModuleLookupFailure)?;
+    let pointer = super::resolve_native_symbol(ctx, name, &symbol).map_err(ModuleLookupFailure)?;
     let entry: abi::ModuleEntry = unsafe { std::mem::transmute(pointer) };
     let descriptor = unsafe { entry() };
     let module = unsafe { NativeModule::parse(descriptor)? };

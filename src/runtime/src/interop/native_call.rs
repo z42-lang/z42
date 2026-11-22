@@ -397,7 +397,7 @@ unsafe extern "C" fn resolve_symbol(
     let result = (|| -> anyhow::Result<*mut c_void> {
         let library = unsafe { module::text(library)? };
         let symbol = unsafe { module::text(symbol)? };
-        crate::loader::native::resolve_symbol(frame.ctx, library, symbol)
+        super::resolve_native_symbol(frame.ctx, library, symbol)
     })();
     match result {
         Ok(symbol) => {

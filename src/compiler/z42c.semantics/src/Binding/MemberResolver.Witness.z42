@@ -1,0 +1,202 @@
+namespace Z42.Semantics;
+
+using Std.Collections;
+using Z42.Core;
+using Z42.IR;
+using Z42.Symbols;
+using Z42.Syntax;
+
+internal sealed class StaticWitnessSlot {
+    public int Parameter;
+    public string Contract;
+    public MethodSymbol Member;
+
+    public StaticWitnessSlot(int parameter, string contract, MethodSymbol member) {
+        this.Parameter = parameter;
+        this.Contract = contract;
+        this.Member = member;
+    }
+}
+
+public sealed partial class MemberResolver {
+    private StaticWitnessSlot[] _witnessSlots(SymbolTable symbols, ConstraintSet constraints) {
+        var slots = new List<StaticWitnessSlot>();
+        if (constraints == null) { return slots.ToArray(); }
+        for (int pi = 0; pi < constraints.Count; pi = pi + 1) {
+            ConstraintBundle bundle = constraints.Bundles[pi];
+            var seen = new StrMap();
+            var members = new StrMap();
+            // A class constraint guarantees that a bare Self uses the ordinary reference ABI.
+            for (int i = 0; i < bundle.InterfaceCount; i = i + 1) {
+                this._collectWitnessMembers(symbols, symbols.GetInterface(bundle.InterfaceNames[i]),
+                                            bundle.RequiresClass, seen, members);
+            }
+            string[] keys = members.Keys();
+            for (int j = 1; j < keys.Length; j = j + 1) {
+                string key = keys[j];
+                int at = j;
+                while (at > 0 && keys[at - 1].CompareTo(key) > 0) {
+                    keys[at] = keys[at - 1];
+                    at = at - 1;
+                }
+                keys[at] = key;
+            }
+            foreach (string key in keys) {
+                var member = members.Get(key) as IfaceMethodHit;
+                slots.Add(new StaticWitnessSlot(pi, member.Owner.Fqn(), member.Sym));
+            }
+        }
+        return slots.ToArray();
+    }
+
+    private void _collectWitnessMembers(SymbolTable symbols, Z42InterfaceType iface, bool allowsSelf,
+                                        StrMap seen, StrMap members) {
+        if (iface == null || iface.TypeParamCount != 0 || seen.ContainsKey(iface.Fqn())) { return; }
+        seen.Put(iface.Fqn(), iface);
+        foreach (string name in iface.Methods.Keys()) {
+            MethodSymbol method = iface.Methods.Get(name) as MethodSymbol;
+            if (MemberResolver._hasWitnessSignature(method, allowsSelf)) {
+                members.Put(iface.Fqn() + "#" + method.Name, new IfaceMethodHit(method, iface));
+            }
+        }
+        for (int i = 0; i < iface.BaseCount; i = i + 1) {
+            this._collectWitnessMembers(symbols, InterfaceClosure.BaseAt(symbols, iface, i), allowsSelf, seen, members);
+        }
+    }
+
+    private static bool _hasWitnessSignature(MethodSymbol method, bool allowsSelf) {
+        if (method == null || !method.IsStatic || method.TypeParamCount != 0
+            || method.Signature == null) { return false; }
+        Z42FuncType signature = method.Signature;
+        if (!(signature.Ret is Z42VoidType) && !MemberResolver._isWitnessType(signature.Ret, allowsSelf)) { return false; }
+        for (int i = 0; i < signature.ParamCount; i = i + 1) {
+            if (!MemberResolver._isWitnessType(signature.ParamTypes[i], allowsSelf) || signature.IsRefParam(i)) { return false; }
+        }
+        return true;
+    }
+
+    private static bool _isWitnessType(Z42Type type, bool allowsSelf) {
+        return type.IsScalarType() || (allowsSelf && type is Z42GenericParamType && type.Name() == "Self");
+    }
+
+    private BoundExpr _bindStaticWitness(MemberExpr member, IdentExpr target, BoundExpr[] args,
+                                         int count, Expr[] rawArgs, TypeEnv env, CallExpr call) {
+        int parameter = env.MethodParamIndexOf(target.Name);
+        if (parameter < 0 || env.LookupVar(target.Name) != null) { return null; }
+        MethodDecl owner = this._tc._curMethodDecl;
+        if (owner == null || !owner.IsFree || env.FnLocals != null || call.TypeArgCount != 0) {
+            return this._missingStaticWitness(member, target.Name);
+        }
+        ConstraintSet constraints = this._tc._constraints.BuildMethodSet(env.Symbols, owner);
+        StaticWitnessSlot[] slots = this._witnessSlots(env.Symbols, constraints);
+        int selected = -1;
+        for (int i = 0; i < slots.Length; i = i + 1) {
+            if (slots[i].Parameter != parameter || slots[i].Member.Name != member.Name) { continue; }
+            if (selected >= 0) {
+                this._tc._diags.Error(DiagnosticCodes.AmbiguousOverload,
+                    "multiple interface constraints declare static member `" + member.Name + "`", member.NameSpan);
+                return new BoundError("ambiguous static interface member", new Z42ErrorType(), member.Span);
+            }
+            selected = i;
+        }
+        if (selected < 0) { return this._missingStaticWitness(member, target.Name); }
+
+        StaticWitnessSlot slot = slots[selected];
+        MethodSymbol method = slot.Member;
+        Z42FuncType signature = MemberResolver._substSelfSig(method.Signature, new Z42GenericParamType(target.Name));
+        BoundExpr[] values = this._tc._overload._withDefaults(method.WithSignature(signature),
+            args, rawArgs, count, env, call.Span, true);
+        this._tc._overload.CheckConstraintIfaceArgs(values, null, values.Length, method.Signature,
+                                                   target.Name, member.Name, slot.Contract);
+        var bound = new BoundCall("witness", false, null, "", member.Name, values, values.Length,
+            signature.Ret, member.Span);
+        bound.WitnessSlot = owner.TypeParams.Count + selected;
+        return BoundCall.Marked(bound, signature);
+    }
+
+    private BoundExpr _missingStaticWitness(MemberExpr member, string parameter) {
+        this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
+            "no supported static interface member `" + member.Name + "` on type parameter `" + parameter + "`",
+            member.NameSpan);
+        return new BoundError("unavailable static interface member", new Z42ErrorType(), member.Span);
+    }
+
+    private ConstraintSet _witnessConstraints(BoundCall call, MethodSymbol method) {
+        if (call.Kind != "free") { return null; }
+        return method.TypeParamConstraints;
+    }
+
+    private bool _requiresStaticWitnesses(BoundCall call, MethodSymbol method, TypeEnv env) {
+        ConstraintSet constraints = this._witnessConstraints(call, method);
+        return constraints != null && this._witnessSlots(env.Symbols, constraints).Length > 0;
+    }
+
+    private void _attachStaticWitnesses(BoundCall call, MethodSymbol method, TypeEnv env, Span span) {
+        if (method == null || call.MethodTypeArgCount == 0) { return; }
+        ConstraintSet constraints = this._witnessConstraints(call, method);
+        if (constraints == null || constraints.Count != call.MethodTypeArgCount) { return; }
+        StaticWitnessSlot[] slots = this._witnessSlots(env.Symbols, constraints);
+        if (slots.Length == 0) { return; }
+        call.WitnessArguments = new string[slots.Length];
+        for (int i = 0; i < slots.Length; i = i + 1) {
+            StaticWitnessSlot slot = slots[i];
+            Z42Type type = call.MethodTypeArgs[slot.Parameter];
+            string witness = this._selectStaticWitness(type, slot, env);
+            if (witness == "" && !(type is Z42ErrorType)) {
+                this._tc._diags.Error(DiagnosticCodes.InterfaceMismatch,
+                    "cannot supply static interface witness `" + slot.Contract + "." + slot.Member.Name
+                    + "` for `" + type.Name() + "`", span);
+            }
+            call.WitnessArguments[i] = witness;
+        }
+    }
+
+    private string _selectStaticWitness(Z42Type type, StaticWitnessSlot slot, TypeEnv env) {
+        if (type is Z42GenericParamType) { return this._forwardStaticWitness(type.Name(), slot, env); }
+        Z42ClassType owner = type as Z42ClassType;
+        if (owner == null || owner.GenericParamCount != 0
+            || !env.Symbols.Implements(owner.Fqn(), slot.Contract)) { return ""; }
+        Z42FuncType signature = MemberResolver._substSelfSig(slot.Member.Signature, type);
+        while (owner != null) {
+            foreach (MethodSymbol candidate in owner.OverloadsOf(slot.Member.Name)) {
+                if (candidate.Visibility == "public" && MemberResolver._matchesStaticWitness(candidate, signature)) {
+                    string target = owner.Fqn() + "." + candidate.CallKey();
+                    env.Symbols.NoteDepUse(owner.Namespace, env.Symbols.ImportedPkgOf(owner.Fqn()), target);
+                    return "$witness:" + target;
+                }
+            }
+            owner = env.Symbols.BaseOf(owner);
+        }
+        return "";
+    }
+
+    private static bool _matchesStaticWitness(MethodSymbol candidate, Z42FuncType want) {
+        if (!candidate.IsStatic || candidate.TypeParamCount != 0 || candidate.Signature == null) { return false; }
+        Z42FuncType have = candidate.Signature;
+        if (have.ParamCount != want.ParamCount || DispatchKeys.TypeKey(have.Ret) != DispatchKeys.TypeKey(want.Ret)) {
+            return false;
+        }
+        for (int i = 0; i < have.ParamCount; i = i + 1) {
+            if (have.IsRefParam(i) || DispatchKeys.TypeKey(have.ParamTypes[i]) != DispatchKeys.TypeKey(want.ParamTypes[i])) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private string _forwardStaticWitness(string parameter, StaticWitnessSlot required, TypeEnv env) {
+        MethodDecl owner = this._tc._curMethodDecl;
+        int index = env.MethodParamIndexOf(parameter);
+        if (index < 0 || owner == null || !owner.IsFree || env.FnLocals != null) { return ""; }
+        ConstraintSet constraints = this._tc._constraints.BuildMethodSet(env.Symbols, owner);
+        StaticWitnessSlot[] slots = this._witnessSlots(env.Symbols, constraints);
+        for (int i = 0; i < slots.Length; i = i + 1) {
+            StaticWitnessSlot candidate = slots[i];
+            if (candidate.Parameter == index && candidate.Contract == required.Contract
+                && candidate.Member.Name == required.Member.Name) {
+                return "$mta:" + (owner.TypeParams.Count + i).ToString();
+            }
+        }
+        return "";
+    }
+}

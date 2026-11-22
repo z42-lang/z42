@@ -1,0 +1,12 @@
+namespace Demo.WitnessLocal;
+
+using Std.IO;
+
+class LocalWriter : Demo.WitnessContract.IWriter {
+    public static int Create() { return 13; }
+    public static void Write(int value) { Console.WriteLine(value); }
+}
+
+public void DispatchLocal() {
+    Demo.WitnessContract.Dispatch<LocalWriter>();
+}

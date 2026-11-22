@@ -1,0 +1,12 @@
+namespace Demo.WitnessApp;
+
+using Demo.WitnessImpl;
+using Std.IO;
+
+void Main() {
+    Demo.WitnessContract.Forward<Seven>();
+    Demo.WitnessContract.Dispatch<Nine>();
+    Demo.WitnessLocal.DispatchLocal();
+    ReferenceWriter value = Demo.WitnessContract.ForwardSelf(new ReferenceWriter(27));
+    Console.WriteLine(value.Value + 1);
+}

@@ -24,6 +24,20 @@ pub(super) fn type_name_assignable(ctx: &VmContext, derived: &str, target: &str)
 /// because `where T: IEntity` stores the *source spelling* (`IEntity`, often
 /// unqualified) while a type's interface list carries FQ names.
 pub(super) fn constraint_satisfied_by(ctx: &VmContext, arg_name: &str, constraint: &str) -> bool {
+    // add-value-auto-iequatable: value types auto-satisfy the Self-form `IEquatable`
+    // constraint (blob structs carry synthesized Equals/GetHashCode, enums redirect
+    // through Std.Int64) — mirroring C# where every value type implicitly implements
+    // IEquatable<T>. Must agree with the compiler-side arm in ConstraintChecker
+    // (`_satisfiesInterface`) — the two checks must never diverge.
+    {
+        let constraint_simple = crate::zpkg::index::type_names::unqualified(constraint);
+        if constraint_simple == "IEquatable" {
+            let is_value = resolve_td(ctx, arg_name)
+                .map(|td| td.class_flags & crate::zpkg::ir::CLASS_FLAG_STRUCT != 0)
+                .unwrap_or_else(|| is_value_type_primitive(arg_name));
+            if is_value { return true; }
+        }
+    }
     if type_name_assignable(ctx, arg_name, constraint) {
         return true;
     }

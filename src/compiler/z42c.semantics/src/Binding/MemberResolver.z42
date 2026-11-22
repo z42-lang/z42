@@ -770,6 +770,8 @@ public sealed partial class MemberResolver {
         // 静态：target 是裸类名（非局部变量）→ Class.m(args)
         if (mem.Target is IdentExpr) {
             IdentExpr tid = mem.Target as IdentExpr;
+            BoundExpr witness = this._bindStaticWitness(mem, tid, args, argCount, rawArgs, env, call);
+            if (witness != null) { return witness; }
             if (env.LookupVar(tid.Name) == null && env.Symbols.HasClass(tid.Name)) {
                 // add-bare-name-ambiguity-diagnostic：E0456。**典型形状** ——`Assert.Greater(...)` 里的
                 // `Assert` 是裸类名，`GetClass` 按裸名 first-wins 定到 `Std.Assert`，同短名跨 ns 的另一份

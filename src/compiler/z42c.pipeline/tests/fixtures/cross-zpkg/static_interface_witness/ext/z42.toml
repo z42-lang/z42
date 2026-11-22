@@ -1,0 +1,8 @@
+[project]
+name = "demo.witnessimpl"
+version = "0.1.0"
+kind = "lib"
+pack = true
+
+[dependencies]
+"demo.witnesscontract" = "0.1.0"

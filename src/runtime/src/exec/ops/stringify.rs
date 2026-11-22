@@ -103,6 +103,8 @@ fn tostring_result(ctx: &VmContext, module: &Module, val: &Value) -> Result<ToSt
             crate::exec::ops::vcall::VCallTarget::Thrown(v) => Err(tostring_threw(ctx, v)),
             crate::exec::ops::vcall::VCallTarget::Local { func, .. } =>
                 outcome(ctx, crate::exec::engine::invoke(ctx, module, func, &[r.this.clone()])?),
+            // StructValueEq 只在 `Equals`(arity 1) 解析路产生，ToString 永不命中。
+            crate::exec::ops::vcall::VCallTarget::StructValueEq => Ok(ToStringResult::NotDispatched),
         };
     }
     Ok(ToStringResult::NotDispatched)

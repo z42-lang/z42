@@ -337,7 +337,12 @@ TypeDesc {
 泛型调用载荷在类型实参后可附加 `$witness:<函数限定名>` 条目。`LoadMethodWitness` 对指定条目链接确切
 的函数，产出 `FnId` 函数引用，随后用普通 `CallIndirect` 调用。缺槽、条目形状无效或
 目标函数不存在时使用 `MissingSymbolException`。解释器与 JIT 共用链接逻辑。
-这是字节码的运行时支持，源语言侧的约束解析和发射在启用时接入。
+绑定自由泛型函数时，编译器按方法形参顺序、接口限定名和成员名排列 Witness。
+调用端从约束签名选择具体静态实现，或用 `$mta:N` 转发已有 Witness；泛型体按该槽读函数引用。
+发射顺序先求值实参，再读取 Witness。VM 链接目标后依次执行包和类型初始化。
+含 `class` 的约束也为直接以 `Self` 为按值形参或返回类型的成员分配槽。绑定泛型体时，
+`Self` 精确替换为方法类型形参。调用点以具体类型替换 `Self`，按代换后的完整签名选择函数。
+这类调用沿用普通引用类型的传递约定，型参转发无需改变 Witness。
 
 绑定期按「**方法级就近优先**」分流（`TypeOpTyper._bindTypeofExpr` /
 `ExprTyper._bindDefault` / `_bindArrayNew` / `ConstructTyper._bindNew` 同序）：方法级先查，同名时遮蔽类级。
