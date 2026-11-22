@@ -1,9 +1,9 @@
 namespace Std;
 
-/// 委托族基类：所有委托类型（`Action<T>` / `Func<..>` / `Predicate<T>` / 用户 `delegate` /
-/// `(T) -> R`）的公共接口。
+/// 委托族基类：所有委托类型的公共接口。
 ///
-/// 运行时委托是函数值（VM 的 `Value::FuncRef` / `Value::Closure`），本类只提供族公共成员，
+/// 覆盖 `Action<T>` / `Func<..>` / `Predicate<T>` / 用户 `delegate` / `(T) -> R`。运行时
+/// 委托是函数值（VM 的 `Value::FuncRef` / `Value::Closure`），本类只提供族公共成员，
 /// 不引入堆对象形态；实例由 lambda / 方法组 / MakeClosure 产生，用户代码不构造。
 /// `==` 与 `ReferenceEquals` 同判据：FuncRef 看目标函数相同，Closure 看目标函数相同 + env
 /// 的 GC ptr_eq，跨变体不等，非委托值返回 false 不报错。
