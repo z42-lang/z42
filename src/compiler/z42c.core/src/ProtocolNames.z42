@@ -88,4 +88,14 @@ public static class ProtocolNames {
     // 语法层合成 `new InvalidOperationException(<这个字面量>)` 时直接塞进去 ⇒ 存内容串会让生成的
     // AST 变形。而验这条的测试通常只看「抛没抛」、不看消息 ⇒ **门不会红**，错了也没人告诉你。
     public static string SinglecastAlreadyBound = "\"single-cast event already bound\"";
+
+    public static string CompoundAssign(string op) {
+        if (op == "+=") { return "op_AddAssign"; }
+        if (op == "-=") { return "op_SubtractAssign"; }
+        return "";
+    }
+
+    public static bool IsCompoundAssignName(string name) {
+        return name == "op_AddAssign" || name == "op_SubtractAssign";
+    }
 }

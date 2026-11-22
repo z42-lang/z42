@@ -1,0 +1,8 @@
+[project]
+name = "demo.compoundapp"
+version = "0.1.0"
+kind = "exe"
+pack = true
+
+[dependencies]
+"demo.compoundtarget" = "0.1.0"
