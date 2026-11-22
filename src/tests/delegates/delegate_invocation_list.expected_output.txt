@@ -1,0 +1,11 @@
+len 1
+self true
+null-len 0
+mg-len 1
+d-len 1
+bus-len 2
+snap-still 2
+bus-now 3
+after-unsub 2
+N -3
+pred-len 2

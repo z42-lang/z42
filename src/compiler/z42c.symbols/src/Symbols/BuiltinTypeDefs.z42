@@ -99,7 +99,7 @@ public static class BuiltinTypeDefs {
     }
 
     public static ExportedDelegateZ[] _builtinDelegates() {
-        ExportedDelegateZ[] r = new ExportedDelegateZ[11];
+        ExportedDelegateZ[] r = new ExportedDelegateZ[14];
         string[] t = BuiltinTypeDefs._t0();
         r[0] = BuiltinTypeDefs._del("Action", "void", t, 0, 0, t);
         r[1] = BuiltinTypeDefs._del("Action", "void", BuiltinTypeDefs._t1("T"), 1, 1, BuiltinTypeDefs._t1("T"));
@@ -119,6 +119,12 @@ public static class BuiltinTypeDefs {
         string[] t1234r = new string[5]; t1234r[0] = "T1"; t1234r[1] = "T2"; t1234r[2] = "T3"; t1234r[3] = "T4"; t1234r[4] = "R";
         r[9] = BuiltinTypeDefs._del("Func", "R", t1234r, 5, 4, t1234);
         r[10] = BuiltinTypeDefs._del("Predicate", "bool", BuiltinTypeDefs._t1("T"), 1, 1, BuiltinTypeDefs._t1("T"));
+        string[] p12 = BuiltinTypeDefs._t2("T1", "T2");
+        r[11] = BuiltinTypeDefs._del("Predicate", "bool", p12, 2, 2, p12);
+        string[] p123 = new string[3]; p123[0] = "T1"; p123[1] = "T2"; p123[2] = "T3";
+        r[12] = BuiltinTypeDefs._del("Predicate", "bool", p123, 3, 3, p123);
+        string[] p1234 = new string[4]; p1234[0] = "T1"; p1234[1] = "T2"; p1234[2] = "T3"; p1234[3] = "T4";
+        r[13] = BuiltinTypeDefs._del("Predicate", "bool", p1234, 4, 4, p1234);
         return r;
     }
 
