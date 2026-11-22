@@ -1,7 +1,7 @@
 //! Shared artifact preparation for CLI and embedded hosts.
 use std::{collections::HashSet, path::PathBuf, sync::Arc};
 use anyhow::{Context, Result};
-use crate::{zpkg::ExecMode, loader::{LoadedArtifact, build_declared_candidates, load_eager_dependencies, load_artifact_from_bytes_cached, load_prelude, PRELUDE_FILE}};
+use crate::{zpkg::ExecMode, loader::{LoadedArtifact, build_declared_candidates, load_eager_dependencies, load_artifact_from_bytes_cached, load_prelude, prepare_program_modules, PRELUDE_FILE}};
 use super::program::{LoadOptions, LoadedProgram};
 
 fn entry_zpkg_idempotency_keys(file: &str) -> Vec<String> {
@@ -102,53 +102,15 @@ pub(super) fn prepare_with_eager_mode(user_artifact: LoadedArtifact, source_path
         &initially_loaded_zpkgs,
     );
 
-    // 5.1e — push user module last, then merge everything. Preserve the user
-    // module's name so entry-point lookup resolves correctly.
     let entry_hint = user_artifact.entry_hint.clone();
-    let user_module_name = user_artifact.module.name.clone();
     eager_impl_pairs.extend(user_artifact.impl_pairs.iter().cloned());
 
-    // M1 dual track (merge-retirement design §4): the default path keeps the
-    // flat merge byte for byte; the no-eager-merge path carries the entry
-    // module alone and hands the decoded dep artifacts to the assembly, which
-    // registers them per-package through the lazy loader's machinery.
-    let no_eager_merge = match eager_mode {
-        // M4 dry run (merge-retirement design §4): per-package registration is
-        // now the DEFAULT. The escape hatch is Z42_EAGER_MERGE=1 (restores the
-        // merged track) — the same transitional shape the old switch had,
-        // inverted. Full-suite validation of the flipped default rides the CI
-        // matrix of this PR; the bench gate measures the steady-state cost.
-        EagerMerge::Default => std::env::var_os("Z42_EAGER_MERGE").is_none(),
-        EagerMerge::Off => true,
+    let merge_eager = match eager_mode {
+        EagerMerge::Default => std::env::var_os("Z42_EAGER_MERGE").is_some(),
+        EagerMerge::Off => false,
     };
-    let (final_module, eager_packages) = if no_eager_merge {
-        let mut entry = user_artifact.module;
-        entry.name = user_module_name;
-        crate::metadata::types::build_type_registry(&mut entry);
-        crate::metadata::types::verify_constraints(&entry)
-            .with_context(|| format!("constraint verification failed for `{}`", file))?;
-        crate::loader::build_block_indices(&mut entry);
-        crate::loader::package::build_func_index(&mut entry);
-        (entry, artifacts)
-    } else {
-        let mut modules: Vec<crate::metadata::Module> =
-            artifacts.into_iter().map(|a| a.module).collect();
-        modules.push(user_artifact.module);
-        let merged = if modules.len() == 1 {
-            modules.into_iter().next().ok_or_else(|| anyhow::anyhow!("no module to load"))?
-        } else {
-            let mut m = crate::loader::merge_modules(modules)
-                .with_context(|| format!("merging modules for `{}`", file))?;
-            m.name = user_module_name;
-            crate::metadata::types::build_type_registry(&mut m);
-            crate::metadata::types::verify_constraints(&m)
-                .with_context(|| format!("constraint verification failed for `{}`", file))?;
-            crate::loader::build_block_indices(&mut m);
-            crate::loader::package::build_func_index(&mut m);
-            m
-        };
-        (merged, Vec::new())
-    };
+    let (final_module, eager_packages) =
+        prepare_program_modules(user_artifact.module, artifacts, merge_eager, file)?;
 
     let jit_config = crate::config::runtime_config_snapshot().jit_config();
     let ctx = crate::vm::assembly::build(final_module, crate::vm::assembly::ProgramInputs {
