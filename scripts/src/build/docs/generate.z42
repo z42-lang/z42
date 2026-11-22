@@ -81,19 +81,41 @@ string _summaryBlock(string shortName, DocIndex ix) {
 
 // 把 SUMMARY.md 里 shortName 的区段换成生成内容（不变就不写，免得碰 mtime）。
 int _syncSummary(string root, string shortName, DocIndex ix) {
-    string path = Path.Join(root, "docs/reference/src/SUMMARY.md");
+    return _syncDocSection(Path.Join(root, "docs/reference/src/SUMMARY.md"),
+        _summaryBeginId(shortName), _summaryEnd(shortName), _summaryBlock(shortName, ix));
+}
+
+int _syncDocSection(string path, string begin, string end, string block) {
     string text = File.ReadAllText(path);
-    string begin = _summaryBeginId(shortName);
-    string end = _summaryEnd(shortName);
     int b = text.IndexOf(begin);
     int e = text.IndexOf(end);
     if (b < 0 || e < 0 || e < b) {
-        ConsoleError.WriteLine("summary: " + path + " 缺少 " + begin + " … " + end + " 区段标记");
+        ConsoleError.WriteLine("build docs: " + path + " 缺少 " + begin + " … " + end + " 区段标记");
         return 1;
     }
-    string want = text.Substring(0, b) + _summaryBlock(shortName, ix) + text.Substring(e + end.Length);
+    string want = text.Substring(0, b) + block + text.Substring(e + end.Length);
     if (want != text) { File.WriteAllText(path, want); }
     return 0;
+}
+
+// 总览表和包页共用源码的命名空间摘要。
+string _docOverviewRow(string pkg, string page, DocIndex ix) {
+    for (int i = 0; i < ix.Count(); i++) {
+        DocItem item = ix.At(i);
+        if (item.Kind == DocKind.Namespace && item.Doc.Length > 0) {
+            return "| [" + pkg + "](" + page + ".md) | `" + item.Id + "` | "
+                + item.Summary().Replace("|", "\\|") + " |";
+        }
+    }
+    return "";
+}
+
+int _syncDocOverview(string outDir, List<string> rows) {
+    string begin = "<!-- z42-doc:stdlib-overview-begin -->";
+    string end = "<!-- z42-doc:stdlib-overview-end -->";
+    string block = begin + "\n| 包 | 主命名空间 | 概述 |\n|---|---|---|\n"
+        + String.Join("\n", rows.ToArray()) + "\n" + end;
+    return _syncDocSection(Path.Join(outDir, "README.md"), begin, end, block);
 }
 
 // 生成页源码链接的基址：取 book.toml 的 git-repository-url 口径（blob/main）。
@@ -111,20 +133,25 @@ int _docGen() {
     string outDir = Path.Join(root, "docs/reference/src/stdlib");
     DocMd.SourceBase = _docSourceBase();
     HashSet<string> written = new HashSet<string>();
+    List<string> overview = new List<string>();
     foreach (var pkg in _stdlibList(root)) {
         DocIndex ix = DocQuery.BuildIndex(root, pkg, "");
         if (!DocMd.HasNamespaceDoc(ix)) { continue; }
+        string page = _docPageName(pkg);
+        overview.Add(_docOverviewRow(pkg, page, ix));
         if (_isTypeSplit(pkg)) {
-            foreach (var f in _typeSplitFiles(pkg, _docPageName(pkg), ix)) { _writeDocPage(outDir, f.Name, f.Content, written); }
-            int rc = _syncSummary(root, _docPageName(pkg), ix);
+            foreach (var f in _typeSplitFiles(pkg, page, ix)) { _writeDocPage(outDir, f.Name, f.Content, written); }
+            int rc = _syncSummary(root, page, ix);
             if (rc != 0) { return rc; }
         } else {
-            _writeDocPage(outDir, _docPageName(pkg) + ".md", DocMd.PackagePage(pkg, DocMd.PkgDir(ix), ix), written);
+            _writeDocPage(outDir, page + ".md", DocMd.PackagePage(pkg, DocMd.PkgDir(ix), ix), written);
         }
     }
     foreach (var name in Directory.Enumerate(outDir)) {
         if (name.EndsWith(".md") && name != "README.md" && !written.Contains(name)) { File.Delete(Path.Join(outDir, name)); }
     }
+    int overviewCode = _syncDocOverview(outDir, overview);
+    if (overviewCode != 0) { return overviewCode; }
     Console.WriteLine("build docs: " + written.Count.ToString() + " page(s) → docs/reference/src/stdlib/");
     return 0;
 }
