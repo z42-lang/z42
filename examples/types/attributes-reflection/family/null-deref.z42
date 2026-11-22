@@ -1,0 +1,13 @@
+using Std.IO;
+using Std.Reflection;
+
+class Box {
+    public int Size { get; set; }
+}
+
+void Main() {
+    foreach (PropertyInfo pr in typeof(Box).GetProperties()) {
+        MethodInfo getter = pr.GetGetMethod();
+        Console.WriteLine(getter.Name);
+    }
+}

@@ -141,6 +141,7 @@
         - [UnauthorizedAccessException](stdlib/core.UnauthorizedAccessException.md)
         - [TestFailure](stdlib/core.TestFailure.md)
         - [SkipSignal](stdlib/core.SkipSignal.md)
+        - [FlagsAttribute](stdlib/core.FlagsAttribute.md)
         - [ForwardAttribute](stdlib/core.ForwardAttribute.md)
         - [GC](stdlib/core.GC.md)
         - [GCHandleType](stdlib/core.GCHandleType.md)
