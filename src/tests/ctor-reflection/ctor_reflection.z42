@@ -85,13 +85,16 @@ void Main() {
         mi = mi + 1;
     }
     Assert.Equal(0, ctorish);
-    // Same for GetMembers(), which is the union view over the same method list.
+    // Same for GetMembers() — the C#-aligned union (getmembers-ctors): ctors DO
+    // appear, but as real ConstructorInfo entries, never as leaked methods.
     Std.Reflection.MemberInfo[] mems = t.GetMembers();
     int memCtorish = 0;
     int mj = 0;
     while (mj < mems.Length) {
-        if (mems[mj].Name == "Point") { memCtorish = memCtorish + 1; }
+        if (mems[mj].Name == "Point") {
+            if (mems[mj] is ConstructorInfo) { memCtorish = memCtorish + 1; }
+        }
         mj = mj + 1;
     }
-    Assert.Equal(0, memCtorish);
+    Assert.Equal(2, memCtorish);
 }
