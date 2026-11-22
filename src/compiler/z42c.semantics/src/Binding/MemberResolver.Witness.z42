@@ -22,6 +22,7 @@ public sealed partial class MemberResolver {
     private StaticWitnessSlot[] _witnessSlots(SymbolTable symbols, ConstraintSet constraints) {
         var slots = new List<StaticWitnessSlot>();
         if (constraints == null) { return slots.ToArray(); }
+        var structSlots = new List<StaticWitnessSlot>();
         for (int pi = 0; pi < constraints.Count; pi = pi + 1) {
             ConstraintBundle bundle = constraints.Bundles[pi];
             var seen = new StrMap();
@@ -43,9 +44,13 @@ public sealed partial class MemberResolver {
             }
             foreach (string key in keys) {
                 var member = members.Get(key) as IfaceMethodHit;
-                slots.Add(new StaticWitnessSlot(pi, member.Owner.Fqn(), member.Sym));
+                StaticWitnessSlot slot = new StaticWitnessSlot(pi, member.Owner.Fqn(), member.Sym);
+                if (MemberResolver._usesDeclaredStruct(slot.Member.Signature)) { structSlots.Add(slot); }
+                else { slots.Add(slot); }
             }
         }
+        // Preserve the scalar and reference Self slot indices in existing packages.
+        slots.AddRange(structSlots.ToArray());
         return slots.ToArray();
     }
 
@@ -76,10 +81,21 @@ public sealed partial class MemberResolver {
     }
 
     private static bool _isWitnessType(Z42Type type, bool allowsSelf) {
-        Z42ClassType declared = type as Z42ClassType;
-        return type.IsScalarType()
-            || (declared != null && declared.IsStruct && declared.GenericParamCount == 0)
+        return type.IsScalarType() || MemberResolver._isDeclaredWitnessStruct(type)
             || (allowsSelf && type is Z42GenericParamType && type.Name() == "Self");
+    }
+
+    private static bool _isDeclaredWitnessStruct(Z42Type type) {
+        Z42ClassType declared = type as Z42ClassType;
+        return declared != null && declared.IsStruct && declared.GenericParamCount == 0 && !declared.IsScalarType();
+    }
+
+    private static bool _usesDeclaredStruct(Z42FuncType signature) {
+        if (MemberResolver._isDeclaredWitnessStruct(signature.Ret)) { return true; }
+        for (int i = 0; i < signature.ParamCount; i = i + 1) {
+            if (MemberResolver._isDeclaredWitnessStruct(signature.ParamTypes[i])) { return true; }
+        }
+        return false;
     }
 
     private BoundExpr _bindStaticWitness(MemberExpr member, IdentExpr target, BoundExpr[] args,
