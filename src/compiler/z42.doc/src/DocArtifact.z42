@@ -1,0 +1,110 @@
+namespace Z42.Doc;
+
+using Std.Collections;
+using Std.IO;
+using Std.Json;
+
+public sealed class DocArtifact {
+    public string Package;
+    public DocIndex Index;
+
+    public DocArtifact(string packageName, DocIndex index) {
+        this.Package = packageName;
+        this.Index = index;
+    }
+
+    public static string LoadDirectory(string dir, string packageFilter, DocIndex index) {
+        if (dir == "" || !Directory.Exists(dir)) { return ""; }
+        var present = new HashSet<string>();
+        for (int i = 0; i < index.Count(); i++) { present.Add(index.At(i).Pkg); }
+        var warnings = new Std.Text.StringBuilder();
+        foreach (string path in Path.Glob(dir, "*.zdoc")) {
+            string filename = Path.GetFileName(path);
+            string packageName = filename.Substring(0, filename.Length - 5);
+            if (present.Contains(packageName) || (packageFilter != "" && packageFilter != packageName)) { continue; }
+            try {
+                DocArtifact artifact = DocArtifact.Read(File.ReadAllText(path));
+                if (artifact.Package != packageName) { throw new InvalidOperationException("package name does not match filename"); }
+                for (int j = 0; j < artifact.Index.Count(); j++) { index.Add(artifact.Index.At(j)); }
+                present.Add(packageName);
+            } catch (Exception e) {
+                warnings.Append("z42 doc: skipped ").Append(filename).Append(" (").Append(e.Message).Append(")\n");
+            }
+        }
+        return warnings.ToString();
+    }
+
+    public static string Write(string packageName, DocIndex index, bool includePrivate) {
+        JsonValue root = JsonValue.OfObject();
+        root.Set("format", JsonValue.OfLong(1));
+        root.Set("level", JsonValue.OfString("syntax"));
+        root.Set("package", JsonValue.OfString(packageName));
+        JsonValue items = JsonValue.OfArray();
+        for (int i = 0; i < index.Count(); i++) {
+            DocItem item = index.At(i);
+            if (DocArtifact._included(index, item, includePrivate)) {
+                items.Add(DocArtifact._writeItem(item));
+            }
+        }
+        root.Set("items", items);
+        return new JsonWriter(true).Write(root) + "\n";
+    }
+
+    private static bool _included(DocIndex index, DocItem item, bool includePrivate) {
+        if ((!includePrivate && item.Vis != "public") || DocParser.Parse(item.Doc).Hidden) { return false; }
+        string parent = item.Parent;
+        while (parent.Length > 0) {
+            DocItem ancestor = DocArtifact._container(index, parent);
+            if (ancestor == null) { break; }
+            if ((!includePrivate && ancestor.Vis != "public") || DocParser.Parse(ancestor.Doc).Hidden) { return false; }
+            parent = ancestor.Parent;
+        }
+        return true;
+    }
+
+    private static DocItem _container(DocIndex index, string id) {
+        foreach (DocItem item in index.Resolve(id)) {
+            if (item.Id == id && item.IsContainer()) { return item; }
+        }
+        return null;
+    }
+
+    private static JsonValue _writeItem(DocItem item) {
+        JsonValue record = JsonValue.OfObject();
+        record.Set("id", JsonValue.OfString(item.Id));
+        record.Set("kind", JsonValue.OfString(item.Kind));
+        record.Set("name", JsonValue.OfString(item.Name));
+        record.Set("parent", JsonValue.OfString(item.Parent));
+        record.Set("sig", JsonValue.OfString(item.Sig));
+        record.Set("vis", JsonValue.OfString(item.Vis));
+        record.Set("file", JsonValue.OfString(item.File));
+        record.Set("line", JsonValue.OfLong((long)item.Line));
+        record.Set("doc", JsonValue.OfString(GeneratorDoc.Parse(item.Doc).PublicText));
+        return record;
+    }
+
+    public static DocArtifact Read(string text) {
+        JsonValue root = JsonValue.Parse(text);
+        long version = root.Get("format").AsLong();
+        if (version != 1) { throw new InvalidOperationException("unsupported .zdoc format " + version.ToString()); }
+        string level = root.Get("level").AsString();
+        if (level != "syntax") { throw new InvalidOperationException("unsupported .zdoc index level " + level); }
+        string packageName = root.Get("package").AsString();
+        if (packageName.Length == 0) { throw new InvalidOperationException(".zdoc requires a package name"); }
+        JsonValue items = root.Get("items");
+        DocIndex index = new DocIndex();
+        for (int i = 0; i < items.Length(); i++) { index.Add(DocArtifact._readItem(items.At(i), packageName)); }
+        return new DocArtifact(packageName, index);
+    }
+
+    private static DocItem _readItem(JsonValue record, string packageName) {
+        long line = record.Get("line").AsLong();
+        if (line < 0 || line > 2147483647) { throw new InvalidOperationException("invalid .zdoc source line"); }
+        DocItem item = new DocItem(record.Get("id").AsString(), record.Get("kind").AsString(),
+            record.Get("name").AsString(), record.Get("parent").AsString(), record.Get("sig").AsString(), (int)line,
+            record.Get("vis").AsString(), GeneratorDoc.Parse(record.Get("doc").AsString()).PublicText);
+        item.Pkg = packageName;
+        item.File = record.Get("file").AsString();
+        return item;
+    }
+}

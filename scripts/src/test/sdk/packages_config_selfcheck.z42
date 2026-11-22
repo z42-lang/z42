@@ -46,7 +46,7 @@ int _testPackagesConfig() {
     _PkgPackage sdk = _pkgcfgFindPackage(cfg, "sdk");
     _pkgAssertEq("sdk.artifact", "z42-sdk-{version}-{rid}", sdk.artifact);
     _pkgAssertEq("sdk.manifest", "auto", sdk.manifest);
-    _pkgAssertLen("sdk.include", 8, sdk.include.Length);
+    _pkgAssertLen("sdk.include", 9, sdk.include.Length);
 
     _PkgComponent[] sdkComps = _pkgcfgResolveInclude(cfg, "sdk");
     // R1：native-ext 退役 —— SDK 的 native/ 闭包由 z42vm（native_closure）装出。
@@ -60,6 +60,9 @@ int _testPackagesConfig() {
     _pkgAssertEq("sdk.include[7].name", "editor-assets", sdkComps[7].name);
     _pkgAssertEq("sdk.include[7].kind", "editor-assets", sdkComps[7].kind);
     _pkgAssertEq("sdk.include[7].dest", "editors/", sdkComps[7].dest);
+    _pkgAssertEq("sdk.include[8].name", "docs", sdkComps[8].name);
+    _pkgAssertEq("sdk.include[8].kind", "stdlib-docs", sdkComps[8].kind);
+    _pkgAssertEq("sdk.include[8].dest", "docs/", sdkComps[8].dest);
 
     // z42d/z42i: apphost kind, same producer path as launcher/z42c/z42b.
     _PkgComponent z42d = _pkgcfgFindComponent(cfg, "z42d");

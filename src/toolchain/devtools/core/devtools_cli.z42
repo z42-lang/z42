@@ -46,7 +46,8 @@ SubcommandRouter _devtoolsRoot() {
     doc.AddOption("pkg", "", "only index this package", "");
     doc.AddOption("root", "", "index root (default: enclosing git repository, else nearest project)", "");
     doc.AddFlag("json", "", "print matching entries as JSON");
-    doc.AddOption("format", "", "render markdown instead of querying (mdbook)", "");
+    doc.AddOption("format", "", "export documentation (mdbook or zdoc)", "");
+    doc.AddOption("zdoc", "", "query a documentation sidecar instead of source", "");
     doc.AddOption("out", "", "output directory for --format", "");
     doc.AddOption("page", "", "resolve the code references in a book page (markdown) to file:line", "");
     doc.AddOption("docs", "", "reverse lookup: which book pages / READMEs reference this symbol", "");
