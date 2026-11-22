@@ -6,13 +6,11 @@ public sealed class GeneratorDocField {
     public string Target;
     public string Key;
     public string Text;
-    public int LineOffset;
 
-    public GeneratorDocField(string target, string key, string text, int lineOffset) {
+    public GeneratorDocField(string target, string key, string text) {
         this.Target = target;
         this.Key = key;
         this.Text = text;
-        this.LineOffset = lineOffset;
     }
 }
 
@@ -157,7 +155,7 @@ internal sealed class GeneratorDocScan {
                 return;
             }
         }
-        this._fields[this._count] = new GeneratorDocField(this._target, key, text, offset);
+        this._fields[this._count] = new GeneratorDocField(this._target, key, text);
         this._count = this._count + 1;
     }
 
