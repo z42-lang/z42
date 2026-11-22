@@ -97,7 +97,7 @@ impl Initialization<'_> {
     #[cfg(feature = "jit")]
     pub fn callee_owner_init_free(&self, func_fq: &str) -> bool {
         owner_class_of_static_func(func_fq)
-            .and_then(|o| self.loaded_type(o))
+            .and_then(|name| self.ctx.loader().probe_loaded_type(name))
             .is_some_and(|td| td.cctor_func().is_none())
     }
 
