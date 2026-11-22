@@ -31,6 +31,17 @@ public static class ImplTargets {
         return names;
     }
 
+    internal static Z42Type SelfType(ImplDecl declaration, Z42ClassType target) {
+        if (declaration.TargetParamNames.Length == 0) { return target; }
+        // Method signatures already use the target's formal names in target order.
+        int count = target.GenericParamCount;
+        Z42Type[] args = new Z42Type[count];
+        for (int i = 0; i < count; i = i + 1) {
+            args[i] = new Z42GenericParamType(target.GenericParamNames[i]);
+        }
+        return new Z42InstantiatedType(target, args, count);
+    }
+
     internal static Z42FuncType NormalizeSignature(Z42FuncType signature, string[] aliases, Z42ClassType target) {
         Z42FuncType normalized = TypeSubst.ApplySig(signature, new ImplParamNames(aliases, target.GenericParamNames));
         normalized.ParamIsNullable = signature.ParamIsNullable;

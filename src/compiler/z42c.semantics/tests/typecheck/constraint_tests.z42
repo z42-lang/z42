@@ -753,6 +753,22 @@ void test_open_impl_accepts_distinct_permuted_parameters() {
 }
 
 [Test]
+void test_open_impl_binds_self_to_the_constructed_target() {
+    Assert.Equal("", SemanticDump.FirstErrorCode(
+        "interface ISame { bool Same(Self other); } interface ICopy : ISame { Self Copy(); } "
+        + "class Pair<A, B> {} impl<X, Y> ICopy for Pair<Y, X> { "
+        + "public bool Same(Pair<Y, X> other) { return true; } "
+        + "public Pair<Y, X> Copy() { return new Pair<Y, X>(); } }"));
+}
+
+[Test]
+void test_open_impl_rejects_a_return_with_mismatched_self_arguments() {
+    Assert.Equal("E0412", SemanticDump.FirstErrorCode(
+        "interface ICopy { Self Copy(); } class Pair<A, B> {} "
+        + "impl<X, Y> ICopy for Pair<Y, X> { public Pair<X, Y> Copy() { return new Pair<X, Y>(); } }"));
+}
+
+[Test]
 void test_impl_block_missing_interface_member_is_reported() {
     // impl 块空、没补 `M` → target 未满足接口 → E0412（此前静默通过）。
     Assert.Equal("E0412", SemanticDump.FirstErrorCode(

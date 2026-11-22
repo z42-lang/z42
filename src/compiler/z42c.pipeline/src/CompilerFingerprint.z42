@@ -190,6 +190,7 @@ public static class CompilerFingerprint {
         "reject-overlapping-concrete-impls",
         "support-open-generic-impls",
         "overload-compound-assignment",
+        "bind-open-impl-self",
         "remove-event-keyword"
     };
 

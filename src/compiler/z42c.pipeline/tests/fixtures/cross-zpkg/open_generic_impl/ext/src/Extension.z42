@@ -5,4 +5,6 @@ using Demo.OpenContract;
 impl<U> ISize for List<U> {
     public int Size() { U first = this[0]; return this.Count; }
     public bool IsElement(object item) { return item is U; }
+    public bool SameSize(List<U> other) { return this.Count == other.Count; }
+    public List<U> Empty() { return new List<U>(); }
 }
