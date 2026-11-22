@@ -80,12 +80,11 @@ M4 前的 CI 级 bench 对账（稳态派发成本）与 M3 的取 token 双分�
 
 ### 尾项裁决（收尾审计，11-22）
 
-- **string_pool 跨 VM 共享**：实测机制——`StrTable::append` 把每个注册包的池逐条
-  `String::into_boxed_str` 重装箱进本 VM 的 slot（`str_table.rs:111`），堆 `Str` 对象
-  本就是按需驻留（`get_or_intern` 惰性）。真正共享需把文本载体改成 `Arc<str>` 贯穿
-  `ModuleData.string_pool → ImageCache → StrSlot.text` 三层——约一天半的跨层改动，
-  换取每多一个 VM 省一份标准库文本（MB 级以下）。**裁决：不做**；触发条件 =
-  多 VM 高密度驻留场景实测内存成为主诉。
+- **string_pool 跨 VM 共享**：**单 VM 进程（实际部署形态）下问题不存在**——字符串池
+  只有一份。它只出现在 C 会话多次 `load_zbc`（每模块各建 VM）的 API 允许形态里；
+  即便那时，实测机制也只是 `StrTable::append` 逐条重装箱（MB 级以下）且堆 `Str`
+  本就惰性驻留。**裁决：非问题收档**；若未来出现多模块 C 会话的高密度驻留部署
+  再议（`Arc<str>` 贯穿三层的方案在案）。
 - **C 适配分域**：触发条件维持（第二个 C 面或显著超出五文件）；当前单 C 面
   集中归组可发现性最优，预做分散为负收益。
 
