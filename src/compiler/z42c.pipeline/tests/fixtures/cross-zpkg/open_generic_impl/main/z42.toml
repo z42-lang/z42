@@ -1,0 +1,9 @@
+[project]
+name = "demo.openapp"
+version = "0.1.0"
+kind = "exe"
+pack = true
+
+[dependencies]
+"demo.opencontract" = "0.1.0"
+"demo.openextension" = "0.1.0"

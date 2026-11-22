@@ -81,7 +81,7 @@ public sealed class MemberParser {
         } else if (hasBody) {
             Expr fr = new MemberExpr(new IdentExpr("this", sp), ev.Name, sp);
             Expr[] eqArgs = new Expr[2]; eqArgs[0] = fr; eqArgs[1] = new IdentExpr("h", sp);
-            Expr refEq = new CallExpr(new MemberExpr(new IdentExpr(ProtocolNames.DelegateOps, sp), ProtocolNames.ReferenceEquals, sp), eqArgs, 2, sp);
+            Expr refEq = new CallExpr(new MemberExpr(new IdentExpr(ProtocolNames.DelegateClass, sp), ProtocolNames.ReferenceEquals, sp), eqArgs, 2, sp);
             Expr asgnNull = new AssignExpr("=", new MemberExpr(new IdentExpr("this", sp), ev.Name, sp), new NullLitExpr(sp), sp);
             Stmt[] clr = new Stmt[1]; clr[0] = new ExprStmt(asgnNull, sp);
             Stmt ifClear = new IfStmt(refEq, new BlockStmt(clr, 1, sp), false, new BlockStmt(new Stmt[0], 0, sp), sp);

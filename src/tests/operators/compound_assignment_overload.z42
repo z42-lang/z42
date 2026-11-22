@@ -44,7 +44,7 @@ void Main() {
     signal.Invoke(9);
     Assert.Equal(5, total[0]);
 
-    signal += (int value) => { total[0] += value; };
+    signal += value => { total[0] += value; };
     signal += handler;
     signal -= handler;
     signal.Invoke(2);

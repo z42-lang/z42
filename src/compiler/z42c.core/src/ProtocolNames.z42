@@ -77,7 +77,7 @@ public static class ProtocolNames {
     public static string DisposableFrom = "From";
     public static string Subscribe      = "Subscribe";     // multicast backing 的订阅/退订
     public static string Unsubscribe    = "Unsubscribe";
-    public static string DelegateOps      = "DelegateOps";      // 单播退订的同一性判定
+    public static string DelegateClass    = "Delegate";         // 委托族基类（Std.Delegate），单播退订的同一性判定
     public static string ReferenceEquals  = "ReferenceEquals";
     public static string InvalidOperationException = "InvalidOperationException";
 

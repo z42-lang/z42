@@ -353,8 +353,11 @@ public sealed partial class ExprEmitter {
         Z42ClassType oc = this._ctx.OwnerCt;
         if (oc == null || this._ctx.Locals.Get("this") == null) { return ""; }
         int ci = 0;
-        while (ci < oc.GenericParamCount) {
-            if (oc.GenericParamNames[ci] == n) { return "$cta:" + ci.ToString() + "@" + this._top._classOwnerFqPub(); }
+        string[] classParams = this._ctx.ClassTpNames;
+        int classCount = this._ctx.ClassTpCount;
+        if (classParams == null || classCount == 0) { classParams = oc.GenericParamNames; classCount = oc.GenericParamCount; }
+        while (ci < classCount) {
+            if (classParams[ci] == n) { return "$cta:" + ci.ToString() + "@" + this._top._classOwnerFqPub(); }
             ci = ci + 1;
         }
         return "";

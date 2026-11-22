@@ -62,6 +62,8 @@ public sealed class EmitContext {
     // 当前函数（及其 lifted lambda / 局部函数）所在泛型方法的**方法级**型参名。泛型方法体对型参位走装箱模型：
     // 静态类型是这些型参的值必须是自有副本 —— 读 struct 数组元素得到的是帧内视图，要经 `__box_struct` 快照。
     public string[] MethodTpNames; public int MethodTpCount;
+    public string[] ClassTpNames;
+    public int ClassTpCount;
     // 上面那组型参是不是**本函数自己的**（false = lifted lambda / 局部函数从外层继承来的名字）。
     // 只有自己的才在本帧 `method_type_args` 里有实参（`ExprEmitter._typeParamMarker`）。
     public bool MethodTpOwn;
@@ -384,6 +386,17 @@ public sealed class EmitContext {
         if (kw == "sbyte" || kw == "short" || kw == "byte" || kw == "ushort") { return true; }
         if (kw == "uint" || kw == "ulong" || kw == "long") { return true; }
         return kw == "float";
+    }
+
+    // feat/delegate-base-class：函数类型收者的族基类成员目标（`get_Target` / `get_FnName`）。
+    // 委托值无 TypeDesc / vtable，VCall 语义上不可能；成员只可能来自 `Std.Delegate` 的
+    // extern getter，直呼其已发射 FQ。镜像 `NarrowPrimTarget` 的「校验已发射、查不到回落」
+    // 纪律：本地编 z42.core 自身时 Delegate 在本地类集，否则查 Deps。
+    public string NarrowDelegateBaseTarget(string methodKey) {
+        string fq = PreludeNs.Root() + ".Delegate." + methodKey;
+        if (this.LocalClasses != null && this.LocalClasses.HasFqn(PreludeNs.Root() + ".Delegate")) { return fq; }
+        if (this._depHasFunction(fq)) { return fq; }
+        return "";
     }
 
     // add-method-reference：解析 `methodof(T.M)` 的目标 FQ 名 —— **必须沿基链找真正的声明类**。

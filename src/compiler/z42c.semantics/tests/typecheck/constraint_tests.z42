@@ -733,6 +733,26 @@ void test_duplicate_concrete_impl_uses_qualified_identity() {
 }
 
 [Test]
+void test_open_impl_overlaps_after_parameter_renaming() {
+    Assert.Equal("E0413", SemanticDump.FirstErrorCode(
+        "interface I {} class Box<T> {} "
+        + "impl<T> I for Box<T> {} impl<X> I for Box<X> {}"));
+}
+
+[Test]
+void test_open_impl_rejects_a_partial_target_pattern() {
+    Assert.Equal("E0413", SemanticDump.FirstErrorCode(
+        "interface I {} class Pair<A, B> {} impl<T> I for Pair<int, T> {}"));
+}
+
+[Test]
+void test_open_impl_accepts_distinct_permuted_parameters() {
+    Assert.Equal("", SemanticDump.FirstErrorCode(
+        "interface I { int Size(); } class Pair<A, B> {} "
+        + "impl<X, Y> I for Pair<Y, X> { public int Size() { return 2; } }"));
+}
+
+[Test]
 void test_impl_block_missing_interface_member_is_reported() {
     // impl 块空、没补 `M` → target 未满足接口 → E0412（此前静默通过）。
     Assert.Equal("E0412", SemanticDump.FirstErrorCode(

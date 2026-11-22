@@ -779,7 +779,7 @@ public sealed class Parser {
     //     if (this.X != null) throw new InvalidOperationException("single-cast event already bound");
     //     this.X = h; return Disposable.From(() => this.remove_X(h));
     //   }
-    //   remove_X(h): void { if (DelegateOps.ReferenceEquals(this.X, h)) this.X = null; }
+    //   remove_X(h): void { if (Delegate.ReferenceEquals(this.X, h)) this.X = null; }
     // handler 类型 = 字段裸类型（Action<T> 自身）。hasBody=false（interface）→ 仅签名。
 
     // impl <Trait> for <Target> { methods }  —— 跨包 trait 实现（port-z42c-impl-block）。

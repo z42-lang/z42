@@ -188,6 +188,7 @@ public static class CompilerFingerprint {
         "ref-overload-method-signatures",
         "infer-static-interface-implementation",
         "reject-overlapping-concrete-impls",
+        "support-open-generic-impls",
         "overload-compound-assignment"
     };
 
