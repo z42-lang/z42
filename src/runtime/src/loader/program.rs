@@ -1,8 +1,14 @@
 //! Prepare loaded modules for VM assembly.
 use anyhow::{Context, Result};
 
-use super::{artifact::FUSION_INPUTS, merge_modules, package::prepare_module, LoadedArtifact};
-use crate::metadata::Module;
+use super::{
+    artifact::FUSION_INPUTS,
+    availability::AvailabilityStats,
+    build_block_indices, fold_availability, merge_modules,
+    package::{build_func_index, prepare_module},
+    LoadedArtifact, ZpkgCandidate,
+};
+use crate::{metadata::Module, pal::fs::Vfs};
 
 /// Keep dependencies available for per-package registration, or merge them
 /// with the entry module when the caller selects the eager merge path.
@@ -37,4 +43,20 @@ pub(crate) fn prepare_program_modules(
     prepare_module(&mut module, FUSION_INPUTS)
         .with_context(|| format!("constraint verification failed for `{source}`"))?;
     Ok((module, Vec::new()))
+}
+
+/// Fold against declared packages and rebuild execution indices when the module changes.
+pub(crate) fn prepare_program_availability(
+    fs: &dyn Vfs,
+    module: &mut Module,
+    declared: &[(String, ZpkgCandidate)],
+) -> Option<AvailabilityStats> {
+    let stats = fold_availability(fs, module, declared);
+    if stats.is_noop() {
+        return None;
+    }
+
+    build_block_indices(module);
+    build_func_index(module);
+    Some(stats)
 }
