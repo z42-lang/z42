@@ -643,6 +643,13 @@ public sealed class ConstraintChecker {
         // fix-iface-satisfaction-gaps #2：未解析型参 / error / unknown 放行（与 _satisfiesInterface 统一口径）。
         // 泛型类内部转发 `new Inner<T>()` 时实参 T 尚不透明 → 由**外层实例化点**校验，此处放行免假红。
         if ((arg is Z42GenericParamType) || (arg is Z42ErrorType) || (arg is Z42UnknownType)) { return true; }
+        // feat/delegate-base-class：函数类型满足委托族基类约束（`where TD : Delegate`，
+        // internals §6 的 `.AsWeak()` 门面即此形态）。func → object 隐式转换既有（Conversion C 分支），
+        // Object 约束一并认。
+        if (arg is Z42FuncType) {
+            return baseName == "Delegate" || baseName == "Std.Delegate"
+                || baseName == "Object" || baseName == "Std.Object";
+        }
         Z42ClassType target = symbols.GetClass(baseName);
         if (arg is Z42ClassType) { return symbols.IsSubclassOfType(arg as Z42ClassType, target); }
         if (arg is Z42InstantiatedType) { return symbols.IsSubclassOfType((arg as Z42InstantiatedType).Def, target); }

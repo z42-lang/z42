@@ -1,0 +1,85 @@
+// feat/delegate-base-class 回归 golden：`Std.Delegate` 族基类的五类机制。
+//
+//   ① 族成员：d.Target / d.FnName（实例方法组有 receiver 在 env[0]、lambda 无）
+//   ② 隐式上转：Delegate dg = f;（镜像数组→Array 的 C2/C3 转换分支）；dg 上成员照常
+//   ③ is：函数值 is Delegate → true（此前直接 is/as 落 prim_isa 兜底恒 false，
+//      (Delegate)handler 下转会静默得 null——SubscriptionRefs.WeakRef 的既有现场）
+//   ④ 反射：typeof(delegate).BaseType == Std.Delegate；IsDelegate 位不变
+//   ⑤ where TD : Delegate 约束（internals §6 `.AsWeak()` 门面的前置机制）
+//   ⑥ 既有形态钉：委托字段括号直调 + 类内 this.M 实例方法组（book 记载实例路可用，钉住）
+namespace Demo;
+
+using Std;
+using Std.IO;
+
+class Listener {
+    public int Hits;
+    public void OnTick(int n) { this.Hits = this.Hits + n; }
+}
+
+class Tally {
+    public int Seen;
+}
+
+class Hub {
+    public Action<int> OnKey;      // 委托字段：默认 null
+
+    public Action<int> Grab() {
+        return this.Dispatch;      // this.M 实例方法组（receiver = this）
+    }
+
+    void Dispatch(int n) {
+        if (this.OnKey != null) { this.OnKey(n); }   // 委托字段括号直调
+    }
+}
+
+// ⑤ 泛型约束：任意委托类型实参可入（约束提供的隐式上转 + 运行期 callable_isa）
+string Describe<TD>(TD h) where TD : Delegate {
+    Delegate d = h;
+    return "fn-length " + d.FnName.Length.ToString();
+}
+
+void Main() {
+    // ── ① 族成员：实例方法组 ───────────────────────────────────────────────
+    Listener l = new Listener();
+    Action<int> mg = l.OnTick;
+    Console.WriteLine("mg-target-is-l " + ((Listener)mg.Target == l).ToString());
+    Console.WriteLine("mg-fn " + mg.FnName);
+
+    // lambda：有函数名；捕获 lambda 的 env[0] 是首个捕获槽（这里 = l），非捕获 lambda 无目标
+    Action<int> lam = (int n) => { l.Hits = l.Hits + n; };
+    Console.WriteLine("lam-target-is-l " + ((Listener)lam.Target == l).ToString());
+    Action<int> pure = (int n) => { };
+    Console.WriteLine("pure-target-null " + (pure.Target == null).ToString());
+    Console.WriteLine("lam-has-fn " + (lam.FnName != null && lam.FnName.Length > 0).ToString());
+
+    // ── ② 隐式上转 + Delegate 型变量上的成员 ───────────────────────────────
+    Delegate dg = lam;
+    Console.WriteLine("dg-fn-same " + (dg.FnName == lam.FnName).ToString());
+    Console.WriteLine("dg-target-is-l " + ((Listener)dg.Target == l).ToString());
+
+    // ── ③ is：函数值对族基类 ────────────────────────────────────────────────
+    Console.WriteLine("mg-is-delegate " + (mg is Delegate).ToString());
+    Console.WriteLine("lam-is-delegate " + (lam is Delegate).ToString());
+    object boxed = lam;
+    Console.WriteLine("obj-is-delegate " + (boxed is Delegate).ToString());
+
+    // ── ④ 反射：BaseType / IsDelegate ──────────────────────────────────────
+    Console.WriteLine("base " + typeof(Action<int>).BaseType.FullName);
+    Console.WriteLine("isdelegate " + typeof(Action<int>).IsDelegate.ToString());
+    Console.WriteLine("delegate-base-base " + typeof(Delegate).BaseType.FullName);
+
+    // ── ⑤ 约束 ─────────────────────────────────────────────────────────────
+    Console.WriteLine(Describe<Action<int>>(mg));
+    Console.WriteLine(Describe(lam));
+
+    // ── ⑥ 既有形态钉：委托字段直调 + this.M 方法组 ──────────────────────────
+    // （闭包 env 冻结、捕获按值快照——可变状态走对象字段，不用捕获局部）
+    Hub hub = new Hub();
+    Tally t = new Tally();
+    hub.OnKey = (int k) => { t.Seen = t.Seen + k; };
+    Action<int> self = hub.Grab();      // 经 this.Dispatch 方法组（receiver=hub）
+    self(7);
+    Console.WriteLine("seen " + t.Seen.ToString());
+    Console.WriteLine("self-target-is-hub " + ((Hub)self.Target == hub).ToString());
+}

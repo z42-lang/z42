@@ -265,7 +265,7 @@ fn resolve_vcall_unchecked<'a>(
     // ── 4. object: vtable → resolve_virtual → lazy hierarchy walk ─────────────────────────
     let type_desc = match obj_val {
         Value::Object(rc) => rc.type_desc_arc().clone(),
-        other => bail!("VCall: expected object, got {:?}", other),
+        other => bail!("VCall: expected object, got {:?} (method `{}`)", other, method),
     };
     let recv_type = type_desc.id.0;
 

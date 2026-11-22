@@ -310,15 +310,21 @@ public sealed class ClassDecl : Decl {
 // SymbolCollector 把 Trait 并入 Target 的接口集 + methods 并入 Target 的方法表；
 // 跨包可见性靠 IMPL section（消费端 TypeChecker 见到）。方法须有体（不允许 extern）。
 public sealed class ImplDecl : Decl {
+    public TypeParamList TypeParams;
+    public string[] TargetParamNames;
+    public bool Registered;
     public TypeExpr TraitType;
     public TypeExpr TargetType;
     public Decl[]   Methods;       // 经 _parseMember 解析（MethodDecl 等）
     public int      MethodCount;
-    public ImplDecl(TypeExpr traitTy, TypeExpr target, Decl[] methods, int methodCount, Span span) { this.Span = span;
+    public ImplDecl(TypeExpr traitTy, TypeExpr target, Decl[] methods, int methodCount, TypeParamList typeParams, Span span) { this.Span = span;
+        this.TypeParams = typeParams; this.TargetParamNames = new string[0];
         this.TraitType = traitTy; this.TargetType = target; this.Methods = methods; this.MethodCount = methodCount;
     }
     public override string Dump() {
-        string s = "(impl " + this.TraitType.Dump() + " for " + this.TargetType.Dump();
+        string s = "(impl ";
+        if (this.TypeParams.Count > 0) { s = s + this.TypeParams.Dump() + " "; }
+        s = s + this.TraitType.Dump() + " for " + this.TargetType.Dump();
         int i = 0;
         while (i < this.MethodCount) { s = s + " " + this.Methods[i].Dump(); i = i + 1; }
         return s + ")";

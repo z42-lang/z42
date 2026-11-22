@@ -16,7 +16,7 @@
 
 ## 基础用法
 
-内部消费者从 `crate::vm::{VmCore, VmContext, VmExtensions}` 导入。装配子模块保持 crate 内部可见；普通宿主使用 `host::LoadedProgram`，独立组件通过 `components::bridge` 获取同构建协议所需的最小类型和布局事实。
+内部消费者从 `crate::vm::{VmCore, VmContext, VmExtensions}` 导入。token 解析借用函数表、内建函数目录、静态字段和 Loader。装配子模块保持 crate 内部可见。普通宿主使用 `host::LoadedProgram`，独立组件通过 `components::bridge` 获取同构建协议所需的最小类型和布局事实。
 
 ## 如何测试验证
 

@@ -67,15 +67,22 @@ pub fn value_synthetic_type_id(obj: &Value) -> Option<u32> {
 /// `Std.String`）匹配，外加 `Std.Object` 基类（所有基元 is-a object）。编译器 `QualifyTypeName`
 /// 发 FQ 形（`Std.String`/`Std.Int32`/`Std.Object`），此处直接比 FQ。
 pub fn prim_isa(val: &Value, class_name: &str) -> bool {
+    use crate::zpkg::index::well_known_names::STD_DELEGATE;
     // 所有基元 is-a object。
     if class_name == "Std.Object" || class_name == "Object" {
-        return primitive_class_name(val).is_some();
+        return primitive_class_name(val).is_some() || matches!(val, Value::Closure(_) | Value::FuncRef(_));
     }
     match val {
         // 整数宽度不可辨：z42 运行时用单一 Value::I64 表示 int/long/short/byte/…（boxed 后
         // 无宽度信息），故一个 boxed 整数 is-a **任意整数类型**——值的声明类型永不假阴，
         // 跨宽度松匹配是该表示的必然（`9L is long` / `(byte)7 is byte` 才不会误判 false）。
         Value::I64(_) => is_integer_class(class_name),
+        // feat/delegate-base-class：委托值（lambda / 方法组）is-a 族基类 `Std.Delegate`——
+        // FuncRef / Closure 无 TypeDesc，直接 is/as（非泛型参数目标）落进本兜底，此前恒 false，
+        // `(Delegate)handler` 下转会静默得 null。
+        Value::Closure(_) | Value::FuncRef(_) => {
+            class_name == STD_DELEGATE || class_name == "Delegate"
+        }
         // 非整数基元：精确匹配其 stdlib 类名（string/double/bool/char）。
         other => primitive_class_name(other) == Some(class_name),
     }

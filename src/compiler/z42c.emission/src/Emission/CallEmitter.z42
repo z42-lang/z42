@@ -191,6 +191,25 @@ public sealed class CallEmitter {
             // 镜像 C# EmitBoundCall：实参先于 receiver（寄存器编号序——byte-identical）
             TypedReg[] iargs = this._emitArgs(c);
             TypedReg recv = this._ee.Emit(c.Receiver);
+            // feat/delegate-base-class：委托族基类成员（`d.Target` / `d.FnName`，收者是函数类型
+            // 或经 `(Delegate)` 上转后的 Delegate 类）→ **静态 Call 直呼** `Std.Delegate` 的
+            // extern getter。同 blob 值 struct 分支的道理：委托值（FuncRef / Closure）无
+            // TypeDesc / vtable，VCall 语义上不可能（运行期必 bail "expected object, got
+            // Closure"）。判据与目标解析在 `EmitContext.NarrowDelegateBaseTarget`（解析不出即
+            // 返回 "" → 落回下方 VCall，永不 miscall；用户自造同名 Delegate 类被 Namespace
+            // 判据排除）。
+            if (this._ee._isDelegateFamilyRecv(c.Receiver.Type())) {
+                string dgTgt = this._ctx.NarrowDelegateBaseTarget(c.MethodName);
+                if (dgTgt != "") {
+                    TypedReg[] dgFull = new TypedReg[c.ArgCount + 1];
+                    dgFull[0] = recv;
+                    int dgi = 0;
+                    while (dgi < c.ArgCount) { dgFull[dgi + 1] = iargs[dgi]; dgi = dgi + 1; }
+                    TypedReg dgDst = this._ctx.Alloc(this._ctx.ToIrType(c.Type()));
+                    this._ctx.Emit(new CallInstr(dgDst, dgTgt, dgFull, c.ArgCount + 1));
+                    return dgDst;
+                }
+            }
             // fix-narrow-prim-instance-dispatch：**窄基元接收者 → 静态 Call**（同 blob 值 struct 分支的
             // 道理：基元是 sealed 值类型、无虚派发，编译期直呼语义上就是对的）。
             // 不这么做的话运行期会按 Value 反推类（`Value::I64 => Std.Int32` / `Value::F64 => Std.Double`），
