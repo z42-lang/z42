@@ -209,6 +209,7 @@ public sealed class DeclParser {
     internal Decl _parseImplDecl(string mods) {
         Span sp = this._p._peek().Span;
         this._p._advance();   // impl
+        TypeParamList typeParams = this._p._typeP._parseTypeParams();
         TypeExpr traitTy = this._p._typeP._parseType();
         this._p._expect(TokenKind.For, "for");
         TypeExpr target = this._p._typeP._parseType();
@@ -221,7 +222,7 @@ public sealed class DeclParser {
             methods = this._growDecls(methods, mc); methods[mc] = this._p._memberP._parseMember(targetName); mc = mc + 1;
         }
         this._p._expect(TokenKind.RBrace, "}");
-        return new ImplDecl(traitTy, target, methods, mc, sp);
+        return new ImplDecl(traitTy, target, methods, mc, typeParams, sp);
     }
 
     public Decl _parseEnum(string mods) {   // add-nested-types：MemberParser 嵌套 enum 也调用

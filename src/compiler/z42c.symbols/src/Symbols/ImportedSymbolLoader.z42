@@ -54,7 +54,7 @@ public sealed class ImportedSymbols {
     // add-associated-types PR-1：导入类的 where 约束（键 = 类的 FQN 键，即 ClassesByFqn 的键，
     // 与 SymbolTable.ClassConstraintKey 口径一致）→ ConstraintSet。
     public StrMap Constraints;
-    public StrMap ConcreteImplOrigins;
+    public StrMap ImplOrigins;
     public DiagnosticBag ImplDiagnostics;
     // fix-crosspkg-ns-reachability：依赖契约三件套的**搬运载体**。放在这里而不是给
     // `BuildPackageCus` 加参：本类已经是「跨包信息进符号表」的唯一通道（ClassPkgAll 就走这条），
@@ -64,7 +64,7 @@ public sealed class ImportedSymbols {
     public bool   EnforceDeclaredDeps;
     public ImportedSymbols() {
         this.Constraints = new StrMap();
-        this.ConcreteImplOrigins = new StrMap();
+        this.ImplOrigins = new StrMap();
         this.ImplDiagnostics = new DiagnosticBag();
         this.FunctionsByFqn = new StrMap();
         this.ClassNsAll = new StrMap();
@@ -220,7 +220,7 @@ public static partial class ImportedSymbolLoader {
                 int c = 0;
                 while (c < em.ImplCount) {
                     ExportedImplZ entry = em.Impls[c];
-                    ImportedSymbolLoader._noteConcreteImpl(r, entry, pkgNames[i]);
+                    ImportedSymbolLoader._noteImpl(r, entry, pkgNames[i]);
                     if (tier0[i]) { ImportedSymbolLoader._mergeImpl(r, entry); }
                     c = c + 1;
                 }
@@ -230,23 +230,24 @@ public static partial class ImportedSymbolLoader {
         return r;
     }
 
-    internal static string ConcreteImplKey(string target, string trait) {
+    internal static string ImplKey(string target, string trait) {
         return "impl " + trait + " for " + target;
     }
 
-    private static void _noteConcreteImpl(ImportedSymbols r, ExportedImplZ entry, string packageName) {
-        if (entry.TypeArgCount != 0 || entry.TargetFq.IndexOf("<") >= 0 || entry.TraitFq.IndexOf("<") >= 0) { return; }
+    private static void _noteImpl(ImportedSymbols r, ExportedImplZ entry, string packageName) {
+        if (entry.TargetFq.IndexOf("<") >= 0 || entry.TraitFq.IndexOf("<") >= 0) { return; }
         Z42ClassType target = r.ClassesByFqn.Get(entry.TargetFq) as Z42ClassType;
         Z42InterfaceType trait = r.InterfacesByFqn.Get(entry.TraitFq) as Z42InterfaceType;
-        if (target == null || trait == null || target.GenericParamCount > 0 || trait.TypeParamCount > 0) { return; }
-        string key = ImportedSymbolLoader.ConcreteImplKey(entry.TargetFq, entry.TraitFq);
-        StrBox previous = r.ConcreteImplOrigins.Get(key) as StrBox;
+        if (target == null || trait == null || trait.TypeParamCount > 0
+            || entry.TypeArgCount != target.GenericParamCount) { return; }
+        string key = ImportedSymbolLoader.ImplKey(entry.TargetFq, entry.TraitFq);
+        StrBox previous = r.ImplOrigins.Get(key) as StrBox;
         if (previous != null) {
             r.ImplDiagnostics.Error(DiagnosticCodes.InvalidImpl,
                 "duplicate `" + key + "` in packages `" + previous.Value + "` and `" + packageName + "`",
                 new Span(0, 0, 1, 1, packageName + ".zpkg"));
         } else {
-            r.ConcreteImplOrigins.Put(key, new StrBox(packageName));
+            r.ImplOrigins.Put(key, new StrBox(packageName));
         }
     }
 
@@ -265,12 +266,16 @@ public static partial class ImportedSymbolLoader {
         // 注：不校验 r.Interfaces.ContainsKey(traitShort)——z42c 不 import 接口进表（会破坏
         // stdlib byte-identical），且 impl 块由生产端（greeter 编译期）已校验 trait 合法性。
         // 方法并入 target.Methods（first-wins）+ 实例方法入 OwnMethod 有序元数据
+        Z42InterfaceType contract = r.InterfacesByFqn.Get(traitName) as Z42InterfaceType;
+        bool open = contract != null && contract.TypeParamCount == 0 && ct.GenericParamCount > 0
+            && im.TypeArgCount == ct.GenericParamCount;
+        string[] classParams = open ? im.TypeArgs : new string[0];
         int m = 0;
         while (m < im.MethodCount) {
             ExportedMethodZ me = im.Methods[m];
             if (!ct.Methods.ContainsKey(me.Name)) {
                 // R1：trait-impl 方法的方法级型参（此前不喂 → 同款降级）。
-                string[] etps = ImportedSymbolLoader._tpsWith(new string[0], 0, me.TypeParams);
+                string[] etps = ImportedSymbolLoader._tpsWith(classParams, classParams.Length, me.TypeParams);
                 int etpc = etps.Length;
                 Z42Type[] ps = new Z42Type[me.ParamCount];
                 int j = 0;
@@ -278,6 +283,7 @@ public static partial class ImportedSymbolLoader {
                 var sig = new Z42FuncType(ps, me.ParamCount, ImportedSymbolLoader._resolve(r, me.ReturnType, etps, etpc));
                 sig.ParamsFrom = me.ParamsFrom;
                 ImportedSymbolLoader._fillParamMeta(sig, me.Params, me.ParamCount, me.RefInfoKnown, me.RetIsNullable);   // PR6：跨包默认值/ caller
+                if (open) { sig = ImplTargets.NormalizeSignature(sig, classParams, ct); }
                 var sym = new MethodSymbol(me.Name, me.Visibility, sig, me.IsStatic, ct.Name(), false, null);
                 sym.IsSealed = me.IsSealed;   // impl-sealed-semantics-devirt：跨包方法级 sealed（override 强制）
                 sym.IsDeprecated = me.IsDeprecated; sym.DeprecationMsg = me.DeprecationMsg;   // add-deprecated-directive：跨包方法级弃用

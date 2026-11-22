@@ -23,16 +23,10 @@ public static class FuncImplExtractor {
                 string traitName = FuncImplExtractor._typeShortName(implD.TraitType);
                 if (targetName != "" && traitName != "") {
                     if (view == null) { view = symbols.WithCu(cu); }
-                    string targetFq = FuncImplExtractor._fqOf(targetName, currentNs, view);
+                    Z42ClassType target = ImplTargets.Resolve(view, implD);
+                    string targetFq = target == null ? FuncImplExtractor._fqOf(targetName, currentNs, view) : target.Fqn();
                     string traitFq = FuncImplExtractor._fqOf(traitName, currentNs, view);
-                    // trait 泛型实参（NamedType.Args → TsigTypeName）
-                    string[] argStrs = new string[0];
-                    int argc = 0;
-                    if (implD.TraitType is NamedType) {
-                        NamedType tnt = implD.TraitType as NamedType;
-                        argStrs = new string[tnt.ArgCount];
-                        while (argc < tnt.ArgCount) { argStrs[argc] = TypeNameResolver.TsigTypeName(tnt.Args[argc]); argc = argc + 1; }
-                    }
+                    string[] argStrs = FuncImplExtractor._implArgs(implD);
                     // impl 方法签名（AST 直取，镜像 C#：types via TsigTypeName，vis/static/virtual/abstract via mods）
                     ExportedMethodZ[] ms = new ExportedMethodZ[implD.MethodCount];
                     int mc = 0;
@@ -61,7 +55,7 @@ public static class FuncImplExtractor {
                         int k = 0; while (k < rc) { b[k] = result[k]; k = k + 1; }
                         result = b;
                     }
-                    result[rc] = new ExportedImplZ(targetFq, traitFq, argStrs, argc, ms, mc);
+                    result[rc] = new ExportedImplZ(targetFq, traitFq, argStrs, argStrs.Length, ms, mc);
                     rc = rc + 1;
                 }
             }
@@ -70,6 +64,17 @@ public static class FuncImplExtractor {
         ExportedImplZ[] trimmed = new ExportedImplZ[rc];
         int t = 0; while (t < rc) { trimmed[t] = result[t]; t = t + 1; }
         return trimmed;
+    }
+
+    private static string[] _implArgs(ImplDecl declaration) {
+        if (declaration.TargetParamNames.Length > 0) { return declaration.TargetParamNames; }
+        NamedType trait = declaration.TraitType as NamedType;
+        if (trait == null) { return new string[0]; }
+        string[] args = new string[trait.ArgCount];
+        for (int i = 0; i < args.Length; i = i + 1) {
+            args[i] = TypeNameResolver.TsigTypeName(trait.Args[i]);
+        }
+        return args;
     }
 
     // 短名 FQ 化：本 CU 作用域解析到类 / 接口 → "<declNs>.<name>"，否则 "<currentNs>.<name>"。
