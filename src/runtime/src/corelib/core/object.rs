@@ -240,6 +240,17 @@ pub fn delegate_hash(delegate: &Value) -> i64 {
     }
 }
 
+/// feat/delegate-invocation-list: `Std.Delegate.GetInvocationList` — C#-aligned
+/// snapshot. A z42 delegate is single-cast, so a callable answers `[self]`; a
+/// null (or non-delegate) value answers an empty array — the "nobody is
+/// subscribed" reading that `foreach` over the result keeps working.
+pub fn delegate_invocation_list(ctx: &VmContext, delegate: &Value) -> Value {
+    match delegate {
+        Value::Closure(_) | Value::FuncRef(_) => ctx.heap().alloc_array(vec![delegate.clone()]),
+        _ => ctx.heap().alloc_array(Vec::new()),
+    }
+}
+
 /// Identity hash of a heap address: non-negative 31 bits, stable because the
 /// GC never moves objects. The address itself is a poor hash — allocations
 /// are aligned, so its low bits are constant, and `Dictionary` picks the
@@ -368,4 +379,9 @@ pub mod typed {
 
     #[builtin(name = "__delegate_hash", this = "GetHashCode", pure)]
     pub fn delegate_hash(this: &Value) -> i64 { super::delegate_hash(this) }
+
+    #[builtin(name = "__delegate_invocation_list", this = "GetInvocationList")]
+    pub fn delegate_invocation_list(ctx: &VmContext, this: &Value) -> Value {
+        super::delegate_invocation_list(ctx, this)
+    }
 }

@@ -4,3 +4,7 @@ log: 42
 7
 true
 false
+true
+true
+true
+false

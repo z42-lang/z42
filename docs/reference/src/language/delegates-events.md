@@ -34,7 +34,7 @@ public delegate R Func<T1, T2, T3, T4, R>(T1 a, T2 b, T3 c, T4 d);
 public delegate bool Predicate<T>(T arg);
 ```
 
-**arity 覆盖 0–4**（`Predicate` 仅 1 元）。C# 的 `Action<T1..T16>` / `Func<T1..T16, R>`
+**arity 覆盖 0–4**（`Predicate` 覆盖 1–4 参，返回恒 `bool`）。C# 的 `Action<T1..T16>` / `Func<T1..T16, R>`
 在 z42 **不存在**——实测 examples / tests 里 5+ 元 callable 为 0 个，超出 4 元请自己写
 一个具名 `delegate`。
 
@@ -137,6 +137,7 @@ public class Delegate {
   自定义策略可用它收窄）。
 - **约束成员直读**：`where TD : Delegate` 的泛型体内 `h.Target` / `h.FnName` 直接可读（2026-11 feat/delegate-constraint-members，免手写 `(Delegate)h` 上转）；任意**类约束**（`where T : SomeClass`）的字段 / 属性 / 方法同样直读（运行期收者是真实对象）。
 - **Object 协议方法**（feat/delegate-object-methods）：委托值上 `ToString()`（= 目标函数全限定名，与 `FnName` 同源）、`Equals(other)`（与 `==` / `ReferenceEquals` 同判据）、`GetHashCode()`（与相等一致）直接可用；`GetType()` 折叠为 `typeof(静态委托类型)`（同值类型的 GetType 折叠先例，`(Delegate)f` 收者报族基类 `Std.Delegate`）。
+- **调用列表快照**（feat/delegate-invocation-list）：`f.GetInvocationList()` 对齐 C#——单播委托恒返回长度 1 的 `Delegate[]`（即自身），null 委托返回空数组；多播枚举走 `MulticastAction<T>.GetInvocationList()` 等返回 strong 通道处理器快照（COW；advanced 包装通道不可材料化）。
 - **反射**：`typeof(任意委托类型).BaseType` 是 `Std.Delegate`；`IsDelegate` 位不受影响。
 - ⚠️ `Target` 返回 `Closure` 的 `env[0]`——实例方法组即 receiver；捕获了值的 lambda
   是首个捕获槽（表示上无法区分二者）。`FuncRef`（无捕获 lambda / 自由函数）为 null。
@@ -145,11 +146,16 @@ public class Delegate {
 
 ### 3.1 API 表面
 
+三族多播类型与单播委托族同覆盖 **0–4 参**（`MulticastAction` 0/1/2/3/4、`MulticastFunc` 1–4 参加
+返回、`MulticastPredicate` 1–4 参；feat/multicast-arity-family——变体由 1 参原版机械生成，语义
+逐位同款）。以下签名以 `MulticastAction<T>` 为例，其余元数同构：
+
 ```z42
 namespace Std;
 
 public sealed class MulticastAction<T> {
     public int Count();                                              // 方法，不是属性
+    public Action<T>[] GetInvocationList();                         // strong 通道处理器快照（COW）
     public IDisposable Subscribe(Action<T> handler);                 // 裸 handler → fast path
     public IDisposable SubscribeAdvanced(ISubscription<Action<T>> wrapper);
     public void Unsubscribe(Action<T> handler);
@@ -158,6 +164,7 @@ public sealed class MulticastAction<T> {
 
 public sealed class MulticastFunc<TArg, TResult> {
     public int Count();
+    public Func<TArg, TResult>[] GetInvocationList();              // strong 通道处理器快照（COW）
     public IDisposable Subscribe(Func<TArg, TResult> handler);
     public IDisposable SubscribeAdvanced(ISubscription<Func<TArg, TResult>> wrapper);
     public void Unsubscribe(Func<TArg, TResult> handler);
@@ -166,6 +173,7 @@ public sealed class MulticastFunc<TArg, TResult> {
 
 public sealed class MulticastPredicate<T> {
     public int Count();
+    public Predicate<T>[] GetInvocationList();             // strong 通道处理器快照（COW）
     public IDisposable Subscribe(Predicate<T> handler);
     public IDisposable SubscribeAdvanced(ISubscription<Predicate<T>> wrapper);
     public void Unsubscribe(Predicate<T> handler);
@@ -420,7 +428,6 @@ z42 **不提供** per-event once with replay：
 |----|------|
 | Variadic generics | 复杂度过高；C# / Rust 都没做 |
 | 协变 / 逆变（`<in T, out R>`）| 推迟到 L3 后期 |
-| `delegate.GetInvocationList()` | 多播是独立类型，不需要此 API |
 | `BeginInvoke` / `EndInvoke` | 用 L3 async/await 替代 |
 | `MulticastDelegate` 抽象层 | 族基类 `Std.Delegate` 已提供公共接口（§2.6）；多播语义仍由独立 `Multicast*` 类型承担，不叠床架屋 |
 | 反射式 `DynamicInvoke` | 与反射轨道一并设计 |

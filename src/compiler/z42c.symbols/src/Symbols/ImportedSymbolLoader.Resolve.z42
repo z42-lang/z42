@@ -28,10 +28,13 @@ public static partial class ImportedSymbolLoader {
             return new Z42FuncType(ps, n, new Z42VoidType());
         }
         if (b == "Predicate") {
-            if (n != 1) { return null; }
-            Z42Type[] ps = new Z42Type[1];
-            ps[0] = ImportedSymbolLoader._resolve(r, argStrs[0], typeParams, tpCount);
-            return new Z42FuncType(ps, 1, Z42ClassType.Builtin("bool"));
+            // feat/delegate-invocation-list（合批）：Predicate 覆盖 1–4 参（与 stdlib 声明对齐），
+            // 返回恒 bool。arity 不在 1..4 仍回落 null（走原「未知名」路径）。
+            if (n < 1 || n > 4) { return null; }
+            Z42Type[] ps = new Z42Type[n];
+            int pi = 0;
+            while (pi < n) { ps[pi] = ImportedSymbolLoader._resolve(r, argStrs[pi], typeParams, tpCount); pi = pi + 1; }
+            return new Z42FuncType(ps, n, Z42ClassType.Builtin("bool"));
         }
         if (n < 1) { return null; }                     // Func 至少要有返回类型
         Z42Type[] ps = new Z42Type[n - 1];

@@ -1,0 +1,13 @@
+n 11
+
+snap 2
+sum 6
+after 6
+agg true
+n2 1011
+f2 7 12
+f3 6
+all true
+any true
+inv falsetrue
+p4 true
