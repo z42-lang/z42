@@ -20,6 +20,7 @@ use crate::threads::VmContextPtr;
 
 mod extensions;
 mod wiring;
+pub(crate) mod context_gc;
 pub use extensions::{ExtensionState, VmExtensions};
 
 
