@@ -182,6 +182,11 @@ Rust 侧四个实现零改动）：
 - **is/as**：直接目标走 `prim_isa` 的 callable 臂（`Std.Delegate` / `Std.Object` → true）；
   泛型参数目标走 `callable_isa` 的同名特判（必须抢在注册表查询前——`Std.Delegate` 是真类、
   `is_delegate()` 位是 **false**，查表会答 false）。
+- **约束成员直读**（feat/delegate-constraint-members）：`_constraintBaseClass`（方法级
+  WhereClause 现读 + 类级 ConstraintSet.HasBaseClass）解析型参的基类约束——GS5 读路与
+  调用路在 Object/约束接口未命中后按约束类**整段重派发类路径**（字段/getter/重载/访问检查
+  全复用）；**stdlib Delegate** 约束合成 `(Delegate)h` 上转节点接直呼机制（运行期该
+  AsCast 经 prim_isa callable 臂恒放行）。
 - **元数据**：`EmitDelegates` 的 `IrClassDesc` 带 `base = "Std.Delegate"`（数据字段非
   schema，无 format-bump）⇒ 反射 `BaseType` / `IsSubclassOf` 沿基链自然成立；
   `where TD : Delegate` 约束由 `ConstraintChecker._satisfiesBase` 的 `Z42FuncType` 分支放行。

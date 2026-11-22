@@ -1,0 +1,42 @@
+// feat/delegate-constraint-members：类约束成员直读的类型检查单测。
+// Delegate 约束的直读（h.FnName / h.Target）由 e2e `delegate_constraint_members` 覆盖
+//（SemanticDump 片段不带 stdlib）；**泛化类约束**不需要 stdlib，正负例都在这里钉：
+//   · 正：`where T : B` 下字段 / 属性 getter / 方法调用直读，零诊断
+//   · 负：约束类没有的成员 → E0401（此前是「全仓无此名」松绑或 undefined 级联）
+namespace Z42cSemanticsConstraintClassMembersTests;
+
+using Z42.Semantics;
+using Std.Harness;
+
+[Test]
+void test_class_constraint_field_direct_read() {
+    string src = "class B { public int F; } int M<T>(T x) where T : B { return x.F; }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_class_constraint_property_direct_read() {
+    string src = "class B { public int P { get; } } int M<T>(T x) where T : B { return x.P; }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_class_constraint_method_direct_call() {
+    string src = "class B { public int Get() { return 1; } } int M<T>(T x) where T : B { return x.Get(); }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_class_constraint_unknown_member_is_e0401() {
+    // 约束类 B 没有 Nope ⇒ E0401（经类路径点名 B，不再是「全仓无此名」松绑）。
+    string src = "class B { public int F; } int M<T>(T x) where T : B { return x.Nope; }";
+    Assert.Equal("E0401", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_unconstrained_param_unknown_member_unchanged() {
+    // 无约束型参 + 全仓无此成员名：既有行为（check-bare-type-param-member-access B 的
+    // 「全仓无此名」报红）不变——本改动只给**有基类约束**的型号新增成员路。
+    string src = "int M<T>(T x) { return x.Nope; }";
+    Assert.Equal("E0401", SemanticDump.FirstErrorCode(src));
+}
