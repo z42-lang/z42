@@ -164,7 +164,7 @@ public sealed class DeclParser {
         }
         this._p._expect(TokenKind.LBrace, "{");
         while (this._p._peek().Kind != TokenKind.RBrace && this._p._peek().Kind != TokenKind.Eof) {
-            Decl mem = this._p._memberP._parseMember(name);
+            Decl mem = this._p._memberP._parseMember(name, kind == "class");
             // event 字段 → 合成 add_X/remove_X 访问器（镜像 C# SynthesizeClassEvent）。
             // multicast（MulticastAction/Func/Predicate）：add 体 `return this.X.Subscribe(h)`、
             // remove 体 `this.X.Unsubscribe(h)`。interface：丢 backing field，仅留签名（无 body）。
@@ -218,7 +218,7 @@ public sealed class DeclParser {
         Decl[] methods = new Decl[8];
         int mc = 0;
         while (this._p._peek().Kind != TokenKind.RBrace && this._p._peek().Kind != TokenKind.Eof) {
-            methods = this._growDecls(methods, mc); methods[mc] = this._p._memberP._parseMember(targetName); mc = mc + 1;
+            methods = this._growDecls(methods, mc); methods[mc] = this._p._memberP._parseMember(targetName, false); mc = mc + 1;
         }
         this._p._expect(TokenKind.RBrace, "}");
         return new ImplDecl(traitTy, target, methods, mc, sp);

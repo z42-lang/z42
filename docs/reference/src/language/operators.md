@@ -173,6 +173,28 @@ flags |= 0x4;
   `&=` `|=` `^=` 同样只接受整型。
 - `string += string` 合法，就是拼接。
 
+### 重载 `+=` 与 `-=`
+
+类可以用 `public` 实例成员声明 `operator +=` 或 `operator -=`。声明需要方法体和一个必填的按值参数。
+左侧表达式求值一次，右侧作为实参。表达式的类型取自重载的返回类型，调用完成后无需给左侧写回。
+
+```z42
+class Signal {
+    private MulticastAction<int> _callbacks = new MulticastAction<int>();
+
+    public IDisposable operator +=(Action<int> handler) {
+        return this._callbacks.Subscribe(handler);
+    }
+
+    public void operator -=(Action<int> handler) {
+        this._callbacks.Unsubscribe(handler);
+    }
+}
+```
+
+`IDisposable token = signal += handler;` 按上例注册处理器，并取得退订凭据。单独的 `+` 和 `-` 使用各自的
+二元运算符重载。接收者类型没有声明对应的复合赋值重载时，按本节开头的读、运算、写回规则绑定。
+
 > ⚠️ **已知缺口：复合赋值不做窄化检查。** 普通赋值会拦住窄化——
 > `x = x + 2.5;`（`x` 是 `int`）报 `E0439`（cannot implicitly convert 'double' to 'Int32'）。
 > 但等价的 `x += 2.5;` **能通过编译**，在运行期才失败。
@@ -373,7 +395,7 @@ class Ver {
   `op_UnaryNegation` / `op_UnaryPlus` / `op_LogicalNot` / `op_OnesComplement`，`-v` /
   `!t` 派发规则与二元相同（先 `op_`、不命中回落原生表——数值 / bool 零行为变化）。同符号
   二元与一元可并存（`operator -(Vec, Vec)` 与 `operator -(Vec)` 各自成立）。
-- **这张表就是全部**：二元 ∪ 一元表外的符号（`++` / `--` / `&&` / …）与错误形参个数
+- 可重载的符号包含二元表、一元列表和上文的复合赋值 `+=`、`-=`。其他符号（`++` / `--` / `&&` / …）与错误形参个数
   （如 `operator !(T a, T b)`）都**不可重载**，写了报 [E0495](../appendix/error-codes.md)。
   这类写法若不在声明处拦下，会**一句话不说**：表外符号被造出一个非法名、一元 `-` 撞进
   `op_Subtract`，方法照样发进 zbc，而派发侧永远查不到它 —— 你只会在**使用处**看到一句与
