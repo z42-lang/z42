@@ -21,7 +21,7 @@ public sealed partial class MemberResolver {
 
     // 解析泛型方法调用 `Foo<A,B>(...)` 的类型实参，写入 BoundCall.MethodTypeArgs（解析后的具体 Z42Type[]，
     // ExprEmitter 转 FQ 名编进 IR Call）；省略尖括号时从实参推断。ms 有本地 Decl 时校验 arity（E0446）与 where
-    // 约束；ms=null（间接 / loose 绑定）→ 仅解析、不校验、不代换返回。
+    // 约束；导入方法从签名元数据取约束。ms=null 时只记录实参。
     // 幂等：已附加（MethodTypeArgCount>0）即不再改写。返回调用表达式的最终形态（bc 本身，或包了拆箱的 bc）。
     // `instRecv` = 受者那一层的代换来源（实例化类 / 接口，见 GenericCallRet.Finish），无则 null。
     internal BoundExpr _applyMethodTypeArgs(BoundCall bc, CallExpr call, MethodSymbol ms, TypeEnv env,
@@ -37,23 +37,20 @@ public sealed partial class MemberResolver {
         }
         MemberResolver._setMethodTypeArgs(bc, targs, call.TypeArgCount, env);
         if (ms == null) { return bc; }
-        if (ms.HasDecl && ms.Decl != null) {
-            int declTp = ms.Decl.TypeParams.Count;
-            if (declTp != call.TypeArgCount) {
-                this._tc._diags.Error(DiagnosticCodes.GenericMethodArity,
-                    "generic method `" + ms.Name + "` expects " + declTp.ToString()
-                    + " type argument(s) but got " + call.TypeArgCount.ToString(), call.Span);
-                return bc;
-            }
-            this._tc._constraints.CheckMethod(env.GetSymbols(), ms.Decl, targs, call.TypeArgCount, call.Span);
-            // 形参位按类型实参代换后补查实参（`IdOf<string>(7)` 报错）。签名若已在绑实参**之前**代换过
-            // （ForExplicitTypeArgs，`MethodErasedSig` 非空），实参已对着代换后的签名查过一次 ⇒ 不再补查，
-            // 否则同一实参报两条。只对方法级型参代换；类级型参由受者那条路负责。
-            if (ms.MethodErasedSig == null) {
-                MethodTypeArgSubst.CheckSubstMethodArgs(this._tc, bc, ms.Signature, ms.TypeParamNames, declTp, targs, env);
-            }
+        bool local = ms.HasDecl && ms.Decl != null;
+        if (local && ms.Decl.TypeParams.Count != call.TypeArgCount) {
+            this._tc._diags.Error(DiagnosticCodes.GenericMethodArity,
+                "generic method `" + ms.Name + "` expects " + ms.Decl.TypeParams.Count.ToString()
+                + " type argument(s) but got " + call.TypeArgCount.ToString(), call.Span);
+            return bc;
         }
         if (ms.TypeParamNames.Length != call.TypeArgCount) { return bc; }
+        this._tc._constraints.CheckMethod(env.GetSymbols(), ms, targs, call.TypeArgCount, call.Span);
+        // 若签名已在绑定实参之前代换，实参已经检查过。
+        if (local && ms.MethodErasedSig == null) {
+            MethodTypeArgSubst.CheckSubstMethodArgs(this._tc, bc, ms.Signature, ms.TypeParamNames,
+                                                   call.TypeArgCount, targs, env);
+        }
         return GenericCallRet.Finish(bc, ms, ms.TypeParamNames, call.TypeArgCount, targs, instRecv);
     }
 
@@ -85,8 +82,8 @@ public sealed partial class MemberResolver {
             }
             return bc;
         }
+        this._tc._constraints.CheckMethod(env.GetSymbols(), ms, inf.Args, inf.Count, call.Span);
         if (local) {
-            this._tc._constraints.CheckMethod(env.GetSymbols(), ms.Decl, inf.Args, inf.Count, call.Span);
             MethodTypeArgSubst.CheckSubstMethodArgs(this._tc, bc, esig, ms.TypeParamNames, inf.Count, inf.Args, env);
         }
         MemberResolver._setMethodTypeArgs(bc, inf.Args, inf.Count, env);

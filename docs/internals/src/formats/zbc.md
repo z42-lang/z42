@@ -150,7 +150,8 @@ method_flags  u8（bit0 virtual / bit1 abstract / bit2 sealed / bit3 sret / bit4
 min_arg       u16（必填逻辑参数数）
 params_from   u8（变长参数起始逻辑下标；0xFF = 无）
 每参 ×        { param_type pool idx; param_name pool idx; default_kind u8; [default payload] }
-tp_count      u8（z42c 恒 0）
+tp_count      u8（方法级泛型形参数）
+每 tp ×       { tp_name pool idx; 约束 bundle，与 TYPE 段同布局 }
 attr_count    u16
 attr ×        { type_name u32; factory u32 }
 每参 ×        { u16 attr_count; attr×{type_name u32, factory u32} }   参数级 attribute

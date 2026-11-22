@@ -205,6 +205,10 @@ void test_indexed_sigs_intern_placeholder_param_name_and_method_type_params() {
     IrFunction f = new IrFunction("Demo.Probe", 1, "void", true, blocks, 0, 0, "Interp", pts, 1, rts, 0, lt, 0, lv, 0);
     string[] tps = new string[1]; tps[0] = "UOnlyHere";
     f.TypeParams = tps; f.TypeParamCount = 1;   // ParamNames 保持默认空数组
+    var constraint = new IrConstraintDesc();
+    constraint.BaseClass = "Demo.OnlyInConstraint";
+    constraint.RequiresCtor = true;
+    f.TypeParamConstraints = new IrConstraintDesc[] { constraint };
 
     IrFunction[] fns = new IrFunction[1]; fns[0] = f;
     string[] exports = new string[1]; exports[0] = "Demo.Probe";
@@ -225,6 +229,8 @@ void test_indexed_sigs_intern_placeholder_param_name_and_method_type_params() {
     Assert.Equal("?", got.ParamNames[0]);
     Assert.Equal(1, got.TypeParams.Length);
     Assert.Equal("UOnlyHere", got.TypeParams[0]);
+    Assert.Equal("Demo.OnlyInConstraint", got.TypeParamConstraints[0].BaseClass);
+    Assert.True(got.TypeParamConstraints[0].RequiresCtor);
 }
 
 // ── 读端响亮失败（fix-zbc-reader-strict）─────────────────────────────────────────────

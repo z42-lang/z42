@@ -145,19 +145,10 @@ string s = new string(cs); // ✗ E0426（提示改用 `String.FromChars(cs)`）
 
 诊断都携带真实 Span：约束声明错误指向 `where` 所在行，违反错误指向实例化 / 调用处。
 
-**本包与跨包同口径**：导入**类型**的约束走同一个校验函数，判定规则完全一致（见下节）。
+导入类型、泛型方法和自由函数的约束随包传播。可编码的名义约束在显式和推断的类型实参上
+采用同一检查规则。实参违反约束时，编译器在调用处报告 `E0402`。
 
-🔴 **例外：方法级 `where` 不跨包**。TSIG 不导出方法级约束，
-故**导入**的泛型方法 / 自由函数，其 `where` 在调用点**不被校验**：
-
-```z42
-// Array.Sort<T> 声明了 where T : IComparable，但它来自 z42.core（导入）
-Array.Sort<Opaque>(arr);   // ⚠️ 跨包无诊断（同包写同样的代码则报 E0402）
-```
-
-**类级**约束不受影响（有 TSIG 通道，跨包正常报 E0402）。
-这条限制对「方法自己的型参」与「细化类级型参」两种形态**一样成立**。
-已登记后续 `export-method-level-wheres`。
+函数类型约束及方法对所属类型参的细化目前由本包编译器校验。
 
 ## 方法级 `where` 细化类级型参
 
@@ -175,12 +166,12 @@ List<Opaque> ys;  ys.Add(o);   // ✅ —— 类级无约束，构造与其余�
                   ys.Sort();   // ❌ E0402（同包）：Opaque 不满足 IComparable
 ```
 
-> ⚠️ 受上文「方法级 `where` 不跨包」限制：该校验目前**只在同包生效**。
+> 对类级型参的这种方法级细化在同包调用时生效。
 
 ## 跨包约束是怎么传过来的
 
-约束的载体是 **zbc `TYPE` 段的型参约束 bundle**——不是 zpkg 的 TSIG（该段已随 `drop-tsig-expt`
-删除，`ExportedClassZ` 由 `TsigReconcile` 从 `TYPE` + `SIGS` 重建）。整条链路：
+类级约束由 zbc `TYPE` 型参记录携带，方法自己的类型形参约束由 `SIGS` 型参记录携带。
+`TsigReconcile` 从这两段重建导出签名。类级约束的链路如下。
 
 ```
 源码 where 子句
@@ -397,9 +388,8 @@ error/unknown（吸收、不级联）→ 不受影响。**只收「目标裸型�
 > 加 owner）仍是 Deferred `tighten-bare-type-param-target-erasure`——那是对通用规则动刀、爆炸半径另算。
 >
 > 「**收者位**的成员名不存在」（上文 E0401）不动目标位，也不需要给 `Z42GenericParamType` 加 owner。
-> 剩下两条独立后续：**按字面全面执行成员可用性规则**（`enforce-bare-type-param-member-rule`，
-> 开工前需先裁决 `var m = genericCall(); m.X` 是否接受判红）、以及**方法级 `where` 跨包导出**
-> （`export-method-level-wheres`，见上）。
+> 后续仍需**按字面全面执行成员可用性规则**（`enforce-bare-type-param-member-rule`，
+> 开工前需先裁决 `var m = genericCall(); m.X` 是否接受判红）。
 
 ## 运算符如何在型参上派发
 

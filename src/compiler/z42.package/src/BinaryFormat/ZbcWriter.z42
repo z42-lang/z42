@@ -82,25 +82,7 @@ public static class ZbcWriter {
             // `where U: T` 的 T 既非字段类型也非接口、仅作约束出现时）。
             int tpx = 0;
             while (tpx < cd.TypeParamCount) { pool.Intern(cd.TypeParams[tpx]); tpx = tpx + 1; }
-            if (cd.TypeParamConstraints != null) {
-                int cbi = 0;
-                while (cbi < cd.TypeParamConstraints.Length) {
-                    IrConstraintDesc cb = cd.TypeParamConstraints[cbi];
-                    if (cb != null) {
-                        int cbifi = 0;
-                        while (cbifi < cb.InterfaceCount) { pool.Intern(cb.Interfaces[cbifi]); cbifi = cbifi + 1; }
-                        if (cb.TypeParamConstraint != "") { pool.Intern(cb.TypeParamConstraint); }   // 镜像 C# InternConstraintBundle：iface 后 intern tp 约束
-                        // bit2 base-class 约束名（add-associated-types PR-1）。**追加在最后**而非按 wire 顺序
-                        // 插到 tpRef 前：BaseClass 为空时（今天全仓所有约束都是这种）常量池索引分配逐字节不变，
-                        // 不给自举不动点引入无谓的字节漂移。
-                        if (cb.BaseClass != "") { pool.Intern(cb.BaseClass); }
-                        // bit7 关联类型绑定名/类型（zbc 1.42，assoc-type-crosspkg）。
-                        int cbabi = 0;
-                        while (cbabi < cb.AssocBindingCount) { pool.Intern(cb.AssocBindingNames[cbabi]); pool.Intern(cb.AssocBindingTypeNames[cbabi]); cbabi = cbabi + 1; }
-                    }
-                    cbi = cbi + 1;
-                }
-            }
+            ZbcWriter.InternConstraintBundles(cd.TypeParamConstraints, pool);
             // attr-ref 串（add-attribute-reflection）：TypeName + FactoryFunc 须先入池供 BuildType pool.Idx。
             int cax = 0;
             while (cax < cd.AttrCount) { pool.Intern(cd.Attrs[cax].TypeName); pool.Intern(cd.Attrs[cax].FactoryFunc); cax = cax + 1; }
@@ -137,6 +119,7 @@ public static class ZbcWriter {
             // 非泛型方法 TypeParamCount=0 → 不 intern → STRS 池逐字节不变。
             int ftp = 0;
             while (ftp < fdef.TypeParamCount) { pool.Intern(fdef.TypeParams[ftp]); ftp = ftp + 1; }
+            ZbcWriter.InternConstraintBundles(fdef.TypeParamConstraints, pool);
             // SIGS attr-ref 串（add-attribute-reflection）：函数级 + 每参数级。
             int fax = 0;
             while (fax < fdef.AttrCount) { pool.Intern(fdef.Attrs[fax].TypeName); pool.Intern(fdef.Attrs[fax].FactoryFunc); fax = fax + 1; }
@@ -354,60 +337,74 @@ public static class ZbcWriter {
         }
     }
 
-    // ── TypeParams + per-tp constraint bundles（zbc L3-G1/G3a，镜像 C# BuildType tpCount+WriteConstraintBundle）──
-    private static void _writeTypeParamBundles(ByteWriter w, IrClassDesc cd, ZbcStringPool pool) {
-        int tpCount = cd.TypeParamCount;
-        w.WriteU8(tpCount);
-        int tpi = 0;
-        while (tpi < tpCount) {
-            w.WriteU32(pool.Idx(cd.TypeParams[tpi]));
-            // constraint bundle（flags=0 → only interfaces；无 class/struct/base/func constraint）
-            IrConstraintDesc cDesc = null;
-            if (cd.TypeParamConstraints != null && tpi < cd.TypeParamConstraints.Length) {
-                cDesc = cd.TypeParamConstraints[tpi];
-            }
-            // 约束 flags（add-associated-types PR-1 起写**全部** bit0-5；此前只写 bit3，故运行期
-            // validate_type_arg_constraint 的 class/struct/base/new()/enum 五个分支是死代码，
-            // 且跨包约束无从恢复）。bit6 funcSig 仍未承载 —— Deferred where-constraint-future-func-constraint。
-            // wire 布局早已规约、三方 reader（Rust type_reader.rs / ZbcReader / ZpkgReader）均按完整
-            // 布局消费，故置位**不改 layout、无需格式 bump**。
-            bool reqClass  = (cDesc != null) && cDesc.RequiresClass;
-            bool reqStruct = (cDesc != null) && cDesc.RequiresStruct;
-            bool hasBase   = (cDesc != null) && cDesc.BaseClass != "";
-            bool hasTpRef  = (cDesc != null) && cDesc.TypeParamConstraint != "";
-            bool reqCtor   = (cDesc != null) && cDesc.RequiresCtor;
-            bool reqEnum   = (cDesc != null) && cDesc.RequiresEnum;
-            bool hasAssoc  = (cDesc != null) && cDesc.AssocBindingCount > 0;   // bit7（zbc 1.42）
-            int cflags = 0;
-            if (reqClass)  { cflags = cflags + 1; }    // bit0 requires_class
-            if (reqStruct) { cflags = cflags + 2; }    // bit1 requires_struct
-            if (hasBase)   { cflags = cflags + 4; }    // bit2 has_base
-            if (hasTpRef)  { cflags = cflags + 8; }    // bit3 has_type_param
-            if (reqCtor)   { cflags = cflags + 16; }   // bit4 requires_constructor
-            if (reqEnum)   { cflags = cflags + 32; }   // bit5 requires_enum
-            if (hasAssoc)  { cflags = cflags + 128; }  // bit7 has_assoc_binding（assoc-type-crosspkg）
-            w.WriteU8(cflags);
-            // 载荷顺序必须是 base → tpRef → iface_count → [bit7 assoc]（三方 reader 的一致读取序）。
-            if (hasBase)  { w.WriteU32(pool.Idx(cDesc.BaseClass)); }
-            if (hasTpRef) { w.WriteU32(pool.Idx(cDesc.TypeParamConstraint)); }
-            int ifc = (cDesc != null) ? cDesc.InterfaceCount : 0;
-            w.WriteU8(ifc);
-            int ifi = 0;
-            while (ifi < ifc) {
-                w.WriteU32(pool.Idx(cDesc.Interfaces[ifi]));
-                ifi = ifi + 1;
-            }
-            // bit7 关联类型绑定块（zbc 1.42，assoc-type-crosspkg）：assoc_count:u8 + (name,type)×n。
-            if (hasAssoc) {
-                w.WriteU8(cDesc.AssocBindingCount);
-                int abi = 0;
-                while (abi < cDesc.AssocBindingCount) {
-                    w.WriteU32(pool.Idx(cDesc.AssocBindingNames[abi]));
-                    w.WriteU32(pool.Idx(cDesc.AssocBindingTypeNames[abi]));
-                    abi = abi + 1;
+    public static void InternConstraintBundles(IrConstraintDesc[] bundles, ZbcStringPool pool) {
+        if (bundles == null) { return; }
+        int i = 0;
+        while (i < bundles.Length) {
+            IrConstraintDesc bundle = bundles[i];
+            if (bundle != null) {
+                int j = 0;
+                while (j < bundle.InterfaceCount) { pool.Intern(bundle.Interfaces[j]); j = j + 1; }
+                if (bundle.TypeParamConstraint != "") { pool.Intern(bundle.TypeParamConstraint); }
+                if (bundle.BaseClass != "") { pool.Intern(bundle.BaseClass); }
+                j = 0;
+                while (j < bundle.AssocBindingCount) {
+                    pool.Intern(bundle.AssocBindingNames[j]);
+                    pool.Intern(bundle.AssocBindingTypeNames[j]);
+                    j = j + 1;
                 }
             }
-            tpi = tpi + 1;
+            i = i + 1;
+        }
+    }
+
+    private static void _writeTypeParamBundles(ByteWriter w, IrClassDesc cd, ZbcStringPool pool) {
+        w.WriteU8(cd.TypeParamCount);
+        int i = 0;
+        while (i < cd.TypeParamCount) {
+            w.WriteU32(pool.Idx(cd.TypeParams[i]));
+            ZbcWriter._writeConstraintBundle(w, cd.TypeParamConstraints, i, pool);
+            i = i + 1;
+        }
+    }
+
+    private static void _writeConstraintBundle(ByteWriter w, IrConstraintDesc[] bundles, int index, ZbcStringPool pool) {
+        IrConstraintDesc cDesc = bundles != null && index < bundles.Length ? bundles[index] : null;
+        bool reqClass  = (cDesc != null) && cDesc.RequiresClass;
+        bool reqStruct = (cDesc != null) && cDesc.RequiresStruct;
+        bool hasBase   = (cDesc != null) && cDesc.BaseClass != "";
+        bool hasTpRef  = (cDesc != null) && cDesc.TypeParamConstraint != "";
+        bool reqCtor   = (cDesc != null) && cDesc.RequiresCtor;
+        bool reqEnum   = (cDesc != null) && cDesc.RequiresEnum;
+        bool hasAssoc  = (cDesc != null) && cDesc.AssocBindingCount > 0;   // bit7（zbc 1.42）
+        int cflags = 0;
+        if (reqClass)  { cflags = cflags + 1; }    // bit0 requires_class
+        if (reqStruct) { cflags = cflags + 2; }    // bit1 requires_struct
+        if (hasBase)   { cflags = cflags + 4; }    // bit2 has_base
+        if (hasTpRef)  { cflags = cflags + 8; }    // bit3 has_type_param
+        if (reqCtor)   { cflags = cflags + 16; }   // bit4 requires_constructor
+        if (reqEnum)   { cflags = cflags + 32; }   // bit5 requires_enum
+        if (hasAssoc)  { cflags = cflags + 128; }  // bit7 has_assoc_binding（assoc-type-crosspkg）
+        w.WriteU8(cflags);
+        // 载荷顺序必须是 base → tpRef → iface_count → [bit7 assoc]（三方 reader 的一致读取序）。
+        if (hasBase)  { w.WriteU32(pool.Idx(cDesc.BaseClass)); }
+        if (hasTpRef) { w.WriteU32(pool.Idx(cDesc.TypeParamConstraint)); }
+        int ifc = (cDesc != null) ? cDesc.InterfaceCount : 0;
+        w.WriteU8(ifc);
+        int ifi = 0;
+        while (ifi < ifc) {
+            w.WriteU32(pool.Idx(cDesc.Interfaces[ifi]));
+            ifi = ifi + 1;
+        }
+        // bit7 关联类型绑定块（zbc 1.42，assoc-type-crosspkg）：assoc_count:u8 + (name,type)×n。
+        if (hasAssoc) {
+            w.WriteU8(cDesc.AssocBindingCount);
+            int abi = 0;
+            while (abi < cDesc.AssocBindingCount) {
+                w.WriteU32(pool.Idx(cDesc.AssocBindingNames[abi]));
+                w.WriteU32(pool.Idx(cDesc.AssocBindingTypeNames[abi]));
+                abi = abi + 1;
+            }
         }
     }
 
@@ -558,16 +555,11 @@ public static class ZbcWriter {
                 else if (dk == 5) { w.WriteU32(pool.Idx(f.ParamDefaultStrs[p])); }    // str idx
                 p = p + 1;
             }
-            // add-reflective-invoke：方法级泛型类型形参（原恒写 0；SIGS 段格式早已预留此槽，reader
-            // 全链路已读 → 填真实值无格式 bump）。每 tp：nameIdx:u32 + 约束包（cflags=0 + ifaceCount=0；
-            // where 约束反射式 Deferred）。约束包格式镜像类 writer（TYPE 段 tpCount+bundle）。
-            int mtp = f.TypeParamCount;
-            w.WriteU8(mtp);
+            w.WriteU8(f.TypeParamCount);
             int mtpi = 0;
-            while (mtpi < mtp) {
+            while (mtpi < f.TypeParamCount) {
                 w.WriteU32(pool.Idx(f.TypeParams[mtpi]));
-                w.WriteU8(0);   // cflags=0：无 type-param-ref、无 class/struct/base 约束
-                w.WriteU8(0);   // ifaceCount=0：无接口约束
+                ZbcWriter._writeConstraintBundle(w, f.TypeParamConstraints, mtpi, pool);
                 mtpi = mtpi + 1;
             }
             w.WriteU16(f.AttrCount);   // attrCount（zbc 1.11，add-attribute-reflection）
