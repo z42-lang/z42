@@ -20,4 +20,13 @@ void Main() {
     IUpdater updater = new Ops();
     updater.Update(8, ref c);
     Console.WriteLine(c);
+
+    var ops = new Ops();
+    ops.Update(2, c);
+    Console.WriteLine(c);
+    ops.Update(2, ref c);
+    Console.WriteLine(c);
+    Console.WriteLine(Ops.Choose(c, 21));
+    Console.WriteLine(Ops.Choose(ref c, 21));
+    Console.WriteLine(c);
 }
