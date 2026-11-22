@@ -1,0 +1,7 @@
+[project]
+name = "demo.cli-doc"
+kind = "exe"
+version = "0.1.0"
+
+[dependencies]
+"z42.cli.help" = { path = "../plugin/z42.cli.help.zpkg" }
