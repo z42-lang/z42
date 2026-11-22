@@ -32,6 +32,43 @@ pub fn property_set_value(ctx: &VmContext, pi: &Value, target: &Value, value: &V
     invoke_property_setter(ctx, &setter, target, value)
 }
 
+/// `__property_get_value_indexed(prop, target, index: object[]) -> object` — the
+/// indexer arm of `GetValue`: invoke `get_Item(idx..)` with the index arguments
+/// appended after the receiver, mirroring `__property_get_value`.
+pub fn property_get_value_indexed(ctx: &VmContext, pi: &Value, target: &Value, index: &Value) -> anyhow::Result<Value> {
+    let getter = match read_obj_slot(pi, "__getterQualified") {
+        Value::Str(s) => s.to_string(),
+        _ => bail!("PropertyInfo.GetValue: property has no getter (write-only)"),
+    };
+    let mut args = vec![target.clone()];
+    if let Value::Array(a) = index {
+        for e in a.borrow().iter_boxed() {
+            args.push(unbox_reflective_arg(e));
+        }
+    }
+    invoke_qualified(ctx, &getter, &args, &[])
+}
+
+/// `__property_set_value_indexed(prop, target, index: object[], value: object)` —
+/// the indexer arm of `SetValue`: invoke `set_Item(idx.., value)`. The plain arm
+/// keeps its boxed-struct value coercion (invoke_property_setter); the indexed
+/// arm passes arguments through verbatim.
+pub fn property_set_value_indexed(ctx: &VmContext, pi: &Value, target: &Value, index: &Value, value: &Value) -> anyhow::Result<()> {
+    let setter = match read_obj_slot(pi, "__setterQualified") {
+        Value::Str(s) => s.to_string(),
+        _ => bail!("PropertyInfo.SetValue: property has no setter (read-only)"),
+    };
+    let mut args = vec![target.clone()];
+    if let Value::Array(a) = index {
+        for e in a.borrow().iter_boxed() {
+            args.push(unbox_reflective_arg(e));
+        }
+    }
+    args.push(unbox_reflective_arg(value.clone()));
+    invoke_qualified(ctx, &setter, &args, &[])?;
+    Ok(())
+}
+
 /// `__field_get_value(field: FieldInfo, target: object) -> object` — read an
 /// instance field's value straight off the target object's slot (by the field's
 /// `Name` → the object's own `field_index`). Unlike `PropertyInfo.GetValue`
@@ -319,6 +356,16 @@ pub(super) fn boxed_struct_field_set(
 #[z42_macros::builtins]
 pub mod typed {
     use super::*;
+
+    #[builtin(name = "__property_get_value_indexed", reenters)]
+    pub fn prop_get_at(ctx: &VmContext, this: &Value, obj: &Value, index: &Value) -> Result<Value, BuiltinError> {
+        reentry(ctx, property_get_value_indexed(ctx, this, obj, index))
+    }
+
+    #[builtin(name = "__property_set_value_indexed", reenters)]
+    pub fn prop_set_at(ctx: &VmContext, this: &Value, obj: &Value, index: &Value, value: &Value) -> Result<(), BuiltinError> {
+        reentry(ctx, property_set_value_indexed(ctx, this, obj, index, value))
+    }
 
     #[builtin(name = "__property_get_value", reenters)]
     pub fn prop_get(ctx: &VmContext, this: &Value, obj: &Value) -> Result<Value, BuiltinError> {

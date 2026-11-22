@@ -127,9 +127,12 @@ pub(super) fn accumulate_property(ctx: &VmContext, simple: &str, qualified: &str
     if is_get {
         let (ty, public_instance) = match sig {
             Some(f) => {
-                if f.param_count.saturating_sub(usize::from(!f.is_static)) != 0 {
+                let logical = f.param_count.saturating_sub(usize::from(!f.is_static));
+                if logical != 0 && prop_name != "Item" {
                     return; // get_X(args) — a regular method, not a property
                 }
+                // indexer (get_Item(args)) — a parameterized property (C# model);
+                // z42 indexers are `this[...]`-only, so "Item" is the sole name.
                 (f.ret_type.clone(), !f.is_static && f.visibility == 0)
             }
             None => ("?".to_string(), false),
@@ -142,10 +145,14 @@ pub(super) fn accumulate_property(ctx: &VmContext, simple: &str, qualified: &str
         let (ty, public_instance) = match sig {
             Some(f) => {
                 let base = usize::from(!f.is_static);
-                if f.param_count.saturating_sub(base) != 1 {
-                    return; // set_X with != 1 value param — a regular method
+                let logical = f.param_count.saturating_sub(base);
+                // Plain property: exactly the value param. Indexer (set_Item):
+                // index params + the trailing value param — the value type is the
+                // LAST param; everything else mirrors the plain shape.
+                if logical == 0 || (logical != 1 && prop_name != "Item") {
+                    return; // set_X without exactly one value param — a regular method
                 }
-                let ty = f.param_types().get(base).cloned().unwrap_or_else(|| "?".to_string());
+                let ty = f.param_types().get(f.param_count - 1).cloned().unwrap_or_else(|| "?".to_string());
                 (ty, !f.is_static && f.visibility == 0)
             }
             None => ("?".to_string(), false),
@@ -200,6 +207,45 @@ pub mod typed {
     pub fn property_set_method(ctx: &VmContext, this: &Value) -> Result<Value, BuiltinError> {
         accessor_method(ctx, this, false)
     }
+
+    #[builtin(name = "__property_index_parameters", reenters)]
+    pub fn index_parameters(ctx: &VmContext, this: &Value) -> Result<Value, BuiltinError> {
+        property_index_parameters(ctx, this).map_err(BuiltinError::Legacy)
+    }
+}
+
+/// `__property_index_parameters(pi) -> ParameterInfo[]` — the property's index
+/// parameters (C# `PropertyInfo.GetIndexParameters`): the getter's parameter
+/// list, or a write-only indexer's setter list minus the trailing value param.
+/// Plain properties (no accessor parameters) → empty array. Each parameter's
+/// `__method` host is the accessor `MethodInfo` (the family convention).
+fn property_index_parameters(ctx: &VmContext, pi: &Value) -> Result<Value> {
+    let getter = match read_type_slot_of(pi, "__getterQualified") {
+        Value::Str(s) => s.to_string(),
+        _ => String::new(),
+    };
+    let setter = match read_type_slot_of(pi, "__setterQualified") {
+        Value::Str(s) => s.to_string(),
+        _ => String::new(),
+    };
+    // Prefer the getter (its params ARE the index params); write-only → setter
+    // minus the trailing value. Neither accessor → empty.
+    let mut params: Vec<Value> = Vec::new();
+    let mut host: Option<Value> = None;
+    if !getter.is_empty() {
+        host = accessor_method(ctx, pi, true).ok();
+        params = accessor_params(ctx, &getter)?;
+    } else if !setter.is_empty() {
+        host = accessor_method(ctx, pi, false).ok();
+        params = accessor_params(ctx, &setter)?;
+        params.pop();
+    }
+    if let Some(h) = &host {
+        for p in &params {
+            write_published_slot(ctx, p, "__method", h);
+        }
+    }
+    Ok(ctx.heap().alloc_array(params))
 }
 
 /// Build the `MethodInfo` for a property's `get_<X>` / `set_<X>` accessor from the
