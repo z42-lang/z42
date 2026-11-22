@@ -67,7 +67,7 @@ public class Point3D : Point {
 
 > `Object.ReferenceEquals` **目前从用户代码调用不到**——`Object.ReferenceEquals(a, b)` 与
 > `Std.Object.ReferenceEquals(a, b)` 都报 `E0401: no static method 'ReferenceEquals' on 'Object'`。
-> 比较委托的引用身份请用 `DelegateOps.ReferenceEquals`（见[委托与事件](delegates-events.md)）。
+> 比较委托的引用身份请用 `Delegate.ReferenceEquals`（见[委托与事件](delegates-events.md)）。
 
 规则：
 

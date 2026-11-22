@@ -183,6 +183,11 @@ public static class Conversion {
         // 此前只特判 object，数组基类漏掉 ⇒ `Array a = new int[3];` 在 **var-decl** 就报 E0402
         // （既存 bug，与实参检查无关；stdlib `Array.CopyRange(Array,int,Array,int,int)` 是其现场）。
         if ((from is Z42ArrayType) && Conversion._isArrayBase(to)) { return new ConvResult(ConvKind.ImplicitRef); }
+        // C3（feat/delegate-base-class）：任意委托（Z42FuncType）→ 族基类 `Std.Delegate`（对标 C#
+        // System.Delegate）。与 C2 同型：委托是结构化函数类型、不进 Classes，族基类关系只能在转换格声明。
+        // 反向（Delegate → 具体委托）是显式下转——运行期按擦除规则判定（callable_isa 认 Std.Delegate）。
+        if ((from is Z42FuncType) && Conversion._isDelegateBase(to)) { return new ConvResult(ConvKind.ImplicitRef); }
+        if ((to is Z42FuncType) && Conversion._isDelegateBase(from)) { return new ConvResult(ConvKind.ExplicitRef); }
         // 数值 prim 对（两侧均数值 prim）→ 数值矩阵（Identity / ImplicitNumeric / ExplicitNumeric，永不 None）
         // 双路：翻转后数值基元为 Z42ClassType(Scalar)——_isNumericBuiltin 认 Prim ∪ Scalar 值类型。
         if (Conversion._isNumericBuiltin(from) && Conversion._isNumericBuiltin(to)) {
@@ -411,6 +416,12 @@ public static class Conversion {
     // 用作 `CopyRange(Array source, …)` 这类「任意数组」形参；对标 C# System.Array）。
     private static bool _isArrayBase(Z42Type t) {
         return (t is Z42ClassType) && (t.Name() == "Array");
+    }
+
+    // feat/delegate-base-class：目标是委托族基类 `Delegate`（z42.core 的 `Std.Delegate`，
+    // 用作「任意委托」形参与 where 约束；对标 C# System.Delegate）。短名比对镜像 _isArrayBase。
+    private static bool _isDelegateBase(Z42Type t) {
+        return (t is Z42ClassType) && (t.Name() == "Delegate");
     }
 
     // 双路辅助：是内建 object（Z42PrimType("object") 或翻转后 Z42ClassType(Object)）。

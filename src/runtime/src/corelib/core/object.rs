@@ -292,7 +292,7 @@ mod object_tests;
 
 /// Object 协议迁 builtin ABI v2(P1-8 批次 11)。`GetType` 是纯合成;`ref_eq`
 /// / `hash_code` / `equals` / `to_str` 是 Rust 默认(子类 override 走 z42 vtable,
-/// 不经这里)——全部 PURE。委托协议(`DelegateOps`,批次 12b):`eq` / `target` 只读委托值
+/// 不经这里)——全部 PURE。委托协议(`Std.Delegate` 基类,批次 12b):`eq` / `target` 只读委托值
 /// (PURE);`fn_name` / `make_closure` 分配 GC 串 / 闭包,`make_closure` 绑定失败时抛
 /// `MkClos` 同款的 `MissingSymbolException`(`Thrown` 原样传播)。
 #[z42_macros::builtins]

@@ -317,7 +317,12 @@ lambda 里可以直接用外层的局部变量，这样的 lambda 叫**闭包**�
 {{#include ../../../../examples/types/lambdas/identity/run.console:eq}}
 ```
 
-`DelegateOps.ReferenceEquals(a, b)` 给的是同一个答案，多用于库代码里按处理器退订。
+`Delegate.ReferenceEquals(a, b)` 给的是同一个答案，多用于库代码里按处理器退订。
+
+所有委托类型还共享一个族基类 `Std.Delegate`：`f.Target` 取方法组的接收对象（lambda /
+自由函数为 `null`）、`f.FnName` 取目标函数名，`f is Delegate` 为 true，泛型参数可以写
+`where TD : Delegate` 约束。它不改变「类型说的就是实话」——`Action<T>` 仍是单播，多播
+仍要 `MulticastAction<T>`；基类只提供这些族公共接口。
 
 **调一个为 `null` 的函数值抛 `NullReferenceException`**，可以 `catch`：
 

@@ -386,6 +386,17 @@ public sealed class EmitContext {
         return kw == "float";
     }
 
+    // feat/delegate-base-class：函数类型收者的族基类成员目标（`get_Target` / `get_FnName`）。
+    // 委托值无 TypeDesc / vtable，VCall 语义上不可能；成员只可能来自 `Std.Delegate` 的
+    // extern getter，直呼其已发射 FQ。镜像 `NarrowPrimTarget` 的「校验已发射、查不到回落」
+    // 纪律：本地编 z42.core 自身时 Delegate 在本地类集，否则查 Deps。
+    public string NarrowDelegateBaseTarget(string methodKey) {
+        string fq = PreludeNs.Root() + ".Delegate." + methodKey;
+        if (this.LocalClasses != null && this.LocalClasses.HasFqn(PreludeNs.Root() + ".Delegate")) { return fq; }
+        if (this._depHasFunction(fq)) { return fq; }
+        return "";
+    }
+
     // add-method-reference：解析 `methodof(T.M)` 的目标 FQ 名 —— **必须沿基链找真正的声明类**。
     //
     // 为什么不能直接用 receiver 类拼名：TSIG 把**继承**方法展平进每个派生类的 `Methods`

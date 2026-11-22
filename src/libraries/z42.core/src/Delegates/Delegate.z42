@@ -1,0 +1,31 @@
+namespace Std;
+
+/// 委托族基类：所有委托类型的公共接口。
+///
+/// 覆盖 `Action<T>` / `Func<..>` / `Predicate<T>` / 用户 `delegate` / `(T) -> R`。运行时
+/// 委托是函数值（VM 的 `Value::FuncRef` / `Value::Closure`），本类只提供族公共成员，
+/// 不引入堆对象形态；实例由 lambda / 方法组 / MakeClosure 产生，用户代码不构造。
+/// `==` 与 `ReferenceEquals` 同判据：FuncRef 看目标函数相同，Closure 看目标函数相同 + env
+/// 的 GC ptr_eq，跨变体不等，非委托值返回 false 不报错。
+public class Delegate {
+    /// 判断两个委托值是否引用相等（与 `==` 同判据）。
+    [Native("__delegate_eq")]
+    public static extern bool ReferenceEquals(object a, object b);
+
+    /// 委托的目标对象（receiver）；无可提取目标返回 null。
+    ///
+    /// Closure 返回 env[0]——实例方法组即 receiver；捕获了值的 lambda 是首个捕获槽
+    /// （表示上无法区分二者）。FuncRef（无捕获 lambda / 自由函数引用）返回 null。
+    [Native("__delegate_target")]
+    public extern object Target { get; }
+
+    /// 委托目标函数的全限定名。
+    ///
+    /// 实例方法组为合成 thunk 名——与 MakeClosure 重建闭环一致，勿手工拼接用户可读名。
+    [Native("__delegate_fn_name")]
+    public extern string FnName { get; }
+
+    /// 用函数名 + 环境数组重建闭包；env[0] 通常是 receiver 对象。
+    [Native("__make_closure")]
+    public static extern object MakeClosure(string fnName, object[] env);
+}
