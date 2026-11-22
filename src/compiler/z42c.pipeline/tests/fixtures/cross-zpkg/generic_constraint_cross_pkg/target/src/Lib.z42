@@ -19,6 +19,8 @@ public class NoArgCtor { public int v; public NoArgCtor() { this.v = 7; } }
 
 public string Reveal<T>(T value) where T : IShow { return value.Show(); }
 
+public string TypeNameOfShown<T>(T value) where T : IShow { return typeof(T).FullName; }
+
 public static class Constrained {
     public static T RequireAnimal<T>(T value) where T : Animal { return value; }
     public static T Build<T>() where T : new() { return new T(); }
