@@ -655,6 +655,19 @@ void test_ok_static_interface_member_matching_is_not_reported() {
 }
 
 [Test]
+void test_bodyless_static_interface_member_matches_plain_static_method() {
+    Assert.Equal("", SemanticDump.FirstErrorCode(
+        "interface IFactory { static Self Create(); }\n"
+        + "class C : IFactory { public static C Create() { return new C(); } }\n"));
+}
+
+[Test]
+void test_bodyless_static_interface_member_is_required() {
+    Assert.Equal("E0412", SemanticDump.FirstErrorCode(
+        "interface IFactory { static Self Create(); }\nclass C : IFactory { }\n"));
+}
+
+[Test]
 void test_ok_covariant_return_is_not_reported() {
     // 🛡 无误报守卫（裁决：协变允许）：实现返回 `Dog`、接口声明 `Animal`，Dog is-a Animal → 合法。
     Assert.Equal("", SemanticDump.FirstErrorCode(
