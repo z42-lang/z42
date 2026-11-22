@@ -161,7 +161,8 @@ public sealed class InheritanceResolver {
                         Z42ClassType ct = ImplTargets.Resolve(table, implD);
                         Z42InterfaceType it = table.GetInterface(traitName);
                         if (ct != null && it != null) {
-                            this._checkOneIfaceMembers(table, ct, targetName, implD.Span, it);
+                            Z42Type selfType = ImplTargets.SelfType(implD, ct);
+                            this._checkOneIfaceMembers(table, ct, targetName, implD.Span, it, selfType);
                         }
                     }
                 }
@@ -669,7 +670,7 @@ public sealed class InheritanceResolver {
         int i = 0;
         while (i < c.BaseCount) {
             Z42Type bt = table.ResolveTypeP(c.Bases[i], c.TypeParams.Names, c.TypeParams.Count);
-            if (bt is Z42InterfaceType) { this._checkOneIfaceMembers(table, ct, c.Name, c.Span, bt as Z42InterfaceType); }
+            if (bt is Z42InterfaceType) { this._checkOneIfaceMembers(table, ct, c.Name, c.Span, bt as Z42InterfaceType, ct); }
             i = i + 1;
         }
     }
@@ -688,34 +689,37 @@ public sealed class InheritanceResolver {
     // `cName`/`cSpan`（原来是 `ClassDecl c`）：错误定位用的实现方名字与位置。改用 name+span 是为了让
     // **impl 块路径**（`_passImplIfaceComplete`，实现方 decl 可能跨 CU、只有 `ImplDecl`）也能复用本组
     // 校验——声明接口路径照旧传 `c.Name`/`c.Span`，行为逐字不变（fix-iface-self-completeness-gaps A2）。
-    private void _checkOneIfaceMembers(SymbolTable table, Z42ClassType ct, string cName, Span cSpan, Z42InterfaceType it) {
+    private void _checkOneIfaceMembers(SymbolTable table, Z42ClassType ct, string cName, Span cSpan,
+                                       Z42InterfaceType it, Z42Type selfType) {
+        var substitutions = new IfaceImplMap(selfType, it);
         string[] keys = it.Methods.Keys();
         int k = 0;
         while (k < keys.Length) {
             MethodSymbol ims = it.Methods.Get(keys[k]) as MethodSymbol;
-            if (ims != null && ims.Signature != null) { this._checkOneIfaceMethod(table, ct, cName, cSpan, it, ims); }
+            if (ims != null && ims.Signature != null) { this._checkOneIfaceMethod(table, ct, cName, cSpan, it, ims, substitutions); }
             k = k + 1;
         }
         int b = 0;
         while (b < it.BaseCount) {   // 父接口的成员同样要补齐（与 ⑤ 的闭包同一条链）
             // `BaseAt` 而不是 `GetInterface(裸名)`：后者拿到的是**未实例化**的定义，`interface
-            // ILeaf : IMid<int>` 上溯时 `IMid` 的 `T` 就永远换不掉 ⇒ 下方 `_substForIface` 拿 `T`
+            // ILeaf : IMid<int>` 上溯时 `IMid` 的 `T` 就永远换不掉 ⇒ 签名代换会拿 `T`
             // 去跟实现方的 `int` 比，E0412 误报（实现方**怎么写都过不了**）。
             Z42InterfaceType bit = InterfaceClosure.BaseAt(table, it, b);
-            if (bit != null) { this._checkOneIfaceMembers(table, ct, cName, cSpan, bit); }
+            if (bit != null) { this._checkOneIfaceMembers(table, ct, cName, cSpan, bit, selfType); }
             b = b + 1;
         }
     }
 
     [Suppress("style.fnLinesHard", "72 body lines；拆分见 code-organization.md")]
-    private void _checkOneIfaceMethod(SymbolTable table, Z42ClassType ct, string cName, Span cSpan, Z42InterfaceType it, MethodSymbol ims) {
+    private void _checkOneIfaceMethod(SymbolTable table, Z42ClassType ct, string cName, Span cSpan,
+                                      Z42InterfaceType it, MethodSymbol ims, IfaceImplMap substitutions) {
         int pc = ims.Signature.ParamCount;
         Z42Type[] want = new Z42Type[pc];
         int p = 0;
-        while (p < pc) { want[p] = this._substForIface(ims.Signature.ParamTypes[p], ct, it); p = p + 1; }
+        while (p < pc) { want[p] = TypeSubst.Apply(ims.Signature.ParamTypes[p], substitutions); p = p + 1; }
         string wantKey = DispatchKeys.MangleKey(ims.Name, want, pc);
         // fix-iface-satisfaction-gaps #1：MangleKey 不含返回类型 → 另算期望返回（Self→实现类，同形参替换）。
-        Z42Type wantRet = this._substForIface(ims.Signature.Ret, ct, it);
+        Z42Type wantRet = TypeSubst.Apply(ims.Signature.Ret, substitutions);
         // **按名取全部重载**，不能 `Methods.Get(name)`：非-primary 重载登记在 mangled 键上
         // （如 `String` 的 `Equals(object?)` 占裸键、`Equals(string)` 占 `Equals$1$string`），
         // 按名索引会拿到错的那个 → 假阳性。沿 base 链上溯（继承来的实现同样算数）。
@@ -807,7 +811,7 @@ public sealed class InheritanceResolver {
                     //     发接收者驱动 VCall（`this`+1 = 2 物理），而具体实现 2 形参 + sret = 3
                     //     ⇒ `takes 3 physical argument(s), the call passes 2`（坑点 ④a）;
                     //   ·`Self Copy()`（实例）经**接口收者**调用 ⇒ `takes 2 …, passes 1`。
-                    // 🔴 判据必须看**未代换**的声明 `ims.Signature.Ret`：`wantRet` 已被 `_substForIface`
+                    // 🔴 判据必须看**未代换**的声明 `ims.Signature.Ret`：`wantRet` 已完成签名代换，
                     // 把 `Self` 换成实现类（= 那个 struct），单看它分不出「声明写的是 `Self`」与
                     // 「声明写的就是这个具体 struct」—— 后者调用点**知道**要传 sret，桥接会把它打坏。
                     bool declRetTypeParam = (ims.Signature.Ret is Z42GenericParamType);
@@ -861,16 +865,6 @@ public sealed class InheritanceResolver {
             i = i + 1;
         }
         return -1;
-    }
-
-    // 接口成员签名 → 实现方视角的期望签名。两处替换：
-    //   ① `Self` → 实现类自己（`interface IEq { bool Same(Self other); }` + `class P : IEq`
-    //      ⇒ 期望 `Same(P)`）。基元同样成立：`Self := Int32`，而 `Int32` 与源码写的 `int` 经
-    //      `CanonName()` 同为 `i32`，故 `bool Equals(int other)` 匹配得上（已实测 12 个基元全过）。
-    //   ② 接口自己的型参 `T` → 该实现子句给的实参（`class Foo<U> : IBasicCollection<U>` ⇒ T := U）。
-    //      只有解析出 `Z42InstantiatedInterfaceType` 时才有实参可代；裸写（非泛型接口）无需代。
-    private Z42Type _substForIface(Z42Type t, Z42ClassType ct, Z42InterfaceType it) {
-        return TypeSubst.Apply(t, new IfaceImplMap(ct, it));
     }
 
     private void _checkStaticClassMember(string clsName, Decl mem) {

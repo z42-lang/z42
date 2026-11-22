@@ -129,10 +129,10 @@ public sealed class NameListMap : ITypeParamMap {
 
 // 接口成员签名 → 实现方视角：`Self` → 实现类，接口型参 → 该实现子句给的实参（InheritanceResolver 用）。
 public sealed class IfaceImplMap : ITypeParamMap {
-    private Z42ClassType _ct; private Z42InterfaceType _it;
-    public IfaceImplMap(Z42ClassType ct, Z42InterfaceType it) { this._ct = ct; this._it = it; }
+    private Z42Type _self; private Z42InterfaceType _it;
+    public IfaceImplMap(Z42Type selfType, Z42InterfaceType it) { this._self = selfType; this._it = it; }
     public Z42Type Map(Z42GenericParamType p) {
-        if (p.Name() == "Self") { return this._ct; }
+        if (p.Name() == "Self") { return this._self; }
         if (this._it is Z42InstantiatedInterfaceType) {
             Z42InstantiatedInterfaceType iit = this._it as Z42InstantiatedInterfaceType;
             int i = 0;

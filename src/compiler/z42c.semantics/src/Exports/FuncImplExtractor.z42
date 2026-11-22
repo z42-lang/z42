@@ -27,28 +27,14 @@ public static class FuncImplExtractor {
                     string targetFq = target == null ? FuncImplExtractor._fqOf(targetName, currentNs, view) : target.Fqn();
                     string traitFq = FuncImplExtractor._fqOf(traitName, currentNs, view);
                     string[] argStrs = FuncImplExtractor._implArgs(implD);
-                    // impl 方法签名（AST 直取，镜像 C#：types via TsigTypeName，vis/static/virtual/abstract via mods）
                     ExportedMethodZ[] ms = new ExportedMethodZ[implD.MethodCount];
                     int mc = 0;
-                    int mj = 0;
-                    while (mj < implD.MethodCount) {
-                        Decl mem = ExportedTypeExtractor._unwrap(implD.Methods[mj]);
-                        if (mem is MethodDecl) {
-                            MethodDecl md = mem as MethodDecl;
-                            ExportedParamZ[] ps = new ExportedParamZ[md.ParamCount];
-                            int pi = 0;
-                            while (pi < md.ParamCount) { ps[pi] = new ExportedParamZ(md.Params[pi].Name, TypeNameResolver.TsigTypeName(md.Params[pi].Type)); pi = pi + 1; }
-                            string ret = "void";
-                            if (!md.IsCtor) { ret = TypeNameResolver.TsigTypeName(md.RetType); }
-                            string vis = DeclFacts.classVisStr(DeclFacts._visCode(md.ModFlags, 0));   // impl 方法无修饰默认 public
-                            bool isStatic = Mod.Has(md.ModFlags, Mod.Static);
-                            bool isVirtual = Mod.Has(md.ModFlags, Mod.Virtual);
-                            bool isAbstract = Mod.Has(md.ModFlags, Mod.Abstract);
-                            int reqd = ExportedTypeExtractor._requiredCount(md.Params, md.ParamCount);
-                            ms[mc] = new ExportedMethodZ(md.Name, ret, vis, isStatic, isVirtual, isAbstract, reqd, ps, md.ParamCount);
+                    for (int mj = 0; mj < implD.MethodCount; mj = mj + 1) {
+                        MethodDecl md = ExportedTypeExtractor._unwrap(implD.Methods[mj]) as MethodDecl;
+                        if (md != null) {
+                            ms[mc] = FuncImplExtractor._implMethod(view, md, implD.TargetParamNames);
                             mc = mc + 1;
                         }
-                        mj = mj + 1;
                     }
                     if (rc == result.Length) {
                         ExportedImplZ[] b = new ExportedImplZ[result.Length * 2];
@@ -64,6 +50,34 @@ public static class FuncImplExtractor {
         ExportedImplZ[] trimmed = new ExportedImplZ[rc];
         int t = 0; while (t < rc) { trimmed[t] = result[t]; t = t + 1; }
         return trimmed;
+    }
+
+    private static ExportedMethodZ _implMethod(SymbolTable view, MethodDecl method, string[] classParams) {
+        string[] typeParams = classParams;
+        if (classParams.Length > 0 && method.TypeParams.Count > 0) {
+            typeParams = new string[classParams.Length + method.TypeParams.Count];
+            for (int i = 0; i < classParams.Length; i = i + 1) { typeParams[i] = classParams[i]; }
+            for (int i = 0; i < method.TypeParams.Count; i = i + 1) {
+                typeParams[classParams.Length + i] = method.TypeParams.Names[i];
+            }
+        }
+        var ps = new ExportedParamZ[method.ParamCount];
+        for (int i = 0; i < method.ParamCount; i = i + 1) {
+            Param p = method.Params[i];
+            ps[i] = new ExportedParamZ(p.Name, FuncImplExtractor._implTypeName(view, p.Type, typeParams));
+        }
+        string ret = method.IsCtor ? "void" : FuncImplExtractor._implTypeName(view, method.RetType, typeParams);
+        string vis = DeclFacts.classVisStr(DeclFacts._visCode(method.ModFlags, 0));
+        return new ExportedMethodZ(method.Name, ret, vis, Mod.Has(method.ModFlags, Mod.Static),
+            Mod.Has(method.ModFlags, Mod.Virtual), Mod.Has(method.ModFlags, Mod.Abstract),
+            ExportedTypeExtractor._requiredCount(method.Params, method.ParamCount), ps, method.ParamCount);
+    }
+
+    private static string _implTypeName(SymbolTable view, TypeExpr syntax, string[] typeParams) {
+        if (typeParams.Length == 0) { return TypeNameResolver.TsigTypeName(syntax); }
+        Z42Type resolved = view.ResolveTypeP(syntax, typeParams, typeParams.Length);
+        string name = QualifiedSigTypeNames.OfResolved(resolved);
+        return syntax is NullableType ? name + "?" : name;
     }
 
     private static string[] _implArgs(ImplDecl declaration) {
