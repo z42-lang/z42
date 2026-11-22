@@ -31,7 +31,7 @@ pub(crate) fn build(
     initial_events: Vec<(String, Option<u64>)>,
 ) -> Result<Pin<Box<VmContext>>> {
     let ctx = build_context(module, inputs, options.freeze_extensions)?;
-    ctx.core().loader().configure_native(options.native)?;
+    ctx.loader().configure_native(options.native)?;
     if let Some(module) = ctx.module() {
         resolve_tokens(&ctx, module);
     }
