@@ -7,11 +7,20 @@ use crate::metadata::{Function, Module, ids::func_table::FuncTable};
 /// `FuncTable`'s entry module, see `ResolvedTokens::method_tokens`). Lock-free either
 /// way. `None` cannot happen for an id a call path stored once the storing thread's
 /// registration is visible; callers then fall back to binding by name.
+///
+/// M3 single-arm-per-track: for the entry module the token is a global `FnId`
+/// and the entry's own functions live in the table's slots (`0..entry_len`,
+/// pointers into the module the table keeps alive — see `FuncTable::new`), so
+/// ONE slots lookup covers both cross-package ids and intra-entry calls; the
+/// previous `module.functions` fast arm made every cross-package call pay a
+/// doomed bounds check first (+21% on `list_count_repeated`). A non-entry
+/// module (unit tests with a bare context) keeps its LOCAL index space.
 #[inline]
 pub fn fn_by_id<'m>(funcs: &'m FuncTable, module: &'m Module, id: u32) -> Option<&'m Function> {
-    match module.functions.get(id as usize) {
-        Some(f) => Some(f),
-        None => funcs.get(crate::metadata::ids::tokens::FnId(id)),
+    if funcs.is_entry(module) {
+        funcs.get(crate::metadata::ids::tokens::FnId(id))
+    } else {
+        module.functions.get(id as usize)
     }
 }
 
