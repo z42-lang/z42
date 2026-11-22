@@ -26,5 +26,5 @@ public T DispatchSelf<T>(T seed) where T : class + IReferenceWriter {
 }
 
 public U ForwardSelf<U>(U seed) where U : class + IReferenceWriter {
-    return DispatchSelf<U>(seed);
+    return DispatchSelf(seed);
 }
