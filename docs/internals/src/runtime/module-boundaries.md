@@ -250,7 +250,7 @@ VM 组合和装配集中在 vm/，context 目录已删除。帧/arena/异常使�
 
 组件消费 VM 上下文和布局事实的稳定位置为 components::bridge，interp/jit/profiler 不引用 vm 实现路径。bridge 只列出实际类型与常量，不把整个实现模块改名导出。静态初始化失败沿 exec 屏障的异常结果传递，不另设无人写入的全局错误槽；构造缓存纪元直接由 metadata 提供，不经过 loader 的空转发。
 
-普通 host 不公开组件管理配置或查询。VM 装配由 vm::assembly/defaults/services 统一拥有；loader 拥有产物入口、native 来源许可、路径与代码缓存。ProfilingState 拥有分析来源/实例，diagnostics 只持有后端能力和注入的准备回调。
+普通 host 不公开组件管理配置或查询。默认服务在运行时组合根装配，VM 接收服务工厂并保留原有构造顺序；host 将加载请求转换成内部装配输入并在装配成功后创建 LoadedProgram，assembly 不依赖宿主程序类型。loader 拥有产物入口、native 来源许可、路径与代码缓存。ProfilingState 拥有分析来源/实例，diagnostics 只持有后端能力和注入的准备回调。
 
 ## 领域内部目录与稳定入口
 

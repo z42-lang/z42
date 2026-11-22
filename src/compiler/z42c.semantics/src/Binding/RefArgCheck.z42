@@ -14,10 +14,7 @@ public static class RefArgCheck {
     // 形参寄存器，出口 copy-out 没有 caller 的 lvalue 可写回）。反向（形参无 `ref`、实参写了）
     // 同样报——那会白取一次地址，而且读代码的人会以为有写回，等于「按引用与否由调用点决定」。
     //
-    // ⚠️ **签名的 ref 信息不可信时一律不报**（`HasRefInfo()` 为假）。跨包导入签名就是这种情形：
-    // TSIG 格式不记录 `ref`（见 DiagnosticCodes 的 E0465 注释），空数组只代表「不知道」，
-    // 当成「全否」会把跨包 `F(ref v)` 误报成多写。跨包强制由 follow-up change
-    // `record-ref-in-signature` 补（需 minor bump）。
+    // 导入签名的 `ref` 信息由包中的完备性标记确认。HasRefInfo 为假时，跳过对称性检查。
     public static void CheckSymmetry(TypeChecker tc, BoundExpr[] args, int i, Z42FuncType sig) {
         if (sig == null) { return; }
         if (!sig.HasRefInfo()) { return; }
@@ -35,4 +32,33 @@ public static class RefArgCheck {
                 "argument " + (i + 1).ToString() + " must not be passed with `ref` — the parameter is not `ref`", sp);
         }
     }
+    // Keep the original candidates when no mode fits so binding can report the
+    // modifier error on the selected signature.
+    public static MethodSymbol[] MatchingOverloads(MethodSymbol[] methods, BoundExpr[] args, int count) {
+        int keep = 0;
+        foreach (var method in methods) {
+            if (RefArgCheck._matches(method.Signature, args, count)) { keep = keep + 1; }
+        }
+        if (keep == 0 || keep == methods.Length) { return methods; }
+        MethodSymbol[] filtered = new MethodSymbol[keep];
+        int i = 0;
+        foreach (var method in methods) {
+            if (RefArgCheck._matches(method.Signature, args, count)) {
+                filtered[i] = method;
+                i = i + 1;
+            }
+        }
+        return filtered;
+    }
+
+    private static bool _matches(Z42FuncType sig, BoundExpr[] args, int count) {
+        if (sig == null || !sig.HasRefInfo()) { return true; }
+        int i = 0;
+        while (i < count) {
+            if (sig.IsRefParam(i) != (args[i] is BoundRefArg)) { return false; }
+            i = i + 1;
+        }
+        return true;
+    }
+
 }

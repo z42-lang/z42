@@ -183,6 +183,7 @@ public sealed class FunctionEmitter {
         if (md.TypeParams.Count > 0) {
             irf.TypeParams = md.TypeParams.Names;
             irf.TypeParamCount = md.TypeParams.Count;
+            this._gen._classDescB.FillMethodConstraints(irf, md, this._symbols);
         }
         return irf;
     }

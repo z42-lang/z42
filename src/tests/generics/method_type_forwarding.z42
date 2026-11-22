@@ -4,11 +4,14 @@ using Std.Collections;
 
 T Zero<T>() { return default(T); }
 Type Actual<T>() { return typeof(T); }
+Type ActualOf<T>(T value) { return typeof(T); }
 T ForwardStatic<T>() { return Zero<T>(); }
 Type ForwardNested<T>() { return Actual<List<T>>(); }
+Type ForwardInferred<T>(T value) { return ActualOf(value); }
 
 class Target {
     public virtual T Zero<T>() { return default(T); }
+    public virtual Type ActualOf<T>(T value) { return typeof(T); }
 }
 
 class Derived : Target {
@@ -30,6 +33,12 @@ void Main() {
     Assert.Equal(0, ForwardVirtual<int>(receiver));
     Assert.True(ForwardVirtual<string>(receiver) == null);
     Assert.Equal(false, ForwardVirtual<bool>(receiver));
+    Assert.Equal(typeof(int), receiver.ActualOf(42));
+    Assert.Equal(typeof(string), receiver.ActualOf("value"));
+
+    Assert.Equal(typeof(int), ActualOf(42));
+    Assert.Equal(typeof(int), ForwardInferred<int>(42));
+    Assert.Equal(typeof(string), ForwardInferred<string>("value"));
 
     Assert.Equal(typeof(List<int>), ForwardNested<int>());
     Assert.Equal(typeof(List<string>), ForwardNested<string>());

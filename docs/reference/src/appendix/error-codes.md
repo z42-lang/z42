@@ -124,7 +124,7 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 | E0410 | `break` 在循环 / `switch` 外，或 `continue` 在循环外 | ✅ StmtBinder.z42（`BoundWhile` / `_chkCatchType`） | 方法体顶层写 `break;` |
 | E0411 | 非法继承 | ⚠️ 零发射点（sealed 相关走 E0427–E0429） | — |
 | E0412 | 接口实现不匹配：签名 / `static` 与实例形态不一致 | ✅ InheritanceResolver.z42（`_nearestBaseMethod` / `_checkAssocBindingsComplete` / `_checkOneIfaceAssoc` / `_checkIfaceMembersComplete`） | 接口声明实例方法，实现方写成 `static` |
-| E0413 | 非法实现 | ⚠️ 零发射点 | — |
+| E0413 | 重复的具体接口 `impl` | ✅ `InheritanceResolver`、`ImportedSymbolLoader` | 两条 `impl IFoo for C` |
 | E0414 | event 字段的外部访问控制 | ⚠️ 零发射点 | — |
 | E0420 | `catch (T e)` 的 `T` 不是 `Exception` 或其子类。写错类型会让运行期那个 catch **静默永不匹配** ⇒ 异常穿出去变成 `uncaught exception`，所以编译期校验 | ✅ `StmtBinder._chkCatchType` | `class NotEx { } … catch (NotEx e) { }`。⚠️ 本次编译解析不到 `Exception` 时不报（不链 stdlib 的编译路径拿不准）|
 | E0421 | 非法的 `default(T)` 目标类型 | ⚠️ 零发射点 | — |
@@ -208,7 +208,7 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 | E0446 | 泛型方法调用 `Foo<...>()` 的类型实参数与声明的类型形参数不符；同名有多个重载时 = 没有一个重载声明这么多个类型形参（含全是非泛型重载：「is not generic」） | ✅ MemberResolver.Generic.z42（`BoundCall`）、OverloadBinder.Candidates.z42（`_resolveOverloadCands`，重载预筛） | `Swap<int, string>(a, b)`，而 `Swap<T>` 只有一个型参；`F<int>(1)`，而 `F` 只有非泛型重载 |
 | E0453 | 关联类型：接口里 `type Item;` 未被实现方绑定；实现方写了不带绑定的 `type Item;`；接口自己写了绑定；`where T : IFoo<Zzz = int>` 里 `Zzz` 不是该接口的关联类型；实参绑定与约束要求不符 | ✅ ConstraintChecker.z42（`_buildSet` / `_checkFuncConstraint`）、InheritanceResolver.z42（`_passSealedEnforce`）、MemberCollector.z42（`_passMembers` / `_fillInterface`） | — |
 | E0454 | 经**接口静态类型**调用形参位含 `Self` 的方法。`Self` 在形参位是逆变方向、没有唯一安全上界，放行即运行期类型混淆。替代写法是型参：`bool f<T>(T a, T b) where T : IEq` | ✅ MemberResolver.z42（`BoundCall`） | `IEq a, b; a.Same(b);` |
-| E0455 | 省略尖括号调用一个**方法体真的消费型参**的泛型方法（体内有 `typeof(T)` / `new T()` / `default(T)` / `new T[n]`，或把 `T` 转发给嵌套泛型调用）。这类 callee 在运行期会读到**空**的方法类型实参；本码把静默错值换成编译错误，修法是显式写出 `<T>` | ✅ MemberResolver.z42（`_bindMemberCall`） | `Make()` → 应写 `Make<int>()` |
+| E0455 | 本地泛型方法在运行期使用型参，调用点未能推断出其全部类型实参。显式指定实参即可 | ✅ MemberResolver.Generic.z42（`_inferMethodTypeArgs`） | `Make()` → `Make<int>()` |
 | E0463 | 在**型参收者**（`where T : IEq` 的 `T`）上调用约束接口方法时，给形参位是 `Self` 的形参传了**具体类型**实参。与 E0454 的分工：E0454 管接口静态类型收者，本码管型参收者 | ✅ OverloadBinder.z42（`CheckConstraintIfaceArgs`） | `a.Same("nope")`，`a` 的类型是 `T` |
 
 ### 名字解析
@@ -403,7 +403,7 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 | W0801 | 孤立的 doc 注释块：`///` / `//!` 后面没有声明认领它（方法体里的 `///`、文件中段的 `//!`、悬空块） | ✅ `DocLint.z42`（`xtask check doc-lints`） | 方法体里写 `/// 说明` |
 | W0802 | `@param` / `@typeparam` 的名字不在声明的签名里 | ✅ `DocLint.z42` | `/// @param y …` 而 `F(int x)` |
 | W0803 | 文档链接 [`Sym`] 或 `@throws` 类型无法解析 | ⚠️ 零发射点：需要语义信息，归编译器 DocChecker pass（后续 PR） | — |
-| W0804 | 未知 tag：doc 注释的 tag 是闭集（`param` `typeparam` `returns` `throws` `see` `warning` `example` `hidden`），写别的报这个 | ✅ `DocLint.z42` | `/// @deprecated …` |
+| W0804 | 未知 doc tag 或生成器文案分组与字段格式错误，支持的写法见 doc 注释参考页 | ✅ `DocLint.z42` | `/// @deprecated …` |
 | W0805 | `public` 声明缺 `///` 文档（含接口与枚举成员的隐式 public；record 位置参数用参数级 `///`）。stdlib 经 `xtask check doc-lints` 门禁 | ✅ `DocLint.z42` | `public void F() { }` 头上无 `///` |
 | W0806 | 文档里有历史注记：日期（`(2026-05-31)` 式）或 spec 名（`add-xxx:` 式）。历史归 git blame | ✅ `DocLint.z42` | `/// add-random: 引入` |
 | W0807 | 摘要缺失（首段为空）或超长（>80 字，细节挪正文） | ✅ `DocLint.z42` | `///` 后直接空行 |

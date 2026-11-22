@@ -157,6 +157,7 @@ public sealed class StubEmitter {
         if (md.TypeParams.Count > 0) {
             stub.TypeParams = md.TypeParams.Names;
             stub.TypeParamCount = md.TypeParams.Count;
+            this._g._classDescB.FillMethodConstraints(stub, md, this._g._symbols);
         }
         return stub;
     }

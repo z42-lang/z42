@@ -41,6 +41,28 @@ pub fn load_artifact_from_bytes(raw: &[u8]) -> anyhow::Result<LoadedArtifact> {
     package::load_artifact_from_bytes_with_fusion(raw, FUSION_INPUTS)
 }
 
+/// Decode bytes through the optional session cache. Linked VM state stays private
+/// to each returned artifact while successful decodes share their definitions.
+pub(crate) fn load_artifact_from_bytes_cached(
+    bytes: &[u8], cache: Option<&super::ImageCache>,
+) -> anyhow::Result<LoadedArtifact> {
+    match cache {
+        Some(cache) => cache.artifact_for(&super::content_id(bytes), || load_artifact_from_bytes(bytes)),
+        None => load_artifact_from_bytes(bytes),
+    }
+}
+
+/// Cache-backed reads use the file bytes as the identity. With no cache, use
+/// the path loader to retain sidecar and indexed package resolution.
+pub(super) fn load_artifact_cached(
+    fs: &dyn Vfs, path: &str, cache: Option<&super::ImageCache>,
+) -> anyhow::Result<LoadedArtifact> {
+    match cache {
+        Some(cache) => load_artifact_from_bytes_cached(&fs.read(path)?, Some(cache)),
+        None => load_artifact(fs, path),
+    }
+}
+
 /// Precompute block label → index mapping for all functions in the module.
 /// This eliminates the O(n) HashMap construction in every exec_function call.
 pub fn build_block_indices(module: &mut Module) {

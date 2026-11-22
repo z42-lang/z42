@@ -1,49 +1,8 @@
 //! Shared artifact preparation for CLI and embedded hosts.
-use std::{collections::HashSet, path::{Path, PathBuf}, sync::Arc};
-use anyhow::{bail, Context, Result};
-use crate::{zpkg::ExecMode, pal::fs::Vfs, loader::{LoadedArtifact, lazy::ZpkgCandidate}};
+use std::{collections::HashSet, path::PathBuf, sync::Arc};
+use anyhow::{Context, Result};
+use crate::{zpkg::ExecMode, loader::{LoadedArtifact, build_declared_candidates, load_eager_dependencies, load_artifact_from_bytes_cached, load_prelude, prepare_program_modules, PRELUDE_FILE}};
 use super::program::{LoadOptions, LoadedProgram};
-
-fn vfs_exists(fs: &dyn Vfs, p: &Path) -> bool { p.to_str().is_some_and(|s| fs.exists(s)) }
-/// Ordered prelude candidates — `<dir>/z42.core.zpkg` for every search dir that
-/// actually has one, in `search_dirs` order (entry zpkg's own directory first,
-/// then `libs/`).
-///
-/// The prelude used to be the ONE dependency that ignored that order and looked
-/// only at `libs/`. See `run`'s 5.1b for what that cost.
-pub(crate) fn prelude_candidates(fs: &dyn Vfs, search_dirs: &[PathBuf]) -> Vec<PathBuf> {
-    search_dirs
-        .iter()
-        .map(|d| d.join("z42.core.zpkg"))
-        .filter(|p| vfs_exists(fs, p))
-        .collect()
-}
-
-
-// fix-version-mismatch-diagnosis : a .zpkg whose format version is
-// not this runtime's is **not** a "skip it and carry on" condition. The strict
-// pin (see format/versions.rs) means z42vm reads exactly one generation, so
-// a mismatched package can never be substituted — warning and continuing boots a
-// world with no stdlib and the real failure surfaces far away as a bogus
-// `undefined function Std.IO.Environment.GetCommandLineArgs$0` (and on runtimes
-// older than the package, as an outright hang). This is exactly the trap a stale
-// `.z42` seed + a freshly built tree walks into after a format bump.
-//
-// So: version mismatches get named at the point of detection, with the command
-// that fixes them. Every other read failure keeps its warn-and-continue
-// behavior — those really can be optional / unrelated artifacts.
-fn version_mismatch_hint(file: &str, e: &anyhow::Error) -> Option<String> {
-    let m = crate::zpkg::format::as_version_mismatch(e)?;
-    Some(format!(
-        "`{file}` was built for a different z42 format version than this runtime: {m}.\n\
-         z42vm and every .zpkg it loads must be the same generation — there is no \
-         cross-version compatibility (strict-pin policy).\n\
-         Fix by rebuilding the libraries against this runtime (`{remedy}`), or by \
-         running the z42vm that produced them (`Z42_PORTABLE_VM=<matching z42vm>`).",
-        remedy = m.remedy()
-    ))
-}
-
 
 fn entry_zpkg_idempotency_keys(file: &str) -> Vec<String> {
     let mut keys = Vec::new();
@@ -90,7 +49,7 @@ pub(super) fn prepare_with_eager_mode(user_artifact: LoadedArtifact, source_path
         while let Some(namespace) = queue.pop_front() {
             if !visited.insert(namespace.clone()) { continue; }
             let Some(bytes) = resolver.resolve(&namespace) else { continue; };
-            let artifact = load_bytes_cached(&bytes, image_cache)
+            let artifact = load_artifact_from_bytes_cached(&bytes, image_cache)
                 .with_context(|| format!("zpkg_resolver returned malformed bytes for namespace `{namespace}`"))?;
             initially_loaded_zpkgs.push(format!("{namespace}.zpkg"));
             if !resolved_names.insert(blake3::hash(&bytes)) { continue; }
@@ -101,57 +60,14 @@ pub(super) fn prepare_with_eager_mode(user_artifact: LoadedArtifact, source_path
             artifacts.push(artifact);
         }
     }
-    // 5.1b — unconditionally try to load z42.core.zpkg if present.
-    //
-    // fix-prelude-entry-dir-resolution: walk `search_dirs` (entry dir first, then
-    // `libs/`), not `libs_dir` alone. The prelude used to be the ONE package that
-    // ignored the colocated-deps order every other dependency follows — and it
-    // `bail!`ed on the first version mismatch, so a `libs/` holding a
-    // wrong-generation z42.core killed the process even when the entry zpkg's own
-    // directory carried a perfectly readable one.
-    //
-    // That is exactly the two-gen bootstrap's gen2 step: old VM + entry dir of
-    // matching-generation stdlib + `Z42_LIBS` pointing at the freshly written
-    // NEW-generation flat view. `resolve_libs_dir` puts `$Z42_LIBS` first, so this
-    // block opened the new z42.core and aborted — blocking every zbc/zpkg format
-    // bump, however small. Trying candidates in order fixes it without weakening
-    // the diagnostic: the hint still fires, but only when NO candidate loads.
-    {
-        let mut prelude_err: Option<String> = None;
-        let mut seen_any = false;
-        for core_path in prelude_candidates(fs, &search_dirs) {
-            if initially_loaded_zpkgs.iter().any(|n| n == "z42.core.zpkg") { break; }
-            seen_any = true;
-            let core_canonical = core_path.canonicalize().unwrap_or(core_path.clone());
-            let core_str = core_path.to_string_lossy().into_owned();
-            match load_path_cached(fs, &core_str, image_cache) {
-                Ok(a) => {
-                    tracing::debug!("loaded stdlib z42.core from {core_str}");
-                    let byte_size = std::fs::metadata(&core_path).ok().map(|m| m.len());
-                    loaded_for_replay.push(("z42.core.zpkg".to_string(), byte_size));
-                    eager_impl_pairs.extend(a.impl_pairs.iter().cloned());
-                    artifacts.insert(0, a);
-                    loaded_paths.insert(core_canonical);
-                    initially_loaded_zpkgs.push("z42.core.zpkg".to_string());
-                    prelude_err = None;
-                    break;
-                }
-                Err(e) => {
-                    // Keep the FIRST failure's message: it names the candidate the
-                    // caller most likely meant. Only surfaced if nothing loads.
-                    match version_mismatch_hint(&core_str, &e) {
-                        Some(hint) => { if prelude_err.is_none() { prelude_err = Some(hint); } }
-                        None => tracing::warn!("failed to load z42.core from {core_str}: {e:#}"),
-                    }
-                }
-            }
-        }
-        // Unrecoverable: z42.core is the prelude — nothing runs without it. Only
-        // reached when every candidate failed with a version mismatch.
-        if let Some(hint) = prelude_err { bail!("{hint}"); }
-        if !seen_any {
-            tracing::debug!("z42.core.zpkg not found in any of {:?}", search_dirs);
-        }
+    let prelude_resolved = initially_loaded_zpkgs.iter().any(|name| name == PRELUDE_FILE);
+    if let Some(prelude) = load_prelude(fs, &search_dirs, image_cache, prelude_resolved)? {
+        let byte_size = std::fs::metadata(&prelude.path).ok().map(|m| m.len());
+        loaded_for_replay.push((PRELUDE_FILE.to_owned(), byte_size));
+        eager_impl_pairs.extend(prelude.artifact.impl_pairs.iter().cloned());
+        artifacts.insert(0, prelude.artifact);
+        loaded_paths.insert(prelude.canonical_path);
+        initially_loaded_zpkgs.push(PRELUDE_FILE.to_owned());
     }
 
     if let Some(path) = source_path { register_entry_as_loaded(path, &mut loaded_paths, &mut loaded_for_replay); }
@@ -161,38 +77,17 @@ pub(super) fn prepare_with_eager_mode(user_artifact: LoadedArtifact, source_path
     // program compiled ahead of time, every callee merged up front).
     let is_eager = options.eager_dependencies || matches!(options.mode, ExecMode::Aot);
     if is_eager && !search_dirs.is_empty() {
-        use std::collections::VecDeque;
-        let libs_paths = search_dirs.clone();
-        let mut file_queue: VecDeque<String> =
-            user_artifact.dependencies.iter().map(|d| d.file.clone()).collect();
-        let mut ns_queue: VecDeque<String> =
-            user_artifact.import_namespaces.iter().cloned().collect();
-        loop {
-            while let Some(ns) = ns_queue.pop_front() {
-                if visited_resolver_namespace(options, &initially_loaded_zpkgs, &ns) { continue; }
-                let Ok(zpkg_paths) = crate::loader::resolve_namespace(fs, &ns, &libs_paths)
-                else { continue };
-                for zpkg_path in zpkg_paths {
-                    if let Some(name) = zpkg_path.file_name().and_then(|n| n.to_str()) {
-                        file_queue.push_back(name.to_string());
-                    }
-                }
-            }
-            let Some(dep_file) = file_queue.pop_front() else { break };
-            let Some(dep_path) = search_dirs.iter()
-                .map(|d| d.join(&dep_file))
-                .find(|p| vfs_exists(fs, p))
-            else { continue };
-            let canonical = dep_path.canonicalize().unwrap_or_else(|_| dep_path.clone());
-            if initially_loaded_zpkgs.iter().any(|n| n == &dep_file) || !loaded_paths.insert(canonical) { continue; }  // already merged
-            let dep_str = dep_path.to_string_lossy().into_owned();
-            let artifact = load_path_cached(fs, &dep_str, image_cache)
-                .with_context(|| format!("loading dependency `{dep_str}`"))?;
-            for dep in &artifact.dependencies { file_queue.push_back(dep.file.clone()); }
-            for ns in &artifact.import_namespaces { ns_queue.push_back(ns.clone()); }
+        for artifact in load_eager_dependencies(
+            fs,
+            &search_dirs,
+            &user_artifact,
+            image_cache,
+            options.resolver.is_some(),
+            &mut loaded_paths,
+            &mut initially_loaded_zpkgs,
+        )? {
             eager_impl_pairs.extend(artifact.impl_pairs.iter().cloned());
             artifacts.push(artifact);
-            initially_loaded_zpkgs.push(dep_file.clone());
         }
     }
 
@@ -207,50 +102,18 @@ pub(super) fn prepare_with_eager_mode(user_artifact: LoadedArtifact, source_path
         &initially_loaded_zpkgs,
     );
 
-    // 5.1e — push user module last, then merge everything. Preserve the user
-    // module's name so entry-point lookup resolves correctly.
     let entry_hint = user_artifact.entry_hint.clone();
-    let user_module_name = user_artifact.module.name.clone();
     eager_impl_pairs.extend(user_artifact.impl_pairs.iter().cloned());
 
-    // M1 dual track (merge-retirement design §4): the default path keeps the
-    // flat merge byte for byte; the no-eager-merge path carries the entry
-    // module alone and hands the decoded dep artifacts to the assembly, which
-    // registers them per-package through the lazy loader's machinery.
-    let no_eager_merge = match eager_mode {
-        EagerMerge::Default => std::env::var_os("Z42_NO_EAGER_MERGE").is_some(),
-        EagerMerge::Off => true,
+    let merge_eager = match eager_mode {
+        EagerMerge::Default => std::env::var_os("Z42_EAGER_MERGE").is_some(),
+        EagerMerge::Off => false,
     };
-    let (final_module, eager_packages) = if no_eager_merge {
-        let mut entry = user_artifact.module;
-        entry.name = user_module_name;
-        crate::metadata::types::build_type_registry(&mut entry);
-        crate::metadata::types::verify_constraints(&entry)
-            .with_context(|| format!("constraint verification failed for `{}`", file))?;
-        crate::loader::build_block_indices(&mut entry);
-        crate::loader::package::build_func_index(&mut entry);
-        (entry, artifacts)
-    } else {
-        let mut modules: Vec<crate::metadata::Module> =
-            artifacts.into_iter().map(|a| a.module).collect();
-        modules.push(user_artifact.module);
-        let merged = if modules.len() == 1 {
-            modules.into_iter().next().ok_or_else(|| anyhow::anyhow!("no module to load"))?
-        } else {
-            let mut m = crate::loader::merge_modules(modules)
-                .with_context(|| format!("merging modules for `{}`", file))?;
-            m.name = user_module_name;
-            crate::metadata::types::build_type_registry(&mut m);
-            crate::metadata::types::verify_constraints(&m)
-                .with_context(|| format!("constraint verification failed for `{}`", file))?;
-            crate::loader::build_block_indices(&mut m);
-            crate::loader::package::build_func_index(&mut m);
-            m
-        };
-        (merged, Vec::new())
-    };
+    let (final_module, eager_packages) =
+        prepare_program_modules(user_artifact.module, artifacts, merge_eager, file)?;
 
-    crate::vm::assembly::build(final_module, crate::vm::assembly::ProgramInputs {
+    let jit_config = crate::config::runtime_config_snapshot().jit_config();
+    let ctx = crate::vm::assembly::build(final_module, crate::vm::assembly::ProgramInputs {
         vfs: Arc::clone(&vfs),
         search_dirs: search_dirs.clone(),
         declared_candidates,
@@ -258,20 +121,22 @@ pub(super) fn prepare_with_eager_mode(user_artifact: LoadedArtifact, source_path
         eager_impl_pairs,
         eager_deps,
         eager_packages,
-    }, options, components, entry_hint, loaded_for_replay)
+    }, crate::vm::assembly::AssemblyOptions {
+        native: options.native.clone(), mode: options.mode, jit_config, components,
+        freeze_extensions: crate::composition::freeze,
+    }, loaded_for_replay)?;
+    LoadedProgram::new(ctx, options.mode, entry_hint)
 }
 
 /// Which eager-loading track `prepare` takes. `Default` reads the
-/// `Z42_NO_EAGER_MERGE` env switch; `Off` forces per-package registration
-/// (tests drive this directly — the env var is process-global).
+/// `Z42_EAGER_MERGE` escape hatch (per-package is the default since the M4
+/// dry run); `Off` forces per-package registration (tests drive this
+/// directly — the env var is process-global).
 pub(super) enum EagerMerge {
     Default,
     Off,
 }
 
-fn visited_resolver_namespace(options: &LoadOptions, loaded: &[String], namespace: &str) -> bool {
-    options.resolver.is_some() && loaded.iter().any(|n| n == &format!("{namespace}.zpkg"))
-}
 /// 入口 artifact 的三重登记（fix-entry-self-reload）：
 /// · `loaded_for_replay` —— observer 的 `ModuleLoaded` 事件重放；
 /// · `initially_loaded_zpkgs` —— **入口自己的文件名**也进惰性加载器的已载集。缺了它，入口仍是
@@ -292,123 +157,5 @@ fn register_entry_as_loaded(
     // 先后落 main 时各登记了一遍，此处去重。
     if let Ok(entry_canonical) = std::path::Path::new(file).canonicalize() {
         loaded_paths.insert(entry_canonical);
-    }
-}
-
-/// Build the declared-but-not-loaded zpkg candidate set for the lazy loader.
-///
-/// Sources (in order, deduped by zpkg file name):
-///   1. `.zpkg` artifact's `dependencies` (DEPS section)
-///   2. `.zbc`  artifact's `import_namespaces` — reverse-lookup into search dirs
-///      for zpkgs declaring each namespace
-/// Entries already in `initially_loaded` (e.g. eager-loaded z42.core, or AOT-merged
-/// deps) are excluded.
-fn build_declared_candidates(
-    fs: &dyn Vfs,
-    user_artifact: &LoadedArtifact,
-    search_dirs: &[PathBuf],
-    initially_loaded: &[String],
-) -> Vec<(String, ZpkgCandidate)> {
-    let mut declared: Vec<(String, ZpkgCandidate)> = Vec::new();
-    if search_dirs.is_empty() { return declared; }
-
-    let loaded_has = |name: &str| initially_loaded.iter().any(|f| f == name);
-    let declared_has = |d: &[(String, _)], name: &str| d.iter().any(|(f, _)| f == name);
-
-    let libs_paths = search_dirs.to_vec();
-
-    // .zpkg dependencies (DEPS): file field authoritative; fall back to the
-    // sibling `namespaces` field if the literal filename does not resolve.
-    for dep in &user_artifact.dependencies {
-        if loaded_has(&dep.file) || declared_has(&declared, &dep.file) { continue; }
-        if let Ok(cand) = ZpkgCandidate::build_in_dirs(fs, search_dirs, &dep.file) {
-            declared.push((dep.file.clone(), cand));
-            continue;
-        }
-        for ns in &dep.namespaces {
-            let Ok(zpkg_paths) = crate::loader::resolve_namespace(fs, ns, &libs_paths) else {
-                continue;
-            };
-            for zpkg_path in zpkg_paths {
-                let Some(file_name) = zpkg_path
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .map(str::to_owned)
-                else { continue };
-                if loaded_has(&file_name) || declared_has(&declared, &file_name) { continue; }
-                match ZpkgCandidate::build_in_dirs(fs, search_dirs, &file_name) {
-                    Ok(cand) => declared.push((file_name, cand)),
-                    // Left as a warning on purpose: a namespace can resolve to several
-                    // candidates, so one unreadable file is not yet fatal. The hint
-                    // still names the remedy when it is a version mismatch rather
-                    // than a corrupt / unrelated file.
-                    Err(e)   => match version_mismatch_hint(&file_name, &e) {
-                        Some(hint) => tracing::warn!("{hint}"),
-                        None => tracing::warn!("cannot read zpkg meta `{}`: {e}", file_name),
-                    },
-                }
-            }
-        }
-    }
-
-    // .zbc import_namespaces — reverse lookup
-    for ns in &user_artifact.import_namespaces {
-        let Ok(zpkg_paths) = crate::loader::resolve_namespace(fs, ns, &libs_paths) else {
-            continue;
-        };
-        for zpkg_path in zpkg_paths {
-            let Some(file_name) = zpkg_path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .map(str::to_owned)
-            else { continue };
-            if loaded_has(&file_name) { continue; }
-            if declared_has(&declared, &file_name) { continue; }
-            match ZpkgCandidate::build_in_dirs(fs, search_dirs, &file_name) {
-                Ok(cand) => declared.push((file_name, cand)),
-                // Left as a warning on purpose: a namespace can resolve to several
-                // candidates, so one unreadable file is not yet fatal. The hint
-                // still names the remedy when it is a version mismatch rather
-                // than a corrupt / unrelated file.
-                Err(e)   => match version_mismatch_hint(&file_name, &e) {
-                    Some(hint) => tracing::warn!("{hint}"),
-                    None => tracing::warn!("cannot read zpkg meta `{}`: {e}", file_name),
-                },
-            }
-        }
-    }
-
-    declared
-}
-
-/// Decode raw artifact bytes through the optional session cache: a hit hands
-/// back a shallow `from_image` view sharing definition `Arc`s with every
-/// earlier program of the session; a miss decodes and freezes into the cache.
-fn load_bytes_cached(
-    bytes: &[u8],
-    cache: Option<&crate::loader::ImageCache>,
-) -> Result<LoadedArtifact> {
-    match cache {
-        Some(cache) => cache.artifact_for(&crate::loader::content_id(bytes), || {
-            crate::loader::load_artifact_from_bytes(bytes)
-        }),
-        None => crate::loader::load_artifact_from_bytes(bytes),
-    }
-}
-
-/// Path variant: reads through the VFS only when a cache is attached (the
-/// content hash needs the bytes); the uncached path keeps the original
-/// `load_artifact` behaviour byte for byte.
-fn load_path_cached(
-    fs: &dyn crate::pal::fs::Vfs,
-    path: &str,
-    cache: Option<&crate::loader::ImageCache>,
-) -> Result<LoadedArtifact> {
-    match cache {
-        Some(cache) => {
-            let bytes = fs.read(path)?;
-            load_bytes_cached(&bytes, Some(cache))
-        }
-        None => crate::loader::load_artifact(fs, path),
     }
 }

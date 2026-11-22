@@ -5,3 +5,8 @@ widget
 enum-ok
 ctor-ok
 gadget
+gadget
+animal
+7
+animal
+animal

@@ -35,6 +35,8 @@ void Main() {
     object ng = Ops.NewGBox<Local>(new Local());
     P("NewGBox<Local> is GBox<Local>", ng is GBox<Local>);
     P("NewGBox<Local> is GBox<Item>", ng is GBox<Item>);
+    P("NewGBox(inferred Local) is GBox<Local>", Ops.NewGBox(new Local()) is GBox<Local>);
+    P("NewGBox(inferred int) is GBox<int>", Ops.NewGBox(42) is GBox<int>);
     object nl = Ops.NewList<int>();
     S("NewList<int> type", nl.GetType().FullName);
     P("NewList<int> is List<int>", nl is List<int>);

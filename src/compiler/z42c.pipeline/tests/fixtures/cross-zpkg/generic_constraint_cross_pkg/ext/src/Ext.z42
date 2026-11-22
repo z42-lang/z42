@@ -7,3 +7,5 @@ using DemoCTarget;
 public class Gadget : IShow {
     public string Show() { return "gadget"; }
 }
+
+public T KeepAnimal<T>(T animal) where T : Animal { return animal; }

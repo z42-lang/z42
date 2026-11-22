@@ -94,7 +94,8 @@ z42 doc <args>                      launcher：`doc` 原样转发
 
 `z42d doc --format mdbook --out <dir> --pkg <name>` 渲染一个包到 `<dir>/<name>.md`（生成不写共享索引缓存）。
 `xtask build docs` 生成全部写了 `//!` 的包的页面到 `docs/reference/src/stdlib/`，并删掉不再生成的旧页（该目录除
-`README.md` 外全归 gen 所有）；内容不变的页不重写。**生成页不入库**（`.gitignore`），由用到它们的地方现生成：
+`README.md` 外全归 gen 所有）；内容不变的页不重写。**生成页不入库**（`.gitignore`）。标准库首页的总览表从同一批包的命名空间摘要更新，表外介绍保持手写。
+文档检查和发布都会运行生成器：
 
 | 谁 | 何时 |
 |---|---|
@@ -157,6 +158,26 @@ tag、W0805 public 声明缺 `///`、W0806 历史注记（日期 / spec 名模�
 
 「由 z42 doc 生成」标记）自带随 gen 重写的 `file:line`，不查；learn 的引用对象在 `examples/`、不进符号索引，
 归 learn↔examples 重放检查，也不查。
+
+## 构建插件专用文案
+
+`GeneratorDoc.Parse` 从挂靠后的 doc 注释中解析 `@for-generator` 分组及其 `@generator` 字段，
+返回按目标区分的字段文本、公开注释和格式诊断。过滤发生在文档解析层，插件加载状态与过滤无关。
+`DocParser` 和查询的 JSON 格式都使用公开注释。字段诊断使用 W0804，公开覆盖检查使用剔除专用字段后的文本。
+
+`z42.cli.help` 实现构建钩子 `AfterCompile`，从当前工程清单发现源码，经编译器语法索引读取 enum 成员，
+再按完整成员名生成独立的 JSON 帮助资产。插件和语法索引都在构建进程中执行，应用产物的写入流程不读取帮助资产。
+
+## 文档旁挂文件
+
+`DocArtifact` 将语法索引写为版本化 JSON。头部记录 `format`、`level` 与 `package`，
+`items` 记录 Doc ID、成员归属、签名、来源位置和公开文档。编码时按声明及其祖先筛选
+可见性和 `@hidden`，公开文档经同一投影去除专用字段。读取端验证格式版本和索引级别，
+重建 `DocIndex`，复用 `DocQuery` 的符号查询逻辑。
+
+当前由 `z42 doc --format zdoc` 显式导出，索引级别为 `syntax`。`--zdoc` 查询只访问指定文件。
+SDK 的 `[component.docs]` 从同版本源码生成标准库旁挂文件并安装到 `docs/`。
+普通查询用 SDK 文档补齐工作区缺少的包。项目构建自动输出和语义级索引尚待接入。
 
 ## 9. 边界与限制
 

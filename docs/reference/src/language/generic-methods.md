@@ -179,18 +179,14 @@ flowchart LR
   `make_type_from_name` / `default_value_for` 都以名为输入，调用点编译期已知具体类型 → 直接编码。
 - **非泛型调用逐字节不变**：只有携类型实参时才发 `CallGeneric`/`VCallGeneric`（新 opcode）；普通
   `Call`/`VCall`（0x50/0x52）编码不动 → 全仓自举 byte-identical。
-- **JIT**：含方法级泛型指令、或含泛型调用点的函数暂走解释器（`jit_unsupported_reason` 拦截）；
-  JIT frame 尚无 `method_type_args` 载体，留后续。
+- **JIT**：解释帧和 JIT 帧都携带方法类型实参，支持泛型调用中的 `typeof(T)` 和 `default(T)`。
 
 ### 边界
 
-- 直接调用 `Foo<T>()`；反射式 `MakeGenericMethod().Invoke()` 见下节。
-- 类型**推断**（从实参推 `T`，省略 `<...>`）：省略尖括号会从实参结构化
-  unify 出型参绑定，用于**形参位实参检查**、**`where` 约束校验**与**调用结果的类型**。但推断结果**刻意不回灌**
-  `BoundCall.MethodTypeArgs` —— 回灌会把 opcode 从 `Op.Call` 换成 `Op.CallGeneric`、重排 zbc
-  串池、并关掉 native 快路径门，而全仓 112 处隐式泛型调用全是不消费型参的 `Array.Copy<T>`
-  ⇒ 纯回归。⇒ **本页「非泛型调用逐字节不变」的不变量不受推断影响**；callee 真消费型参时
-  由 **E0455** 要求显式写出 `<T>`。类型实参推断的语义细节属编译器实现范畴，本手册不展开。
+- 直接调用 `Foo<T>()`。反射式 `MakeGenericMethod().Invoke()` 见下节。
+- 省略尖括号时，编译器从实参推断方法级类型实参。推断成功后，绑定用于检查实参、检查约束、确定
+  调用结果的类型，并传入被调方。可直接写 `TypeOf(1)` 调用 `Type TypeOf<T>(T x) { return typeof(T); }`。
+  本地方法需要在运行期使用型参而推断未能绑定全部实参时，`E0455` 要求显式指定类型实参。
   - **lambda 实参也参与推断**：`Map(nums, n => n*n)`
     / `Array.Sort(xs, (a,b) => b-a)` 这类**省略 `<>` + 无标注 lambda** 能编能跑——从非-lambda 实参或
     lambda 标注推出型参、只代换 Func 形参位、据此重绑 lambda 拿具体类型。见

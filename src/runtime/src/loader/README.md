@@ -10,10 +10,14 @@
 |---|---|
 | `native.rs` | 原生库开库、路径策略、每 VM 映像缓存与符号解析；装载事务归 interop::install |
 | `native_policy.rs` | 每 VM 原生代码来源许可与搜索目录，拒绝发生在探测、入口调用和缓存复用之前 |
-| `artifact.rs` | 稳定产物加载/准备入口与 LazyLoader 默认构造 |
+| `artifact.rs` | 产物加载与可选会话缓存入口、LazyLoader 默认构造 |
+| `dependency_candidates.rs` | 按包声明与导入命名空间发现惰性加载候选 |
+| `eager.rs` | 沿包声明和命名空间读取传递依赖，复用启动期去重登记 |
+| `program.rs` | 准备程序模块的类型注册表与执行索引，以及按调用方选定的方式处理已读取的依赖包 |
+| `prelude.rs` | 按显式搜索路径读取首个可用的标准前奏包 |
 | `ffi.rs` | static/shared native 链接登记，不操作 host 会话或错误槽 |
 | `code.rs` | 通用原生映像装入、规范路径缓存、符号访问和进程代码保活；不解析消费者 ABI、不创建 VM 实例 |
-| `native_paths.rs` | 组件和独立运行时库共用的默认搜索目录策略 |
+| `native_paths.rs` | 组件和独立运行时库共用的通用搜索目录策略 |
 | `native.rs` | 宿主注入的按名称路径服务、通用模块及 Tier 1 注册入口，调用 code 装入映像 |
 | `linked.rs` | 任意合法逻辑库名的已链接符号解析器与组合根入口查询，先于动态候选；不维护具体库白名单 |
 | `state.rs` | `LoaderState`：每 VM 惰性加载器、上下文、初始化队列与 VFS 依赖 |

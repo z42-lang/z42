@@ -1,17 +1,99 @@
 namespace Std.Reflection;
 
-/// 所有反射成员（字段、方法）的基类。
+/// 所有反射成员的基类：字段、方法、构造器、属性、参数与类型本身（`Std.Type`）。
 ///
-/// 按约定只读——实例只由 VM 反射内建（`__type_fields` / `__type_methods`）创建并
-/// 填充，用户代码不构造。
+/// 按约定只读——实例只由 VM 反射内建（`__type_fields` / `__type_methods` /
+/// `__type_properties` …）创建并填充，用户代码不构造。attribute 家族
+/// （`GetCustomAttributes` / `GetAttribute`）在本层实现，子类只覆写
+/// `__fetchCustomAttributes` 接各自的 native 解析通道；`Std.Type` 例外——
+/// 整体覆写 `GetCustomAttributes` 保留 VM 失效缓存契约（见 Type.z42）。
+///
+/// ⚠ 虚方法基类体必须**独立正确**（is-链兜底）：`--emit-zbc` 子集编译器把
+/// 基类型引用的虚调用去虚化为基类方法体直调（corpus 实测），子类覆写只在
+/// 具体类型引用的调用点上可靠。
 public class MemberInfo {
     /// 成员名（非限定）。VM 直接写入。
     public string Name;
 
-    /// 声明该成员的类的 `Type`；继承成员指向基类声明者（C# 语义）。
+    /// 声明本成员的上下文（Clang `getDeclContext()` 的泛化）。
     ///
-    /// 由成员对象的 `__qualified`（"<类>.<成员>"）派生。`Std.Type` 覆写为
-    /// `GetDeclaringType()`（嵌套类型的外围类型）；无声明类可考时为 null。
+    /// 字段/方法/构造器/属性报声明它的**类型**（继承成员指向基类声明者，C#
+    /// DeclaringType 语义）；参数报声明它的**方法**（`Method` 是其类型化捷径）；
+    /// `Std.Type` 自身报嵌套外围类型；无可考时为 null。
+    ///
+    /// 各子类覆写为直取捷径；**基类体是 is-链兜底而非 default**——`--emit-zbc`
+    /// 子集编译器会把基类型引用的虚调用去虚化为基类方法体（见类首注释），
+    /// 故基类体必须独立正确。
+    public virtual MemberInfo? DeclaringContext {
+        get {
+            if (this is ParameterInfo) {
+                ParameterInfo p = this as ParameterInfo;
+                if (!Object.ReferenceEquals(p, null)) { return p.__method; }
+            }
+            Std.Type t = this as Std.Type;
+            if (!Object.ReferenceEquals(t, null)) { return t.GetDeclaringType(); }
+            return this.__declaringTypeOf;
+        }
+    }
+
+    /// 本成员 `__qualified`（"<类>.<成员>"）派生的声明类型；仅供
+    /// `DeclaringContext` 基类兜底与子类复用。
     [Native("__memberinfo_declaring_type")]
-    public extern Std.Type? DeclaringType { get; }
+    private extern Std.Type? __declaringTypeOf { get; }
+
+    // ── 自定义 attribute ─────────────────────────────────────────────────────
+    // 缓存骨架与 GetAttribute 循环原先在 FieldInfo / PropertyInfo / MethodInfo /
+    // ParameterInfo 各有一份（逐字相同），上提到基类后子类只剩 native 通道覆写。
+
+    /// 缓存的 attribute 实例（缓存理由见 `Type.GetCustomAttributes`）。
+    public Std.Attribute[] __attrCache;
+
+    /// 本成员上应用的 attribute，以活实例返回；首次调用后缓存。
+    public virtual Std.Attribute[] GetCustomAttributes() {
+        Std.Attribute[] cached = this.__attrCache;
+        if (cached != null) { return cached; }
+        this.__attrCache = this.__fetchCustomAttributes();
+        return this.__attrCache;
+    }
+
+    /// 子类覆写：走各自的 native 通道取本成员的 attribute 实例数组（仅在缓存未命中
+    /// 时调用）。基类默认空数组——基类实例按约定不存在，纯防御性兜底。
+    public virtual Std.Attribute[] __fetchCustomAttributes() {
+        return new Std.Attribute[0];
+    }
+
+    /// 指定类型的单个 attribute，无则返回 null。按实例运行期类型的 FullName 比较，子类 attribute 也匹配。
+    public Std.Attribute? GetAttribute(Std.Type attributeType) {
+        Std.Attribute[] all = this.GetCustomAttributes();
+        int i = 0;
+        while (i < all.Length) {
+            Std.Attribute a = all[i];
+            Std.Type at = a.GetType();
+            if (at.FullName == attributeType.FullName) {
+                return a;
+            }
+            i = i + 1;
+        }
+        return null;
+    }
+
+    /// 成员种类判别（对标 C# `MemberInfo.MemberType`），各子类覆写返回常量。
+    ///
+    /// 基类体是 is-链兜底而非 default（虚调用在 `--emit-zbc` 子集编译下会去虚化
+    /// 为基类体直调，见类首注释）；`Std.Type` 报 `TypeInfo`（嵌套报 `NestedType`）。
+    public virtual MemberTypes MemberType {
+        get {
+            if (this is FieldInfo) { return MemberTypes.Field; }
+            if (this is PropertyInfo) { return MemberTypes.Property; }
+            if (this is MethodInfo) { return MemberTypes.Method; }
+            if (this is ConstructorInfo) { return MemberTypes.Constructor; }
+            if (this is ParameterInfo) { return MemberTypes.Parameter; }
+            Std.Type t = this as Std.Type;
+            if (!Object.ReferenceEquals(t, null)) {
+                if (t.IsNested) { return MemberTypes.NestedType; }
+                return MemberTypes.TypeInfo;
+            }
+            return MemberTypes.TypeInfo;
+        }
+    }
 }

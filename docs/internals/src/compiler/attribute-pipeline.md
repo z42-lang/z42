@@ -100,14 +100,17 @@ attr-ref 块存的是两个字符串引用，所以**任何**「每个成员一�
 | `$ByRef` / `$RefSig` | 形参级 | `ref` 形参 + **完备性**标记 |
 | `$Nullable` / `$RetNullable` | 形参级 / 方法级 / 字段级 | `?` 标记（形参、返回位、字段与属性）|
 | `$IfaceNull` | **类级**（接口的 TYPE 记录）| 接口成员的 `?` 标记 |
+| `$IfaceByRef` / `$IfaceRefSig` | **类级**（接口的 TYPE 记录） | 接口方法的 `ref` 参数和签名完备性 |
 
-最后一行是这批里唯一**挂错层**的：接口成员的签名既不在 SIGS（接口方法没有函数体 ⇒ 没有
+接口方法的标记使用类级属性。接口成员的签名既不在 SIGS（接口方法没有函数体 ⇒ 没有
 `IrFunction`），也不在字段表里，而在 TYPE 记录的**接口方法块**（`name / ret / pcount /
 is_static / ptypes` 五条平行数组）——那个块**没有任何 attr 槽**。而类级 attr 块是**无条件**
 写的、接口的记录早就带着它且一直空着，于是标记改挂类级，`FactoryFunc` 编成
 `"<方法下标>:r"`（返回位）或 `"<方法下标>:<形参下标>"`。下标对齐靠的是生产方
 （`ClassDescBuilder._interfaceDesc` 的 `_IfaceMethodBuf`）与消费方
 （`TsigReconcile._rebuildInterface`）遍历的是同一个数组、同一个顺序。
+`$IfaceByRef` 使用形参下标，`$IfaceRefSig` 只记录方法下标。缺少完备性标记的包将该方法的
+参数传递方式保留为未知，供接口匹配和调用点检查使用。
 
 > 扩这条通道前先问一句「这位真的没地方放吗」：`$IfaceNull` 之所以值得，是因为接口方法块
 > 里加一个 `u8` 要动 zbc 格式（`is_static` 那次就是这么加的，走了 zbc 1.41 的 minor bump），

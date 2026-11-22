@@ -1,0 +1,103 @@
+namespace Z42DocArtifactTests;
+
+using Std.Harness;
+using Std.IO;
+using Z42.Doc;
+
+[Test]
+void test_artifact_round_trip_and_public_projection() {
+    string source = "namespace Example;\n"
+        + "public enum Mode {\n"
+        + "/// Runs JIT.\n/// @for-generator z42.cli.help\n/// @generator choice-help generator-only copy\n/// @for-generator demo.tools/other\n/// @generator choice-help second generator copy\nJit\n}\n"
+        + "internal class Internal { public int VisibleWithinType; }\n"
+        + "/// @hidden\npublic class Hidden { public int Field; }\n";
+    DocIndex index = new DocIndex();
+    index.AddAll(SyntaxIndexer.IndexSource(source, "src/Mode.z42"));
+    string text = DocArtifact.Write("z42.example", index, false);
+    Assert.False(text.Contains("generator-only copy"));
+    Assert.False(text.Contains("second generator copy"));
+    Assert.False(text.Contains("demo.tools"));
+    Assert.False(text.Contains("VisibleWithinType"));
+    Assert.False(text.Contains("Hidden"));
+
+    DocArtifact result = DocArtifact.Read(text);
+    Assert.Equal("z42.example", result.Package);
+    DocItem[] member = result.Index.Resolve("Example.Mode.Jit");
+    Assert.Equal(1, member.Length);
+    Assert.Equal("Runs JIT.", member[0].Summary());
+    Assert.Equal("src/Mode.z42", member[0].File);
+    Assert.Equal("z42.example", member[0].Pkg);
+
+    string privateText = DocArtifact.Write("z42.example", index, true);
+    Assert.Contains("VisibleWithinType", privateText);
+    Assert.False(privateText.Contains("Hidden"));
+}
+
+[Test]
+void test_artifact_rejects_unsupported_versions() {
+    bool unsupported = false;
+    try {
+        DocArtifact.Read("{\"format\":2,\"level\":\"syntax\",\"package\":\"z42.example\",\"items\":[]}");
+    } catch (InvalidOperationException e) {
+        unsupported = e.Message.Contains("unsupported .zdoc format 2");
+    }
+    Assert.True(unsupported);
+}
+
+
+[Test]
+void test_installed_artifact_yields_to_source() {
+    string directory = Directory.CreateTempDir("z42-doc-artifact");
+    try {
+        DocIndex archived = new DocIndex();
+        archived.AddAll(SyntaxIndexer.IndexSource("namespace N; public enum Archived { First }", "old.z42"));
+        File.WriteAllText(Path.Join(directory, "z42.example.zdoc"), DocArtifact.Write("z42.example", archived, false));
+        DocIndex source = new DocIndex();
+        DocItem local = new DocItem("N.Current", "enum", "Current", "N", "enum Current", 1, "public", "");
+        local.Pkg = "z42.example";
+        source.Add(local);
+        Assert.Equal("", DocArtifact.LoadDirectory(directory, "", source));
+        Assert.Equal(1, source.Count());
+        Assert.Equal("N.Current", source.At(0).Id);
+        DocIndex installed = new DocIndex();
+        Assert.Equal("", DocArtifact.LoadDirectory(directory, "", installed));
+        Assert.Equal(1, installed.Resolve("N.Archived").Length);
+    } finally {
+        Directory.Delete(directory, true);
+    }
+}
+
+
+[Test]
+void test_source_symbol_precedes_same_named_installed_symbol() {
+    string root = Directory.CreateTempDir("z42-doc-priority");
+    try {
+        string installed = Path.Join(root, "sdk-docs");
+        Directory.Create(installed);
+        File.WriteAllText(Path.Join(root, "Local.z42"),
+            "namespace Local;\n/// Local summary.\npublic class Option { }");
+        DocIndex archived = new DocIndex();
+        archived.AddAll(SyntaxIndexer.IndexSource(
+            "namespace Installed;\n/// Installed summary.\npublic class Option { }\npublic class OnlyInSdk { }", "sdk.z42"));
+        File.WriteAllText(Path.Join(installed, "z42.sdk.zdoc"), DocArtifact.Write("z42.sdk", archived, false));
+
+        DocQueryOptions options = new DocQueryOptions();
+        options.Root = root;
+        options.SdkDocsDir = installed;
+        options.Query = "Option";
+        DocQueryResult local = DocQuery.Run(options);
+        Assert.Equal(0, local.Exit);
+        Assert.Contains("Local summary.", local.Out);
+        Assert.False(local.Out.Contains("Installed"));
+
+        options.Query = "Installed.Option";
+        DocQueryResult sdk = DocQuery.Run(options);
+        Assert.Equal(0, sdk.Exit);
+        Assert.Contains("Installed summary.", sdk.Out);
+
+        options.Query = "OnlyInSdk";
+        Assert.Equal(0, DocQuery.Run(options).Exit);
+    } finally {
+        Directory.Delete(root, true);
+    }
+}

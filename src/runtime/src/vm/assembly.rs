@@ -8,7 +8,6 @@ use crate::metadata::Module;
 use std::path::PathBuf;
 use std::pin::Pin;
 
-use crate::host::program::{LoadOptions, LoadedProgram};
 use anyhow::Result;
 
 #[derive(Default)]
@@ -17,31 +16,30 @@ pub(crate) struct ComponentInputs {
     pub backends: crate::components::api::BackendOptions,
     pub profiler: crate::components::api::BackendSource,
 }
-impl ComponentInputs {
-    pub(crate) fn for_request(options: &LoadOptions) -> Self {
-        Self { profiler: if options.allow_profiling { Default::default() }
-            else { crate::components::api::BackendSource::Disabled }, ..Default::default() }
-    }
+pub(crate) struct AssemblyOptions<'a> {
+    pub native: crate::loader::NativeLoading,
+    pub mode: crate::zpkg::ExecMode,
+    pub jit_config: crate::exec::JitConfig,
+    pub components: &'a ComponentInputs,
+    pub freeze_extensions: fn(crate::vm::VmExtensions) -> crate::vm::ExtensionState,
 }
 
-/// Publish a callable program only after metadata and component setup succeeds.
+/// Prepare the context before the host publishes a callable program.
 /// Initialization execution remains in the invocation and execution barriers.
 pub(crate) fn build(
     module: Module,
     inputs: ProgramInputs,
-    options: &LoadOptions,
-    components: &ComponentInputs,
-    entry_hint: Option<String>,
+    options: AssemblyOptions<'_>,
     initial_events: Vec<(String, Option<u64>)>,
-) -> Result<LoadedProgram> {
-    let jit_config = crate::config::runtime_config_snapshot().jit_config();
-    let ctx = build_context(module, inputs)?;
-    ctx.core().loader().configure_native(options.native.clone())?;
+) -> Result<Pin<Box<VmContext>>> {
+    let ctx = build_context(module, inputs, options.freeze_extensions)?;
+    ctx.core().loader().configure_native(options.native)?;
     if let Some(module) = ctx.module() {
         resolve_tokens(&ctx, module);
     }
     crate::components::api::prepare_program(
-        &ctx, options.mode, &components.components, &components.backends, &components.profiler, &jit_config,
+        &ctx, options.mode, &options.components.components, &options.components.backends,
+        &options.components.profiler, &options.jit_config,
     )?;
     for (name, byte_size) in initial_events {
         ctx.core().diagnostics().runtime_observers.fire(&crate::diagnostics::RuntimeEvent::ModuleLoaded {
@@ -49,7 +47,7 @@ pub(crate) fn build(
             byte_size,
         });
     }
-    LoadedProgram::new(ctx, options.mode, entry_hint)
+    Ok(ctx)
 }
 
 /// Everything besides the merged module that the context needs to find more code later.
@@ -73,7 +71,9 @@ pub(crate) struct ProgramInputs {
 }
 
 /// Build the context for a fully merged module (type registry / indices already built).
-fn build_context(mut module: Module, inputs: ProgramInputs) -> anyhow::Result<Pin<Box<VmContext>>> {
+fn build_context(mut module: Module, inputs: ProgramInputs,
+    freeze_extensions: fn(crate::vm::VmExtensions) -> crate::vm::ExtensionState,
+) -> anyhow::Result<Pin<Box<VmContext>>> {
     // Availability needs built type/function indices and a mutable module. Fold
     // before Core takes ownership and before any token is resolved, so unavailable
     // branches never expose unresolved call sites to execution preparation.
@@ -95,6 +95,7 @@ fn build_context(mut module: Module, inputs: ProgramInputs) -> anyhow::Result<Pi
         inputs.vfs,
         Default::default(),
         crate::exec::EngineRegistry::new(None),
+        freeze_extensions,
     );
     // Entry types register initialization facts before any use. The lazy loader
     // does the same when additional types become visible.

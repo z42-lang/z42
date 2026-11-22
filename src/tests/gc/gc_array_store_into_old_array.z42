@@ -1,0 +1,39 @@
+namespace Demo;
+using Std;
+
+class Leaf {
+    public int Value;
+    public Leaf(int value) { this.Value = value; }
+}
+
+class Holder {
+    public Leaf[] Items;
+}
+
+Holder makeHolder() {
+    var holder = new Holder();
+    holder.Items = new Leaf[1];
+    return holder;
+}
+
+WeakHandle storeFresh(Holder holder) {
+    var leaf = new Leaf(42);
+    holder.Items[0] = leaf;
+    return WeakHandle.MakeWeak(leaf);
+}
+
+void Main() {
+    // Keep the promoted array behind the holder and the young leaf out of
+    // Main's registers, so the leaf survives through the array element.
+    var holder = makeHolder();
+    int i = 0;
+    while (i < 8) { GC.Collect(); i = i + 1; }
+    var weak = storeFresh(holder);
+    // Exercise the same store after the default JIT call threshold.
+    i = 0;
+    while (i < 4) { weak = storeFresh(holder); i = i + 1; }
+    GC.Collect();
+
+    Assert.True(WeakHandle.Upgrade(weak) != null);
+    Assert.Equal(42, holder.Items[0].Value);
+}

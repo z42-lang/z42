@@ -7,14 +7,15 @@ pub fn type_full_name(ty: &Value) -> Value {
 }
 
 /// `__memberinfo_declaring_type(memberObj) -> Std.Type | null` — the Type of the class
-/// that declared this member (`MemberInfo.DeclaringType`). Derived from the
+/// that declared this member. Backs the private `MemberInfo.__declaringTypeOf` helper
+/// (the type-member arm of `MemberInfo.DeclaringContext`). Derived from the
 /// `__qualified` identity slot ("<declaring class FQ>.<member>") every member-info
 /// constructor fills (fields / methods / constructors / properties) — strip the
 /// trailing member segment (its own dots only ever come from overload mangling
 /// `$N$types`, which stays inside the last segment) and resolve the class prefix.
 /// Inherited members carry the DECLARING class's name, so a base-declared member
 /// reached through a derived class reports the base — C# semantics. `Std.Type`
-/// overrides the getter with `GetDeclaringType` (nested-type declaring class);
+/// answers via `GetDeclaringType` (nested-type declaring class) instead;
 /// any other receiver without `__qualified` answers null.
 pub fn member_declaring_type(ctx: &VmContext, this: &Value) -> Value {
     match read_type_slot_of(this, "__qualified") {
@@ -421,7 +422,7 @@ pub mod typed {
     #[builtin(name = "__type_full_name")]
     pub fn full_name(ty: &Value) -> Value { type_full_name(ty) }
 
-    #[builtin(name = "__memberinfo_declaring_type", this = "DeclaringType", reenters)]
+    #[builtin(name = "__memberinfo_declaring_type", this = "__declaringTypeOf", reenters)]
     pub fn member_declaring_type_of(ctx: &VmContext, this: &Value) -> Value { member_declaring_type(ctx, this) }
 
     #[builtin(name = "__type_identity_equals")]

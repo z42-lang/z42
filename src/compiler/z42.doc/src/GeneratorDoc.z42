@@ -1,0 +1,168 @@
+namespace Z42.Doc;
+
+using Std.Text;
+
+public sealed class GeneratorDocField {
+    public string Target;
+    public string Key;
+    public string Text;
+
+    public GeneratorDocField(string target, string key, string text) {
+        this.Target = target;
+        this.Key = key;
+        this.Text = text;
+    }
+}
+
+public sealed class GeneratorDoc {
+    internal const string TargetTag = "@for-generator";
+    internal const string FieldTag = "@generator";
+
+    public string PublicText;
+    public GeneratorDocField[] Fields;
+    public string Error;
+    public int ErrorLineOffset;
+
+    public GeneratorDoc(string text) {
+        this.PublicText = text;
+        this.Fields = new GeneratorDocField[0];
+        this.Error = "";
+    }
+
+    public string? GetText(string target, string key) {
+        foreach (GeneratorDocField field in this.Fields) {
+            if (field.Target == target && field.Key == key) { return field.Text; }
+        }
+        return null;
+    }
+
+    public static GeneratorDoc Parse(string doc) {
+        var result = new GeneratorDoc(doc);
+        if (doc.IndexOf("@") < 0) { return result; }
+        string[] lines = doc.Split("\n");
+        int first = 0;
+        while (first < lines.Length && !GeneratorDoc._tag(lines[first], TargetTag) && !GeneratorDoc._tag(lines[first], FieldTag)) {
+            first = first + 1;
+        }
+        if (first == lines.Length) { return result; }
+        var scan = new GeneratorDocScan(result, lines.Length);
+        for (int i = 0; i < lines.Length; i++) { scan.Line(lines[i], i); }
+        scan.Finish();
+        return result;
+    }
+
+    internal static bool _tag(string line, string tag) {
+        int len = tag.Length;
+        return line.Length >= len && line.Substring(0, len).ToLower() == tag
+            && (line.Length == len || GeneratorDoc._space(line.CharAt(len)));
+    }
+
+    internal static bool _validTarget(string name) {
+        int separator = name.IndexOf("/");
+        if (separator < 0) { return GeneratorDoc._validName(name, true); }
+        return GeneratorDoc._validName(name.Substring(0, separator), true)
+            && GeneratorDoc._validName(name.Substring(separator + 1), false);
+    }
+
+    internal static bool _space(char c) { return c == ' ' || c == '\t' || c == '\r'; }
+
+    internal static bool _validName(string name, bool allowDot) {
+        bool previousWord = false;
+        for (int i = 0; i < name.Length; i++) {
+            char c = name.CharAt(i);
+            if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) { previousWord = true; }
+            else {
+                if (!previousWord || (c != '-' && !(allowDot && c == '.'))) { return false; }
+                previousWord = false;
+            }
+        }
+        return previousWord;
+    }
+}
+
+internal sealed class GeneratorDocScan {
+    private GeneratorDoc _result;
+    private GeneratorDocField[] _fields;
+    private StringBuilder _publicText = new StringBuilder();
+    private string _target = "";
+    private int _selectorLine = -1;
+    private bool _hasField;
+    private bool _inside;
+    private int _count;
+    private int _publicCount;
+
+    public GeneratorDocScan(GeneratorDoc result, int capacity) {
+        this._result = result;
+        this._fields = new GeneratorDocField[capacity];
+    }
+
+    public void Line(string line, int offset) {
+        if (GeneratorDoc._tag(line, GeneratorDoc.TargetTag)) {
+            this._closeGroup();
+            string name = line.Substring(GeneratorDoc.TargetTag.Length).Trim();
+            this._target = GeneratorDoc._validTarget(name) ? name : "";
+            this._selectorLine = offset;
+            this._inside = true;
+            if (this._target == "") { this._report("expected @for-generator <plugin-package[/generator-id]>", offset); }
+        } else if (GeneratorDoc._tag(line, GeneratorDoc.FieldTag)) {
+            this._inside = true;
+            this._hasField = true;
+            this._field(line.Substring(GeneratorDoc.FieldTag.Length).Trim(), offset);
+        } else if (this._inside && !line.StartsWith("@")) {
+            if (line.Trim().Length > 0) { this._report("generator doc tags require a single line", offset); }
+        } else {
+            this._closeGroup();
+            if (this._publicCount > 0) { this._publicText.Append("\n"); }
+            this._publicText.Append(line);
+            this._publicCount = this._publicCount + 1;
+        }
+    }
+
+    public void Finish() {
+        this._closeGroup();
+        this._result.PublicText = this._publicText.ToString();
+        this._result.Fields = new GeneratorDocField[this._count];
+        Array.Copy(this._fields, this._result.Fields, this._count);
+    }
+
+    private void _closeGroup() {
+        if (this._selectorLine >= 0 && !this._hasField) {
+            this._report("@for-generator requires at least one @generator field", this._selectorLine);
+        }
+        this._target = "";
+        this._selectorLine = -1;
+        this._hasField = false;
+        this._inside = false;
+    }
+
+    private void _field(string rest, int offset) {
+        if (this._target == "") {
+            this._report("@generator requires a preceding @for-generator", offset);
+            return;
+        }
+        int end = 0;
+        while (end < rest.Length && !GeneratorDoc._space(rest.CharAt(end))) { end = end + 1; }
+        string key = rest.Substring(0, end);
+        string text = rest.Substring(end).Trim();
+        if (!GeneratorDoc._validName(key, false) || text == "") {
+            this._report("expected @generator <field> <text>", offset);
+            return;
+        }
+        for (int i = 0; i < this._count; i++) {
+            GeneratorDocField field = this._fields[i];
+            if (field.Target == this._target && field.Key == key) {
+                this._report("duplicate @generator field " + this._target + "/" + key, offset);
+                return;
+            }
+        }
+        this._fields[this._count] = new GeneratorDocField(this._target, key, text);
+        this._count = this._count + 1;
+    }
+
+    private void _report(string message, int offset) {
+        if (this._result.Error == "") {
+            this._result.Error = message;
+            this._result.ErrorLineOffset = offset;
+        }
+    }
+}

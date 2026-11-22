@@ -54,6 +54,8 @@ public sealed class ImportedSymbols {
     // add-associated-types PR-1：导入类的 where 约束（键 = 类的 FQN 键，即 ClassesByFqn 的键，
     // 与 SymbolTable.ClassConstraintKey 口径一致）→ ConstraintSet。
     public StrMap Constraints;
+    public StrMap ConcreteImplOrigins;
+    public DiagnosticBag ImplDiagnostics;
     // fix-crosspkg-ns-reachability：依赖契约三件套的**搬运载体**。放在这里而不是给
     // `BuildPackageCus` 加参：本类已经是「跨包信息进符号表」的唯一通道（ClassPkgAll 就走这条），
     // 而改签名要动十几个调用点。由 `SymbolCollector._mergeImports` 并进 SymbolTable。
@@ -62,6 +64,8 @@ public sealed class ImportedSymbols {
     public bool   EnforceDeclaredDeps;
     public ImportedSymbols() {
         this.Constraints = new StrMap();
+        this.ConcreteImplOrigins = new StrMap();
+        this.ImplDiagnostics = new DiagnosticBag();
         this.FunctionsByFqn = new StrMap();
         this.ClassNsAll = new StrMap();
         this.IfaceNsAll = new StrMap();   // enforce-fqn-name-identity 阶段 2
@@ -89,18 +93,21 @@ public static partial class ImportedSymbolLoader {
     // bundle 里的接口名/基类名是**裸名**，与本包路径（ConstraintChecker._fillBundle 存 nt.Name）
     // 同一口径，故 _satisfiesInterface / _satisfiesBase 对本包与导入类型的判定完全一致。
     private static ConstraintSet _constraintSetOf(ExportedClassZ cl) {
-        if (cl.TpConstraintCount <= 0 || cl.TypeParamConstraints == null) { return null; }
-        int pc = cl.TpCount;
-        if (pc <= 0) { return null; }
+        return ImportedSymbolLoader._decodeConstraints(cl.TypeParams, cl.TpCount,
+                                                       cl.TypeParamConstraints, cl.TpConstraintCount);
+    }
+
+    private static ConstraintSet _decodeConstraints(string[] names, int pc, IrConstraintDesc[] descs, int count) {
+        if (descs == null || count <= 0 || pc <= 0) { return null; }
         ConstraintBundle[] bundles = new ConstraintBundle[pc];
         int i = 0;
         while (i < pc) { bundles[i] = new ConstraintBundle(); i = i + 1; }
         int n = pc;
-        if (cl.TpConstraintCount < n) { n = cl.TpConstraintCount; }
+        if (count < n) { n = count; }
         bool any = false;
         int k = 0;
         while (k < n) {
-            IrConstraintDesc d = cl.TypeParamConstraints[k];
+            IrConstraintDesc d = descs[k];
             if (d != null) {
                 ConstraintBundle b = bundles[k];
                 b.RequiresClass  = d.RequiresClass;
@@ -120,7 +127,7 @@ public static partial class ImportedSymbolLoader {
             k = k + 1;
         }
         if (!any) { return null; }
-        string[] pnames = cl.TypeParams;
+        string[] pnames = names;
         if (pnames == null) { pnames = new string[0]; }
         return new ConstraintSet(pnames, bundles, pc);
     }
@@ -208,17 +215,39 @@ public static partial class ImportedSymbolLoader {
         // ── Phase3：impl 合并（L3-Impl2；镜像 C# MergeImpls）——方法并入 imported target，trait 入其接口集 ──
         i = 0;
         while (i < exportedCount) {
-            if (tier0[i]) {
+            if (active[i]) {
                 ExportedModuleZ em = exported[i];
                 int c = 0;
                 while (c < em.ImplCount) {
-                    ImportedSymbolLoader._mergeImpl(r, em.Impls[c]);
+                    ExportedImplZ entry = em.Impls[c];
+                    ImportedSymbolLoader._noteConcreteImpl(r, entry, pkgNames[i]);
+                    if (tier0[i]) { ImportedSymbolLoader._mergeImpl(r, entry); }
                     c = c + 1;
                 }
             }
             i = i + 1;
         }
         return r;
+    }
+
+    internal static string ConcreteImplKey(string target, string trait) {
+        return "impl " + trait + " for " + target;
+    }
+
+    private static void _noteConcreteImpl(ImportedSymbols r, ExportedImplZ entry, string packageName) {
+        if (entry.TypeArgCount != 0 || entry.TargetFq.IndexOf("<") >= 0 || entry.TraitFq.IndexOf("<") >= 0) { return; }
+        Z42ClassType target = r.ClassesByFqn.Get(entry.TargetFq) as Z42ClassType;
+        Z42InterfaceType trait = r.InterfacesByFqn.Get(entry.TraitFq) as Z42InterfaceType;
+        if (target == null || trait == null || target.GenericParamCount > 0 || trait.TypeParamCount > 0) { return; }
+        string key = ImportedSymbolLoader.ConcreteImplKey(entry.TargetFq, entry.TraitFq);
+        StrBox previous = r.ConcreteImplOrigins.Get(key) as StrBox;
+        if (previous != null) {
+            r.ImplDiagnostics.Error(DiagnosticCodes.InvalidImpl,
+                "duplicate `" + key + "` in packages `" + previous.Value + "` and `" + packageName + "`",
+                new Span(0, 0, 1, 1, packageName + ".zpkg"));
+        } else {
+            r.ConcreteImplOrigins.Put(key, new StrBox(packageName));
+        }
     }
 
     // 单条 impl 合并到 imported target class（镜像 C# MergeImpls 内层）。
@@ -254,6 +283,7 @@ public static partial class ImportedSymbolLoader {
                 sym.IsDeprecated = me.IsDeprecated; sym.DeprecationMsg = me.DeprecationMsg;   // add-deprecated-directive：跨包方法级弃用
                 sym.TypeParamCount = me.TypeParamCount;   // add-array-paired-sort：跨包方法级泛型形参个数，供 arity 重载过滤
                 sym.TypeParamNames = ImportedSymbolLoader._tpNames(me.TypeParams);   // fix-explicit-type-arg-not-substituted
+                sym.TypeParamConstraints = ImportedSymbolLoader._methodConstraints(sym, me.TypeParamConstraints);
                 ct.Methods.Put(me.Name, sym);
                 if (!me.IsStatic) { ct.AddOwnMethod(me.Name, me.IsVirtual, me.IsAbstract); }
             }
@@ -313,6 +343,11 @@ public static partial class ImportedSymbolLoader {
     // ⇒ `Conversion._classifyBuiltin` 分支 B「恰一侧泛型形参 → 擦除放行」永不触发。
     // 合并而非替换：类级与方法级可同时在场（`class C<T> { void M<U>(T t, U u) }`）。
     // fix-explicit-type-arg-not-substituted：方法级型参名的**非空**视图。
+    private static ConstraintSet _methodConstraints(MethodSymbol symbol, IrConstraintDesc[] descs) {
+        if (descs == null) { return null; }
+        return ImportedSymbolLoader._decodeConstraints(symbol.TypeParamNames, symbol.TypeParamCount, descs, descs.Length);
+    }
+
     // `_tpsWith` 合并的是「类级 ∪ 方法级」（解析签名时的可见型参上下文），而按显式类型实参
     // 代换签名时**只能**按方法级的那几个名字代——把类级也代进去会把 `Box<T>.Put(T)` 的 T
     // 当成方法级型参换掉。故这里单独取 `me.TypeParams`，不复用 `_tpsWith` 的结果。
@@ -387,6 +422,7 @@ public static partial class ImportedSymbolLoader {
                 sym.IsDeprecated = m.IsDeprecated; sym.DeprecationMsg = m.DeprecationMsg;   // add-deprecated-directive：跨包方法级弃用
                 sym.TypeParamCount = m.TypeParamCount;   // add-array-paired-sort：跨包方法级泛型形参个数，供 arity 重载过滤
                 sym.TypeParamNames = ImportedSymbolLoader._tpNames(m.TypeParams);   // fix-explicit-type-arg-not-substituted
+                sym.TypeParamConstraints = ImportedSymbolLoader._methodConstraints(sym, m.TypeParamConstraints);
                 ct.Methods.Put(m.Name, sym);
                 // G18-import：实例方法入 OwnMethod* 有序元数据（TSIG 方法继承展开；static 不入）。
                 if (!m.IsStatic) { ct.AddOwnMethod(m.Name, m.IsVirtual, m.IsAbstract); }

@@ -182,6 +182,7 @@ public sealed partial class OverloadBinder {
         int i = 0;
         while (i < s.ParamTypes.Length) {
             if (s.ParamsFrom >= 0 && i == s.ParamsFrom) { k = k + "..."; }
+            if (s.IsRefParam(i)) { k = k + "&"; }
             k = k + (s.ParamTypes[i] == null ? "?" : s.ParamTypes[i].CanonName()) + ",";
             i = i + 1;
         }

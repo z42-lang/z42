@@ -29,6 +29,7 @@ public sealed class MethodSymbol {
                                               // Decl.TypeParams.Names 裁出；导入 ExportedMethodZ.TypeParams）。`TypeParamCount` 只够做 arity 过滤，
                                               // 而**按名代换**签名（`Sort<int>` 的 `Comparison<T>` → `Comparison<int>`）
                                               // 必须有名字——导入侧此前把这些名字读出来只当解析上下文用，没留在符号上。
+    public ConstraintSet TypeParamConstraints;
     public string      IfaceBridgeRet;        // add-iface-return-bridge：本方法实现了某接口成员，而**实现返回值类型
                                               // （struct）、接口声明返回引用型** ⇒ 两侧 ABI 不一致（blob struct 走
                                               // sret = 多一个隐藏物理参，而接口调用点按引用返回发码、不传该槽 ⇒
@@ -67,6 +68,7 @@ public sealed class MethodSymbol {
         c.IsSealed = this.IsSealed;
         c.IsDeprecated = this.IsDeprecated; c.DeprecationMsg = this.DeprecationMsg;
         c.TypeParamCount = this.TypeParamCount; c.TypeParamNames = this.TypeParamNames;
+        c.TypeParamConstraints = this.TypeParamConstraints;
         c.IfaceBridgeRet = this.IfaceBridgeRet;
         c.MethodErasedSig = this.MethodErasedSig;
         return c;

@@ -32,6 +32,19 @@ pub use artifact::{load_artifact_with_fusion, load_artifact_from_bytes_with_fusi
 pub use indices::build_block_indices_with_fusion;
 
 
+/// Build the type registry, validate it, then prepare execution indices.
+pub(super) fn prepare_module(
+    module: &mut Module,
+    fusion_inputs: FusionInputSource,
+) -> Result<()> {
+    build_type_registry(module);
+    verify_constraints(module)?;
+    build_block_indices_with_fusion(module, fusion_inputs);
+    build_func_index(module);
+    Ok(())
+}
+
+
 #[cfg(all(test, z42_test_facade))]
 #[path = "loader_tests.rs"]
 mod tests;
