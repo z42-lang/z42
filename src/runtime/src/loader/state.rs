@@ -22,10 +22,10 @@ pub struct LoaderState {
 }
 
 impl LoaderState {
-    pub(crate) fn configure_native(&self, settings: super::NativeLoading) -> anyhow::Result<()> {
+    pub(super) fn configure_native(&self, settings: super::NativeLoading) -> anyhow::Result<()> {
         self.native_loading.set(settings).map_err(|_| anyhow::anyhow!("native loading settings are already frozen"))
     }
-    pub(crate) fn native_loading(&self) -> &super::NativeLoading {
+    pub(super) fn native_loading(&self) -> &super::NativeLoading {
         self.native_loading.get_or_init(Default::default)
     }
 

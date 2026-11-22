@@ -29,8 +29,9 @@ pub(crate) fn attach(ctx: &VmContext, source: &BackendSource, hz: u32, trace: bo
         ensure!(matches!(source, BackendSource::Auto), "profiler is configured through both explicit component selection and source selection");
         existing.clone()
     } else {
-        select(ComponentOptions::default(), source, PROFILER_COMPONENT, "profiler", ctx.core().loader().native_loading())?
-            .create(ctx.heap().heap_epoch(), ctx.core().loader().native_loading())?
+        let policy = ctx.loader().native_loading();
+        select(ComponentOptions::default(), source, PROFILER_COMPONENT, "profiler", policy)?
+            .create(ctx.heap().heap_epoch(), policy)?
     };
     let interface = components.lease::<ProfilerApi>(PROFILER_COMPONENT, ctx.core_arc())?
         .ok_or_else(|| anyhow::anyhow!("profiler component does not provide its profiling interface"))?;

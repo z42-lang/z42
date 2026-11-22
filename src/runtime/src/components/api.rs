@@ -14,7 +14,7 @@ pub(crate) fn prepare_program(
     ctx: &VmContext, mode: ExecMode, components: &ComponentOptions,
     backends: &BackendOptions, profiler: &BackendSource, jit_config: &crate::exec::JitConfig,
 ) -> Result<()> {
-    let selected = backends.components(mode, components, ctx.core().loader().native_loading())?;
+    let selected = backends.components(mode, components, ctx.loader().native_loading())?;
     let mut roles = vec![(ExecutionRole::Baseline, crate::components::abi::INTERP_COMPONENT)];
     if mode == ExecMode::Jit {
         roles.push((ExecutionRole::Optimizing, crate::components::abi::JIT_COMPONENT));
