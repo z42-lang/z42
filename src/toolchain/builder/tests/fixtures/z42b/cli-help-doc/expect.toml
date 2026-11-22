@@ -1,0 +1,45 @@
+desc = "CLI 构建插件输出独立 enum 文案，打开插件和只改文案均不改变 release app.zpkg"
+
+[[step]]
+tool = "z42c"
+args = ["build", "{root}/src/compiler/z42.doc/z42.doc.z42.toml", "--release", "--output-dir", "{case}/plugin"]
+exit = 0
+
+[[step]]
+tool = "z42c"
+args = ["build", "{root}/src/libraries/z42.cli/plugins/help/z42.z42.toml", "--release", "--output-dir", "{case}/plugin"]
+exit = 0
+
+[[step]]
+args = ["build", "{case}/app", "--release"]
+exit = 0
+absent = ["app/dist/demo.cli-doc.cli-help.json"]
+
+[[step]]
+tool = "copy"
+from = "app/artifacts/release/build/app.zpkg"
+to = "reference/app.zpkg"
+
+[[step]]
+tool = "copy"
+from = "variants/enabled.toml"
+to = "app/z42.toml"
+
+[[step]]
+args = ["build", "{case}/app", "--release"]
+exit = 0
+file_contains = [["app/dist/demo.cli-doc.cli-help.json", '"Example.Mode.JitOnly": "仅使用 JIT"']]
+file_not_contains = [["app/dist/demo.cli-doc.cli-help.json", "Public JIT summary."], ["app/dist/demo.cli-doc.cli-help.json", "Other plugin copy"]]
+same_bytes = [["reference/app.zpkg", "app/artifacts/release/build/app.zpkg"]]
+
+[[step]]
+tool = "copy"
+from = "variants/updated.z42"
+to = "app/src/Main.z42"
+
+[[step]]
+args = ["build", "{case}/app", "--release"]
+exit = 0
+file_contains = [["app/dist/demo.cli-doc.cli-help.json", '"Example.Mode.JitOnly": "使用 JIT 执行"']]
+file_not_contains = [["app/dist/demo.cli-doc.cli-help.json", "仅使用 JIT"]]
+same_bytes = [["reference/app.zpkg", "app/artifacts/release/build/app.zpkg"]]
