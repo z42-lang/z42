@@ -1,0 +1,70 @@
+// feat/static-method-group 回归 golden：类静态方法取引用作 delegate 值。
+// book 🔴 记载的缺口关闭（learn「当前实现的边界」/ roadmap support-static-method-group-conversion）：
+//   ① `Func<int,int> f = Api.Twice;`（限定形态）——此前报 `E0401: undefined: Api`
+//   ② `Func<int,int> f = Demo.Api.Twice;`（ns 全限定形态）
+//   ③ 类内裸名 `return Twice;`——此前报 `E0401: undefined: Twice`
+//   ④ 实参位 `Run(Api.Twice)` 同路
+//   ⑤ 钉住既有形态不回归：this.M 实例方法组 / 自由函数组 / 调用形态
+//   ⑥ 与族基类机制交叉：静态组 is Delegate / FnName / Target=null / == 同函数
+// 边界（负例见 typecheck 单测）：重载静态方法无目标不消解（E0425）；经派生类名取基类静态（E0401）。
+namespace Demo;
+
+using Std;
+using Std.IO;
+
+class Api {
+    public static int Twice(int x) { return x * 2; }
+    public static string Tag(string s) { return "[" + s + "]"; }
+
+    public static Func<int, int> Self() { return Twice; }   // ③ 类内裸名
+}
+
+class Base {
+    public static int Triple(int x) { return x * 3; }
+}
+
+class Host {
+    public int N;
+    public Host(int n) { this.N = n; }
+    public int Add(int x) { this.N = this.N + x; return this.N; }
+    public Func<int, int> Grab() { return this.Add; }   // ⑤ this.M 实例方法组
+}
+
+int FreeSquare(int x) { return x * x; }                 // ⑤ 自由函数组
+
+void Run(Func<int, int> f) { Console.WriteLine("run " + f(21).ToString()); }
+
+void Main() {
+    // ── ① 限定形态 ─────────────────────────────────────────────────────────
+    Func<int, int> f = Api.Twice;
+    Console.WriteLine("twice " + f(5).ToString());
+
+    // ── ② ns 全限定形态 ────────────────────────────────────────────────────
+    Func<int, int> q = Demo.Api.Twice;
+    Console.WriteLine("qualified " + q(6).ToString());
+
+    // ── ③ 类内裸名（经 Api.Self 返回）──────────────────────────────────────
+    Func<int, int> s = Api.Self();
+    Console.WriteLine("bare " + s(7).ToString());
+
+    // ── ④ 实参位 ───────────────────────────────────────────────────────────
+    Run(Api.Twice);
+    Run(FreeSquare);
+
+    // ── ⑤ 既有形态钉 ───────────────────────────────────────────────────────
+    Host h = new Host(100);
+    Func<int, int> self = h.Grab();
+    self(1);
+    Console.WriteLine("host " + h.N.ToString());
+    Console.WriteLine("call " + Api.Twice(5).ToString());   // 调用形态不受影响
+
+    // ── ⑥ 族基类交叉（feat/delegate-base-class 的机制在静态组上同样成立）────
+    Func<int, int> g = Api.Twice;
+    Console.WriteLine("same " + (f == g).ToString());                 // 同一函数 ⇒ true
+    Console.WriteLine("is-delegate " + (f is Delegate).ToString());
+    Console.WriteLine("fn " + (f.FnName != null && f.FnName.Length > 0).ToString());
+    Console.WriteLine("target-null " + (f.Target == null).ToString()); // 静态组无 receiver
+
+    Func<string, string> t = Api.Tag;
+    Console.WriteLine(t("ok"));
+}

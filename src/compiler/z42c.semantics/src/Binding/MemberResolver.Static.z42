@@ -151,4 +151,117 @@ public sealed partial class MemberResolver {
         }
         return null;
     }
+
+    // ── feat/static-method-group：类的静态方法取引用作 delegate 值 ─────────────────────────
+    // `Func<int,int> f = Api.Twice;` 与类内裸名 `Func<int,int> f = Twice;`。此前 `C.F` 落
+    // 「undefined: C」（类名不是值）、裸名落「undefined: F」——book 🔴 记载的缺口
+    // （learn/types/lambdas.md「当前实现的边界」/ roadmap support-static-method-group-conversion）。
+    //
+    // 形态与限制对齐**实例**方法组的既有边界：v1 只认主方法（bare 注册键；重载的按目标委托
+    // 消解是实例/静态共有的后续项），且沿用 reject-derived-static-access——经派生类名取基类
+    // 静态方法引用同调用路一样拒绝、点名声明类。
+
+    // `C.F` 限定形态：静态字段 / 属性（BindStaticMember）与 StaticMemberMiss 都未命中后由
+    // `_bindMember` 调入。命中静态方法 → Receiver=null 的 BoundMethodGroup（StaticKey=发射键）。
+    // 返回 null = 不是方法组，交回原路径。
+    //
+    // ⚠ 查法与实例组不同：stabilize-dispatch-keys 方案A 给**常规静态方法恒全签名 mangle**
+    // （键是 `Twice$1$int` 这样的方法自身签名纯函数，无裸键）⇒ 不能 `_findMethod(裸名)`，须按
+    // `ms.Name` 扫表。同名多份（重载）⇒ v1 无目标消解（与实例方法组共有的后续项），报 E0425
+    // 并提示 lambda 包装——与自由函数重载无目标的口径一致。
+    internal BoundExpr BindStaticMethodGroup(Z42ClassType sct, string clsName, string name, Span sp, TypeEnv env) {
+        Z42ClassType owner = MemberResolver._classWithStaticNamed(env.Symbols, sct, name);
+        if (owner == null) { return null; }
+        MethodSymbol[] cands = MemberResolver._staticsOnClass(owner, name);
+        if (cands.Length > 1) {
+            this._tc._diags.Error(DiagnosticCodes.AmbiguousOverload,
+                "cannot take a reference to overloaded static method `" + clsName + "." + name
+                + "` without a target delegate type; wrap it in a lambda (`(int x) => " + clsName + "." + name
+                + "(x)`) to disambiguate", sp);
+            return new BoundError("overloaded static method group " + name, new Z42ErrorType(), sp);
+        }
+        MethodSymbol ms = cands[0];
+        this._tc._access.CheckAccess(ms.Visibility, ms.ContainingTypeName, env, env.Symbols, "method", name, sp);
+        this._tc._access.CheckDeprecatedM(ms, name, sp);
+        if (MemberResolver.IsBaseStaticMethod(sct, ms)) {
+            this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
+                "static method `" + name + "` is declared on base class `" + ms.ContainingTypeName + "`, not on `" + clsName
+                + "`; take its reference through the declaring class: `" + ms.ContainingTypeName + "." + name + "`", sp);
+            return new BoundError("base static method group " + name, new Z42ErrorType(), sp);
+        }
+        return MemberResolver._staticMethodGroup(owner, name, ms, sp);
+    }
+
+    // 类内裸名 `F` 形态：`BindBareStatic`（字段/属性）未命中后由 `_bindIdent` 调入。
+    // 查找序同 BindBareStatic：本类 → 基类链 → 外层类型（命中基类/外层时按声明类取引用）。
+    // 局部 / 形参 / 实例字段 / 静态字段属性都在它之前命中，自由函数在它之后（成员作用域更内层）。
+    internal BoundExpr BindBareStaticMethodGroup(string name, Span sp, TypeEnv env) {
+        if (!env.HasClass()) { return null; }
+        string scope = env.CurrentClass();
+        while (scope != "") {
+            if (env.Symbols.HasClass(scope)) {
+                Z42ClassType ct = env.Symbols.GetClass(scope);
+                BoundExpr own = this.BindStaticMethodGroup(ct, scope, name, sp, env);
+                if (own != null) { return own; }
+                Z42ClassType b = env.Symbols.BaseOf(ct);
+                int hops = 0;
+                while (b != null) {
+                    BoundExpr inh = this.BindStaticMethodGroup(b, b.Name(), name, sp, env);
+                    if (inh != null) { return inh; }
+                    b = env.Symbols.BaseOf(b);
+                    hops = SymbolTable.NextBaseHop(hops);
+                }
+            }
+            scope = MemberResolver._outerOf(scope);
+        }
+        return null;
+    }
+
+    // 统一构造：静态方法组节点（Receiver=null + StaticKey=发射键，含重载后缀）。
+    private static BoundMethodGroup _staticMethodGroup(Z42ClassType ct, string name, MethodSymbol ms, Span sp) {
+        BoundMethodGroup g = new BoundMethodGroup(null, ct.Name(), name, ms.Signature, sp);
+        g.OwnerCt = ct;
+        g.StaticKey = ms.CallKey();
+        return g;
+    }
+
+    // 沿基链（含 Object 隐式根，同 `_findMethod` 的遍历规则）找**第一个**有同名静态方法的类。
+    // 静态恒 mangle 无裸键（见 BindStaticMethodGroup 注释）⇒ 按 ms.Name 扫表。返回 null=全链无。
+    private static Z42ClassType _classWithStaticNamed(SymbolTable symbols, Z42ClassType ct, string name) {
+        Z42ClassType cur = ct;
+        bool more = true;
+        while (more) {
+            if (MemberResolver._staticsOnClass(cur, name).Length > 0) { return cur; }
+            if (!cur.HasBase) {
+                if (cur.Name() != "Object" && symbols.HasClass("Object")) { cur = symbols.GetClass("Object"); }
+                else { more = false; }
+            } else {
+                Z42ClassType b = symbols.BaseOf(cur);
+                if (b == null) { more = false; } else { cur = b; }
+            }
+        }
+        return null;
+    }
+
+    // 该类（**仅本类**，不沿链）上名为 name 的静态方法全集，声明序。
+    private static MethodSymbol[] _staticsOnClass(Z42ClassType ct, string name) {
+        int cap = ct.Methods.Capacity();
+        MethodSymbol[] buf = new MethodSymbol[cap];
+        int n = 0;
+        int i = 0;
+        while (i < cap) {
+            if (ct.Methods.UsedAt(i)) {
+                MethodSymbol ms = ct.Methods.ValAt(i) as MethodSymbol;
+                if (ms != null && ms.Name == name && ms.IsStatic && ms.Signature != null) {
+                    buf[n] = ms; n = n + 1;
+                }
+            }
+            i = i + 1;
+        }
+        if (n == 0) { return new MethodSymbol[0]; }
+        MethodSymbol[] outA = new MethodSymbol[n];
+        int k = 0;
+        while (k < n) { outA[k] = buf[k]; k = k + 1; }
+        return outA;
+    }
 }

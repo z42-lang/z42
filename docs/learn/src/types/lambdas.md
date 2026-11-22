@@ -174,20 +174,30 @@ lambda 里可以直接用外层的局部变量，这样的 lambda 叫**闭包**�
 
 函数重载了也没关系：编译器按**目标委托类型**挑出签名完全对上的那一个。
 
-实例方法也可以这样取（`Func<int,int> f = obj.Method;`）。🔴 但**类的静态方法**不行——
-写成 `C.F` 或在类内直接写 `F` 都报错：
+实例方法（`Func<int,int> f = obj.Method;`）和**类的静态方法**也都能直接取：
 
 ```z42
-// examples/types/lambdas/gaps/staticmg.z42
-{{#include ../../../../examples/types/lambdas/gaps/staticmg.z42}}
+// examples/types/lambdas/delegates/delegates.z42
+{{#include ../../../../examples/types/lambdas/delegates/delegates.z42:staticmg}}
 ```
 
 ```console
-{{#include ../../../../examples/types/lambdas/gaps/run.console:staticmg}}
+{{#include ../../../../examples/types/lambdas/delegates/run.console:staticmg}}
 ```
 
-变通办法：包一层 lambda（`Func<int,int> f = (int x) => Api.Twice(x);`），或者改写成自由函数
-（自由函数本来就能直接取）。
+静态方法取引用支持三种写法：限定名 `Api.Twice`、全限定名 `Demo.Api.Twice`、以及**类内裸名**
+`Twice`（沿本类 → 基类链找，命中基类时按声明类取）。限制只有一条：**重载的静态方法**在无目标
+委托类型的写法下无法消解（报 E0425，提示用 lambda 包装）——这与实例方法取重载引用的限制是
+同一个后续项：
+
+```z42
+// examples/types/lambdas/gaps/staticmg-overload.z42
+{{#include ../../../../examples/types/lambdas/gaps/staticmg-overload.z42}}
+```
+
+```console
+{{#include ../../../../examples/types/lambdas/gaps/run.console:staticmg-overload}}
+```
 
 ## 事件：让别人挂处理器
 
@@ -379,8 +389,7 @@ lambda 里可以直接用外层的局部变量，这样的 lambda 叫**闭包**�
 
 ## 🔴 当前实现的边界
 
-下面这条不是写法问题，是**当前实现的洞**，踩到时别怀疑自己（另一条——类的静态方法取不了
-引用——在前面「直接把具名函数当值传」里）。
+下面这条不是写法问题，是**当前实现的洞**，踩到时别怀疑自己。
 
 ### 函数类型不能当数组元素类型
 
