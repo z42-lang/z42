@@ -347,7 +347,16 @@ kind    = "plugin"
 
 [doc 注释的专用字段](../language/doc-comments.md#标记tag)由 `@for-generator` 选择目标，`@generator` 提供字段。
 生成器用自己约定的包名或 `包名/生成器 ID` 读取字段。项目用原有的插件配置选择实际运行哪些插件。
-同一个项目可以启用多个插件，注释中的每组字段由对应目标读取。普通文档输出始终剔除全部专用字段。
+同一个项目可以启用多个插件。每个已编译的插件在 `[dependencies]` 下声明一项。
+
+```toml
+[dependencies]
+"z42.cli.help" = { path = "tooling/z42.cli.help.zpkg" }
+"demo.tools" = { path = "tooling/demo.tools.zpkg" }
+```
+
+`z42.cli.help` 可读取目标 `z42.cli.help` 的组。若 `demo.tools` 有多个生成器，各自以插件约定的 ID 读取，
+例如 `demo.tools/completion`。普通文档输出始终剔除全部专用字段。
 
 ## 写一个 Hook
 

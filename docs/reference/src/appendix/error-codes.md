@@ -403,7 +403,7 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 | W0801 | 孤立的 doc 注释块：`///` / `//!` 后面没有声明认领它（方法体里的 `///`、文件中段的 `//!`、悬空块） | ✅ `DocLint.z42`（`xtask check doc-lints`） | 方法体里写 `/// 说明` |
 | W0802 | `@param` / `@typeparam` 的名字不在声明的签名里 | ✅ `DocLint.z42` | `/// @param y …` 而 `F(int x)` |
 | W0803 | 文档链接 [`Sym`] 或 `@throws` 类型无法解析 | ⚠️ 零发射点：需要语义信息，归编译器 DocChecker pass（后续 PR） | — |
-| W0804 | 未知 doc tag 或 `@generator` 字段格式错误，支持的写法见 doc 注释参考页 | ✅ `DocLint.z42` | `/// @deprecated …` |
+| W0804 | 未知 doc tag 或生成器文案分组与字段格式错误，支持的写法见 doc 注释参考页 | ✅ `DocLint.z42` | `/// @deprecated …` |
 | W0805 | `public` 声明缺 `///` 文档（含接口与枚举成员的隐式 public；record 位置参数用参数级 `///`）。stdlib 经 `xtask check doc-lints` 门禁 | ✅ `DocLint.z42` | `public void F() { }` 头上无 `///` |
 | W0806 | 文档里有历史注记：日期（`(2026-05-31)` 式）或 spec 名（`add-xxx:` 式）。历史归 git blame | ✅ `DocLint.z42` | `/// add-random: 引入` |
 | W0807 | 摘要缺失（首段为空）或超长（>80 字，细节挪正文） | ✅ `DocLint.z42` | `///` 后直接空行 |
