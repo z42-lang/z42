@@ -1,10 +1,8 @@
 //! Shared artifact preparation for CLI and embedded hosts.
-use std::{collections::HashSet, path::{Path, PathBuf}, sync::Arc};
+use std::{collections::HashSet, path::PathBuf, sync::Arc};
 use anyhow::{Context, Result};
-use crate::{zpkg::ExecMode, pal::fs::Vfs, loader::{LoadedArtifact, build_declared_candidates, load_artifact_cached, load_artifact_from_bytes_cached, load_prelude, PRELUDE_FILE}};
+use crate::{zpkg::ExecMode, loader::{LoadedArtifact, build_declared_candidates, load_eager_dependencies, load_artifact_from_bytes_cached, load_prelude, PRELUDE_FILE}};
 use super::program::{LoadOptions, LoadedProgram};
-
-fn vfs_exists(fs: &dyn Vfs, p: &Path) -> bool { p.to_str().is_some_and(|s| fs.exists(s)) }
 
 fn entry_zpkg_idempotency_keys(file: &str) -> Vec<String> {
     let mut keys = Vec::new();
@@ -79,38 +77,17 @@ pub(super) fn prepare_with_eager_mode(user_artifact: LoadedArtifact, source_path
     // program compiled ahead of time, every callee merged up front).
     let is_eager = options.eager_dependencies || matches!(options.mode, ExecMode::Aot);
     if is_eager && !search_dirs.is_empty() {
-        use std::collections::VecDeque;
-        let libs_paths = search_dirs.clone();
-        let mut file_queue: VecDeque<String> =
-            user_artifact.dependencies.iter().map(|d| d.file.clone()).collect();
-        let mut ns_queue: VecDeque<String> =
-            user_artifact.import_namespaces.iter().cloned().collect();
-        loop {
-            while let Some(ns) = ns_queue.pop_front() {
-                if visited_resolver_namespace(options, &initially_loaded_zpkgs, &ns) { continue; }
-                let Ok(zpkg_paths) = crate::loader::resolve_namespace(fs, &ns, &libs_paths)
-                else { continue };
-                for zpkg_path in zpkg_paths {
-                    if let Some(name) = zpkg_path.file_name().and_then(|n| n.to_str()) {
-                        file_queue.push_back(name.to_string());
-                    }
-                }
-            }
-            let Some(dep_file) = file_queue.pop_front() else { break };
-            let Some(dep_path) = search_dirs.iter()
-                .map(|d| d.join(&dep_file))
-                .find(|p| vfs_exists(fs, p))
-            else { continue };
-            let canonical = dep_path.canonicalize().unwrap_or_else(|_| dep_path.clone());
-            if initially_loaded_zpkgs.iter().any(|n| n == &dep_file) || !loaded_paths.insert(canonical) { continue; }  // already merged
-            let dep_str = dep_path.to_string_lossy().into_owned();
-            let artifact = load_artifact_cached(fs, &dep_str, image_cache)
-                .with_context(|| format!("loading dependency `{dep_str}`"))?;
-            for dep in &artifact.dependencies { file_queue.push_back(dep.file.clone()); }
-            for ns in &artifact.import_namespaces { ns_queue.push_back(ns.clone()); }
+        for artifact in load_eager_dependencies(
+            fs,
+            &search_dirs,
+            &user_artifact,
+            image_cache,
+            options.resolver.is_some(),
+            &mut loaded_paths,
+            &mut initially_loaded_zpkgs,
+        )? {
             eager_impl_pairs.extend(artifact.impl_pairs.iter().cloned());
             artifacts.push(artifact);
-            initially_loaded_zpkgs.push(dep_file.clone());
         }
     }
 
@@ -198,9 +175,6 @@ pub(super) enum EagerMerge {
     Off,
 }
 
-fn visited_resolver_namespace(options: &LoadOptions, loaded: &[String], namespace: &str) -> bool {
-    options.resolver.is_some() && loaded.iter().any(|n| n == &format!("{namespace}.zpkg"))
-}
 /// 入口 artifact 的三重登记（fix-entry-self-reload）：
 /// · `loaded_for_replay` —— observer 的 `ModuleLoaded` 事件重放；
 /// · `initially_loaded_zpkgs` —— **入口自己的文件名**也进惰性加载器的已载集。缺了它，入口仍是

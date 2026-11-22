@@ -2,7 +2,8 @@
 use std::path::PathBuf;
 
 use super::{
-    dependency_candidates::version_mismatch_hint, load_artifact_cached, ImageCache, LoadedArtifact,
+    artifact::load_artifact_cached, dependency_candidates::version_mismatch_hint, ImageCache,
+    LoadedArtifact,
 };
 use crate::pal::fs::Vfs;
 
