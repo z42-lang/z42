@@ -1,7 +1,7 @@
 //! Shared artifact preparation for CLI and embedded hosts.
 use std::{collections::HashSet, path::{Path, PathBuf}, sync::Arc};
 use anyhow::{bail, Context, Result};
-use crate::{zpkg::ExecMode, pal::fs::Vfs, loader::{LoadedArtifact, build_declared_candidates, version_mismatch_hint}};
+use crate::{zpkg::ExecMode, pal::fs::Vfs, loader::{LoadedArtifact, build_declared_candidates, load_artifact_cached, load_artifact_from_bytes_cached, version_mismatch_hint}};
 use super::program::{LoadOptions, LoadedProgram};
 
 fn vfs_exists(fs: &dyn Vfs, p: &Path) -> bool { p.to_str().is_some_and(|s| fs.exists(s)) }
@@ -65,7 +65,7 @@ pub(super) fn prepare_with_eager_mode(user_artifact: LoadedArtifact, source_path
         while let Some(namespace) = queue.pop_front() {
             if !visited.insert(namespace.clone()) { continue; }
             let Some(bytes) = resolver.resolve(&namespace) else { continue; };
-            let artifact = load_bytes_cached(&bytes, image_cache)
+            let artifact = load_artifact_from_bytes_cached(&bytes, image_cache)
                 .with_context(|| format!("zpkg_resolver returned malformed bytes for namespace `{namespace}`"))?;
             initially_loaded_zpkgs.push(format!("{namespace}.zpkg"));
             if !resolved_names.insert(blake3::hash(&bytes)) { continue; }
@@ -99,7 +99,7 @@ pub(super) fn prepare_with_eager_mode(user_artifact: LoadedArtifact, source_path
             seen_any = true;
             let core_canonical = core_path.canonicalize().unwrap_or(core_path.clone());
             let core_str = core_path.to_string_lossy().into_owned();
-            match load_path_cached(fs, &core_str, image_cache) {
+            match load_artifact_cached(fs, &core_str, image_cache) {
                 Ok(a) => {
                     tracing::debug!("loaded stdlib z42.core from {core_str}");
                     let byte_size = std::fs::metadata(&core_path).ok().map(|m| m.len());
@@ -161,7 +161,7 @@ pub(super) fn prepare_with_eager_mode(user_artifact: LoadedArtifact, source_path
             let canonical = dep_path.canonicalize().unwrap_or_else(|_| dep_path.clone());
             if initially_loaded_zpkgs.iter().any(|n| n == &dep_file) || !loaded_paths.insert(canonical) { continue; }  // already merged
             let dep_str = dep_path.to_string_lossy().into_owned();
-            let artifact = load_path_cached(fs, &dep_str, image_cache)
+            let artifact = load_artifact_cached(fs, &dep_str, image_cache)
                 .with_context(|| format!("loading dependency `{dep_str}`"))?;
             for dep in &artifact.dependencies { file_queue.push_back(dep.file.clone()); }
             for ns in &artifact.import_namespaces { ns_queue.push_back(ns.clone()); }
@@ -278,37 +278,5 @@ fn register_entry_as_loaded(
     // 先后落 main 时各登记了一遍，此处去重。
     if let Ok(entry_canonical) = std::path::Path::new(file).canonicalize() {
         loaded_paths.insert(entry_canonical);
-    }
-}
-
-/// Decode raw artifact bytes through the optional session cache: a hit hands
-/// back a shallow `from_image` view sharing definition `Arc`s with every
-/// earlier program of the session; a miss decodes and freezes into the cache.
-fn load_bytes_cached(
-    bytes: &[u8],
-    cache: Option<&crate::loader::ImageCache>,
-) -> Result<LoadedArtifact> {
-    match cache {
-        Some(cache) => cache.artifact_for(&crate::loader::content_id(bytes), || {
-            crate::loader::load_artifact_from_bytes(bytes)
-        }),
-        None => crate::loader::load_artifact_from_bytes(bytes),
-    }
-}
-
-/// Path variant: reads through the VFS only when a cache is attached (the
-/// content hash needs the bytes); the uncached path keeps the original
-/// `load_artifact` behaviour byte for byte.
-fn load_path_cached(
-    fs: &dyn crate::pal::fs::Vfs,
-    path: &str,
-    cache: Option<&crate::loader::ImageCache>,
-) -> Result<LoadedArtifact> {
-    match cache {
-        Some(cache) => {
-            let bytes = fs.read(path)?;
-            load_bytes_cached(&bytes, Some(cache))
-        }
-        None => crate::loader::load_artifact(fs, path),
     }
 }
