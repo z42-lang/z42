@@ -1,6 +1,31 @@
 //! Package installation and explicit reload invalidate thread lookup caches.
 use super::*;
 impl RuntimeLoader<'_> {
+    /// Seed the entry package before registering dependencies, so dependency
+    /// registration can find entry definitions and their package ownership.
+    pub(crate) fn install_startup_packages(
+        &self,
+        main_pool_len: usize,
+        packages: crate::loader::StartupPackages,
+    ) -> anyhow::Result<()> {
+        self.install_lazy_loader_with_deps(
+            packages.search_dirs,
+            main_pool_len,
+            packages.declared_candidates,
+            packages.initially_loaded,
+        );
+        if let Some(entry) = self.metadata.module.as_deref() {
+            let func_names: Vec<_> = entry.functions.iter().map(|f| f.name.clone()).collect();
+            self.seed_lazy_loader_types(&entry.type_registry, &func_names);
+        }
+        for artifact in packages.artifacts {
+            self.register_eager_artifact(artifact)?;
+        }
+        self.seed_lazy_loader_impls(&packages.impl_pairs);
+        self.seed_lazy_loader_symbol_owners(&packages.entry_dependencies);
+        Ok(())
+    }
+
     // ── Lazy loader (delegates to LazyLoader struct) ─────────────────────
 
     /// Install with no declared dependencies — for tests / single-file
