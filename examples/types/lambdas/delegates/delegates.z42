@@ -30,8 +30,22 @@ void Main() {
     Func<int, int> f = Square;
     Console.WriteLine(f(9));
     // ANCHOR_END: methodgroup
+
+    // ANCHOR: staticmg
+    // 类的静态方法也能直接取引用：限定名与类内裸名都行
+    Func<int, int> g = Api.Twice;             // 限定名
+    Func<int, int> h = Api.Pick();            // Pick 里写的是类内裸名 Twice
+    Console.WriteLine(g(10) + " " + h(11));
+    // ANCHOR_END: staticmg
 }
 
 // ANCHOR: square
 int Square(int x) { return x * x; }
 // ANCHOR_END: square
+
+// ANCHOR: api
+class Api {
+    public static int Twice(int x) { return x * 2; }
+    public static Func<int, int> Pick() { return Twice; }   // 类内裸名取静态方法引用
+}
+// ANCHOR_END: api

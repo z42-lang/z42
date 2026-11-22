@@ -1,0 +1,12 @@
+twice 10
+qualified 12
+bare 14
+run 42
+run 441
+host 101
+call 10
+same true
+is-delegate true
+fn true
+target-null true
+[ok]

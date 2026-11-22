@@ -8,9 +8,9 @@ z42c build: 1 error(s) in toofew.z42
   toofew.z42(5,5): E1005: too few arguments to `add`: expects 2; got 1 argument(s)
 [exit: 1]
 # ANCHOR_END: arity
-# ANCHOR: staticmg
-$ z42 run staticmg.z42
-z42c build: 1 error(s) in staticmg.z42
-  staticmg.z42(6,24): E0401: undefined: Api
+# ANCHOR: staticmg-overload
+$ z42 run staticmg-overload.z42
+z42c build: 1 error(s) in staticmg-overload.z42
+  staticmg-overload.z42(9,13): E0425: cannot take a reference to overloaded static method `Api.F` without a target delegate type; wrap it in a lambda (`(int x) => Api.F(x)`) to disambiguate
 [exit: 1]
-# ANCHOR_END: staticmg
+# ANCHOR_END: staticmg-overload

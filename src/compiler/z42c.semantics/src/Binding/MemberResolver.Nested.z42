@@ -67,6 +67,10 @@ public sealed partial class MemberResolver {
         this._tc._chkStaticOwnerQualified(env.Symbols, sct, MemberResolver._dottedPath(m.Target), m.Span);
         BoundExpr sm = this.BindStaticMember(sct, nk, m.Name, m.Span, env);
         if (sm != null) { return sm; }
+        // feat/static-method-group：ns 限定 / 嵌套类型目标的静态方法组回落（与主路径 `_bindMember`
+        // 同款，含「先于 StaticMemberMiss」的次序约束，见其注释）。
+        BoundExpr smg = this.BindStaticMethodGroup(sct, nk, m.Name, m.Span, env);
+        if (smg != null) { return smg; }
         return this.StaticMemberMiss(sct, nk, m, env);
     }
 

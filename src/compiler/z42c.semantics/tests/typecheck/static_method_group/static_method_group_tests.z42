@@ -1,0 +1,37 @@
+// feat/static-method-group：类静态方法取引用作 delegate 值的类型检查单测。
+// 正向链路（三种形态 + 与委托签名的结构转换）由 e2e `src/tests/delegates/static_method_group` 覆盖
+//（SemanticDump 片段不带 stdlib，正向无从写）；这里钉两个负例边界：
+//   · 重载静态方法无目标委托类型 → E0425（与自由函数重载同口径）
+//   · 经派生类名取基类静态方法引用 → E0401 点名声明类（reject-derived-static-access 同款）
+namespace Z42cSemanticsStaticMethodGroupTests;
+
+using Z42.Semantics;
+using Std.Harness;
+
+[Test]
+void test_overloaded_static_group_without_target_is_e0425() {
+    string src = "class A { public static int F(int x) { return x; } public static long F(long x) { return x; } "
+        + "void M() { var f = A.F; } }";
+    Assert.Equal("E0425", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_overloaded_static_group_message_suggests_lambda_wrap() {
+    string src = "class A { public static int F(int x) { return x; } public static long F(long x) { return x; } "
+        + "void M() { var f = A.F; } }";
+    Assert.True(SemanticDump.FirstErrorMessage(src).Contains("wrap it in a lambda"));
+}
+
+[Test]
+void test_base_static_group_via_derived_name_is_e0401() {
+    string src = "class B { public static int T(int x) { return x; } } class D : B { "
+        + "void M() { var f = D.T; } }";
+    Assert.Equal("E0401", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_base_static_group_message_names_declaring_class() {
+    string src = "class B { public static int T(int x) { return x; } } class D : B { "
+        + "void M() { var f = D.T; } }";
+    Assert.True(SemanticDump.FirstErrorMessage(src).Contains("declared on base class `B`"));
+}
