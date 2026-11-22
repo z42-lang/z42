@@ -32,13 +32,13 @@ public struct Int32 : IComparable, IEquatable, INumber {
 
     // INumber 静态运算符覆盖：VCall 以 (a, b) 传入，a + b 走基元加法快路径。
     /// 加法。
-    public static override int op_Add(int a, int b)      { return a + b; }
+    public static int op_Add(int a, int b)      { return a + b; }
     /// 减法。
-    public static override int op_Subtract(int a, int b) { return a - b; }
+    public static int op_Subtract(int a, int b) { return a - b; }
     /// 乘法。
-    public static override int op_Multiply(int a, int b) { return a * b; }
+    public static int op_Multiply(int a, int b) { return a * b; }
     /// 除法。
-    public static override int op_Divide(int a, int b)   { return a / b; }
+    public static int op_Divide(int a, int b)   { return a / b; }
     /// 取模。
-    public static override int op_Modulo(int a, int b)   { return a % b; }
+    public static int op_Modulo(int a, int b)   { return a % b; }
 }

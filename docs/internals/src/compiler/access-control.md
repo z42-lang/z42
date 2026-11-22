@@ -48,7 +48,7 @@ env, symbols, kind, name, span)`：
 | `MemberResolver._bindInstanceMemberCall` | 实例方法调用 |
 | `MemberResolver._bindMember` | 静态字段读 |
 | `MemberResolver._bindMemberCall` | 静态方法调用（`Class.m()`） |
-| `AssignTyper._bindAssign` | 属性 setter（`obj.P = v`）；字段写经 `_bindClassMemberAccess` 已覆盖 |
+| `AssignTyper._bindAssign` | 属性 setter（`obj.P = v`）；字段写经 `_bindClassMemberAccess` 已覆盖。类声明的复合赋值重载交给 `MemberResolver` 做普通实例调用，因此调用时只需读取接收者 |
 | `ConstructTyper._bindNew` | 构造器：`new C(..)` / target-typed `new()` / 对象初始化器 / 元组脱糖（选中构造器之后） |
 | `DeclBinder._bindMethodBody` | 构造器：`: base(..)` / `: this(..)` 的目标构造器 |
 

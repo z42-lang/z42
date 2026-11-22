@@ -706,7 +706,18 @@ public sealed class CallEmitter {
     // 合成 static thunk(__mg_thunk_<safeClass>_<M>$<arity>__)：env[0]=receiver，body
     // `recv = env[0]; ret recv.M(args)`；use 处 MkClos 捕获 receiver。thunk 按
     // (qualClass, M, arity) 去重（IrGen.MgThunks）。
+    //
+    // feat/static-method-group：**静态**方法组（`C.F` / 类内裸名 `F`，Receiver=null +
+    // StaticKey≠""）免 thunk——静态方法无 receiver，直接 LoadFn 该方法的发射键（与直呼
+    // `C.F(x)` 的 `call @FQ.M` 同一 func_index 目标）。
     internal TypedReg _emitMethodGroup(BoundMethodGroup mg) {
+        if (mg.StaticKey != "") {
+            string sfq = (mg.OwnerCt != null ? this._ctx.QualifyType(mg.OwnerCt, mg.ClassName) : this._ctx.QualifyClass(mg.ClassName))
+                       + "." + mg.StaticKey;
+            TypedReg sdst = this._ctx.Alloc(IrType.Ref);
+            this._ctx.Emit(new LoadFnInstr(sdst, sfq));
+            return sdst;
+        }
         Z42FuncType sig = mg.Type() as Z42FuncType;
         int arity = sig.ParamCount;
         string qualClass = mg.OwnerCt != null ? this._ctx.QualifyType(mg.OwnerCt, mg.ClassName) : this._ctx.QualifyClass(mg.ClassName);

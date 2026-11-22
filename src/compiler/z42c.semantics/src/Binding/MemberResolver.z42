@@ -55,6 +55,11 @@ public sealed partial class MemberResolver {
                     if (ot is Z42InstantiatedType) { (sm as BoundStaticGet).OwnerType = ot; }
                 }
                 if (sm != null) { return sm; }
+                // feat/static-method-group：静态方法组回落——`C.F` 的 F 是静态方法时在此接住
+                //（`Func<int,int> f = Api.Twice;`，book 记载的缺口）。须在 StaticMemberMiss **之前**：
+                // 静态方法恒 mangle 无裸键，Miss 的 `_hasMethodNamed` 判据会把它当「无此成员」误报。
+                BoundExpr smg = this.BindStaticMethodGroup(sct, clsName, m.Name, m.Span, env);
+                if (smg != null) { return smg; }
                 sm = this.StaticMemberMiss(sct, clsName, m, env); if (sm != null) { return sm; }   // reject-derived-static-access
             }
             // 枚举常量访问 `EnumType.Member` → BoundLitInt，**静态类型 = 该 enum 类型**
@@ -211,6 +216,13 @@ public sealed partial class MemberResolver {
             if (itms != null) {
                 itms = MethodTypeArgSubst.ForExplicitTypeArgs(itms, call, env);   // 显式 `<T>` → 先代换签名再绑实参
                 Z42Type itRet = MemberResolver._substGeneric(itms.Signature.Ret, instRecv);
+                // Type deferred operator operands from the concrete receiver. Argument adaptation
+                // below still uses the declared signature for conversions and the erased ABI.
+                if (ProtocolNames.IsCompoundAssignName(mem.Name) && argCount == 1 && args[0] == null
+                    && !ExprTyper.IsNamedArg(rawArgs[0], env)) {
+                    Z42Type operandType = MemberResolver._substGeneric(itms.Signature.ParamTypes[0], instRecv);
+                    args[0] = this._tc._expr.BindWithTarget(rawArgs[0], operandType, env);
+                }
                 BoundExpr[] fa = this._tc._overload._withDefaults(itms, args, rawArgs, argCount, env, sp, false);
                 // add-generic-type-arg-inference 阶段 A：形参位也按 receiver 的 TypeArgs 代换，再查一遍实参。
                 //
@@ -549,6 +561,21 @@ public sealed partial class MemberResolver {
         return new BoundConvert(raw, ubR, sp);
     }
 
+    private BoundExpr _bindCallArg(Expr arg, TypeEnv env) {
+        // These arguments need the selected signature before binding.
+        if (ExprTyper.IsTargetTypedNew(arg) || ExprTyper.IsLambdaArg(arg)
+            || ExprTyper.IsNamedArg(arg, env) || ExprTyper.IsOverloadedFuncRefArg(arg, env)) { return null; }
+        return this._tc._expr._bindExpr(arg, env);
+    }
+
+    internal BoundExpr BindCompoundAssignment(AssignExpr assign, BoundExpr receiver, string method, TypeEnv env) {
+        MemberExpr member = new MemberExpr(assign.Target, method, assign.Span);
+        Expr[] rawArgs = new Expr[]{ assign.Value };
+        BoundExpr[] args = new BoundExpr[]{ this._bindCallArg(assign.Value, env) };
+        CallExpr call = new CallExpr(member, rawArgs, 1, assign.Span);
+        return this._bindInstanceMemberCall(member, receiver, receiver.Type(), args, 1, rawArgs, env, assign.Span, call);
+    }
+
     [Suppress("style.fnLinesHard", "78 body lines；拆分见 code-organization.md")]
     internal BoundExpr _bindCall(CallExpr call, TypeEnv env) {
         BoundExpr[] args = new BoundExpr[call.ArgCount];
@@ -556,13 +583,7 @@ public sealed partial class MemberResolver {
         // add-target-typed-new：target-typed new 实参延迟绑定（留 null）——形参类型要等重载选定后才知道。
         // 重载决议容忍 null 位（OverloadBinder._resolveOverload），选定后各形态按形参类型回填。
         while (i < call.ArgCount) {
-            // R5：lambda 实参与 target-typed new 同款延迟——形参类型要等重载选定后才知道。
-            // complete-named-arguments：命名实参 `name = value` 同款延迟 —— 形参名要等重载选定
-            // 后才知道往哪个槽放；此处若照常绑，`name` 会先以标识符身份解析失败（undefined）。
-            // add-target-typed-funcref-resolution：重载自由函数实参同款延迟——按形参委托签名消解，形参类型要等重载选定后才知道。
-            if (ExprTyper.IsTargetTypedNew(call.Args[i]) || ExprTyper.IsLambdaArg(call.Args[i])
-                || ExprTyper.IsNamedArg(call.Args[i], env) || ExprTyper.IsOverloadedFuncRefArg(call.Args[i], env)) { args[i] = null; }
-            else { args[i] = this._tc._expr._bindExpr(call.Args[i], env); }
+            args[i] = this._bindCallArg(call.Args[i], env);
             i = i + 1;
         }
         // 顶层自由函数：f(args)

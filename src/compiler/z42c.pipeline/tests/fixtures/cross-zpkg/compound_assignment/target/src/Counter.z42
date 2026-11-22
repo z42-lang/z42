@@ -1,0 +1,10 @@
+namespace Demo.Compound;
+
+public class Counter<T> {
+    private T _value;
+
+    public T operator +=(T value) {
+        this._value = value;
+        return this._value;
+    }
+}
