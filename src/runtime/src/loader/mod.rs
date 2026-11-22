@@ -5,7 +5,6 @@ pub mod lazy;
 pub mod contexts;
 pub mod availability;
 pub use package::LoadedArtifact;
-pub use package::merge::merge_modules;
 pub use locate::{extract_import_namespaces, resolve_dependency, resolve_namespace};
 pub use locate::namespace_index::ZpkgCandidate;
 pub use lazy::LazyLoader;
@@ -41,6 +40,7 @@ pub(crate) use artifact::{load_artifact_from_bytes_cached, FUSION_INPUTS};
 mod native_policy;
 pub use native_policy::NativeLoading;
 pub use image_cache::{ImageCache, content_id};
+pub use package::merge::merge_modules;
 pub(crate) use native_policy::NativeOrigin;
 
 mod ffi;

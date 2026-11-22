@@ -15,11 +15,8 @@ fn entry_zpkg_idempotency_keys(file: &str) -> Vec<String> {
     keys
 }
 
-pub(super) fn prepare(user_artifact: LoadedArtifact, source_path: Option<&str>, options: &LoadOptions, components: &crate::vm::assembly::ComponentInputs, image_cache: Option<&crate::loader::ImageCache>) -> Result<LoadedProgram> {
-    prepare_with_eager_mode(user_artifact, source_path, options, components, image_cache, EagerMerge::Default)
-}
 
-pub(super) fn prepare_with_eager_mode(user_artifact: LoadedArtifact, source_path: Option<&str>, options: &LoadOptions, components: &crate::vm::assembly::ComponentInputs, image_cache: Option<&crate::loader::ImageCache>, eager_mode: EagerMerge) -> Result<LoadedProgram> {
+pub(super) fn prepare(user_artifact: LoadedArtifact, source_path: Option<&str>, options: &LoadOptions, components: &crate::vm::assembly::ComponentInputs, image_cache: Option<&crate::loader::ImageCache>) -> Result<LoadedProgram> {
     let vfs = Arc::clone(&options.vfs);
     let fs = &*vfs;
     let search_dirs = options.search_dirs.clone();
@@ -105,12 +102,8 @@ pub(super) fn prepare_with_eager_mode(user_artifact: LoadedArtifact, source_path
     let entry_hint = user_artifact.entry_hint.clone();
     eager_impl_pairs.extend(user_artifact.impl_pairs.iter().cloned());
 
-    let merge_eager = match eager_mode {
-        EagerMerge::Default => std::env::var_os("Z42_EAGER_MERGE").is_some(),
-        EagerMerge::Off => false,
-    };
     let (final_module, eager_packages) =
-        prepare_program_modules(user_artifact.module, artifacts, merge_eager, file)?;
+        prepare_program_modules(user_artifact.module, artifacts, file)?;
 
     let jit_config = crate::config::runtime_config_snapshot().jit_config();
     let ctx = crate::vm::assembly::build(final_module, crate::vm::assembly::ProgramInputs {
@@ -126,15 +119,6 @@ pub(super) fn prepare_with_eager_mode(user_artifact: LoadedArtifact, source_path
         freeze_extensions: crate::composition::freeze,
     }, loaded_for_replay)?;
     LoadedProgram::new(ctx, options.mode, entry_hint)
-}
-
-/// Which eager-loading track `prepare` takes. `Default` reads the
-/// `Z42_EAGER_MERGE` escape hatch (per-package is the default since the M4
-/// dry run); `Off` forces per-package registration (tests drive this
-/// directly — the env var is process-global).
-pub(super) enum EagerMerge {
-    Default,
-    Off,
 }
 
 /// 入口 artifact 的三重登记（fix-entry-self-reload）：

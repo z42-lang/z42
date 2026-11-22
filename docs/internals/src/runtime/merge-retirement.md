@@ -52,7 +52,7 @@ eager 与 lazy（`loader/lazy`）两套装载语义并存。
 | M1 | prepare 双轨：默认仍 merge，`Z42_NO_EAGER_MERGE` 开关切逐包注册（复用 `register_loaded_artifact`），CI 全量门 + 可选 bench A/B | 中（**已落地**：入口模块单独走四道装配 pass，依赖工件经 `register_eager_artifact`→`register_decoded_artifact` 复用惰性漏斗；smoke=embedding hello 开关路径端到端，CI 执行） |
 | M2 | ~~类型注册迁移~~ 实测缩窄：#1852 的归属触发修复后，stdlib 448 + 自举不动点全过——原判「风险最高」的类型/继承面**已被惰性注册机制覆盖** | 已大幅缩窄 |
 | M3 | resolve 双分支统一（全局 id 单分支）+ interp/JIT 取 token 对齐；bench 对账 | 中 |
-| M4 | 切默认=逐包注册，观察一个 nightly 周期后删 `merge_modules` 与 ConstStr 重映射；contexts.rs root-context 语义随之更新 | 低 |
+| M4 | 翻默认已合（#1855，M3 #1885 找回性能）＋三个 nightly 观察期满 → **终刀已落**：prepare 侧合并臂与 `Z42_EAGER_MERGE` 逃生口删除，装载只剩逐包轨道；`merge_modules` 收窄为 **zpkg 包内装配**（一个 zpkg 内部多编译单元合并 = 格式语义，`assemble_zpkg_artifact`），不再是装载策略 | 已完成 |
 
 每阶段独立 PR、可回退（M1 的开关即回退通道）；M2 若发现继承补全语义不可收敛，
 设计回到此文档修订而不是硬闯。
