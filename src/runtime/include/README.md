@@ -2,7 +2,7 @@
 
 ## 职责
 
-z42 runtime 对外的全部 C ABI 声明集中在本目录，供 host 应用 / native 库通过 `-I` 引用；不再在其他目录散落副本。Rust 侧镜像：Tier 1 类型 ABI 见 [`crates/z42-abi`](../crates/z42-abi)，宿主 C 适配见 [`src/host/c`](../src/host/c)，组件登记见 [`src/components/ffi.rs`](../src/components/ffi.rs)。
+z42 runtime 对外的全部 C ABI 声明集中在本目录，供 host 应用 / native 库通过 `-I` 引用；不再在其他目录散落副本。Rust 侧镜像：Tier 1 类型 ABI 见 [`crates/z42-abi`](../crates/z42-abi)，宿主 C 适配见 [`src/host`](../src/host)，组件登记见 [`src/components/ffi.rs`](../src/components/ffi.rs)。
 
 ## 文件
 
