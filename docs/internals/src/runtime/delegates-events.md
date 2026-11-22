@@ -144,8 +144,12 @@ emit `MkClos(thunk, [recv])`；thunk 体内对 `env[0]` 做 vcall。合成点在
 **调用实参位**靠延迟谓词 `IsOverloadedFuncRefArg`（仅延迟 ≥2 候选者，单份保持急切绑、字节中性）
 把裸名推迟到重载决议后、经 `BindArgsToSignature` 按形参委托签名回填。
 
-> **实例/静态方法组的按目标消解尚未支持**：上面的 thunk 走 `VCall(裸名, arity)` 虚派发，要
-> 定向到非-primary 同-arity 重载需触及 VM vtable 派发，属独立后续项。
+> **实例/静态方法组的按目标消解已支持**（2026-11 feat/method-group-target-typed）：thunk 的
+> VCall 名改为**选中重载的发射键**（`BoundMethodGroup.MethodKey`，非-primary 重载 = mangle 键；
+> 单方法 MethodKey=="" ⇒ VCall 裸名、字节不变），runtime 的 `resolve_by_candidates` 本就探测
+> mangle 拼写 ⇒ VM 侧零改动。入口 `BindWithTarget` 的 MemberExpr 分支（实例
+> `_collectInstanceOverloads` / 静态 ms.Name 扫表），覆盖声明/赋值/return/初始化器位；
+> 实参位不延迟（自由函数的 `IsOverloadedFuncRefArg` 只认 IdentExpr），文档保持记载。
 
 ### 2.3 弱引用需要的三个 builtin
 

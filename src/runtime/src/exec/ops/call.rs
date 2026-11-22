@@ -72,6 +72,21 @@ pub fn fn_ref_id(
 
 
 
+/// Link the exact function carried by a compiled witness. This uses the same
+/// function table and loader as a direct function reference.
+pub fn load_method_witness(
+    ctx: &VmContext, module: &Module, payload: &[String], slot: usize,
+) -> Result<Value, Value> {
+    let target = payload.get(slot)
+        .and_then(|entry| entry.strip_prefix("$witness:"))
+        .filter(|name| !name.is_empty());
+    let Some(name) = target else {
+        return Err(crate::exec::exception::make_missing_symbol_exception(
+            ctx, module, format!("missing method witness in slot {slot}")));
+    };
+    bind_fn_ref(ctx, module, name, None).map(Value::FuncRef)
+}
+
 /// The cold half of [`fn_ref_id`]: resolve a function reference's target by name, once,
 /// when the value is created — this module's `func_index` first, then the lazy loader
 /// (which loads the defining package) — and store the id into the site's token. The same

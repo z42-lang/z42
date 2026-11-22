@@ -185,6 +185,12 @@ pub fn exec_instr(
 
         // ── Method-level generics (add-generic-methods) ─────────────────────
         Instruction::MethodTypeArg { dst, param_index } => exec_address::method_type_arg(ctx, frame, *dst, *param_index),
+        Instruction::LoadMethodWitness { dst, slot } => {
+            match crate::exec::ops::call::load_method_witness(ctx, module, frame.method_type_args, usize::from(*slot)) {
+                Ok(function) => frame.regs[*dst as usize] = function,
+                Err(thrown) => return Ok(Some(thrown)),
+            }
+        }
         Instruction::MethodDefault { dst, param_index } => exec_address::method_default(frame, *dst, *param_index),
 
         // ── Numeric cast (fix-numeric-cast-lowering) ────────────

@@ -447,7 +447,8 @@ public sealed class StmtBinder : IStmtVisitor<BoundStmt, StmtCtx> {
             }
             // add-target-typed-funcref-resolution：`Func<...> f = Overloaded;` 裸函数名 + 声明委托类型 → 按签名消解。
             // `var`（→ 非 Z42FuncType）自然跳过；非 funcref 的 ident（局部变量）BindWithTarget 内部回落 _bindExpr。
-            if (init == null && v.Init != null && (v.Init is IdentExpr)) {
+            // feat/method-group-target-typed：MemberExpr 初始化器（`Func<..> f = obj.M / C.F;` 重载方法组）同路。
+            if (init == null && v.Init != null && (v.Init is IdentExpr || v.Init is MemberExpr)) {
                 Z42Type declaredFt = env.ResolveType(v.Type);
                 if (declaredFt is Z42FuncType) { init = this._tc._expr.BindWithTarget(v.Init, declaredFt, env); }
             }

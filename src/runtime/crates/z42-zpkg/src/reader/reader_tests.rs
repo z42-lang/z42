@@ -378,3 +378,12 @@ fn ordinary_read_failures_are_not_version_mismatches() {
     let err = read_zpkg_modules(&bytes).unwrap_err();
     assert!(as_version_mismatch(&err).is_none(), "bad magic must not read as a version mismatch");
 }
+
+#[test]
+fn decode_load_method_witness_uses_a_u16_slot() {
+    let pool = [];
+    let map = IdMap::for_v1(&pool, vec![], vec![]);
+    let bytes = [OP_LOAD_METHOD_WITNESS, 0x20, 3, 0, 1, 2, OP_RET, 0, 0, 0];
+    let (instructions, _) = decode_block(&bytes, &pool, &map).unwrap();
+    assert!(matches!(&instructions[..], [Instruction::LoadMethodWitness { dst: 3, slot: 513 }]));
+}

@@ -1,0 +1,12 @@
+15
+[x]
+42
+(y)
+[r]
+17
+fs-is-delegate true
+fs-target-is-c true
+gs-target-null true
+4
+8
+<f>

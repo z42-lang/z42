@@ -47,6 +47,7 @@ impl Instruction {
             Instruction::LoadFieldAddr(insn)       => Some(insn.dst),
             Instruction::DefaultOf     { dst, .. } => Some(*dst),
             Instruction::MethodTypeArg { dst, .. } => Some(*dst),
+            Instruction::LoadMethodWitness { dst, .. } => Some(*dst),
             Instruction::MethodDefault { dst, .. } => Some(*dst),
             Instruction::Builtin(insn)          => Some(insn.dst),
             Instruction::ArrayNew(insn)          => Some(insn.dst),
@@ -253,6 +254,9 @@ pub enum Instruction {
         dst: Reg,
         param_index: u8,
     },
+    /// Load the function selected by the compiler for a static interface call.
+    /// The slot indexes a tagged witness entry in the generic call payload.
+    LoadMethodWitness { dst: Reg, slot: u16 },
     /// add-generic-methods: method-level `default(T)` zero value — mirrors
     /// `DefaultOf` but reads `frame.method_type_args[param_index]` instead of the
     /// receiver's instance type_args. OOB/empty → `Value::Null`.

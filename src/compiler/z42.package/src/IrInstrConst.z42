@@ -122,6 +122,17 @@ public sealed class MethodTypeArgInsn : IrDefOnlyInstr {
     }
 }
 
+public sealed class LoadMethodWitnessInsn : IrDefOnlyInstr {
+    public int Slot;
+    public LoadMethodWitnessInsn(TypedReg dst, int slot) { this.Dst = dst; this.Slot = slot; }
+    public override string Dump() { return this.Dst.Dump() + " = load_method_witness " + this.Slot.ToString(); }
+    public override IrInstr Clone() { return new LoadMethodWitnessInsn(this.Dst, this.Slot); }
+    public override void Write(ZbcEncoder e) {
+        e.Head(Op.LoadMethodWitness, this.Dst);
+        e.U16(this.Slot);
+    }
+}
+
 // add-generic-methods：方法级 default(T) 零值（opcode 0xB2）。镜像 DefaultOfInstr 但读 frame.method_type_args。
 // ParamIndex = 方法 TypeParams 序号 → 运行期 default_value_for(frame.method_type_args[ParamIndex])。
 public sealed class MethodDefaultInsn : IrDefOnlyInstr {
