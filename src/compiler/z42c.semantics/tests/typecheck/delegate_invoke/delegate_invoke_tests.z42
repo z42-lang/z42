@@ -6,11 +6,6 @@
 // 「查无则松绑 Unknown」兜底（签名传 `null`，**连实参都不查**）→ 发 VCall → 运行期
 // `VCall: expected object, got FuncRef(...)`，而那是**不可 catch 的内部错误**。
 //
-// 于是 `a.Invoke("x")` 编译期零诊断、运行期崩，而参考手册 `delegates-events.md:61` 一直宣称
-// 「`f(arg)` 等价 `f.Invoke(arg)`」，`:62` / `:264-266` 还把 `h.Invoke(args)` 当**单播 event 的
-// 官方触发模板**在教 —— 照着文档写必崩。归档稿 `2026-05-02-add-delegate-type/proposal.md:44,86`
-// 当年把 `.Invoke` 划为 Out of Scope 并注明「留后续视需要补」。
-//
 // 顺带补了同一条路上的 arity 校验（此前**从不校验个数**）：
 //   多传 → 多余实参被**静默丢掉**（lambda 照常收到第一个、返回正常值，零诊断）
 //   少传 → 形参拿到 `Null`，崩在**别处**（栈顶指 lambda 体而非调用点）

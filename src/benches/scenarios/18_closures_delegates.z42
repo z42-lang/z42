@@ -25,15 +25,15 @@ class Sink {
 }
 
 class Ticker {
-    public event MulticastAction<long> Ticked;
+    public MulticastAction<long> Ticked = new MulticastAction<long>();
     public void Fire(long v) { this.Ticked.Invoke(v); }
 }
 
 long Drive(long n) {
     Sink sink = new Sink();
     Ticker ticker = new Ticker();
-    ticker.Ticked += sink.Add;
-    ticker.Ticked += (long v) => { sink.Total = sink.Total + 1L; };
+    ticker.Ticked.Subscribe(sink.Add);
+    ticker.Ticked.Subscribe((long v) => { sink.Total = sink.Total + 1L; });
     (long) -> long twice = Twice;
     long acc = 0L;
     long i = 0L;

@@ -21,7 +21,7 @@ public sealed partial class ExprTyper : IExprVisitor<BoundExpr, TypeEnv> {
     private TypeChecker _tc;
     private int _collSeq;   // 集合字面量脱糖的合成局部名计数器（$c0, $c1, ...）
     private CollectionTyper _coll;   // 集合字面量绑定簇（[..]/{..} 脱糖）
-    private AssignTyper _assign;     // 赋值绑定簇（=/复合/索引器 set/event/属性 setter + const·readonly 检查）
+    private AssignTyper _assign;     // 赋值绑定簇（=/复合/索引器 set/属性 setter + const·readonly 检查）
     private ConstructTyper _construct;   // 构造/对象初始化器绑定簇（new C(args) / new C{...}）
     private TypeOpTyper _typeop;     // 类型操作绑定簇（(T)x / x as T / typeof(T) / x is T）
     public ExprTyper(TypeChecker tc) {

@@ -5,7 +5,7 @@
 //      直接落 `_ => false`。判据早就存在（`DelegateOps.ReferenceEquals` 的三变体语义），
 //      只是 `==` 没接上去 ⇒ **静默错答案**（最坏一档：既不报错也不崩）。
 //   ② 调一个为 null 的函数值 → `CallIndirect: expected FuncRef …, got Null`，
-//      **`catch` 接不住、程序当场终止**。而单播 `event` 字段默认就是 null，
+//      **`catch` 接不住、程序当场终止**。而可空委托字段默认就是 null，
 //      参考手册教的触发模板正是「快照 → 查空 → Invoke」，漏掉查空就踩这条。
 //   ③ `f += g` 编译期零诊断，运行期崩 `type mismatch in arithmetic`（也不可 catch）——
 //      复合赋值从不走二元运算的操作数检查。该项为**编译期**诊断，不在本 golden 里
@@ -16,7 +16,7 @@ using Std.IO;
 using Std;          // DelegateOps（限定名在表达式位不可用）
 
 class Btn {
-    public Action<int> Clicked;          // 单播 event 字段：默认 null
+    public Action<int> Clicked;          // 委托字段默认 null
 }
 
 class Counter {

@@ -278,7 +278,7 @@ public sealed class MemberExpr : Expr {
     // 于是「没有这个成员」的诊断下划线画在**接收者**上、指不到出问题的那个名字。
     //
     // **默认 = Span**，只在真正的源码解析点由 parser 覆写（post-construction，镜像
-    // `MethodDecl.RegKey` 的做法）：desugar 合成的 MemberExpr（event 访问器、primary ctor
+    // `MethodDecl.RegKey` 的做法）：desugar 合成的 MemberExpr（primary ctor
     // 字段赋值等）没有真实名字区间，保持与 Span 一致即可，无需逐点改造。
     public Span   NameSpan;
     public MemberExpr(Expr target, string name, Span span) {

@@ -86,7 +86,6 @@ public sealed class Z42ClassType : Z42Type {
     public TypeExpr BaseRef;
     public StrMap Fields;    // name → FieldSymbol（1A-3 收集时回填）
     public StrMap Methods;   // name → MethodSymbol
-    public StrMap EventFields;   // add-event-keyword-multicast：event 字段名集（`+=`/`-=` desugar 判别）
     public string[] InterfaceNames; public int InterfaceCount;   // 实现的接口（port-z42c-interface）
     // enforce-fqn-name-identity **B3**：实现的接口的**名义身份句柄**（`TypeRef` = `TypeIntern` 的 id）。
     // 与 `InterfaceNames` **平行同长**、共用 `InterfaceCount`。`InterfaceNames` 自此降级为
@@ -214,7 +213,6 @@ public sealed class Z42ClassType : Z42Type {
         this.Namespace = "";   // fix-type-ref-ns-collision：默认全局；注册端按声明 ns 覆写
         this.Fields = new StrMap();
         this.Methods = new StrMap();
-        this.EventFields = new StrMap();
         this.InterfaceNames = new string[0]; this.InterfaceCount = 0;
         this.Interfaces = new int[0];   // B3：句柄数组，与 InterfaceNames 同长（0 = 未绑定）
         this.IfaceInsts = new Z42InterfaceType[0]; this.IfaceInstCount = 0;

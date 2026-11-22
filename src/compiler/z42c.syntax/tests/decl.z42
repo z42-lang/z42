@@ -52,6 +52,19 @@ void test_fields() {
                  parseUnit("class C { private int x; public string Name = \"a\"; }"));
 }
 
+[Test]
+void test_event_is_an_identifier() {
+    Assert.Equal("", parseErrorCodes("class C { public int event; }"));
+    Assert.Equal("(unit (class C (field public int event)))",
+                 parseUnit("class C { public int event; }"));
+}
+
+[Test]
+void test_event_modifier_is_rejected() {
+    Assert.True(parseErrorCodes("class C { public event Action<int> Changed; }") != "");
+    Assert.True(parseErrorCodes("interface I { event Action<int> Changed; }") != "");
+}
+
 // add-const-keyword：const 字段修饰进 Mods（含引用已定义 const 的常量表达式初始化器）。
 [Test]
 void test_const_field() {

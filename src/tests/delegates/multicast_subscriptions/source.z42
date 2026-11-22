@@ -1,0 +1,45 @@
+namespace Demo;
+using Std;
+using Std.IO;
+
+public class Bus {
+    public MulticastAction<int> Clicked = new MulticastAction<int>();
+
+    public void fire(int x) {
+        this.Clicked.Invoke(x);
+    }
+
+    public int count() {
+        return this.Clicked.Count();
+    }
+}
+
+class Counter {
+    public int Value;
+
+    public void add_Value(int amount) { this.Value = 99; }
+    public void remove_Value(int amount) { this.Value = 99; }
+}
+
+void Main() {
+    Counter counter = new Counter();
+    counter.Value += 4;
+    counter.Value -= 1;
+    Assert.Equal(3, counter.Value);
+
+    var bus = new Bus();
+    Console.WriteLine(bus.count());      // 0
+
+    bus.Clicked.Subscribe((int x) => Console.WriteLine($"a:{x}"));
+    bus.Clicked.Subscribe((int x) => Console.WriteLine($"b:{x}"));
+    Console.WriteLine(bus.count());      // 2
+
+    bus.fire(1);                          // a:1 / b:1
+
+    Action<int> hC = (int x) => Console.WriteLine($"c:{x}");
+    bus.Clicked.Subscribe(hC);
+    bus.fire(2);                          // a:2 / b:2 / c:2
+    bus.Clicked.Unsubscribe(hC);
+    bus.fire(3);                          // a:3 / b:3
+    Console.WriteLine(bus.count());      // 2
+}

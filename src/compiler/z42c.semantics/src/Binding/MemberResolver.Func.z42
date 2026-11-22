@@ -26,11 +26,6 @@
 // （check-bare-type-param-member-access）那两次「E0401 收窄」**漏掉的那一格** ——
 // 它们只覆盖「包装类存在」的情形，委托收者连包装类查找都进不去。
 //
-// ⭐ 文档层面这不是「实现漏了」：归档稿 `2026-05-02-add-delegate-type/proposal.md:44,86`
-// 明确把 `.Invoke` 划为 Out of Scope（「v1 仅支持 `d(args)`」「留后续视需要补」）。
-// 真正的缺陷是参考手册在此之后宣称「`f(arg)` 等价 `f.Invoke(arg)`」，并把 `h.Invoke(args)`
-// 当**单播 event 的官方触发模板**在教 ⇒ 照着文档写必崩。本变更把它补上。
-//
 // ⭐ **不走那个已有的 `<FQ>.Invoke` 死体桩**（`StubEmitter.z42`）：它是 virtual、体为
 // `ret null`，只能经**有 TypeDesc 的对象**派发，`FuncRef` / `Closure` 永远到不了。
 // 那个桩继续只服务反射签名与跨包元数据重建，本变更不碰它。

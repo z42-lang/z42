@@ -85,7 +85,7 @@
 | `ternary` | `? :` 三目运算符 |
 | `cast` | `(Type)expr` 显式转换 |
 | `lambda` | Lambda 表达式 `=>` |
-| `delegates` | 函数类型 `(T) -> R`、`delegate` / `event` |
+| `delegates` | 函数类型 `(T) -> R`、`delegate` |
 | `tuples` | 元组类型与字面量 |
 | `interpolated_str` | `$"..."` 字符串插值 |
 | `reflection` | `typeof` / `methodof` |

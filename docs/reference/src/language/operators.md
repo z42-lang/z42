@@ -206,19 +206,6 @@ int i = Counter.F();
 arr[i] += 5;              // F() 只调一次
 ```
 
-## `event` 上的 `+=` / `-=` 是另一回事
-
-接收者是 `event` 成员时，`+=` / `-=` **不是**读-改-写，而被翻译成订阅 / 退订调用
-（`add_X` / `remove_X`），在复合赋值展开**之前**就被拦截：
-
-```z42
-c.OnKey += (int x) => Console.WriteLine($"a:{x}");   // 订阅
-c.OnKey -= handler;                                   // 退订
-```
-
-单播 / 多播的差别、重复绑定抛 `InvalidOperationException` 等规则见
-[委托与事件](delegates-events.md)。
-
 ## `default(T)`
 
 `default(T)` 求值为类型 `T` 的零值：
@@ -387,5 +374,5 @@ class Ver {
 
 - [类型转换](conversions.md) — 隐式 / 显式转换的完整规则
 - [基本类型与字面量](types.md) — 各类型的取值范围
-- [委托与事件](delegates-events.md) — `event` 上的 `+=` / `-=`
+- [委托与事件](delegates-events.md) — 委托与订阅 API
 - [模式匹配](pattern-matching.md) — `is` 的模式形态、`switch` 表达式

@@ -36,7 +36,7 @@
 | 16 | 值类型与记录 | `types/structs-records` | `struct` 值语义与不参与继承（**字段数无关**）、`[Record]` 四样合成、`with`（仅 record class）、🔴 表达式体构造器里的元组赋值不动字段（报 E0482）、打印 struct 走 `ToString` | 🟢 |
 | 17 | 枚举与模式匹配 | `types/patterns` | `enum`（独立类型）、`switch` 语句/表达式、🔴 穷尽性在编译期只是警告（运行期无匹配臂抛 `Std.SwitchExpressionException`）、位置与属性解构、嵌套、守卫、组合子 `..=`/关系/`\|`/`@`、解构声明 | 🟢 |
 | 18 | 泛型 | `types/generics` | 泛型类型、泛型方法、`where` 约束、`Self`、关联类型、型参上的运算符 | 🟢 |
-| 19 | Lambda、闭包与委托 | `types/lambdas` | lambda 与函数类型 `(T) -> R`、捕获语义（值快照）、`Action`/`Func`/`Predicate`、方法组转换、`event` 的单播/多播（**类型决定 cardinality**）、多播退订票 / `continueOnException` / `OnceRef` | 🟢 |
+| 19 | Lambda、闭包与委托 | `types/lambdas` | lambda 与函数类型 `(T) -> R`、捕获语义（值快照）、`Action`/`Func`/`Predicate`、方法组转换、单播回调字段与多播订阅、多播退订票 / `continueOnException` / `OnceRef` | 🟢 |
 | 20 | 异常处理 | `types/exceptions` | `throw` / `try` / `catch` / `finally`、匹配规则与顺序、`catch {}` 比 typed 更宽、标准子类、自定义异常（继承 + `: base` + 加字段）、`InnerException` 包装、`StackTrace`、运行时抛的 `IndexOutOfRangeException` / `NullReferenceException`、🔴 非对象抛出只有 `catch {}` 接得住 / 无裸 `throw;` / 无 `when` 过滤器 | 🟢 |
 | 21 | 组织代码 | `types/organization` | `namespace`（文件级、决定限定名、外围 ns 免 using）、`using` 同包跨 ns 也要、且**文件级**（E0436；全限定名免 using）、`global using`（**本章示例是首份端到端覆盖**）、类型别名（互通、不导出）、访问控制（顶层 internal / 成员 private，构造器同理）、`partial` | 🟢 |
 | 22 | 特性与反射入门 | `types/attributes-reflection` | `typeof` / `GetType` 与名字口径、成员查询（字段/方法/属性/构造器）、反射读写与调用（`Invoke` / `Activator`）、`methodof`、内置 `[Deprecated]`、自定义 attribute 五处载体（E0444）、attribute 驱动的命令表 | 🟢 |

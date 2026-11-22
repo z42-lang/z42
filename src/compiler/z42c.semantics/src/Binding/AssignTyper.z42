@@ -1,5 +1,5 @@
 // 赋值类型绑定簇（refactor-exprtyper-concern-split：从 ExprTyper 按职责抽出）。
-// 承载 =/复合赋值/索引器 set/event +=-=/imported 属性 setter 的绑定 + const/readonly 写入检查。
+// 承载 =/复合赋值/索引器 set/imported 属性 setter 的绑定 + const/readonly 写入检查。
 // 共享 TypeChecker（与 ExprTyper 同一 _tc）；递归子表达式 _bindExpr、target-typed RHS 绑定
 // BindWithTarget 经父反向引用 _et 委回 ExprTyper。
 namespace Z42.Semantics;
@@ -13,7 +13,7 @@ public sealed class AssignTyper {
     private ExprTyper _et;   // 反向引用：递归 _bindExpr + target-typed BindWithTarget 委回 ExprTyper
     public AssignTyper(TypeChecker tc, ExprTyper et) { this._tc = tc; this._et = et; }
 
-    [Suppress("style.fnLinesHard", "123 body lines；拆分见 code-organization.md")]
+    [Suppress("style.fnLinesHard", "赋值的专用路径与普通路径共同使用同一绑定入口；拆分见 code-organization.md")]
     internal BoundExpr _bindAssign(AssignExpr a, TypeEnv env) {
             // 类索引器写 obj[i] = v → set_Item(i, v) 虚调用（仅简单 `=`；否则落普通路径）。
             if (a.Op == "=" && a.Target is IndexExpr) {
@@ -67,34 +67,6 @@ public sealed class AssignTyper {
                         sa[an] = aval;
                         return new BoundCall("instance", true, arecv, aIf.Name(), "set_Item", sa, an + 1, new Z42VoidType(), a.Span);
                     }
-                }
-            }
-            // event `recv.E += h` / `-= h` → `recv.add_E(h)` / `recv.remove_E(h)`（镜像 C#
-            // add-event-keyword：访问器在 recv 类/接口/泛型实例上，vtable 派发到实现）。须在
-            // compound desugar 前拦截。访问器由 parser SynthesizeClassEvent 合成。
-            // add-static-properties：接收者是（未被局部遮蔽的）类名时不进本分支——静态 event 不支持，而把类名
-            // 当表达式绑会报 E0401（`C.f += v` 此前正是这样坏的；`=` 分支早有同款 staticRecv 跳过）。
-            if ((a.Op == "+=" || a.Op == "-=") && a.Target is MemberExpr && !this._isStaticRecv(a.Target as MemberExpr, env)) {
-                MemberExpr emtgt = a.Target as MemberExpr;
-                BoundExpr erecv = this._et._bindExpr(emtgt.Target, env);
-                Z42Type ertype = erecv.Type();
-                string accName = (a.Op == "+=") ? ("add_" + emtgt.Name) : ("remove_" + emtgt.Name);
-                MethodSymbol acc = null;
-                string recvCls = "";
-                if (ertype is Z42ClassType) {
-                    Z42ClassType ec = ertype as Z42ClassType;
-                    acc = this._tc._overload._findMethod(env.Symbols, ec, accName); if (acc != null) { recvCls = ec.Name(); }
-                } else if (ertype is Z42InstantiatedType) {
-                    Z42ClassType ec = (ertype as Z42InstantiatedType).Def;
-                    acc = this._tc._overload._findMethod(env.Symbols, ec, accName); if (acc != null) { recvCls = ec.Name(); }
-                } else if (ertype is Z42InterfaceType) {
-                    Z42InterfaceType it = ertype as Z42InterfaceType;
-                    acc = it.Methods.Get(accName) as MethodSymbol; if (acc != null) { recvCls = it.Name(); }
-                }
-                if (acc != null && acc.Signature != null) {
-                    BoundExpr erhs = this._et._bindExpr(a.Value, env);
-                    BoundExpr[] sargs = new BoundExpr[1]; sargs[0] = erhs;
-                    return BoundCall.Marked(new BoundCall("instance", true, erecv, recvCls, accName, sargs, 1, acc.Signature.Ret, a.Span), acc.Signature);
                 }
             }
             // fix-crosspkg-property-assign（wire-z42b 2b 暴露）：imported 类**属性**赋值

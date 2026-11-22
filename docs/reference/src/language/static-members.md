@@ -44,7 +44,5 @@ lambda 里的裸名静态成员**不是捕获**：读到的是调用时的当前
   `FunctionEmitter` 的裸字段表同样只收非 static。
 - `ExprTyper._bindIdent` 在 `LookupVar` 落空后调 `MemberResolver.BindBareStatic`，它与限定名 `C.x` 走
   **同一个** `BindStaticMember` 判据，产出 `BoundStaticGet`——之后读、写、`++`、复合赋值全部复用 `C.x` 的既有路径。
-- `C.x += v` 的接收者是类名：`AssignTyper` 为 event `+=`/`-=` 做的拦截不能先把接收者当表达式绑定，
-  所以 `=` 与 `+=` 两个分支共用「接收者是类名就跳过」的判定 `_isStaticRecv`。
 
 静态属性的访问器规则见[属性与索引器](properties-indexers.md)。

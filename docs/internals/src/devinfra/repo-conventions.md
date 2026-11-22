@@ -87,7 +87,7 @@ src/libraries/z42.core/
 （`tests/string_format.z42`）——自测不公开，不受 §11 文件名规则约束。
 目录形态的多文件测试用 `tests/<name>/source.z42` 作入口。
 
-同理 `src/tests/` 下的 VM golden 用例（`src/tests/delegates/event_keyword_multicast/` 等）
+同理 `src/tests/` 下的 VM golden 用例（`src/tests/delegates/multicast_subscriptions/` 等）
 一律 snake_case 目录 + `source.z42` + `expected_output.txt`。
 
 ## 5. 位标志的 workaround：`ModeFlags`
