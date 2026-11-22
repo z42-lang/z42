@@ -137,6 +137,11 @@ fn successful_attach_without_registering_the_requested_engine_is_rejected() {
     let error = super::api::attach_execution(&ctx, crate::zpkg::ExecMode::Interp, &crate::config::runtime_config_snapshot().jit_config()).unwrap_err().to_string();
     assert!(error.contains("did not register"), "{error}");
     assert!(!ctx.core().exec().engines.has_baseline());
+    assert_eq!(LIVE.load(Ordering::SeqCst), 1);
+    let weak = std::sync::Arc::downgrade(ctx.core());
+    drop(ctx);
+    assert!(weak.upgrade().is_none());
+    assert_eq!(LIVE.load(Ordering::SeqCst), 0);
 }
 
 #[cfg(feature = "component-loading")]
