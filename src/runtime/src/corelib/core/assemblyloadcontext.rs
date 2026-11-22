@@ -19,7 +19,7 @@ use anyhow::{bail, Result};
 use crate::exec::builtin_abi::BuiltinError;
 
 use super::reflection::make_type_object;
-use crate::loader::contexts::{AssemblyId, ContextId, ContextState, UnloadOutcome};
+use crate::loader::contexts::{AssemblyId, ContextId, ContextLoadError, UnloadOutcome};
 use crate::object::NativeData;
 use crate::object::Value;
 use crate::vm::VmContext;
@@ -111,15 +111,6 @@ fn asm_handle_of(this: &Value) -> Result<AssemblyId, BuiltinError> {
     asm_handle(std::slice::from_ref(this)).map_err(BuiltinError::Legacy)
 }
 
-/// Derive an assembly's logical name from a zpkg/zbc path (basename, no extension).
-fn assembly_name_from_path(path: &str) -> String {
-    std::path::Path::new(path)
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or(path)
-        .to_string()
-}
-
 // ── AssemblyLoadContext builtins ─────────────────────────────────────────────
 
 /// `AssemblyLoadContext.Default` (static) → the永驻 root context.
@@ -140,21 +131,14 @@ pub fn lctx_create_collectible(ctx: &VmContext, name: &crate::object::string::vs
 pub fn lctx_load(ctx: &VmContext, this: &Value, path: &crate::object::string::vstr::Str) -> Result<Value, BuiltinError> {
     let cid = ctx_handle_of(this)?;
     let path = path.as_ref();
-    // Phase 2: a context being unloaded no longer accepts new assemblies.
-    if ctx.core().loader().context_registry.lock().context_state(cid) != Some(ContextState::Active) {
-        return Err(BuiltinError::InvalidOperation(
-            "AssemblyLoadContext.Load: context is unloading (cannot load new assemblies)".into()));
-    }
-    let artifact = crate::loader::package::load_artifact_with_fusion(
-        &**ctx.vfs(), path, ctx.core().loader().fusion_inputs,
-    )
-        .map_err(|e| BuiltinError::Legacy(anyhow::anyhow!("AssemblyLoadContext.Load(\"{path}\"): {e}")))?;
-    let name = assembly_name_from_path(path);
-    let aid = ctx
-        .core()
-        .loader().context_registry
-        .lock()
-        .load_into(cid, &name, artifact.module);
+    let aid = ctx.loader().load_context_artifact(cid, path).map_err(|error| match error {
+        ContextLoadError::Inactive => BuiltinError::InvalidOperation(
+            "AssemblyLoadContext.Load: context is unloading (cannot load new assemblies)".into(),
+        ),
+        ContextLoadError::Artifact(error) => {
+            BuiltinError::Legacy(anyhow::anyhow!("AssemblyLoadContext.Load(\"{path}\"): {error}"))
+        }
+    })?;
     build_assembly(ctx, aid).map_err(BuiltinError::Legacy)
 }
 

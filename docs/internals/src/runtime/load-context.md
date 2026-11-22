@@ -77,10 +77,11 @@ owned `Module`）。root context(0) + root assembly(0) 由 `ContextRegistry::new
 观测行为与"context 挂在 TypeDesc 上"完全一致，且保住 `TypeDesc` 无锁读的写一次契约。这为将来
 `type identity = (context, type)`（版本共存）留出可达路径（Type → asmId → context）。
 
-### 加载路径分叉（`loader/package/mod.rs`）
-root 走现有 `merge_modules`（不动）；collectible 走 `AssemblyLoadContext.Load` →
-`loader::load_artifact` 解析 zpkg → 存入该 context 的 `AssemblyEntry.module`，**不 merge 进
-root**。`GetTypes()` 按 FQ 名有序返回（`assembly_types` sort，避免 HashMap 非确定序）。
+### 加载路径分叉（`loader/runtime_modules.rs`）
+root 的执行加载沿用 `merge_modules`。`AssemblyLoadContext.Load` 调用
+`RuntimeLoader::load_context_artifact`，由 Loader 检查 context 活动状态，通过配置的 VFS 读取并解码产物，
+再将模块注册到指定 context 的反射表。此操作不向 root 执行注册表发布符号。Builtin 将返回的 assembly ID
+包装为托管对象，并负责映射加载错误。`GetTypes()` 按 FQ 名有序返回（`assembly_types` sort，避免 HashMap 非确定序）。
 
 根上下文的类型描述符记录各自声明的实例构造器。构造器反射按 TypeId 取得已注册描述符，入口包和
 惰性加载包共用该清单。仅存于隔离上下文的类型走反射可见性边界，构造器枚举返回空集合。
