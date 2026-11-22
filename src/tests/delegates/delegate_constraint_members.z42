@@ -1,0 +1,61 @@
+// feat/delegate-constraint-members 回归 golden：`where TD : Delegate` 约束下的成员直读
+//（免手写 `(Delegate)h` 上转），及泛化的**类约束成员**能力。
+//   ① h.FnName / h.Target 直读（发射走族基类直呼；合成 AsCast 运行期恒放行）
+//   ② 隐式上转 Delegate d = h 仍照常、== 同值
+//   ③ 泛化：`where T : SomeClass` 的字段/方法直读（运行期真实对象，VCall 派发）
+//   ④ 既有形态钉：显式 ((Delegate)h) 写法不回归
+namespace Demo;
+
+using Std;
+using Std.IO;
+
+class Listener {
+    public int Hits;
+    public void OnTick(int n) { this.Hits = this.Hits + n; }
+}
+
+class Api {
+    public static int Twice(int x) { return x * 2; }
+}
+
+// ①② 约束成员直读（无显式 (Delegate)h）
+string NameOf<TD>(TD h) where TD : Delegate {
+    return "len" + h.FnName.Length.ToString();
+}
+object TargetOf<TD>(TD h) where TD : Delegate {
+    return h.Target;
+}
+bool SameAsUpcast<TD>(TD h) where TD : Delegate {
+    Delegate d = h;
+    return d == h;
+}
+// ③ 泛化：任意类约束的字段/方法直读
+int HitsOf<T>(T x) where T : Listener {
+    return x.Hits;
+}
+int BumpVia<T>(T x, int n) where T : Listener {
+    x.OnTick(n);             // 方法调用（VCall，运行期真实对象）
+    return x.Hits;
+}
+
+void Main() {
+    Listener l = new Listener();
+    l.OnTick(5);
+    Action<int> mg = l.OnTick;
+
+    // ── ① 约束直读 ─────────────────────────────────────────────────────────
+    Console.WriteLine(NameOf(mg));
+    Console.WriteLine(TargetOf(mg) == l ? "target" : "notarget");
+    Console.WriteLine(SameAsUpcast(mg));
+
+    // ── ③ 泛化类约束 ───────────────────────────────────────────────────────
+    Console.WriteLine(HitsOf(l));
+    Console.WriteLine(BumpVia(l, 2));
+
+    // ── ④ FuncRef（静态组）形态 + 显式上转钉 ───────────────────────────────
+    Func<int, int> f = Api.Twice;
+    Console.WriteLine(NameOf(f));
+    Console.WriteLine(TargetOf(f) == null ? "null-target" : "has-target");
+    Delegate explicitCast = (Delegate)f;      // 显式写法不回归
+    Console.WriteLine(explicitCast.FnName == f.FnName ? "same-fn" : "diff-fn");
+}
