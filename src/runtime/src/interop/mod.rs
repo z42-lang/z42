@@ -34,5 +34,22 @@ mod native_call;
 mod native_value;
 pub(crate) use native_call::invoke_export;
 
+fn resolve_native_symbol(
+    ctx: &crate::vm::VmContext,
+    library: &str,
+    symbol: &str,
+) -> anyhow::Result<*mut std::ffi::c_void> {
+    use crate::loader::native;
+    native::resolve_symbol(
+        ctx.loader().native_loading(),
+        library,
+        symbol,
+        #[cfg(any(feature = "native-interop", feature = "component-loading"))]
+        || ctx.ext::<native::Libraries>(),
+        #[cfg(any(feature = "native-interop", feature = "component-loading"))]
+        || ctx.ext::<native::SearchPaths>().map(|paths| paths.0),
+    )
+}
+
 #[cfg(test)]
 mod qualified_call_tests;

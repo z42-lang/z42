@@ -9,8 +9,6 @@ use std::path::Path;
 use anyhow::Result;
 use anyhow::anyhow;
 
-use crate::vm::VmContext;
-
 /// Open a script-requested library after checking PAL capability.
 ///
 /// # Safety
@@ -47,36 +45,32 @@ pub(crate) type PathSource = fn(&str, &super::NativeLoading) -> Vec<std::path::P
 #[cfg(any(feature = "native-interop", feature = "component-loading"))]
 pub(crate) struct SearchPaths(pub(crate) PathSource);
 
-#[cfg(any(feature = "native-interop", feature = "component-loading"))]
-pub(crate) fn path_source(ctx: &VmContext) -> Result<PathSource> {
-    ctx.ext::<SearchPaths>()
-        .map(|paths| paths.0)
-        .ok_or_else(|| anyhow!("native library path service was not registered"))
-}
-
 /// Resolve a trusted implementation through host-supplied candidate policy, including
 /// signed iOS frameworks. Script path loading uses the separate capability-checked
 /// load_native_module/load_library entries. No lock is held while opening an image.
-pub(crate) fn resolve_symbol(
-    ctx: &VmContext,
+/// The VM supplies cache and path services lazily so linked lookups only read policy.
+pub(crate) fn resolve_symbol<'cache>(
+    policy: &super::NativeLoading,
     library: &str,
     symbol: &str,
+    #[cfg(any(feature = "native-interop", feature = "component-loading"))]
+    libraries: impl FnOnce() -> Option<&'cache Libraries>,
+    #[cfg(any(feature = "native-interop", feature = "component-loading"))]
+    search_paths: impl FnOnce() -> Option<PathSource>,
 ) -> Result<*mut std::ffi::c_void> {
-    let policy = ctx.loader().native_loading();
     if let Some(result) = super::linked::resolve_with_policy(library, symbol, policy) {
         return result;
     }
     #[cfg(any(feature = "native-interop", feature = "component-loading"))]
     {
         policy.check(super::NativeOrigin::RuntimeLoad)?;
-        let libraries = ctx
-            .ext::<Libraries>()
-            .ok_or_else(|| anyhow!("missing native loader VM state"))?;
+        let libraries = libraries().ok_or_else(|| anyhow!("missing native loader VM state"))?;
         let cached = libraries.named.lock().get(library).cloned();
         let image = match cached {
             Some(result) => result,
             None => {
-                let paths = path_source(ctx)?;
+                let paths = search_paths()
+                    .ok_or_else(|| anyhow!("native library path service was not registered"))?;
                 let result = (|| -> Result<_> {
                     for candidate in paths(library, policy) {
                         if !candidate.is_file() && !crate::pal::dynlib::is_loader_name(&candidate) {
@@ -107,7 +101,6 @@ pub(crate) fn resolve_symbol(
         // consumers (scripts/src/package/fixtures/wasm_components.mjs) assert on the
         // `<component> component unavailable` shape, and it tells the user what
         // to relink instead of blaming a build flag.
-        let _ = (ctx, symbol);
         let component = library.strip_prefix("z42_").unwrap_or(library);
         Err(anyhow!(
             "{component} component unavailable (not linked; native extension \
@@ -127,13 +120,10 @@ fn bail_native_missing<T>(library: &str) -> Result<T> {
 /// rejecting a second, different image for the same logical name.
 #[cfg(feature = "component-loading")]
 pub(crate) fn install_module_image(
-    ctx: &VmContext,
+    libraries: &Libraries,
     name: &str,
     image: std::sync::Arc<crate::loader::code::CodeImage>,
 ) -> Result<()> {
-    let libraries = ctx
-        .ext::<Libraries>()
-        .ok_or_else(|| anyhow!("missing native loader VM state"))?;
     let mut named = libraries.named.lock();
     if let Some(Ok(existing)) = named.get(name) {
         if !std::sync::Arc::ptr_eq(existing, &image) {

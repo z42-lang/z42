@@ -72,8 +72,8 @@ transient_arena, args, outcome, forward, indirect_return, type_param_env, builti
 loader 与 interop 的双向引用已收口为单向：装载事务（Tier 1 类型库 `load_library` 与自描述模块
 `load_native_module`：开库 → 校验描述符 → 注册 → 记入每 VM 映像缓存）整体归 `interop::install`，
 loader/native 只留纯代码来源服务（开库、路径策略、映像缓存、符号解析），不再引用 interop；
-interop 侧的 materialize/load_named 继续以 `loader::native::resolve_symbol` 消费符号来源服务
-（目标图 V→N→L 的 N→L 边）。
+Interop 向 `loader::native::resolve_symbol` 提供当前 VM 的原生策略，并按需借出映像缓存和候选路径服务。
+Loader 先处理已链接来源。只有运行时装入获得许可后才借用缓存，缓存未命中时才取得候选路径。
 
 对象表示的两条反向边已收口：环境堆附着（HeapGuard / current_heap / epoch）归 `gc::ambient`——它是 GC 分配服务
 的线程级形态；载荷身份词汇 `ContextId` / `AssemblyId` 由 `object::identity` 拥有，loader 经再导出保持注册表路径。
