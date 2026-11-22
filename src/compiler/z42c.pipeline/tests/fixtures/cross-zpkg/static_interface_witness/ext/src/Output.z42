@@ -1,0 +1,16 @@
+namespace Demo.WitnessImpl;
+
+using Demo.WitnessContract;
+using Std.IO;
+
+public struct Seven : IWriter {
+    public static int Create() { return 7; }
+    public static void Write(int value) { Console.WriteLine(value); }
+    public static void Write(string value) { Console.WriteLine("wrong overload"); }
+}
+
+public class Nine : IWriter {
+    static Nine() { Console.WriteLine("init"); }
+    public static int Create() { return 9; }
+    public static void Write(int value) { Console.WriteLine(value); }
+}

@@ -51,6 +51,7 @@ public sealed partial class MemberResolver {
             MethodTypeArgSubst.CheckSubstMethodArgs(this._tc, bc, ms.Signature, ms.TypeParamNames,
                                                    call.TypeArgCount, targs, env);
         }
+        this._attachStaticWitnesses(bc, ms, env, call.Span);
         return GenericCallRet.Finish(bc, ms, ms.TypeParamNames, call.TypeArgCount, targs, instRecv);
     }
 
@@ -75,7 +76,7 @@ public sealed partial class MemberResolver {
                                                      ms.TypeParamCount, bc.Args, bc.ArgCount);
         bool local = ms.HasDecl && ms.Decl != null;
         if (!inf.Ok) {
-            if (local && MethodTypeParamUse.Consumes(ms.Decl)) {
+            if ((local && MethodTypeParamUse.Consumes(ms.Decl)) || this._requiresStaticWitnesses(bc, ms, env)) {
                 this._tc._diags.Error(DiagnosticCodes.GenericTypeArgRequired,
                     "cannot infer all type arguments for generic method `" + ms.Name
                     + "`, which uses its type parameters at runtime. Specify the type arguments explicitly.", call.Span);
@@ -87,6 +88,7 @@ public sealed partial class MemberResolver {
             MethodTypeArgSubst.CheckSubstMethodArgs(this._tc, bc, esig, ms.TypeParamNames, inf.Count, inf.Args, env);
         }
         MemberResolver._setMethodTypeArgs(bc, inf.Args, inf.Count, env);
+        this._attachStaticWitnesses(bc, ms, env, call.Span);
         return GenericCallRet.Finish(bc, ms, ms.TypeParamNames, inf.Count, inf.Args, instRecv);
     }
 }

@@ -103,6 +103,8 @@ public sealed class BoundCall : BoundExpr {
     // 泛型形参（`Foo<T>() { Bar<T>() }` 里的 T），存其方法级下标（≥0）；否则 -1。emit 期据此
     // 发 `$mta:<idx>` 转发标记（运行期按调用方 frame.method_type_args[idx] 解析），而非字面 "T"。
     public int[]       MethodTypeArgFwd;
+    public string[]    WitnessArguments;
+    public int         WitnessSlot;
     // resolve-free-functions-by-namespace：`free` 调用在绑定期**已解析**到的 ns（null = 未经符号表解析，
     // 如错误路径 / 局部函数 → 发射端按当前 ns 限定）与是否来自导入包（发射端据此记依赖 ns）。
     public string      FreeNs;
@@ -143,6 +145,7 @@ public sealed class BoundCall : BoundExpr {
         this.Args = args; this.ArgCount = argCount; this._retType = retType;
         this.MethodTypeArgs = new Z42Type[0]; this.MethodTypeArgCount = 0;
         this.MethodTypeArgFwd = new int[0];
+        this.WitnessArguments = new string[0];
         this.FreeNs = null; this.FreeImported = false;
         this.RetIsNullable = false;
         this.InstRetType = null;

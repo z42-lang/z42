@@ -203,6 +203,12 @@ dst       u16    目标寄存器；无目标 = 0xFFFF
 
 调用类指令的实参列表编码为 `u8 arg_count + u16 × arg_count`（各寄存器号）。
 
+### 泛型静态接口 Witness
+
+`LoadMethodWitness`（`0xB6`）使用常规指令头，紧随一个小端 `u16` 槽编号。
+`CallGeneric` 的类型实参载荷可以在普通类型实参之后附加 `$witness:<函数限定名>`，
+共享泛型体按槽读取该函数引用。已有 `$mta:N` 转发可以引用 Witness 槽。
+
 ## 操作码表
 
 头之后的字节列在"操作数"。
