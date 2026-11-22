@@ -81,6 +81,7 @@ public static class Op {
     public static int MethodTypeArg = 0xB2;  // dst = 具体 Std.Type，读 frame.method_type_args[param_index]（喂 typeof(T)/new T()）
     public static int MethodDefault = 0xB3;  // dst = default(T) 零值，读 frame.method_type_args[param_index]（镜像 DefaultOf 但 frame 载体）
     public static int CallGeneric   = 0xB4;  // Call + method_type_args：dst | method-token | mta_count(u16) | mta[](str idx u32) | args
+    public static int LoadMethodWitness = 0xB6; // dst | witness slot (u16)
     public static int VCallGeneric  = 0xB5;  // VCall + method_type_args：dst | method(str) | obj(u16) | mta_count(u16) | mta[] | args
     // add-struct-value-semantics Phase A：blob 值类型（多字段 struct 内联字节表示）。z42c 在 A-use（2c）才发射；
     // A-support（2a/2b）只加编解码/执行能力、不发射 → 无 zbc 字节变化、暂不 bump 版本（bump 在 A-use）。

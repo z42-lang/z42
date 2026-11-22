@@ -59,6 +59,13 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     let index = self.builder.ins().iconst(types::I32, i64::from(*param_index));
                     self.builder.ins().call(self.hr_method_type_arg, &[self.frame_val, self.ctx_val, dst, index]);
                 }
+                Instruction::LoadMethodWitness { dst, slot } => {
+                    let dst = self.ri(*dst);
+                    let slot = self.builder.ins().iconst(types::I32, i64::from(*slot));
+                    let call = self.builder.ins().call(self.hr_load_method_witness, &[self.frame_val, self.ctx_val, dst, slot]);
+                    let status = self.builder.inst_results(call)[0];
+                    self.check(status);
+                }
                 Instruction::MethodDefault { dst, param_index } => {
                     let dst = self.ri(*dst);
                     let index = self.builder.ins().iconst(types::I32, i64::from(*param_index));

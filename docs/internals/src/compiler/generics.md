@@ -333,6 +333,12 @@ TypeDesc {
 | **方法级** | `Frame.method_type_args` | 调用点（`CallInsn::method_type_args`）| `MethodTypeArg` / `MethodDefault` / `$mta:N` 标记 |
 | **类级** | `regs[0]` 指向对象的 per-instance `type_args` | `ObjNew`（从 IR 指令的 type args）| `DefaultOf` / **`__class_type_arg` builtin** / `$cta:N@Owner` 标记 |
 
+静态接口 Witness 的 VM 入口为 `LoadMethodWitness dst, slot`（opcode `0xB6`，槽编号为 u16）。
+泛型调用载荷在类型实参后可附加 `$witness:<函数限定名>` 条目。`LoadMethodWitness` 对指定条目链接确切
+的函数，产出 `FnId` 函数引用，随后用普通 `CallIndirect` 调用。缺槽、条目形状无效或
+目标函数不存在时使用 `MissingSymbolException`。解释器与 JIT 共用链接逻辑。
+这是字节码的运行时支持，源语言侧的约束解析和发射在启用时接入。
+
 绑定期按「**方法级就近优先**」分流（`TypeOpTyper._bindTypeofExpr` /
 `ExprTyper._bindDefault` / `_bindArrayNew` / `ConstructTyper._bindNew` 同序）：方法级先查，同名时遮蔽类级。
 发射期的 `ExprEmitter._typeParamMarker` 也是这个顺序。
