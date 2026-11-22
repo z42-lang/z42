@@ -44,6 +44,13 @@ pub enum ContextState {
     Reclaimed,
 }
 
+/// Failure while loading a reflection-visible assembly into a context.
+#[derive(Debug)]
+pub(crate) enum ContextLoadError {
+    Inactive,
+    Artifact(anyhow::Error),
+}
+
 /// Outcome of [`ContextRegistry::unload`], mapped to a z42 result by the builtin.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnloadOutcome {
