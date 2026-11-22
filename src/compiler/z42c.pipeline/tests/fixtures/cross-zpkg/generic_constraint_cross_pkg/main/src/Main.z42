@@ -43,4 +43,5 @@ void Main() {
     Console.WriteLine(Constrained.Build<NoArgCtor>().v);
     Console.WriteLine(Constrained.Keep(new Animal(), new Dog()).Kind());
     Console.WriteLine(KeepAnimal(new Dog()).Kind());
+    Console.WriteLine(ForwardShown(new Gadget()));
 }

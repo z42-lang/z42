@@ -25,6 +25,8 @@ impl<'a> RuntimeLoader<'a> {
         self.state.native_loading()
     }
 }
+#[path = "runtime_contexts.rs"]
+mod contexts;
 #[path = "runtime_modules.rs"]
 mod modules;
 
@@ -36,6 +38,15 @@ impl RuntimeLoader<'_> {
     /// the `[Native]` forward probe (`exec::call::forward`).
     pub fn probe_loaded_function(&self, func_name: &str) -> Option<Arc<Function>> {
         self.state.lazy_loader.read().as_ref()?.probe_function(func_name)
+    }
+
+    /// Probe the entry module before loaded packages, without triggering a load.
+    /// Also returns registered types whose base chain has yet to be merged.
+    pub(crate) fn probe_loaded_type(&self, name: &str) -> Option<Arc<TypeDesc>> {
+        if let Some(td) = self.metadata.module.as_ref().and_then(|m| m.type_registry.get(name)) {
+            return Some(Arc::clone(td));
+        }
+        self.state.lazy_loader.read().as_ref()?.loaded_type(name)
     }
 
     pub fn try_lookup_function(&self, func_name: &str) -> Option<Arc<Function>> {

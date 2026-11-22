@@ -165,8 +165,12 @@ public sealed class CallEmitter {
                     if (bli.EnumTypeName != "") { enumFqn = bli.EnumTypeName; }   // 绑定时已是 FQN（MemberResolver）
                 }
                 Z42Type rtOf = c.Receiver.Type();
+                // feat/delegate-object-methods：委托族收者（函数类型 / `(Delegate)` 上转值）同折
+                // ——函数值无 TypeDesc，运行期无从反推；静态委托类型编译期已知（结构化类型，
+                // 静态 == 运行期），`_typeofName` 走 typeof(delegate) 同一条 TypeofInstr。
                 if (enumFqn != "" || this._isStructOrEnumStatic(rtOf)
-                    || (rtOf.IsIntegerType() && rtOf.PrimCode() != 2)) {
+                    || (rtOf.IsIntegerType() && rtOf.PrimCode() != 2)
+                    || this._ee._isDelegateFamilyRecv(rtOf)) {
                     return this._emitValueTypeGetType(c, enumFqn);
                 }
             }
@@ -190,6 +194,26 @@ public sealed class CallEmitter {
                 // 否则（record 合成 / 用户覆写，ChainHasMethod=true）走下方静态 Call，保各自语义不被拦。
                 if (this._isBoxedObjectMethod(c.MethodName, c.ArgCount)
                     && !this._ctx.ChainHasMethod(c.OwnerClass, c.MethodName)) {
+                    // add-struct-value-eq-fastpath：Equals/GetHashCode 的**静态类型位点**不再装箱走
+                    // vcall——语义与合成 Equals$1（`other is P ? eq : false`）/ FNV 哈希逐位相同，
+                    // 但零堆分配（实参为异型值/null 时编译期已可判 false）。ToString 保持装箱协议
+                    //（短类型名兜底与 record/用户覆写的候选查找都在 vcall 侧）。含浮点布局的 Equals
+                    // 走内联 is+AsCast+逐叶（浮点 Eq 语义 ±0/NaN 与按位比较不等价）。
+                    // ⚠️ 须再判 StructDeclaresMethod：ChainHasMethod 对 **imported 类刻意恒 false**
+                    //（反劫持守卫）——跨包 struct 自带用户 Equals/GetHashCode（如 Std.Guid）时，
+                    // 没有这条就会把用户实现劫持进快路（Equals 语义被替换成 blob 比较）。
+                    if (c.MethodName == "Equals" && c.ArgCount == 1
+                        && !this._ctx.StructDeclaresMethod(c.Receiver.Type(), "Equals")) {
+                        return this._emitStructEqualsFast(c);
+                    }
+                    if (c.MethodName == "GetHashCode" && c.ArgCount == 0
+                        && !this._ctx.StructDeclaresMethod(c.Receiver.Type(), "GetHashCode")) {
+                        TypedReg harg = this._ee.Emit(c.Receiver);
+                        TypedReg hdst = this._ctx.Alloc(this._ctx.ToIrType(c.Type()));
+                        TypedReg[] ha = new TypedReg[1]; ha[0] = harg;
+                        this._ctx.Emit(new BuiltinInstr(hdst, "__struct_hash_code", ha, 1));
+                        return hdst;
+                    }
                     return this._emitBoxedStructObjectCall(c);
                 }
                 TypedReg[] sargs = this._emitStructAwareArgs(c);
@@ -553,6 +577,45 @@ public sealed class CallEmitter {
         if (argCount == 0 && (method == "ToString" || method == "GetHashCode")) { return true; }
         if (argCount == 1 && method == "Equals") { return true; }
         return false;
+    }
+
+    // add-struct-value-eq-fastpath：`a.Equals(x)`（receiver 为 blob struct、未自声明 Equals）的直呼路由。
+    // 实参先于 receiver 发射（match _emitBoxedStructObjectCall 的发射序，保副作用顺序不变）：
+    //   · x 静态即同型 struct（binder 包了 BoundBox）→ 剥壳拿裸 StructRef——float-free 走 `__struct_eq`
+    //     单指令；含浮点走逐叶（语义与 `a == x` 脱糖一致）
+    //   · x 静态为其他值类型（struct/enum/基元）→ `x is P` 编译期恒假 → ConstBool(false)
+    //   · x 为 object/接口/型参 → 运行期同名判定：float-free 走 `__struct_eq`（非 struct 侧答 false）；
+    //     含浮点内联 `is`+AsCast+逐叶
+    private TypedReg _emitStructEqualsFast(BoundCall c) {
+        string sn = this._ee._blobStructName(c.Receiver.Type());
+        bool hasFloat = this._ctx.LayoutHasFloatLeaf(sn);
+        bool sameStatic = false;
+        BoundExpr inner = null;
+        if (c.Args[0] is BoundBox bb) {
+            inner = bb.E;
+            if (this._ee._isBlobStruct(inner.Type())
+                && this._ee._blobStructName(inner.Type()) == sn) {
+                sameStatic = true;
+            }
+        }
+        TypedReg arg = null;
+        if (sameStatic) {
+            arg = this._ee.Emit(inner);          // 裸 StructRef（剥壳：不装箱、不 copy-in——比较只读）
+        } else if (inner != null && Z42.Symbols.TypeFacts.IsNonNullableValueType(inner.Type())) {
+            TypedReg f = this._ctx.Alloc(IrType.Bool);
+            this._ctx.Emit(new ConstBoolInstr(f, false));
+            return f;
+        } else {
+            arg = this._ee.Emit(c.Args[0]);      // object/接口/型参：装箱值或本就 object
+        }
+        TypedReg recv = this._ee.Emit(c.Receiver);
+        if (!hasFloat) {
+            return this._ee._emitStructEqBuiltin(recv, arg);
+        }
+        if (sameStatic) {
+            return this._ee._emitStructLeafEq(recv, arg, sn);
+        }
+        return this._ee._emitEqualsRawThis(sn, recv, arg);
     }
 
     // fix-value-type-object-methods：struct receiver 未自声明的 Object 方法 → 装箱 + VCall。

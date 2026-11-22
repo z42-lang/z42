@@ -572,6 +572,23 @@ public sealed partial class MemberResolver {
         return ct != null && ct.Name() == "Delegate" && ct.Namespace == "Std";
     }
 
+    // feat/method-group-arg-deferral：**本类**（不沿基链）上同名方法（按静态性过滤）的候选数。
+    // 实参延迟谓词（`ExprTyper.IsOverloadedFuncRefArg` 的 MemberExpr 臂）专用——探测须零副作用
+    // 故不绑 receiver、不走基链；基类链上的重载保持急切绑定（回到 #1901 前的现状行为）。
+    internal static int _ownMethodsOfKind(Z42ClassType ct, string name, bool wantStatic) {
+        int cap = ct.Methods.Capacity();
+        int n = 0;
+        int i = 0;
+        while (i < cap) {
+            if (ct.Methods.UsedAt(i)) {
+                MethodSymbol ms = ct.Methods.ValAt(i) as MethodSymbol;
+                if (ms != null && ms.Name == name && ms.IsStatic == wantStatic && ms.Signature != null) { n = n + 1; }
+            }
+            i = i + 1;
+        }
+        return n;
+    }
+
 
     // fix-generic-property-return：泛型实例化收者上、声明类型是**类级型参**的属性读，走与方法调用
     // （`_bindMemberCall` GS6 的 `StructUnboxTarget` 分支）**同一个返回协议**：擦除体按装箱模型交出

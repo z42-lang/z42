@@ -179,3 +179,70 @@ fn public_fmt_buf_preserves_fragmented_utf8_after_spill() {
     write!(buf, ":{}", -42).unwrap();
     assert_eq!(buf.as_str(), format!("{}🦀中文:-42", "é".repeat(31)));
 }
+
+// ── add-struct-value-eq-fastpath：__struct_eq / __struct_hash_code 的 builtin 合约 ──
+
+fn fastpath_type(name: &str) -> std::sync::Arc<crate::object::TypeDesc> {
+    std::sync::Arc::new(crate::object::TypeDesc {
+        class_flags: 0, visibility: 0, name: name.into(), base_name: None,
+        fields: vec![], field_index: Default::default(), vtable: vec![],
+        vtable_index: Default::default(), cold: None,
+        id: crate::metadata::ids::tokens::TypeId(
+            crate::metadata::ids::tokens::alloc_type_id_block(1)),
+    })
+}
+
+fn boxed_prim(ctx: &VmContext, name: &str, raw: i64) -> Value {
+    let Value::Object(obj) = ctx.heap().alloc_boxed_prim(
+        fastpath_type(name), raw.to_le_bytes().to_vec().into_boxed_slice(),
+    ) else { panic!("expected allocated box") };
+    Value::BoxedStruct(obj)
+}
+
+fn struct_eq(ctx: &VmContext, a: &Value, b: &Value) -> bool {
+    matches!(
+        crate::exec::call::builtins::exec_builtin_value(ctx, "__struct_eq", &[a.clone(), b.clone()]),
+        Ok(Value::Bool(true))
+    )
+}
+
+#[test]
+fn struct_eq_same_name_same_bytes_is_true() {
+    let ctx = ctx();
+    let a = boxed_prim(&ctx, "Demo.P", 7);
+    let b = boxed_prim(&ctx, "Demo.P", 7);
+    assert!(struct_eq(&ctx, &a, &b));
+}
+
+#[test]
+fn struct_eq_differs_by_bytes_or_type_name() {
+    let ctx = ctx();
+    let a = boxed_prim(&ctx, "Demo.P", 7);
+    let c = boxed_prim(&ctx, "Demo.P", 9);
+    let l = boxed_prim(&ctx, "Demo.Q", 7);
+    assert!(!struct_eq(&ctx, &a, &c));          // 同名不同字节
+    assert!(!struct_eq(&ctx, &a, &l));          // 同值不同类型名（type-exact）
+}
+
+#[test]
+fn struct_eq_non_struct_side_answers_false() {
+    let ctx = ctx();
+    let a = boxed_prim(&ctx, "Demo.P", 7);
+    assert!(!struct_eq(&ctx, &a, &Value::Null));               // Equals(null) 的运行期形态
+    assert!(!struct_eq(&ctx, &Value::Null, &a));
+    assert!(!struct_eq(&ctx, &a, &Value::Str("7".into())));    // 非 struct 值
+}
+
+#[test]
+fn struct_hash_code_value_eq_implies_hash_eq_and_is_stable() {
+    let ctx = ctx();
+    let a = boxed_prim(&ctx, "Demo.P", 7);
+    let b = boxed_prim(&ctx, "Demo.P", 7);
+    let h = |v: &Value| match crate::exec::call::builtins::exec_builtin_value(
+        &ctx, "__struct_hash_code", &[v.clone()],
+    ).unwrap() { Value::I64(h) => h, _ => panic!("hash not i64") };
+    assert_eq!(h(&a), h(&b));       // 值相等 ⇒ 哈希相等（跨实例）
+    assert_eq!(h(&a), h(&a));       // 稳定
+    assert!(h(&a) >= 0);            // 非负（Dictionary 契约）
+    assert!(crate::exec::call::builtins::exec_builtin(&ctx, "__struct_hash_code", &[Value::Null]).is_err());
+}

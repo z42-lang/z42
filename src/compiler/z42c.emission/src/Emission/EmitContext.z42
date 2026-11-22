@@ -132,6 +132,25 @@ public sealed class EmitContext {
         return this.QualifyType(o, baseN) + suffix;
     }
 
+    // add-struct-value-eq-fastpath：布局（递归含嵌套 struct 字段）是否含浮点叶子。blob 按位比较与
+    // 浮点 Eq 语义（+0.0==-0.0 为真、NaN!=NaN）不等价，故 `==`/`Equals` 的单指令快路只对
+    // float-free 布局启用；含浮点（或布局未知）返回 true → 调用方回落既有逐叶路径，行为不变。
+    // 叶子类型名是 canonical 拼写（`float`/`double`；与 `_emitLeafEqChecks` 的 Tag.FromName 同源）。
+    public bool LayoutHasFloatLeaf(string structName) {
+        StructLayoutInfo li = this.Gen.Layouts.LayoutOf(structName);
+        int i = 0;
+        while (i < li.FieldCount) {
+            string ft = li.FieldTypeNames[i];
+            if (li.FieldKinds[i] == StructLeafKind.Struct) {
+                if (this.LayoutHasFloatLeaf(ft)) { return true; }
+            } else {
+                if (ft == "float" || ft == "Single" || ft == "double" || ft == "Double") { return true; }
+            }
+            i = i + 1;
+        }
+        return false;
+    }
+
     // **本 CU 源码里写下的**类型名（`[SymAvailable]` 的 owner、属性名等）的限定：按本 CU 作用域解析（外围 ns → FQN →
     // using → prelude，同 `SymbolTable.GetClass`），ns 取解析到的类型；解析不到回落 QualifyClass。
     // ⚠️ 只给源码写的名字用——从已解析类型拿到的短名要用 QualifyType（作用域里同短名的可能是别的类）。
@@ -231,6 +250,26 @@ public sealed class EmitContext {
         while (bi < bare.Length) { if (bare.CharAt(bi) == '<') { bare = bare.Substring(0, bi); bi = bare.Length; } else { bi = bi + 1; } }
         if (!this.Symbols.HasClass(bare)) { return null; }
         return this.Symbols.GetClass(bare);
+    }
+
+    // add-struct-value-eq-fastpath：receiver struct 是否**自声明**了某方法（bare 名前缀匹配，镜像
+    // ReceiverMethodIsVirtual 的 OwnMethodNames 匹配式）。与 ChainHasMethod 不同，OwnMethodNames 经
+    // TSIG 展开对 **imported 类同样可用**——后者刻意只认本地类（反劫持守卫），拿它当「有无用户
+    // Equals/GetHashCode」的判据会在跨包 struct（如 Std.Guid 自带 Equals(Guid)）上误判「没有」，
+    // 把本该走用户实现的调用劫持进快路。struct 无继承，不walk基类链。
+    public bool StructDeclaresMethod(Z42Type t, string method) {
+        Z42ClassType ct = t as Z42ClassType;
+        if (ct == null) { return false; }
+        int i = 0;
+        while (i < ct.OwnMethodCount) {
+            string nm = ct.OwnMethodNames[i];
+            if (nm == method
+                || (nm.Length > method.Length && nm.StartsWith(method) && nm.CharAt(method.Length) == '$')) {
+                return true;
+            }
+            i = i + 1;
+        }
+        return false;
     }
 
     // receiver 静态类型的该方法是否**虚**（virtual / abstract / 经 override 参与 vtable）。
