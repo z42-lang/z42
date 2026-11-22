@@ -2,8 +2,8 @@
 
 ## 职责
 
-提供 VM 内部能力门面、静态工厂登记、组件契约校验和每 VM 实例管理。动态代码通过 loader 请求装入，默认原生路径归 loader；组件层不保存独立的映像缓存。`VmCore` 持有实例集合，worker 共享所属 Core 的组件状态。
-组件管理及其子模块在 crate 内部可见，VM 消费者经 `components::api` 准备和查询能力；host 仍有具名管理类型和签名泄露，详见[模块边界](../../../../docs/internals/src/runtime/module-boundaries.md)。
+提供 VM 内部能力门面、已链接工厂登记、组件契约校验和每 VM 实例管理。动态代码通过 loader 请求装入，默认原生路径归 loader；组件层不保存独立的映像缓存。`VmCore` 持有实例集合，worker 共享所属 Core 的组件状态。
+组件管理及其子模块在 crate 内部可见，VM 消费者经 `components::api` 准备和查询能力；普通宿主经 `host` 加载和执行程序，详见[模块边界](../../../../docs/internals/src/runtime/module-boundaries.md)。
 
 组件工厂只持有描述符、回调和原生库代码，可以跨 VM 共享；实例、JIT 状态和堆仍按 VM 隔离。这里不实现解释器、JIT 或其他具体组件。
 
@@ -18,7 +18,7 @@
 | `profiling.rs` | profiler 按需装配、同核心身份检查与代码寿命 |
 | `backends.rs` | interp/JIT 来源选择、候选发现、目标能力和初始引擎注册表 |
 | `ffi.rs` | 最终链接组合的 C 登记契约（声明在 `../../include/z42_components.h`）；返回组件状态，不访问 host 错误槽 |
-| `linked.rs` | 进程寿命的静态工厂登记；不保存 VM 实例 |
+| `linked.rs` | 进程寿命的静态链接与共享链接工厂登记；不保存 VM 实例 |
 | `execution_roles.rs` | 基线/优化角色到提供方的不可变绑定，实例创建前验证接口 |
 | `abi.rs` / `bridge.rs` | 同构建跨库 C 协议与最小核心身份/布局、对象服务只读桥 |
 
@@ -27,11 +27,11 @@
 VM 消费者通过内部 `components::api` 请求准备、执行角色和分析服务。执行角色绑定在实例创建前验证，
 消费者不传具体提供方 ID；执行热路径使用一次装配的引擎。组件管理类型不从 host 转出；宿主功能请求由私有 VM 装配输入适配。
 独立组件通过 `z42::components::abi` 使用同构建协议，`components::bridge` 提供共享核心身份、布局和已绑定对象服务的只读借用；不提供组件管理入口。
-最终 Rust 组合根使用 `abi::register_static_component`；C 声明在 `include/z42_components.h` 维护，由 native 聚合进既有的 `z42_host.h` 发布；调用方不单独包含组件头。两者仅登记工厂，不调用工厂或创建 VM。
+最终 Rust 组合根使用 `abi::register_static_component` 或 `abi::register_shared_component`；C 声明在 `include/z42_components.h` 维护，由 native 聚合进既有的 `z42_host.h` 发布；调用方不单独包含组件头。两者仅登记工厂，不调用工厂或创建 VM。
 描述符、接口头、构建身份与执行核心身份均在装配时校验。
 
-三种使用形态的目标是静态链接、作为共享库依赖的动态链接、运行时显式装入分别建模，并按运行时策略检查；
-当前 Static/Dynamic 登记与 Linked/Dynamic 来源尚未完成这项区分，详见[三种使用形态](../../../../docs/internals/src/runtime/componentized-runtime.md#组件三种使用形态目标契约)。
+装配按每 VM 策略分别检查静态链接、共享链接和运行时装入，详见
+[组件三种使用形态](../../../../docs/internals/src/runtime/componentized-runtime.md#组件三种使用形态)。
 
 加载流程为：选择启用根与提供方来源 → 请求 loader 准备代码并校验所需工厂闭包 → 按语义依赖创建每 VM 实例 → 发布注册表 → 装配执行接口。
 
