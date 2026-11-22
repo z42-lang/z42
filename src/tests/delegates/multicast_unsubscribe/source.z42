@@ -49,7 +49,7 @@ void Main() {
     Console.WriteLine(bus2.Count());  // 0
     bus2.Invoke(4);                    // (nothing)
 
-    // case 6: DelegateOps.ReferenceEquals 直接调用
-    Console.WriteLine(DelegateOps.ReferenceEquals(h, h));     // True (same lambda var)
-    Console.WriteLine(DelegateOps.ReferenceEquals(h, ghost)); // False (different lambdas)
+    // case 6: Delegate.ReferenceEquals 直接调用
+    Console.WriteLine(Delegate.ReferenceEquals(h, h));     // True (same lambda var)
+    Console.WriteLine(Delegate.ReferenceEquals(h, ghost)); // False (different lambdas)
 }

@@ -337,7 +337,7 @@ impl PartialEq for Value {
             // fix-delegate-equality-operator: function values are reference-ish too, and
             // these two arms were simply MISSING — so `==` fell through to `_ => false`
             // and `f == f` answered **false** (a silently wrong answer, not an error).
-            // Identity semantics are the ones `DelegateOps.ReferenceEquals` already
+            // Identity semantics are the ones `Delegate.ReferenceEquals` already
             // defines: a FuncRef is its function; a closure is its function plus its
             // captured env. P1-2 PR 8: "its function" = the bound `FnId` (one id per
             // function, so equal ids ⇔ the same function — what equal names meant before). That builtin defers here for these two variants, so the

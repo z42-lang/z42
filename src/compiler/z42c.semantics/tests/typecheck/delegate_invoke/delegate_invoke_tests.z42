@@ -50,7 +50,8 @@ void test_paren_call_still_accepted() {
     Assert.Equal(0, SemanticDump.ErrorCount(src));
 }
 
-// ── 委托值上除 `Invoke` 之外没有别的成员 → E0401 ──
+// ── 委托值上的成员面：调用只认 `Invoke`，族基类成员是属性（读路见 e2e
+//    delegate_base_class）→ E0401 ──
 
 [Test]
 void test_unknown_member_on_func_type_is_an_error() {
@@ -61,7 +62,14 @@ void test_unknown_member_on_func_type_is_an_error() {
 [Test]
 void test_unknown_member_message_names_the_delegate_type() {
     string src = "class C { void M() { (int) -> int f = (int x) => x; f.Bogus(); } }";
-    Assert.True(SemanticDump.FirstErrorMessage(src).Contains("only `Invoke` is available"));
+    Assert.True(SemanticDump.FirstErrorMessage(src).Contains("delegate calls go through `Invoke`"));
+}
+
+[Test]
+void test_base_property_invoke_with_parens_is_still_an_error() {
+    // Target / FnName 是属性（读路），括号调用形式落在调用路 → E0401（与类的属性括号调用同口径）。
+    string src = "class C { void M() { (int) -> int f = (int x) => x; f.Target(); } }";
+    Assert.Equal("E0401", SemanticDump.FirstErrorCode(src));
 }
 
 // ── arity 校验：两个方向 × 两种拼写 ──

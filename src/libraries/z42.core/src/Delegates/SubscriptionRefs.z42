@@ -88,10 +88,10 @@ public sealed class CompositeRef<TD> : ISubscription<TD> {
         this.fnName = null;
         if ((modes & ModeFlags.Weak) != 0) {
             // Mode.Weak set：尝试拆解 handler 为 (WeakHandle, fnName)
-            var target = DelegateOps.GetTarget(h);
+            var target = ((Delegate)h).Target;
             if (target != null) {
                 this.weakHandle = WeakHandle.MakeWeak(target);
-                this.fnName = DelegateOps.GetFnName(h);
+                this.fnName = ((Delegate)h).FnName;
                 this.weakDegraded = false;
                 // 故意不存 strongHandler —— 与 WeakRef 同款，避免反向锁住 receiver
             } else {
@@ -119,7 +119,7 @@ public sealed class CompositeRef<TD> : ISubscription<TD> {
             if (target == null) return null;
             var env = new object[1];
             env[0] = target;
-            return (TD)DelegateOps.MakeClosure(this.fnName, env);
+            return (TD)Delegate.MakeClosure(this.fnName, env);
         }
         // strong 或 weak 退化：直接返回 strongHandler
         return this.strongHandler;
@@ -158,10 +158,10 @@ public sealed class WeakRef<TD> : ISubscription<TD> {
 
     /// 用 handler 构造弱引用包装。
     public WeakRef(TD h) {
-        var target = DelegateOps.GetTarget(h);
+        var target = ((Delegate)h).Target;
         if (target != null) {
             this.weakHandle = WeakHandle.MakeWeak(target);
-            this.fnName = DelegateOps.GetFnName(h);
+            this.fnName = ((Delegate)h).FnName;
             this.isDegraded = false;
             // degradedHandler 不存 —— 故意不强持原 handler
         } else {
@@ -180,7 +180,7 @@ public sealed class WeakRef<TD> : ISubscription<TD> {
         // 重建 Closure：env=[target]，fn_name=同原 handler 的 thunk 名
         var env = new object[1];
         env[0] = target;
-        return (TD)DelegateOps.MakeClosure(this.fnName, env);
+        return (TD)Delegate.MakeClosure(this.fnName, env);
     }
 
     /// 是否仍活跃（退化时恒 true）。

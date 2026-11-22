@@ -76,6 +76,8 @@ public sealed class IrGenAuxEmitter {
 
     // delegate 类型（add-delegate-metadata / unify-type-metadata P1-e ②）：TYPE 条目（bit6=delegate + TypeParams）
     // + 合成 `<FQ>.Invoke` 死体桩（真实调用走 CallIndirect；供反射签名 + 重建）。
+    // base = Std.Delegate（feat/delegate-base-class）：委托的族基类——反射 `BaseType` 由此而来，
+    // 与编译期 Conversion C3 分支同一事实的元数据投影；数据字段非 schema，无 format-bump。
     public void EmitDelegates(CompilationUnit cu) {
         int i = 0;
         while (i < cu.DeclCount) {
@@ -83,7 +85,7 @@ public sealed class IrGenAuxEmitter {
             if (dg is DelegateDecl) {
                 DelegateDecl dd = dg as DelegateDecl;
                 string dfq = this._g._q(dd.Name);
-                IrClassDesc ddesc = new IrClassDesc(dfq, false, "", new IrFieldDesc[0], 0);
+                IrClassDesc ddesc = new IrClassDesc(dfq, true, "Std.Delegate", new IrFieldDesc[0], 0);
                 ddesc.Flags = ddesc.Flags | 64;   // bit6 = delegate
                 ddesc.Visibility = DeclFacts.classVisCode(dd.ModFlags, false);   // access-top-scope：跨包可见性字节
                 if (dd.TypeParams.Count > 0) {

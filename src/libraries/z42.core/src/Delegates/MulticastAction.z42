@@ -211,7 +211,7 @@ public sealed class MulticastAction<T> {
         int i = 0;
         while (i < this.strongCount) {
             if (this.strongAlive[i]) {
-                if (DelegateOps.ReferenceEquals(this.strong[i], handler)) {
+                if (Delegate.ReferenceEquals(this.strong[i], handler)) {
                     this.strongAlive[i] = false;
                 }
             }

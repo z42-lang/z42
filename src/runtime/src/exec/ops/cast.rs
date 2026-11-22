@@ -147,6 +147,13 @@ fn callable_isa(
     if class_name == "Std.Object" || class_name == "Object" {
         return true;
     }
+    // feat/delegate-base-class: every callable is-a the delegate family base. Must be
+    // special-cased before the registry lookup below — `Std.Delegate` is a real registered
+    // class whose `is_delegate()` bit is **false** (the bit marks delegate *types* like
+    // `Action<T>`, not the base), so the lookup would answer `false`.
+    if class_name == "Std.Delegate" || class_name == "Delegate" {
+        return true;
+    }
     if class_name.ends_with("[]") || crate::zpkg::index::type_names::builtin_fqn(class_name).is_some() {
         return false;
     }

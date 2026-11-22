@@ -56,6 +56,11 @@ pub const STD_TYPE: &str = "Std.Type";
 /// / `STD_OBJECT` 子类型。
 pub const STD_ARRAY: &str = "Std.Array";
 
+/// feat/delegate-base-class: runtime base of all delegate (func) types.
+/// `Value::FuncRef` / `Value::Closure` 不携带 TypeDesc，`callable_isa` 对
+/// `STD_DELEGATE` / `STD_OBJECT` 硬编码返回 true（其余走擦除规则）。
+pub const STD_DELEGATE: &str = "Std.Delegate";
+
 // ── Integer prim-wrapper scalar spec (unify Phase 2 R3 装箱统一) ──────────
 //
 // 基元装箱把整数标量 LE 字节存进 boxed `ScriptObject` 的 `struct_bytes`（D1-B：与
