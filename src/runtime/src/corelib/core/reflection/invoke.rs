@@ -18,7 +18,7 @@ use super::*;
 /// debug symbols would be worse than this. The cost is that a genuinely `object`-typed
 /// parameter receives the bare scalar instead of the box — exactly what it received
 /// before this change, so nothing regresses.
-fn unbox_reflective_arg(v: Value) -> Value {
+pub(super) fn unbox_reflective_arg(v: Value) -> Value {
     if let Value::BoxedStruct(gc) = &v {
         if let Some(n) = gc.borrow().boxed_prim_i64() {
             return Value::I64(n);

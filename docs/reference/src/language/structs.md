@@ -210,7 +210,7 @@ IArea a = r;               // 装箱
 a.Area();                  // 12
 ```
 
-struct 也可以实现带 `static abstract` 成员的接口（如 `Std.INumber`），
+struct 也可以实现带静态成员的接口（如 `Std.INumber`），
 从而在泛型约束下参与运算符派发——见[接口](interfaces.md)与[泛型约束](generic-constraints.md)。
 
 ## 相关

@@ -55,6 +55,11 @@ public sealed partial class MemberResolver {
                     if (ot is Z42InstantiatedType) { (sm as BoundStaticGet).OwnerType = ot; }
                 }
                 if (sm != null) { return sm; }
+                // feat/static-method-group：静态方法组回落——`C.F` 的 F 是静态方法时在此接住
+                //（`Func<int,int> f = Api.Twice;`，book 记载的缺口）。须在 StaticMemberMiss **之前**：
+                // 静态方法恒 mangle 无裸键，Miss 的 `_hasMethodNamed` 判据会把它当「无此成员」误报。
+                BoundExpr smg = this.BindStaticMethodGroup(sct, clsName, m.Name, m.Span, env);
+                if (smg != null) { return smg; }
                 sm = this.StaticMemberMiss(sct, clsName, m, env); if (sm != null) { return sm; }   // reject-derived-static-access
             }
             // 枚举常量访问 `EnumType.Member` → BoundLitInt，**静态类型 = 该 enum 类型**

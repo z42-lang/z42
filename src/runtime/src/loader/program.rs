@@ -10,6 +10,16 @@ use super::{
 };
 use crate::{metadata::Module, pal::fs::Vfs};
 
+/// Package inputs collected by the host before VM construction.
+pub(crate) struct StartupPackages {
+    pub(crate) search_dirs: Vec<std::path::PathBuf>,
+    pub(crate) declared_candidates: Vec<(String, ZpkgCandidate)>,
+    pub(crate) initially_loaded: Vec<String>,
+    pub(crate) impl_pairs: Vec<(String, String)>,
+    pub(crate) entry_dependencies: Vec<crate::zpkg::format::ZpkgDep>,
+    pub(crate) artifacts: Vec<LoadedArtifact>,
+}
+
 /// Prepare the entry module for per-package assembly (merge-retirement M4
 /// final): dependencies stay `LoadedArtifact`s and register through the lazy
 /// loader after construction; the entry gets its own registry/indices pass.

@@ -31,13 +31,13 @@ public struct Byte : IComparable, IEquatable, INumber {
     }
 
     /// 加法。
-    public static override byte op_Add(byte a, byte b)      { return (byte)(a + b); }
+    public static byte op_Add(byte a, byte b)      { return (byte)(a + b); }
     /// 减法。
-    public static override byte op_Subtract(byte a, byte b) { return (byte)(a - b); }
+    public static byte op_Subtract(byte a, byte b) { return (byte)(a - b); }
     /// 乘法。
-    public static override byte op_Multiply(byte a, byte b) { return (byte)(a * b); }
+    public static byte op_Multiply(byte a, byte b) { return (byte)(a * b); }
     /// 除法。
-    public static override byte op_Divide(byte a, byte b)   { return (byte)(a / b); }
+    public static byte op_Divide(byte a, byte b)   { return (byte)(a / b); }
     /// 取模。
-    public static override byte op_Modulo(byte a, byte b)   { return (byte)(a % b); }
+    public static byte op_Modulo(byte a, byte b)   { return (byte)(a % b); }
 }

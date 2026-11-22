@@ -92,6 +92,10 @@ public sealed partial class ExprTyper : IExprVisitor<BoundExpr, TypeEnv> {
                 // add-static-properties：类内裸名静态字段 / 属性 / const ≡ `C.x`（先于类型名 / 自由函数：成员作用域更内层）。
                 BoundExpr bs = this._tc._member.BindBareStatic(id.Name, id.Span, env);
                 if (bs != null) { return bs; }
+                // feat/static-method-group：类内裸名静态方法组（`Func<int,int> f = Twice;`）——
+                // 同 BindBareStatic 的查找序（本类 → 基类链 → 外层），先于自由函数（成员作用域更内层）。
+                BoundExpr bsm = this._tc._member.BindBareStaticMethodGroup(id.Name, id.Span, env);
+                if (bsm != null) { return bsm; }
                 // 枚举类型名（如 GCHandleType）裸出现时不报 undefined——MemberExpr 路径会处理常量访问。
                 if (env.Symbols.EnumKey(id.Name) != null) {
                     return new BoundIdent(id.Name, new Z42UnknownType(), id.Span);

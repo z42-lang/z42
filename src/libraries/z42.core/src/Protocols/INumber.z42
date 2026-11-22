@@ -1,23 +1,21 @@
 namespace Std;
 
-/// 数值接口（对齐 C# 11 static abstract）：声明 5 个二元算术运算符为 `static abstract`。
+/// 五个二元算术运算符的接口。无函数体的静态方法由实现类型提供。
 ///
-/// 实现者（基础类型结构体、用户结构体/类）须提供 `static override` 对应。泛型代码
-/// `where T : INumber` 里写 `a + b`（或 mangle 形式 `T.op_Add(a, b)`），编译器经值驱动的
-/// VCall 派发到具体实现者 —— 接收者的运行时类决定跑哪个 `op_Add`。
+/// 泛型代码在 `where T : INumber` 下可写 `a + b`，由操作数的运行时类型决定调用哪个实现。
 ///
 /// 比较走 IComparable；相等走 IEquatable。
 /// 不支持混合类型算术（仅 Self + Self → Self）—— 正因如此，原先的型参 `T` 不携带任何
 /// 信息（`where T : INumber<T>` 纯是「我指我自己」的样板），已由 `Self` 取代。
 public interface INumber {
     /// 加法。
-    static abstract Self op_Add(Self a, Self b);
+    static Self op_Add(Self a, Self b);
     /// 减法。
-    static abstract Self op_Subtract(Self a, Self b);
+    static Self op_Subtract(Self a, Self b);
     /// 乘法。
-    static abstract Self op_Multiply(Self a, Self b);
+    static Self op_Multiply(Self a, Self b);
     /// 除法。
-    static abstract Self op_Divide(Self a, Self b);
+    static Self op_Divide(Self a, Self b);
     /// 取模。
-    static abstract Self op_Modulo(Self a, Self b);
+    static Self op_Modulo(Self a, Self b);
 }

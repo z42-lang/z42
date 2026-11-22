@@ -127,6 +127,12 @@ pub(super) fn build_ctor_info(
 /// Build the logical `ParameterInfo[]` (excludes the implicit `this`) for a function,
 /// plus its resolved `(is_static, ret_type, visibility, method_flags, sig_found)`.
 /// Shared by `build_method_info` and `build_ctor_info`.
+///
+/// `accessor_params` is the parameter-only projection for callers that just need
+/// the list (e.g. `PropertyInfo.GetIndexParameters` over an accessor).
+pub(super) fn accessor_params(ctx: &VmContext, qualified: &str) -> Result<Vec<Value>> {
+    Ok(build_param_infos_ex(ctx, qualified, false, None, &[])?.0)
+}
 
 /// `receiverless`: the caller knows the function takes no receiver (a free / top-level
 /// function — `Assembly.GetFunctions`). Its `Function.is_static` is not set (the flag is

@@ -1,0 +1,10 @@
+using Std.IO;
+
+class Api {
+    public static int  F(int x)  { return x; }
+    public static long F(long x) { return x; }
+}
+
+void Main() {
+    var f = Api.F;             // ✗ 重载的静态方法，无目标委托类型无从消解
+}

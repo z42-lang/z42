@@ -123,7 +123,9 @@
 {{#include ../../../../examples/types/attributes-reflection/members/run.console:methods}}
 ```
 
-`GetProperties()` 把那些访问器归并成属性视图——有 getter 就可读，有 setter 就可写：
+`GetProperties()` 把那些访问器归并成属性视图——有 getter 就可读，有 setter 就可写。
+索引器 `this[...]` 也是属性（名字固定 `Item`）：`GetIndexParameters()` 查索引形参，
+`GetValue(obj, new object[]{ i })` / `SetValue(obj, new object[]{ i }, v)` 带索引实参读写：
 
 ```z42
 // examples/types/attributes-reflection/members/members.z42
@@ -530,11 +532,6 @@ attribute + 反射最典型的用法：让代码**按数据驱动**，而不是�
 
 要在代码里精确指代一个方法，优先用上面的 `methodof`——它是编译期检查的。
 
-### 还有一处
-
-- **索引器不出现在 `GetProperties()` 里**：`this[int]` 降解成 `get_Item(int)`，
-  只在 `GetMethods()` 里作为普通方法出现。
-
 ## 小结
 
 - **反射**读的是类型自带的元数据：`typeof(T)` / `obj.GetType()` 拿 `Std.Type`，
@@ -554,7 +551,7 @@ attribute + 反射最典型的用法：让代码**按数据驱动**，而不是�
 - **attribute** 是贴在声明上的数据：类名必须以 `Attribute` 结尾（`E0444`），应用时剥后缀，
   全部状态走构造器，查询用真实类名。能贴在类 / 方法 / 字段 / 自动属性 / 形参五处。
   实参必须是编译期常量（含 `typeof` / `methodof` / 数组），否则报 `E0500`。
-- 🔴 记住三个边界：顶层函数的 attribute 反射拿不到（挪进类当 `static`）、计算属性带不了
-  attribute、没有按名取单个成员的 API（索引器也不在 `GetProperties()` 里）。
+- 🔴 记住两个边界：顶层函数的 attribute 反射拿不到（挪进类当 `static`）、计算属性带不了
+  attribute。没有按名取单个成员的 API——索引器已是属性视图（`Item`），照常枚举后筛。
 
 下一部分转向**标准库实战**，从文件与目录开始。

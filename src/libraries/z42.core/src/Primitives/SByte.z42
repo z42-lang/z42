@@ -31,13 +31,13 @@ public struct SByte : IComparable, IEquatable, INumber {
     }
 
     /// 加法。
-    public static override sbyte op_Add(sbyte a, sbyte b)      { return (sbyte)(a + b); }
+    public static sbyte op_Add(sbyte a, sbyte b)      { return (sbyte)(a + b); }
     /// 减法。
-    public static override sbyte op_Subtract(sbyte a, sbyte b) { return (sbyte)(a - b); }
+    public static sbyte op_Subtract(sbyte a, sbyte b) { return (sbyte)(a - b); }
     /// 乘法。
-    public static override sbyte op_Multiply(sbyte a, sbyte b) { return (sbyte)(a * b); }
+    public static sbyte op_Multiply(sbyte a, sbyte b) { return (sbyte)(a * b); }
     /// 除法。
-    public static override sbyte op_Divide(sbyte a, sbyte b)   { return (sbyte)(a / b); }
+    public static sbyte op_Divide(sbyte a, sbyte b)   { return (sbyte)(a / b); }
     /// 取模。
-    public static override sbyte op_Modulo(sbyte a, sbyte b)   { return (sbyte)(a % b); }
+    public static sbyte op_Modulo(sbyte a, sbyte b)   { return (sbyte)(a % b); }
 }

@@ -108,12 +108,14 @@ pub(super) fn prepare(user_artifact: LoadedArtifact, source_path: Option<&str>, 
     let jit_config = crate::config::runtime_config_snapshot().jit_config();
     let ctx = crate::vm::assembly::build(final_module, crate::vm::assembly::ProgramInputs {
         vfs: Arc::clone(&vfs),
-        search_dirs: search_dirs.clone(),
-        declared_candidates,
-        initially_loaded: initially_loaded_zpkgs,
-        eager_impl_pairs,
-        eager_deps,
-        eager_packages,
+        packages: crate::loader::StartupPackages {
+            search_dirs: search_dirs.clone(),
+            declared_candidates,
+            initially_loaded: initially_loaded_zpkgs,
+            impl_pairs: eager_impl_pairs,
+            entry_dependencies: eager_deps,
+            artifacts: eager_packages,
+        },
     }, crate::vm::assembly::AssemblyOptions {
         native: options.native.clone(), mode: options.mode, jit_config, components,
         freeze_extensions: crate::composition::freeze,

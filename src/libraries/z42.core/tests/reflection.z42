@@ -1006,6 +1006,12 @@ void test_declaring_context_field_and_property() {
     }
 }
 
+class Grid {
+    private int[] cells;
+    public Grid() { this.cells = new int[4]; }
+    public int this[int i] { get { return this.cells[i]; } set { this.cells[i] = value; } }
+}
+
 [Test]
 void test_getmembers_includes_constructors() {
     // GetMembers 对齐 C#：构造器入列（MemberTypes.Constructor，Name = 类简单名）。
@@ -1019,4 +1025,36 @@ void test_getmembers_includes_constructors() {
         }
     }
     Assert.True(sawCtor);
+}
+
+[Test]
+void test_indexer_property_view() {
+    // 索引器 = 带参数的属性（C# 模型）：GetProperties 出现 Item、索引参数可查、
+    // 读写有索引实参重载。
+    PropertyInfo item = null;
+    foreach (var p in typeof(Grid).GetProperties()) {
+        if (p.Name == "Item") { item = p; }
+    }
+    Assert.True(item != null);
+    Assert.True(item.CanRead);
+    Assert.True(item.CanWrite);
+    Assert.Equal("Int32", item.PropertyType.Name);
+    Assert.True(item.MemberType == MemberTypes.Property);
+    Assert.True(item.DeclaringContext is Std.Type);
+    // 索引参数（getter 形参；宿主是访问器方法）
+    ParameterInfo[] ips = item.GetIndexParameters();
+    Assert.Equal(1, ips.Length);
+    Assert.Equal("Int32", ips[0].ParameterType.Name);
+    Assert.Equal("get_Item", ips[0].Method.Name);
+    // 普通属性索引参数为空数组
+    foreach (var p in typeof(PropHolder).GetProperties()) {
+        Assert.Equal(0, p.GetIndexParameters().Length);
+    }
+    // 索引读写往返
+    Grid g = new Grid();
+    object[] idx = new object[1];
+    idx[0] = 2;
+    item.SetValue(g, idx, 41);
+    Assert.Equal(41, item.GetValue(g, idx));
+    Assert.Equal(41, g[2]);
 }
