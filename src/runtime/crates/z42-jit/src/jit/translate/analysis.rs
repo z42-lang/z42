@@ -189,7 +189,8 @@ pub(super) fn compute_promotable_regs(func: &Function, enable: bool) -> Vec<bool
                 I::ConstStr { dst, .. }
                 | I::ConstBool { dst, .. } | I::ConstChar { dst, .. }
                 | I::ConstNull { dst } | I::DefaultOf { dst, .. }
-                | I::MethodTypeArg { dst, .. } | I::MethodDefault { dst, .. } => disq.push(*dst),
+                | I::MethodTypeArg { dst, .. } | I::MethodDefault { dst, .. }
+                | I::LoadMethodWitness { dst, .. } => disq.push(*dst),
                 I::Typeof(bx) => disq.push(bx.dst),
                 I::Copy { dst, src } | I::Not { dst, src } | I::ToStr { dst, src }
                 | I::PinPtr { dst, src } | I::StructCopy { dst, src, .. }
