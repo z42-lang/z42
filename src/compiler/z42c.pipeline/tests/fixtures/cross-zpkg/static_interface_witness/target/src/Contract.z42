@@ -1,0 +1,14 @@
+namespace Demo.WitnessContract;
+
+public interface IWriter {
+    static int Create();
+    static void Write(int value);
+}
+
+public void Dispatch<T>() where T : IWriter {
+    T.Write(T.Create());
+}
+
+public void Forward<T>() where T : IWriter {
+    Dispatch<T>();
+}

@@ -84,7 +84,14 @@ pub fn load_method_witness(
         return Err(crate::exec::exception::make_missing_symbol_exception(
             ctx, module, format!("missing method witness in slot {slot}")));
     };
-    bind_fn_ref(ctx, module, name, None).map(Value::FuncRef)
+    let id = bind_fn_ref(ctx, module, name, None)?;
+    let target = crate::metadata::dispatch::functions::fn_by_id(ctx.funcs(), module, id.0)
+        .ok_or_else(|| crate::exec::exception::make_missing_symbol_exception(
+            ctx, module, format!("undefined function `{name}`")))?;
+    ctx.initialization().ensure_module_inits(Some(name))
+        .and_then(|()| ctx.initialization().ensure_callee_owner_init(name, &target.owner_init))
+        .map_err(|msg| crate::exec::make_type_init_exception(ctx, module, &msg))?;
+    Ok(Value::FuncRef(id))
 }
 
 /// The cold half of [`fn_ref_id`]: resolve a function reference's target by name, once,
