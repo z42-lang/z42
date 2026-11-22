@@ -79,3 +79,12 @@ void test_single_candidate_mismatch_still_arg_error() {
         + " class Use { int M() { return C.F(new A()); } }";
     Assert.Equal("E0402", SemanticDump.FirstErrorCode(src));
 }
+
+[Test]
+void test_duplicate_ref_signatures_are_rejected() {
+    string src = "class C {"
+        + " public static int F(ref int first) { return first; }"
+        + " public static int F(ref Int32 second) { return second; }"
+        + "}";
+    Assert.Equal("E0408", SemanticDump.FirstErrorCode(src));
+}

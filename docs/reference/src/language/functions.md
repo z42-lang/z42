@@ -158,7 +158,7 @@ int Bad(int x) {
 
 ## 重载决议
 
-同一个类里的同名方法允许**同 arity、参数类型不同**：
+类或结构体中的同名方法可以用参数类型或 `ref` 传递方式区分，即使参数个数相同。
 
 ```z42
 class Handler {
@@ -175,15 +175,18 @@ class Vec {
 }
 ```
 
-调用点按实参类型在候选集里择优：
+调用点按实参类型和传递方式选择重载。
 
-1. **适用性**：实参个数与 arity 匹配，且每个实参类型可落到对应形参类型上。
+1. **适用性**要求参数个数匹配、实参类型可转换为形参类型，且调用处的 `ref` 与形参一致。
 2. **最具体优先**：精确匹配优于加宽 / 装箱匹配；候选 A 若在每个参数位上都不差于 B、
    且至少一处更精确，则 A 胜出。
 3. 适用集为空 → 编译错误（找不到该方法）；无法分出唯一最优 → 歧义重载 `E0425`，
    需要显式转换或改用命名实参消歧。
 
 命名实参与省略的默认实参都参与选重载，规则见[命名实参](named-arguments.md)。
+
+`Handle(int)` 和 `Handle(ref int)` 可以同时声明。`Handle(n)` 选择值参数版本，
+`Handle(ref n)` 选择引用参数版本。导入其它包的方法时使用相同的规则。
 
 ### 不算合法重载的两种写法
 
@@ -192,8 +195,7 @@ class Vec {
 ```z42
 class C {
     public int F(int a) { return a; }
-    public int F(i32 a) { return a; }   // ✗ E0408: parameter types are identical once
-                                        //   aliases (e.g. int/i32) and nullability are normalized
+    public int F(i32 a) { return a; }   // E0408，i32 是 int 的别名
 }
 ```
 
@@ -201,7 +203,7 @@ class C {
 
 ### `virtual` / `override`
 
-`override` 方法的形参类型必须与被覆盖的虚方法**完全一致**。基类即使声明了其它同 arity 的重载，
+`override` 方法的形参类型和传递方式必须与被覆盖的虚方法一致。基类即使声明了其它同 arity 的重载，
 子类的 `override` 也会正确接管对应那一个重载的虚表槽位。
 
 ### 上溯匹配：子类 → 基类 / 接口
