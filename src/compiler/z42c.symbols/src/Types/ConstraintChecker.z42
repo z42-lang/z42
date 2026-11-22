@@ -614,8 +614,8 @@ public sealed class ConstraintChecker {
     // arg 满足接口约束（裸名匹配，design D1——不校验接口的类型实参，与运行期
     // `constraint_satisfied_by` 拿到的同样是常量池裸名，两边不产生分歧）。
     private bool _satisfiesInterface(SymbolTable symbols, Z42Type arg, string ifaceName) {
-        if (arg is Z42ClassType) { return symbols.Implements(arg.Name(), ifaceName); }
-        if (arg is Z42InstantiatedType) { return symbols.Implements((arg as Z42InstantiatedType).Def.Name(), ifaceName); }
+        if (arg is Z42ClassType) { return symbols.Implements((arg as Z42ClassType).Fqn(), ifaceName); }
+        if (arg is Z42InstantiatedType) { return symbols.Implements((arg as Z42InstantiatedType).Def.Fqn(), ifaceName); }
         if (arg is Z42InterfaceType) {
             // 接口自身作实参：同名满足；否则沿父接口链判（IDerived 满足 IBase）。
             // interface-assignability：改走与其余消费点同一个出口。此前这里是**唯一**没落空的
@@ -643,8 +643,9 @@ public sealed class ConstraintChecker {
         // fix-iface-satisfaction-gaps #2：未解析型参 / error / unknown 放行（与 _satisfiesInterface 统一口径）。
         // 泛型类内部转发 `new Inner<T>()` 时实参 T 尚不透明 → 由**外层实例化点**校验，此处放行免假红。
         if ((arg is Z42GenericParamType) || (arg is Z42ErrorType) || (arg is Z42UnknownType)) { return true; }
-        if (arg is Z42ClassType) { return symbols.IsSubclassOf(arg.Name(), baseName); }
-        if (arg is Z42InstantiatedType) { return symbols.IsSubclassOf((arg as Z42InstantiatedType).Def.Name(), baseName); }
+        Z42ClassType target = symbols.GetClass(baseName);
+        if (arg is Z42ClassType) { return symbols.IsSubclassOfType(arg as Z42ClassType, target); }
+        if (arg is Z42InstantiatedType) { return symbols.IsSubclassOfType((arg as Z42InstantiatedType).Def, target); }
         return false;
     }
 
@@ -723,12 +724,9 @@ public sealed class ConstraintChecker {
         return this._isValueTypeArg(symbols, arg);
     }
 
-    // ════ 方法级 where 约束（add-generic-methods，call-site）═══════════════════════
-    // 泛型方法调用 `Foo<A,B>(...)`：从 md.Wheres 建 bundle（对齐 md.TypeParams 声明序），逐
-    // (型参约束, 解析后实参) 校验，违反报 E0402（复用 _satisfiesBase/_isClassArg 等，与类级同规则）。
-    // 方法级形参无 ClassConstraints 存储（不预登记）→ 每调用点即席建 bundle（方法约束项少，成本低）。
-    public void CheckMethod(SymbolTable symbols, MethodDecl md, Z42Type[] args, int argCount, Span sp) {
-        if (md == null || md.WhereCount == 0) { return; }
+    // 方法级约束按方法型参的声明顺序整理，供本包校验和签名发射共用。
+    public ConstraintSet BuildMethodSet(SymbolTable symbols, MethodDecl md) {
+        if (md == null || md.WhereCount == 0 || md.TypeParams.Count == 0) { return null; }
         string[] pnames = md.TypeParams.Names;
         int pc = md.TypeParams.Count;
         ConstraintBundle[] bundles = new ConstraintBundle[pc];
@@ -743,12 +741,20 @@ public sealed class ConstraintChecker {
             if (pi >= 0) { this._fillBundle(symbols, md.Name, bundles[pi], wc, pnames, pc, false); }
             w = w + 1;
         }
-        int n = argCount; if (n > pc) { n = pc; }
+        return new ConstraintSet(pnames, bundles, pc);
+    }
+
+    public void CheckMethod(SymbolTable symbols, MethodSymbol method, Z42Type[] args, int argCount, Span sp) {
+        ConstraintSet constraints = method.HasDecl ? this.BuildMethodSet(symbols, method.Decl) : method.TypeParamConstraints;
+        if (constraints == null) { return; }
+        int n = argCount;
+        if (n > constraints.Count) { n = constraints.Count; }
         int i = 0;
         while (i < n) {
-            ConstraintBundle bun = bundles[i];
-            if (!bun.IsEmpty()) {
-                this._checkBundle(symbols, pnames, pc, args, argCount, bun, args[i], md.Name, i, sp);
+            ConstraintBundle bundle = constraints.Bundles[i];
+            if (!bundle.IsEmpty()) {
+                this._checkBundle(symbols, constraints.ParamNames, constraints.Count, args, argCount,
+                                  bundle, args[i], method.Name, i, sp);
             }
             i = i + 1;
         }

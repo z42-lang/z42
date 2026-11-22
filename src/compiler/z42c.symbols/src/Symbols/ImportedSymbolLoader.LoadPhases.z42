@@ -277,7 +277,8 @@ public static partial class ImportedSymbolLoader {
                 fsym.RegKey = fz.Name;
                 fsym.IsDeprecated = fz.IsDeprecated; fsym.DeprecationMsg = fz.DeprecationMsg;   // fix-free-function-attrs：跨包自由函数弃用
                 fsym.TypeParamCount = fz.TypeParamCount;   // 供泛型 arity 重载过滤（镜像方法侧）
-                fsym.TypeParamNames = ImportedSymbolLoader._tpNames(fz.TypeParams);   // fix-explicit-type-arg-not-substituted
+                fsym.TypeParamNames = ImportedSymbolLoader._tpNames(fz.TypeParams);
+                fsym.TypeParamConstraints = ImportedSymbolLoader._methodConstraints(fsym, fz.TypeParamConstraints);
                 r.FunctionsByFqn.Put(fzFqn, fsym);   // 源 ns + RegKey 在键里；调用点解析出 ns 后随 BoundCall 带到发射端
             }
             f = f + 1;

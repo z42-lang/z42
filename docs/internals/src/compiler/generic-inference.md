@@ -13,7 +13,7 @@
 （裸型参 / 数组元素 / 实例化类型实参 / 泛型接口实例 / func 形参·返回五个层面递归）。推断成功后：
 
 - 形参位按绑定代换 → 实参走与赋值 / `return` / var-decl **同一条**可转检查门；
-- 复用 `ConstraintChecker.CheckMethod` 校验 `where` 约束；
+- 复用 `ConstraintChecker.CheckMethod` 校验 `where` 约束。导入方法上的名义约束由 `SIGS` 恢复到方法符号；
 - 调用点的**返回类型**按绑定代换（`GenericCallRet.Finish`，与显式路径同一个收尾，机制见
   [泛型的实现](generics.md)「泛型方法调用的返回类型」）。本地与跨包方法都推断（导入符号带有序型参名）。
 

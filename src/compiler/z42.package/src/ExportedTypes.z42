@@ -15,6 +15,7 @@ public sealed class ExportedParamZ {
 }
 
 public sealed class ExportedMethodZ {
+    public IrConstraintDesc[] TypeParamConstraints;
     public string           Name;
     public string           ReturnType;
     public string           Visibility;   // "public"/"private"/"protected"/"internal"
@@ -207,6 +208,7 @@ public sealed class ExportedEnumZ {
 }
 
 public sealed class ExportedFuncZ {
+    public IrConstraintDesc[] TypeParamConstraints;
     public string           Name;        // 短名（sem.Funcs 键；非 FQ——C# 字节实测）
     public string           ReturnType;
     public int              MinArgCount;
