@@ -1,0 +1,9 @@
+namespace Demo.WitnessApp;
+
+using Demo.WitnessImpl;
+
+void Main() {
+    Demo.WitnessContract.Forward<Seven>();
+    Demo.WitnessContract.Dispatch<Nine>();
+    Demo.WitnessLocal.DispatchLocal();
+}

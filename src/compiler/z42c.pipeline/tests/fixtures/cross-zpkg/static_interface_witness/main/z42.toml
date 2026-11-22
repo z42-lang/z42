@@ -1,0 +1,9 @@
+[project]
+name = "demo.witnessapp"
+version = "0.1.0"
+kind = "exe"
+pack = true
+
+[dependencies]
+"demo.witnesscontract" = "0.1.0"
+"demo.witnessimpl" = "0.1.0"

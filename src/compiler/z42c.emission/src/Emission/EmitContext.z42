@@ -132,23 +132,12 @@ public sealed class EmitContext {
         return this.QualifyType(o, baseN) + suffix;
     }
 
-    // add-struct-value-eq-fastpath：布局（递归含嵌套 struct 字段）是否含浮点叶子。blob 按位比较与
-    // 浮点 Eq 语义（+0.0==-0.0 为真、NaN!=NaN）不等价，故 `==`/`Equals` 的单指令快路只对
-    // float-free 布局启用；含浮点（或布局未知）返回 true → 调用方回落既有逐叶路径，行为不变。
-    // 叶子类型名是 canonical 拼写（`float`/`double`；与 `_emitLeafEqChecks` 的 Tag.FromName 同源）。
+    // add-struct-value-eq-fastpath：布局是否含浮点叶子（判定实现在 StructLayout.HasFloatLeaf，
+    // 供 IrGenTypeEmitter 的合成名分流共用）。blob 按位比较与浮点 Eq 语义（+0.0==-0.0 为真、
+    // NaN!=NaN）不等价，故 `==`/`Equals` 的单指令快路只对 float-free 布局启用；含浮点返回
+    // true → 调用方回落既有逐叶路径。叶子类型名是 canonical 拼写（`float`/`double`）。
     public bool LayoutHasFloatLeaf(string structName) {
-        StructLayoutInfo li = this.Gen.Layouts.LayoutOf(structName);
-        int i = 0;
-        while (i < li.FieldCount) {
-            string ft = li.FieldTypeNames[i];
-            if (li.FieldKinds[i] == StructLeafKind.Struct) {
-                if (this.LayoutHasFloatLeaf(ft)) { return true; }
-            } else {
-                if (ft == "float" || ft == "Single" || ft == "double" || ft == "Double") { return true; }
-            }
-            i = i + 1;
-        }
-        return false;
+        return this.Gen.Layouts.HasFloatLeaf(structName);
     }
 
     // **本 CU 源码里写下的**类型名（`[SymAvailable]` 的 owner、属性名等）的限定：按本 CU 作用域解析（外围 ns → FQN →
