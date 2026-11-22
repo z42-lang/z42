@@ -28,7 +28,18 @@ public sealed class OperatorEmitter {
         if (op == "==" || op == "!=" || op == "<" || op == "<=" || op == ">" || op == ">=") {
             // add-struct-value-equality：两操作数均 blob 值 struct 的 ==/!= → 逐叶子值相等（脱糖，非句柄身份）。
             if ((op == "==" || op == "!=") && this._ee._isBlobStruct(b.Left.Type()) && this._ee._isBlobStruct(b.Right.Type())) {
-                return this._emitStructEquality(op == "==", a, c, this._ee._blobStructName(b.Left.Type()));
+                string sn = this._ee._blobStructName(b.Left.Type());
+                // add-struct-value-eq-fastpath：float-free 布局 → 单指令 native 值比较（builtin 内比类型名 +
+                // 基元字节 + 引用叶子 Value 相等，与 `Value::eq` 装箱臂同式）。非浮点叶按位相等 ⇔ Eq，
+                // 浮点叶（±0.0/NaN 语义）不满足该等价，仍走下方逐叶 IR。
+                if (!this._ctx.LayoutHasFloatLeaf(sn)) {
+                    TypedReg eq = this._emitStructEqBuiltin(a, c);
+                    if (op == "==") { return eq; }
+                    TypedReg neq = this._ctx.Alloc(IrType.Bool);
+                    this._ctx.Emit(new NotInstr(neq, eq));
+                    return neq;
+                }
+                return this._emitStructEquality(op == "==", a, c, sn);
             }
             // add-record-value-semantics：record-class（引用）的 ==/!= → 值 Equals 脱糖（null-safe，非句柄身份）。
             if ((op == "==" || op == "!=") && this._isRecordClass(b.Left.Type())) {
@@ -394,7 +405,7 @@ public sealed class OperatorEmitter {
     // 操作数各求值一次（a/c 为 blob 句柄），递归展平叶子逐个 Eq；首个不等即短路到 fail 块。
     // wantEqual=true → `==`（全叶子相等 → true）；false → `!=`（全等 → false）。结果 result-reg 在
     // 「全等」与「fail」两分支各写 ConstBool，end 块读汇合（镜像 _emitConditional 三目范式）。
-    private TypedReg _emitStructEquality(bool wantEqual, TypedReg a, TypedReg c, string structName) {
+    internal TypedReg _emitStructEquality(bool wantEqual, TypedReg a, TypedReg c, string structName) {
         TypedReg result = this._ctx.Alloc(IrType.Bool);
         string failL = this._ctx.Fresh("seq_ne");
         string endL = this._ctx.Fresh("seq_end");
@@ -436,6 +447,41 @@ public sealed class OperatorEmitter {
             }
             i = i + 1;
         }
+    }
+
+    // ── add-struct-value-eq-fastpath：`__struct_eq(a, c)` 单指令发射 ─────────────────────────
+    // a/c 为同一 blob struct 的两个任意表示（StructRef / StructRefHeap / BoxedStruct）；builtin 内做
+    // 同名判定 + 基元字节 + 引用叶子 Value 相等。CallEmitter 的 Equals 直呼路由与上方 == 快路共用。
+    internal TypedReg _emitStructEqBuiltin(TypedReg a, TypedReg c) {
+        TypedReg eq = this._ctx.Alloc(IrType.Bool);
+        TypedReg[] ea = new TypedReg[2]; ea[0] = a; ea[1] = c;
+        this._ctx.Emit(new BuiltinInstr(eq, "__struct_eq", ea, 2));
+        return eq;
+    }
+
+    // add-struct-value-eq-fastpath：`a.Equals(x)` 直呼路由的**含浮点**臂——receiver 是裸 StructRef
+    // （不装箱），实参静态 object/接口/型参：内联 `(x is P) ? leafEq(a, (P)x) : false`（与合成
+    // Equals$1 同语义，仅省去 this 侧装箱/拆箱）。float-free 臂不走这里（_emitStructEqBuiltin 即可）。
+    internal TypedReg _emitEqualsRawThis(string structName, TypedReg recv, TypedReg other) {
+        string fq = this._ctx.QualifyLayout(structName);
+        TypedReg result = this._ctx.Alloc(IrType.Bool);
+        TypedReg isP = this._ctx.Alloc(IrType.Bool);
+        this._ctx.Emit(new IsInstanceInstr(isP, other, fq));
+        string doL = this._ctx.Fresh("sfeq_do");
+        string elseL = this._ctx.Fresh("sfeq_no");
+        string endL = this._ctx.Fresh("sfeq_end");
+        this._ctx.EndBlock(new BrCondTerm(isP, doL, elseL));
+        this._ctx.StartBlock(doL);
+        TypedReg b = this._ctx.Alloc(IrType.Ref);
+        this._ctx.Emit(new AsCastInstr(b, other, fq));   // 拆 other → StructRef
+        TypedReg eq = this._emitStructEquality(true, recv, b, structName);
+        this._ctx.Emit(new CopyInstr(result, eq));
+        this._ctx.EndBlock(new BrTerm(endL));
+        this._ctx.StartBlock(elseL);
+        this._ctx.Emit(new ConstBoolInstr(result, false));
+        this._ctx.EndBlock(new BrTerm(endL));
+        this._ctx.StartBlock(endL);
+        return result;
     }
 
     // ── add-struct-object-methods (PR2b)：合成 Equals(object) body 的结果表达式 ──────────────
