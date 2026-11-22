@@ -55,8 +55,8 @@ Dictionary<string,int> ed     = {};                     // 空 Dict（目标类�
   首元素 / 首键值推断。
 - **约束照常生效**：与手写 `new List<T>()` / `new Dictionary<K,V>()` 完全同一套约束——`List<T>`
   对元素无约束；`Dictionary<TKey, TValue>` 要求 `where TKey : IEquatable`（**非泛型** `IEquatable`，
-  配合 [`Self`](generic-constraints.md#self-类型仅接口)；基元 key 由 VM 内建路由，用户类型 key
-  必须实现 `IEquatable`）。
+  配合 [`Self`](generic-constraints.md#self-类型仅接口)；值类型 key（struct / 基元 / enum）自动满足，
+  引用类型 key 必须显式实现 `IEquatable`）。
 - **非平凡元素类型建议写目标类型**：无目标时元素类型由编译期合成，覆盖基元 / 数组 / 泛型实例化 /
   具名类短名；需要全限定名才能定位的用户类，显式写出目标类型更稳。
 

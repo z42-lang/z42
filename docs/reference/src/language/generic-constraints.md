@@ -245,6 +245,12 @@ public class Dictionary<TKey, TValue> where TKey : IEquatable { … }   // 不�
 
 与 Rust 的 `Ord` / `PartialOrd`（`Self` 化）vs 显式 comparator 的分工一致。
 
+**值类型自动满足 `IEquatable`**（对齐 C# 所有值类型隐式实现 `IEquatable<T>`）：`where T : IEquatable`
+的判定里，任何**值类型**（blob struct / 基元 / enum）无需显式写 `: IEquatable` 即满足——struct 的
+`Equals` / `GetHashCode` 由编译器合成值语义实现，enum 经底层整数路由。裸 struct 因此零样板即可作
+`Dictionary` / `HashSet` 的键；引用类型（class）仍需显式实现 `IEquatable`。这条只作用于**约束满足**——
+`is` / `as` / 接口转换到 `IEquatable` 的语义不变。
+
 **作用域限定为接口**（不进类）：类里写 `Self` 是未定义类型 `E0443`，与其它拼错的类型名同码。
 这条边界是刻意的——`Self` 进类会牵出协变返回类型那一整块设计面，不在本轮范围。
 

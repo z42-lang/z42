@@ -157,3 +157,48 @@ pub fn as_struct_ref(v: &Value, what: &str) -> Result<(u32, u32)> {
         other => bail!("{what}: expected a struct value (StructRef), got {other:?}"),
     }
 }
+
+// ── add-value-auto-iequatable：任一表示的 struct 值快照与值相等（引擎无关核心） ──────────
+// `__struct_eq` builtin（convert.rs）与装箱 vcall `Equals` 快路（vcall.rs 的
+// `VCallTarget::StructValueEq`，interp+JIT 两引擎的 invoke 臂）共用——同一实现保证
+// builtin 与 vcall 两条路对同两个值答案一致。
+
+/// 任一表示（frame arena `StructRef` / 堆 `StructRefHeap` 元素视图 / `BoxedStruct`）的
+/// struct 值快照 `(类型名, 基元字节, 引用叶子)`。`None` = 不是 struct 值——调用方按
+/// 「不是这个 struct」处理（值相等答 false），不报错。
+pub fn struct_payload(
+    ctx: &VmContext, v: &Value,
+) -> Result<Option<(String, Vec<u8>, Vec<Value>)>> {
+    match v {
+        Value::BoxedStruct(gc) => {
+            let o = gc.borrow();
+            let (bytes, refs) = o.boxed_blob();
+            Ok(Some((o.type_desc.name.to_string(), bytes.to_vec(), refs.to_vec())))
+        }
+        Value::StructRef { idx, frame_id } => {
+            let s = ctx.exec().struct_arena.lock().with(*idx, *frame_id, |s| {
+                (s.type_name.to_string(), s.bytes.to_vec(), s.refs.to_vec())
+            })?;
+            Ok(Some(s))
+        }
+        Value::StructRefHeap { idx, frame_id } => {
+            let e = ctx.exec().transient_arena.lock().struct_elem(*idx, *frame_id)?;
+            let (bytes, refs, _layout, type_name) = crate::object::snapshot_struct_element(&e)?;
+            Ok(Some((type_name.to_string(), bytes, refs)))
+        }
+        _ => Ok(None),
+    }
+}
+
+/// 值相等：同精确类型名 + 基元字节相等 + 引用叶子逐位 `Value` 相等（string 内容 /
+/// object 引用——与 `Value::eq` 装箱臂同式）。非 struct 侧（Null/object/string/…）答
+/// false——`other is P ? eq : false` 的运行期形态。按位相等 ⇔ 逐叶 `Eq` 仅对**非浮点**叶
+/// 成立，故编译器只对 float-free 布局把调用引到这条路（保留名 `Equals$1$synth` /
+/// builtin 发射侧的 float-free 谓词）。
+pub fn struct_value_eq(ctx: &VmContext, a: &Value, b: &Value) -> Result<bool> {
+    let (pa, pb) = match (struct_payload(ctx, a)?, struct_payload(ctx, b)?) {
+        (Some(pa), Some(pb)) => (pa, pb),
+        _ => return Ok(false),
+    };
+    Ok(pa.0 == pb.0 && pa.1 == pb.1 && pa.2 == pb.2)
+}
