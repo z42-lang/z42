@@ -7,7 +7,7 @@
 
 ## GC 回收适配边界
 
-`loader/context_gc.rs` 持有 VM 侧上下文关联与身份；`gc/to_vm.rs` 只定义不透明的回收快照契约。
+上下文身份和关联表归 Loader。VM 在 `vm/context_gc.rs` 将其接入 `gc/to_vm.rs` 定义的回收快照契约。
 标记完成后，GC 将已标记对象交给本轮快照观察；完整清扫或增量 major 的最后一个清扫切片完成后，
 才调用快照回收未保留的 Unloading 上下文。快照及提供方只保存 `Weak<VmCore>`，避免堆与 VM 形成强引用环。
 
