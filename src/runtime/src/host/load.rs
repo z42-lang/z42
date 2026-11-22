@@ -1,24 +1,10 @@
 //! Shared artifact preparation for CLI and embedded hosts.
 use std::{collections::HashSet, path::{Path, PathBuf}, sync::Arc};
-use anyhow::{bail, Context, Result};
-use crate::{zpkg::ExecMode, pal::fs::Vfs, loader::{LoadedArtifact, build_declared_candidates, load_artifact_cached, load_artifact_from_bytes_cached, version_mismatch_hint}};
+use anyhow::{Context, Result};
+use crate::{zpkg::ExecMode, pal::fs::Vfs, loader::{LoadedArtifact, build_declared_candidates, load_artifact_cached, load_artifact_from_bytes_cached, load_prelude, PRELUDE_FILE}};
 use super::program::{LoadOptions, LoadedProgram};
 
 fn vfs_exists(fs: &dyn Vfs, p: &Path) -> bool { p.to_str().is_some_and(|s| fs.exists(s)) }
-/// Ordered prelude candidates — `<dir>/z42.core.zpkg` for every search dir that
-/// actually has one, in `search_dirs` order (entry zpkg's own directory first,
-/// then `libs/`).
-///
-/// The prelude used to be the ONE dependency that ignored that order and looked
-/// only at `libs/`. See `run`'s 5.1b for what that cost.
-pub(crate) fn prelude_candidates(fs: &dyn Vfs, search_dirs: &[PathBuf]) -> Vec<PathBuf> {
-    search_dirs
-        .iter()
-        .map(|d| d.join("z42.core.zpkg"))
-        .filter(|p| vfs_exists(fs, p))
-        .collect()
-}
-
 
 fn entry_zpkg_idempotency_keys(file: &str) -> Vec<String> {
     let mut keys = Vec::new();
@@ -76,57 +62,14 @@ pub(super) fn prepare_with_eager_mode(user_artifact: LoadedArtifact, source_path
             artifacts.push(artifact);
         }
     }
-    // 5.1b — unconditionally try to load z42.core.zpkg if present.
-    //
-    // fix-prelude-entry-dir-resolution: walk `search_dirs` (entry dir first, then
-    // `libs/`), not `libs_dir` alone. The prelude used to be the ONE package that
-    // ignored the colocated-deps order every other dependency follows — and it
-    // `bail!`ed on the first version mismatch, so a `libs/` holding a
-    // wrong-generation z42.core killed the process even when the entry zpkg's own
-    // directory carried a perfectly readable one.
-    //
-    // That is exactly the two-gen bootstrap's gen2 step: old VM + entry dir of
-    // matching-generation stdlib + `Z42_LIBS` pointing at the freshly written
-    // NEW-generation flat view. `resolve_libs_dir` puts `$Z42_LIBS` first, so this
-    // block opened the new z42.core and aborted — blocking every zbc/zpkg format
-    // bump, however small. Trying candidates in order fixes it without weakening
-    // the diagnostic: the hint still fires, but only when NO candidate loads.
-    {
-        let mut prelude_err: Option<String> = None;
-        let mut seen_any = false;
-        for core_path in prelude_candidates(fs, &search_dirs) {
-            if initially_loaded_zpkgs.iter().any(|n| n == "z42.core.zpkg") { break; }
-            seen_any = true;
-            let core_canonical = core_path.canonicalize().unwrap_or(core_path.clone());
-            let core_str = core_path.to_string_lossy().into_owned();
-            match load_artifact_cached(fs, &core_str, image_cache) {
-                Ok(a) => {
-                    tracing::debug!("loaded stdlib z42.core from {core_str}");
-                    let byte_size = std::fs::metadata(&core_path).ok().map(|m| m.len());
-                    loaded_for_replay.push(("z42.core.zpkg".to_string(), byte_size));
-                    eager_impl_pairs.extend(a.impl_pairs.iter().cloned());
-                    artifacts.insert(0, a);
-                    loaded_paths.insert(core_canonical);
-                    initially_loaded_zpkgs.push("z42.core.zpkg".to_string());
-                    prelude_err = None;
-                    break;
-                }
-                Err(e) => {
-                    // Keep the FIRST failure's message: it names the candidate the
-                    // caller most likely meant. Only surfaced if nothing loads.
-                    match version_mismatch_hint(&core_str, &e) {
-                        Some(hint) => { if prelude_err.is_none() { prelude_err = Some(hint); } }
-                        None => tracing::warn!("failed to load z42.core from {core_str}: {e:#}"),
-                    }
-                }
-            }
-        }
-        // Unrecoverable: z42.core is the prelude — nothing runs without it. Only
-        // reached when every candidate failed with a version mismatch.
-        if let Some(hint) = prelude_err { bail!("{hint}"); }
-        if !seen_any {
-            tracing::debug!("z42.core.zpkg not found in any of {:?}", search_dirs);
-        }
+    let prelude_resolved = initially_loaded_zpkgs.iter().any(|name| name == PRELUDE_FILE);
+    if let Some(prelude) = load_prelude(fs, &search_dirs, image_cache, prelude_resolved)? {
+        let byte_size = std::fs::metadata(&prelude.path).ok().map(|m| m.len());
+        loaded_for_replay.push((PRELUDE_FILE.to_owned(), byte_size));
+        eager_impl_pairs.extend(prelude.artifact.impl_pairs.iter().cloned());
+        artifacts.insert(0, prelude.artifact);
+        loaded_paths.insert(prelude.canonical_path);
+        initially_loaded_zpkgs.push(PRELUDE_FILE.to_owned());
     }
 
     if let Some(path) = source_path { register_entry_as_loaded(path, &mut loaded_paths, &mut loaded_for_replay); }
