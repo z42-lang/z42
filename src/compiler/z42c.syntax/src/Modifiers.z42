@@ -18,6 +18,8 @@ public static class Mod {
     public static int Extern    = 512;
     public static int Async     = 1024;
     public static int New       = 2048;
+    // The seed MemberCollector reads this when the current syntax package is prebuilt.
+    public static int Event     = 4096;
     public static int Partial   = 8192;
     public static int Readonly  = 16384;
     public static int Const     = 32768;
