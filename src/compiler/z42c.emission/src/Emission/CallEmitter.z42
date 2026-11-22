@@ -155,8 +155,12 @@ public sealed class CallEmitter {
                     if (bli.EnumTypeName != "") { enumFqn = bli.EnumTypeName; }   // 绑定时已是 FQN（MemberResolver）
                 }
                 Z42Type rtOf = c.Receiver.Type();
+                // feat/delegate-object-methods：委托族收者（函数类型 / `(Delegate)` 上转值）同折
+                // ——函数值无 TypeDesc，运行期无从反推；静态委托类型编译期已知（结构化类型，
+                // 静态 == 运行期），`_typeofName` 走 typeof(delegate) 同一条 TypeofInstr。
                 if (enumFqn != "" || this._isStructOrEnumStatic(rtOf)
-                    || (rtOf.IsIntegerType() && rtOf.PrimCode() != 2)) {
+                    || (rtOf.IsIntegerType() && rtOf.PrimCode() != 2)
+                    || this._ee._isDelegateFamilyRecv(rtOf)) {
                     return this._emitValueTypeGetType(c, enumFqn);
                 }
             }

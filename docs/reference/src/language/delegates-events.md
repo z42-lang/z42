@@ -136,6 +136,7 @@ public class Delegate {
 - **泛型约束**：`where TD : Delegate` 可用——函数类型实参满足该约束（订阅包装类的
   自定义策略可用它收窄）。
 - **约束成员直读**：`where TD : Delegate` 的泛型体内 `h.Target` / `h.FnName` 直接可读（2026-11 feat/delegate-constraint-members，免手写 `(Delegate)h` 上转）；任意**类约束**（`where T : SomeClass`）的字段 / 属性 / 方法同样直读（运行期收者是真实对象）。
+- **Object 协议方法**（feat/delegate-object-methods）：委托值上 `ToString()`（= 目标函数全限定名，与 `FnName` 同源）、`Equals(other)`（与 `==` / `ReferenceEquals` 同判据）、`GetHashCode()`（与相等一致）直接可用；`GetType()` 折叠为 `typeof(静态委托类型)`（同值类型的 GetType 折叠先例，`(Delegate)f` 收者报族基类 `Std.Delegate`）。
 - **反射**：`typeof(任意委托类型).BaseType` 是 `Std.Delegate`；`IsDelegate` 位不受影响。
 - ⚠️ `Target` 返回 `Closure` 的 `env[0]`——实例方法组即 receiver；捕获了值的 lambda
   是首个捕获槽（表示上无法区分二者）。`FuncRef`（无捕获 lambda / 自由函数）为 null。
