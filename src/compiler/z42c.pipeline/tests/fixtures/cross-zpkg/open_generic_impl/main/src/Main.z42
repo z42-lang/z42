@@ -17,4 +17,9 @@ void Main() {
     Assert.True(size.IsElement(2));
     Assert.True(words.IsElement("hello"));
     Assert.False(words.IsElement(2));
+    List<string> emptyWords = words.Empty();
+    Assert.True(emptyWords.Count == 0);
+    Assert.False(SameSize(words, emptyWords));
+    ISize empty = size.Empty();
+    Assert.True(empty is List<int>);
 }
