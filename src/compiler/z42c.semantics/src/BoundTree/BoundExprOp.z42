@@ -72,11 +72,12 @@ public sealed class BoundMethodGroup : BoundExpr {
     public string    ClassName;
     public string    MethodName;
     public string    StaticKey;
+    public string    MethodKey;   // feat/method-group-target-typed：thunk VCall 的发射键（按目标选中非-primary 重载 = mangle 键）；"" ⇒ 用 MethodName（单方法既有路径零字节漂移）
     private Z42Type _type;
     public Z42ClassType OwnerCt;   // fqn-tables 5d：`ClassName` 的类型对象（发射端按其声明 ns 限定）；null ⇒ 回落按短名
     public BoundMethodGroup(BoundExpr receiver, string className, string methodName, Z42Type sig, Span span) {
         this.Span = span; this.Receiver = receiver; this.ClassName = className; this.MethodName = methodName; this._type = sig;
-        this.OwnerCt = null; this.StaticKey = "";
+        this.OwnerCt = null; this.StaticKey = ""; this.MethodKey = "";
     }
     public override Z42Type Type() { return this._type; }
     public override R Accept<R, D>(IBoundExprVisitor<R, D> v, D d) { return v.VisitMethodGroup(this, d); }
