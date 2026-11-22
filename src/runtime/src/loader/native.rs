@@ -62,12 +62,13 @@ pub(crate) fn resolve_symbol(
     library: &str,
     symbol: &str,
 ) -> Result<*mut std::ffi::c_void> {
-    if let Some(result) = super::linked::resolve_with_policy(library, symbol, ctx.core().loader().native_loading()) {
+    let policy = ctx.loader().native_loading();
+    if let Some(result) = super::linked::resolve_with_policy(library, symbol, policy) {
         return result;
     }
     #[cfg(any(feature = "native-interop", feature = "component-loading"))]
     {
-        ctx.core().loader().native_loading().check(super::NativeOrigin::RuntimeLoad)?;
+        policy.check(super::NativeOrigin::RuntimeLoad)?;
         let libraries = ctx
             .ext::<Libraries>()
             .ok_or_else(|| anyhow!("missing native loader VM state"))?;
@@ -77,11 +78,11 @@ pub(crate) fn resolve_symbol(
             None => {
                 let paths = path_source(ctx)?;
                 let result = (|| -> Result<_> {
-                    for candidate in paths(library, ctx.core().loader().native_loading()) {
+                    for candidate in paths(library, policy) {
                         if !candidate.is_file() && !crate::pal::dynlib::is_loader_name(&candidate) {
                             continue;
                         }
-                        return unsafe { crate::loader::code::open(&candidate, ctx.core().loader().native_loading()) }
+                        return unsafe { crate::loader::code::open(&candidate, policy) }
                             .map_err(anyhow::Error::from);
                     }
                     bail_native_missing(library)

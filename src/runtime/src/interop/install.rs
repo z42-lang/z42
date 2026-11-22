@@ -26,8 +26,9 @@ pub fn load_library(ctx: &VmContext, path: &Path) -> Result<()> {
     use super::error;
     error::clear();
 
-    ctx.core().loader().native_loading().check(crate::loader::NativeOrigin::RuntimeLoad)?;
-    let lib = unsafe { crate::loader::native::open_library(path, ctx.core().loader().native_loading()) }
+    let policy = ctx.loader().native_loading();
+    policy.check(crate::loader::NativeOrigin::RuntimeLoad)?;
+    let lib = unsafe { crate::loader::native::open_library(path, policy) }
         .map_err(anyhow::Error::from)
         .map_err(|e| {
             error::set(LIB_LOAD_FAILURE, format!("{e:#}"));
@@ -81,9 +82,10 @@ pub fn guess_register_symbol(path: &Path) -> Option<String> {
 /// Load a self-registering module through the same descriptor entry used for static linkage.
 #[cfg(feature = "component-loading")]
 pub fn load_native_module(ctx: &VmContext, path: &Path) -> Result<()> {
-    ctx.core().loader().native_loading().check(crate::loader::NativeOrigin::RuntimeLoad)?;
+    let policy = ctx.loader().native_loading();
+    policy.check(crate::loader::NativeOrigin::RuntimeLoad)?;
     crate::pal::dynlib::require_supported()?;
-    let image = unsafe { crate::loader::code::open(path, ctx.core().loader().native_loading())? };
+    let image = unsafe { crate::loader::code::open(path, policy)? };
     let stem = path
         .file_stem()
         .and_then(std::ffi::OsStr::to_str)

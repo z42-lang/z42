@@ -97,7 +97,7 @@ impl ComponentOptions {
         if ctx.core().components().get().is_some() {
             bail!("VM component registrations are already frozen");
         }
-        let components = self.create_bound(ctx.heap().heap_epoch(), execution, ctx.core().loader().native_loading())?;
+        let components = self.create_bound(ctx.heap().heap_epoch(), execution, ctx.loader().native_loading())?;
         ctx.core()
             .components()
             .set(components)
