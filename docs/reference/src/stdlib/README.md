@@ -1,6 +1,6 @@
 # 标准库
 
-z42 标准库各包的公开 API。每页覆盖一个包：类型、方法签名、用法、**不支持的用法**。
+这里收录 z42 标准库的公开 API，包括类型、方法签名和用法。`z42.core` 按类型分页面，其余包各有一页。
 
 包名（`z42.<domain>`）是**分发单元**，命名空间（`Std.<X>`）是**引用名**，两者不一一对应——
 `z42.core` 一个包就横跨 `Std` / `Std.Collections` / `Std.IO` / `Std.Time` 等多个命名空间。
@@ -11,44 +11,29 @@ z42 标准库各包的公开 API。每页覆盖一个包：类型、方法签名
 
 ## 按包索引
 
-### 核心（`z42.core`，隐式加载）
-
-| 页 | 覆盖 |
-|---|---|
-| [类型总览](core.md) | 一个类型一页（`Array` `String` `Math` `Type` `GC` `DateTime` 等 150+）；入口页列全部类型的链接 |
-
-### 数据与文本
-
-| 页 | 包 | 覆盖 |
+<!-- z42-doc:stdlib-overview-begin -->
+| 包 | 主命名空间 | 概述 |
 |---|---|---|
-| [JSON](json.md) | `z42.json` | `JsonValue` DOM + `JsonSerializer` 对象序列化 |
-| [TOML](toml.md) | `z42.toml` | `TomlValue` 读写 |
-| [YAML](yaml.md) | `z42.yaml` | YAML 1.2 子集读写 |
-| [正则](regex.md) | `z42.regex` | `Regex` `Match` |
-| [文本处理](text.md) | `z42.text` | `StringBuilder` 等 |
-| [编解码](encoding.md) | `z42.encoding` | Hex / Base64 / Base32 / UTF-8/16/32 |
-| [URI](uri.md) | `z42.uri` | `Uri` 解析 + percent 编解码 |
-| [次级集合](collections.md) | `z42.collections` | `Stack<T>` `Queue<T>` `LinkedList<T>` `PriorityQueue<T>` `SortedSet<T>` |
-
-### 系统与 IO
-
-| 页 | 包 | 覆盖 |
-|---|---|---|
-| [流式 I/O 与子进程](io.md) | `z42.io` | `Stream` 家族、文件流、文本/二进制读写器、`Process` / `Ansi` |
-| [网络](net.md) | `z42.net` | TCP / UDP / HTTP / TLS / WebSocket / `IPAddress` / DNS |
-| [并发](threading.md) | `z42.threading` | `Thread` `Channel<T>` `Mutex<T>` `RwLock<T>` `Timer` |
-| [压缩](compression.md) | `z42.compression` | Gzip / Zlib / Deflate / Zstd / Brotli / Tar / Zip |
-| [日志](diagnostics.md) | `z42.diagnostics` | `Log` `LogLevel` |
-
-### 应用支撑
-
-| 页 | 包 | 覆盖 |
-|---|---|---|
-| [命令行参数](cli.md) | `z42.cli` | `ArgParser` flag / option / positional |
-| [随机数](random.md) | `z42.random` | `Random`——确定性 PRNG（**不是** CSPRNG） |
-| [密码学](crypto.md) | `z42.crypto` | 摘要 / HMAC / 对称加密 / 签名 / KDF / `SecureRandom` |
-| [大数与数值类型](numerics.md) | `z42.numerics` | `BigInt` / `Decimal` / `Complex` |
-| [测试与基准](harness.md) | `z42.harness` | `[Test]` / `[Benchmark]` attribute、`Runner`、`Bencher`、`TestIO` |
+| [z42.core](core.md) | `Std` | 核心类型与预导入工具。 |
+| [z42.collections](collections.md) | `Std.Collections` | 进阶集合容器。 |
+| [z42.encoding](encoding.md) | `Std.Encoding` | 字节与文本的编解码。 |
+| [z42.text](text.md) | `Std.Text` | 字符串构建与文本工具。 |
+| [z42.io](io.md) | `Std.IO` | 流式 I/O、二进制读写与子进程。 |
+| [z42.toml](toml.md) | `Std.Toml` | 把 TOML 1.0 文本解析成值树（[`TomlValue`]），或把值树写回 canonical TOML 文本。 |
+| [z42.diagnostics](diagnostics.md) | `Std.Diagnostics` | 日志与运行时自省。 |
+| [z42.threading](threading.md) | `Std.Threading` | OS 线程与同步原语。 |
+| [z42.uri](uri.md) | `Std.Uri` | URI 解析与 percent 编解码。 |
+| [z42.regex](regex.md) | `Std.Regex` | 正则表达式编译与匹配。 |
+| [z42.cli](cli.md) | `Std.Cli` | 命令行参数解析。 |
+| [z42.json](json.md) | `Std.Json` | JSON 读写与对象序列化。 |
+| [z42.random](random.md) | `Std.Random` | 确定性伪随机数：给同一个 seed 得到同一串数。 |
+| [z42.numerics](numerics.md) | `Std.Numerics` | 任意精度整数 / 十进制定点 / 复数。 |
+| [z42.crypto](crypto.md) | `Std.Crypto` | 加密原语。 |
+| [z42.compression](compression.md) | `Std.Compression` | 压缩算法与归档格式。 |
+| [z42.yaml](yaml.md) | `Std.Yaml` | YAML 读写。 |
+| [z42.net](net.md) | `Std.Net.Sockets` | 同步阻塞的网络类型。 |
+| [z42.harness](harness.md) | `Std.Harness` | 测试框架：声明（attribute）、发现（反射）、运行与报告。 |
+<!-- z42-doc:stdlib-overview-end -->
 
 ## 不在本部分
 
