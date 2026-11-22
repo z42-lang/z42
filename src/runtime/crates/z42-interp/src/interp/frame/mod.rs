@@ -12,7 +12,7 @@ use crate::components::bridge::VmContext;
 use anyhow::{bail, Context, Result};
 use std::collections::HashMap;
 
-pub(crate) struct Frame {
+pub(crate) struct Frame<'args> {
     pub regs: Vec<Value>,
     /// Spec impl-ref-out-in-runtime (Decision R2 architecture E):
     /// `(param_reg, original_ref_kind)` pairs. When the function was called
@@ -44,15 +44,16 @@ pub(crate) struct Frame {
     /// Empty for non-generic calls. Read by `MethodTypeArg` / `MethodDefault` in the
     /// body to materialize `typeof(T)` / `new T()` / `default(T)`. Mirrors the
     /// class-level `Object.type_args` carrier, but on the frame (static methods have
-    /// no `this`). Set after construction in `exec_call` from the call instruction.
-    pub method_type_args: Box<[String]>,
+    /// no `this`). The caller keeps the instruction or resolved arguments alive
+    /// for the duration of the activation.
+    pub method_type_args: &'args [String],
 }
 
-impl Frame {
+impl<'args> Frame<'args> {
     /// What this activation binds the type-parameter markers of its body to
     /// (`$mta:N` → `method_type_args`, `$cta:N@Owner` → the receiver in reg 0).
     pub(crate) fn type_param_env(&self) -> crate::exec::type_param_env::TypeParamEnv<'_> {
-        crate::exec::type_param_env::TypeParamEnv::new(&self.method_type_args, self.regs.first())
+        crate::exec::type_param_env::TypeParamEnv::new(self.method_type_args, self.regs.first())
     }
 
     /// A frame whose first registers are `args`. The register file comes from
@@ -71,7 +72,7 @@ impl Frame {
             ref_writebacks: Vec::new(),
             back_edge_count: 0,
             id: std::cell::Cell::new(0),
-            method_type_args: Box::default(),
+            method_type_args: &[],
         }
     }
 
@@ -96,7 +97,7 @@ impl Frame {
             ref_writebacks: Vec::new(),
             back_edge_count: 0,
             id: std::cell::Cell::new(0),
-            method_type_args: Box::default(),
+            method_type_args: &[],
         })
     }
 
@@ -124,7 +125,7 @@ impl Frame {
             ref_writebacks: Vec::new(),
             back_edge_count: 0,
             id: std::cell::Cell::new(0),
-            method_type_args: Box::default(),
+            method_type_args: &[],
         })
     }
 

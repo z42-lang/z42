@@ -1,10 +1,6 @@
 // add-generic-type-arg-inference 阶段 D：方法体是否**运行期消费**方法级型参。
 //
-// 为什么需要它：阶段 C 的推断**不回灌** `BoundCall.MethodTypeArgs`（design D4——回灌会把
-// opcode 从 Op.Call 换成 Op.CallGeneric、重排 zbc 串池、并关掉 native 快路径门，而全仓 112 处
-// 隐式泛型调用全是不消费型参的 `Array.Copy<T>`）。不回灌的代价是：**若 callee 体内真的消费型参**，
-// 省略尖括号的调用会让运行期读到空的 `frame.method_type_args` ⇒ 静默错值（同
-// generic-new-array-value-type-null-tail 那条坑的形状）。本判定把静默错值换成编译错误 E0455。
+// 实参推断不完整时，这个判定决定是否要报 E0455。
 //
 // 运行期真正读 `frame.method_type_args` 的四种形态（`exec_address.rs:91-106` / `exec_array.rs:80-90`）：
 //   typeof(T) / new T() / default(T) / new T[n]
