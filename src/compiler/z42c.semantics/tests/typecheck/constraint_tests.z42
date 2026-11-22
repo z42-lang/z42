@@ -857,3 +857,27 @@ void test_ok_forward_type_param_to_base_constrained_inner() {
         + "class Inner<T> where T : Base { public T v; }\n"
         + "class Outer<T> where T : Base { public Inner<T> make() { return new Inner<T>(); } }\n"));
 }
+
+[Test]
+void test_static_interface_call_binds_an_inferred_witness() {
+    Assert.Equal("", SemanticDump.FirstErrorCode(
+        "interface IFactory { static int Create(); } "
+        + "class Item : IFactory { public static int Create() { return 1; } } "
+        + "int Read<T>(T item) where T : IFactory { return T.Create(); } "
+        + "void Main() { int result = Read(new Item()); }"));
+}
+
+[Test]
+void test_static_interface_call_requires_type_arguments_when_inference_cannot_bind_t() {
+    Assert.Equal("E0455", SemanticDump.FirstErrorCode(
+        "interface IFactory { static int Create(); } "
+        + "int Read<T>() where T : IFactory { return T.Create(); } "
+        + "void Main() { int result = Read(); }"));
+}
+
+[Test]
+void test_static_interface_call_does_not_choose_between_contracts_with_the_same_name() {
+    Assert.Equal("E0425", SemanticDump.FirstErrorCode(
+        "interface ILeft { static int Create(); } interface IRight { static int Create(); } "
+        + "int Read<T>() where T : ILeft + IRight { return T.Create(); }"));
+}

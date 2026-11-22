@@ -18,6 +18,13 @@ pub enum VCallTarget<'a> {
     /// Result computed natively without invoking any z42 function (protocol intercepts on
     /// boxed receivers: `GetType` / `GetHashCode` / default struct `ToString`).
     Immediate(Value),
+    /// add-value-auto-iequatable: boxed-struct `Equals` whose callee is the **float-free
+    /// synthesized body** (reserved name `Equals$1$synth` — a user method cannot produce a
+    /// double-`$` segment). The receiver rides in `this`; the single argument stays in the
+    /// caller's registers and is compared natively at the invoke site (both engines):
+    /// `struct_leaf::struct_value_eq` — no unbox, no IR walk. Not installed into the PIC
+    /// (like `Immediate`, the answer is computed per call).
+    StructValueEq,
     /// A z42 function — module-local or lazily loaded alike (P1-2 PR 4). `id` is its `FnId`
     /// under `module` (`exec_call::fn_by_id` reads it back; it is also the JIT slot id and the
     /// PIC payload). It is `None` only for a lazily loaded callee when `module` is not the VM's
@@ -113,7 +120,8 @@ pub fn resolve_vcall<'a>(
     let (name, sig) = match &resolved.target {
         VCallTarget::Local { func, .. } =>
             (func.name.as_str(), crate::metadata::dispatch::functions::call_arity(func)),
-        VCallTarget::Immediate(_) | VCallTarget::Thrown(_) => return Ok(resolved),
+        // StructValueEq 只在 arity==1 的 Equals 解析路产生（发射侧恒等），无需签名核对。
+        VCallTarget::Immediate(_) | VCallTarget::Thrown(_) | VCallTarget::StructValueEq => return Ok(resolved),
     };
     if let Some(exc) = crate::exec::symbol_resolution::wrong_arity_exception(ctx, module, name, sig, phys) {
         return Ok(ResolvedVCall { target: VCallTarget::Thrown(exc), this: resolved.this });
@@ -242,6 +250,16 @@ fn resolve_vcall_unchecked<'a>(
             }
         }
         let type_name = b.type_desc().name.to_string();
+        // add-value-auto-iequatable：`Equals` 命中 **float-free 合成体**（保留名
+        // `Equals$1$synth`，用户方法名不可能产生双 `$` 段）→ 原生值比较，不 unbox 不进
+        // IR（字典探测的热路径）。含浮点布局的合成体仍名 `Equals$1`，用户 Equals 解析到
+        // 用户方法——都走下方候选查找 → invoke，行为不变。
+        if arity == 1 && method == "Equals" {
+            let synth_key = format!("{}.Equals$1$synth", type_name);
+            if target_by_name(ctx, module, &synth_key).is_some() {
+                return Ok(ResolvedVCall { target: VCallTarget::StructValueEq, this: obj_val.clone() });
+            }
+        }
         match resolve_by_candidates(ctx, module, &type_name, method, arity, true, None, ic) {
             Some(target) => return Ok(ResolvedVCall { target, this: obj_val.clone() }),
             None => bail!("VCall on boxed struct `{}`: method `{}` (arity {}) not found", type_name, method, arity),
