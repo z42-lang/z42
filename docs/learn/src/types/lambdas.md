@@ -118,7 +118,7 @@ lambda 里可以直接用外层的局部变量，这样的 lambda 叫**闭包**�
 |---|---|
 | `Action<T>` | 吃一个参数，**没有**返回值 |
 | `Func<T, R>` | 吃一个参数，返回 `R` |
-| `Predicate<T>` | 吃一个参数，返回 `bool` |
+| `Predicate<T1..Tn>` | 吃 1–4 个参数，返回 `bool` |
 
 ```z42
 // examples/types/lambdas/delegates/delegates.z42
@@ -129,7 +129,7 @@ lambda 里可以直接用外层的局部变量，这样的 lambda 叫**闭包**�
 {{#include ../../../../examples/types/lambdas/delegates/run.console:types}}
 ```
 
-`Action` 与 `Func` 都覆盖 0–4 个参数（`Predicate` 只有 1 个）。超过 4 个参数就自己用
+`Action` 覆盖 0–4 个参数、`Func` 覆盖 0–4 参加返回、`Predicate` 覆盖 1–4 参返回 `bool`。超过就自己用
 `delegate` 关键字声明一个具名的。
 
 调用有两种写法，**完全等价**，挑顺眼的用：
@@ -211,7 +211,7 @@ lambda 里可以直接用外层的局部变量，这样的 lambda 叫**闭包**�
 
 | 字段类型 | 能挂几个 | 触发 |
 |---|---|---|
-| `MulticastAction<T>` / `MulticastFunc<..>` / `MulticastPredicate<T>` | 任意多个 | `X.Invoke(args)`，没人挂就什么都不做 |
+| `MulticastAction<..>`（0–4 参）/ `MulticastFunc<..>` / `MulticastPredicate<..>`（1–4 参） | 任意多个 | `X.Invoke(args)`，没人挂就什么都不做 |
 | `Action<T>` / `Func<..>` / `Predicate<T>` | 至多一个 | 先取到局部变量再查空 |
 
 多播对象在字段声明中初始化。调用 `Invoke` 时会按订阅顺序调用处理器。
@@ -328,7 +328,7 @@ lambda 里可以直接用外层的局部变量，这样的 lambda 叫**闭包**�
 自由函数为 `null`）、`f.FnName` 取目标函数名，`f is Delegate` 为 true，泛型参数可以写
 `where TD : Delegate` 约束——约束之下 `h.Target` / `h.FnName` 直接可读，不用先写
 `(Delegate)h`；`f.ToString()` 打出目标函数名，`f.Equals(g)` 与 `f == g` 同判据，
-`f.GetType()` 给静态委托类型。它不改变「类型说的就是实话」——`Action<T>` 仍是单播，多播
+`f.GetType()` 给静态委托类型，`f.GetInvocationList()` 返回只含自身的数组。它不改变「类型说的就是实话」——`Action<T>` 仍是单播，多播
 仍要 `MulticastAction<T>`；基类只提供这些族公共接口。
 
 **调一个为 `null` 的函数值抛 `NullReferenceException`**，可以 `catch`：

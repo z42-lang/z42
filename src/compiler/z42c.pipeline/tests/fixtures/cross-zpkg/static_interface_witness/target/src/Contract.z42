@@ -12,3 +12,19 @@ public void Dispatch<T>() where T : IWriter {
 public void Forward<T>() where T : IWriter {
     Dispatch<T>();
 }
+
+public interface IReferenceWriter {
+    static Self Create();
+    static void Write(Self value);
+}
+
+public T DispatchSelf<T>(T seed) where T : class + IReferenceWriter {
+    T.Write(seed);
+    T result = T.Create();
+    T.Write(result);
+    return result;
+}
+
+public U ForwardSelf<U>(U seed) where U : class + IReferenceWriter {
+    return DispatchSelf(seed);
+}

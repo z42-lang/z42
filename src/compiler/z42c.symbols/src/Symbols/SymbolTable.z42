@@ -623,10 +623,13 @@ public sealed partial class SymbolTable {
                 while (aa < nt.ArgCount) { aps[aa] = this.ResolveTypeP(nt.Args[aa], paramNames, paramCount); aa = aa + 1; }
                 return new Z42FuncType(aps, nt.ArgCount, new Z42VoidType());
             }
-            if (n == "Predicate" && nt.ArgCount == 1) {
-                Z42Type[] pps = new Z42Type[1];
-                pps[0] = this.ResolveTypeP(nt.Args[0], paramNames, paramCount);
-                return new Z42FuncType(pps, 1, Z42ClassType.Builtin("bool"));
+            if (n == "Predicate" && nt.ArgCount >= 1 && nt.ArgCount <= 4) {
+                // feat/delegate-invocation-list（合批）：Predicate 覆盖 1–4 参（与 stdlib 声明 /
+                // BuiltinTypeDefs / ImportedSymbolLoader._resolveDelegate 三处对齐），返回恒 bool。
+                Z42Type[] pps = new Z42Type[nt.ArgCount];
+                int pa = 0;
+                while (pa < nt.ArgCount) { pps[pa] = this.ResolveTypeP(nt.Args[pa], paramNames, paramCount); pa = pa + 1; }
+                return new Z42FuncType(pps, nt.ArgCount, Z42ClassType.Builtin("bool"));
             }
             string _ek0 = this.EnumKey(n); if (_ek0 != null) { return this.EnumType(_ek0); }   // unify-type-identity-fqn：enum 也进 FQ 身份体系
             string _dk0 = this.DelegateKey(n); if (_dk0 != null) { return this.Delegates.Get(_dk0) as Z42FuncType; }   // 用户 delegate → 函数类型

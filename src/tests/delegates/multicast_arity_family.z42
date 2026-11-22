@@ -1,0 +1,69 @@
+// feat/multicast-arity-family + feat/delegate-invocation-list 合批回归 golden：
+// 多播三族元数补齐——Action 0/2/3/4（1 既有）、Func 2/3/4 参（1 既有）、Predicate 2/3/4（1 既有），
+// 对齐单播 Action/Func/Predicate 的 0–4 覆盖。语义与 1 参原版逐位同款（双通道 / COW 快照 /
+// continueOnException 聚合 / 退订 / GetInvocationList）——变体由 1 参原版机械生成。
+// ⚠ 可变捕获走对象字段（闭包值类型按快照）。
+namespace Demo;
+using Std;
+using Std.IO;
+class T { public int N; public int Sum; }
+void Main() {
+    T t = new T();
+    // 0 参 Action
+    var b0 = new MulticastAction();
+    
+    b0.Subscribe(() => { t.N = t.N + 1; });
+    b0.Subscribe(() => { t.N = t.N + 10; });
+    b0.Invoke();
+    Console.WriteLine("n " + t.N.ToString());           // 11
+
+    // 2 参 Action + 快照
+    var b2 = new MulticastAction<int, string>();
+    string log = "";
+    b2.Subscribe((int k, string s) => { log = log + k.ToString() + s; });
+    b2.Subscribe((int k, string s) => { log = log + "<" + s + k.ToString() + ">"; });
+    b2.Invoke(7, "x");
+    Console.WriteLine(log);                            // 7x<x7>
+    Console.WriteLine("snap " + b2.GetInvocationList().Length.ToString());  // 2
+
+    // 3 参 + 退订
+    var b3 = new MulticastAction<int, int, int>();
+    
+    Action<int,int,int> add = (int a, int b, int c) => { t.Sum = a+b+c; };
+    b3.Subscribe(add);
+    b3.Invoke(1, 2, 3);
+    Console.WriteLine("sum " + t.Sum.ToString());      // 6
+    b3.Unsubscribe(add);
+    b3.Invoke(4, 5, 6);
+    Console.WriteLine("after " + t.Sum.ToString());    // 6（未变）
+
+    // 4 参 + continueOnException 聚合
+    var b4 = new MulticastAction<int, int, int, int>();
+    b4.Subscribe((int a, int b, int c, int d) => { throw new Exception("x"); });
+    b4.Subscribe((int a, int b, int c, int d) => { t.N = t.N + 1000; });
+    try { b4.Invoke(1, 1, 1, 1, true); } catch (MulticastException e) { Console.WriteLine("agg " + (e.Failures != null)); }
+    Console.WriteLine("n2 " + t.N.ToString());         // 1011
+
+    // 2/3 参 Func 聚合
+    var f2 = new MulticastFunc<int, int, int>();
+    f2.Subscribe((int a, int b) => a + b);
+    f2.Subscribe((int a, int b) => a * b);
+    int[] rs = f2.Invoke(3, 4);
+    Console.WriteLine("f2 " + rs[0].ToString() + " " + rs[1].ToString());  // 7 12
+    var f3 = new MulticastFunc<int, int, int, long>();
+    f3.Subscribe((int a, int b, int c) => (long)(a + b + c));
+    long[] rl = f3.Invoke(1, 2, 3);
+    Console.WriteLine("f3 " + rl[0].ToString());       // 6
+
+    // 2/4 参 Predicate All/Any/Invoke
+    var p2 = new MulticastPredicate<int, int>();
+    p2.Subscribe((int a, int b) => a > b);
+    p2.Subscribe((int a, int b) => a + b > 0);
+    Console.WriteLine("all " + p2.All(5, 2).ToString());   // true
+    Console.WriteLine("any " + p2.Any(1, 2).ToString());   // true
+    bool[] br = p2.Invoke(1, 5);
+    Console.WriteLine("inv " + br[0].ToString() + br[1].ToString());  // falsetrue
+    var p4 = new MulticastPredicate<int, int, int, int>();
+    p4.Subscribe((int a, int b, int c, int d) => a == b && c == d);
+    Console.WriteLine("p4 " + p4.Any(2, 2, 3, 3).ToString());  // true
+}
