@@ -281,8 +281,10 @@ impl Initialization<'_> {
                 None => Ok(()),
             };
         }
+        // The callee's package already registered its types; an apparent
+        // owner of a free function may be a namespace.
         let found = owner_class_of_static_func(func_fq)
-            .and_then(|o| self.loaded_type(o))
+            .and_then(|name| self.ctx.loader().probe_loaded_type(name))
             .filter(|td| td.cctor_func().is_some());
         match found {
             // The loader's inheritance fixup mutates a type through
@@ -297,16 +299,6 @@ impl Initialization<'_> {
                 }
             }
         }
-    }
-
-    /// An already-registered type from the entry module or a loaded package.
-    /// Never loads: a resolved callee's package already registered its types, and
-    /// a free function's apparent owner may be a namespace rather than a type.
-    fn loaded_type(&self, name: &str) -> Option<Arc<crate::object::TypeDesc>> {
-        if let Some(td) = self.ctx.module().and_then(|m| m.type_registry.get(name)) {
-            return Some(Arc::clone(td));
-        }
-        self.ctx.core.loader.lazy_loader.read().as_ref().and_then(|l| l.loaded_type(name))
     }
 
     /// Ensure a type's initializer has completed before its first use.

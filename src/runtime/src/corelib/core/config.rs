@@ -55,11 +55,7 @@ pub fn cfg_source(key: &str) -> &'static str {
 /// `__search_dirs() -> string[]`: snapshot this VM's current package search order.
 /// Worker contexts share their Core's loader; bare contexts return an empty array.
 pub fn search_dirs(ctx: &VmContext) -> Value {
-    let paths = {
-        let loader = ctx.core().loader().lazy_loader.read();
-        loader.as_ref().map_or_else(Vec::new, |loader| loader.search_dirs().to_vec())
-    };
-    // Release the loader lock before allocating managed values.
+    let paths = ctx.loader().search_dirs_snapshot();
     let dirs = paths.iter().map(|p| Value::Str(p.display().to_string().into())).collect();
     ctx.heap().alloc_array(dirs)
 }
