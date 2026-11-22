@@ -169,6 +169,20 @@ pub unsafe extern "C" fn jit_method_type_arg(
     frame.regs[dst as usize] = method_type_value(vm_ctx_ref(ctx), frame.method_type_args, param_index as usize);
 }
 
+/// Materialize a compiler-selected static interface witness as a function reference.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn jit_load_method_witness(
+    frame: *mut JitFrame, ctx: *const VmContext, dst: u32, slot: u32,
+) -> u8 {
+    let frame = &mut *frame;
+    let vm = vm_ctx_ref(ctx);
+    let module = super::jit_module(ctx);
+    match crate::exec::ops::call::load_method_witness(vm, module, frame.method_type_args, slot as usize) {
+        Ok(function) => { frame.regs[dst as usize] = function; 0 }
+        Err(thrown) => { set_exception(vm, thrown); 1 }
+    }
+}
+
 /// Store the method type argument's default value in the destination register.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_method_default(

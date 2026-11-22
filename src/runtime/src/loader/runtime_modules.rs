@@ -133,61 +133,39 @@ impl RuntimeLoader<'_> {
         self.state.lazy_loader.read().as_ref().and_then(|l| l.full_name_for_short(short))
     }
 
-    /// Look up a function by FQ name; triggers lazy load if needed.
-    ///
-    /// review.md D3 Phase 2 : emits `RuntimeEvent::ModuleLoaded`
-    /// for every zpkg the resolver pulled in transitively, so observers
-    /// see lazy-load activity (not just boot-time eager loads).
-    /// Load a compiled artifact at `path` into the live registries (functions +
-    /// types become callable / reflectable).
-    /// Backs `Std.Runtime.ModuleLoader.Load` (`__load_module`).
-    /// Errors if no lazy loader is installed (a bare VM with no dep resolution).
-    pub fn load_module_into_vm(
-        &self, path: &str,
+    /// Load a compiled artifact at `path` into the live registries.
+    /// Errors if the VM has no lazy loader.
+    pub fn load_module_into_vm(&self, path: &str) -> anyhow::Result<()> {
+        self.reload_module("LoadModule", |loader| loader.load_module_from_path(path))
+    }
+
+    /// Load packed zpkg or bare zbc bytes into the live registries for the REPL
+    /// and other in-memory callers. Existing static values remain available.
+    pub fn load_module_bytes_into_vm(&self, raw: &[u8]) -> anyhow::Result<()> {
+        self.reload_module("LoadBytecodeInMemory", |loader| loader.load_module_from_bytes(raw))
+    }
+
+    fn reload_module(
+        &self,
+        operation: &str,
+        load: impl FnOnce(&mut LazyLoader) -> anyhow::Result<()>,
     ) -> anyhow::Result<()> {
-        // optimize-subclass-check: an explicit (re)load can redefine a type (REPL), which
-        // could invalidate a cached subclass answer. Lazy-load ADDs (monotonic) are safe and
-        // don't clear; only these explicit loads do.
+        // Explicit reloads can redefine types. Invalidate their cache entries
+        // before attempting the load, including when the artifact is rejected.
         self.cache.subclass_memo.lock().clear();
         self.cache.isa_cache.clear();
         self.cache.type_lookup_cache.lock().clear();
         self.cache.fn_lookup_cache.lock().clear();
         crate::metadata::statics::StaticFields::new(&self.metadata.statics, &self.metadata.cctors).forget_owners();
-        let mut state = self.state.lazy_loader.write();
-        let loader = state.as_mut().ok_or_else(|| {
-            anyhow::anyhow!("LoadModule: no lazy loader installed (cannot register loaded module)")
-        })?;
-        let r = loader.load_module_from_path(path);
-        drop(state);
-        // Complete queued type-owner loading outside the loader lock. Execution
-        // barriers remain responsible for managed package/type initialization.
+        let result = {
+            let mut state = self.state.lazy_loader.write();
+            let loader = state.as_mut().ok_or_else(|| {
+                anyhow::anyhow!("{operation}: no lazy loader installed (cannot register loaded module)")
+            })?;
+            load(loader)
+        };
+        // Pending type-owner loads can take the loader lock again.
         self.drain_pending_type_loads();
-        r
+        result
     }
-
-    /// In-memory sibling of [`load_module_into_vm`]: load a compiled artifact
-    /// from raw bytes (packed zpkg / bare zbc) into the live registries. Backs
-    /// the `__load_bytecode_in_memory` builtin used by `z42.scripting` (REPL) so
-    /// freshly compiled bytecode is invocable with zero disk I/O. (add-z42-repl)
-    /// Preserves existing static storage; new initialization facts are registered
-    /// for execution barriers without rerunning or clearing earlier REPL rounds.
-    pub fn load_module_bytes_into_vm(
-        &self, raw: &[u8],
-    ) -> anyhow::Result<()> {
-        self.cache.subclass_memo.lock().clear();   // optimize-subclass-check: REPL redefinition safety
-        self.cache.isa_cache.clear();
-        self.cache.type_lookup_cache.lock().clear();
-        self.cache.fn_lookup_cache.lock().clear();
-        crate::metadata::statics::StaticFields::new(&self.metadata.statics, &self.metadata.cctors).forget_owners();
-        let mut state = self.state.lazy_loader.write();
-        let loader = state.as_mut().ok_or_else(|| {
-            anyhow::anyhow!("LoadBytecodeInMemory: no lazy loader installed (cannot register loaded module)")
-        })?;
-        let r = loader.load_module_from_bytes(raw);
-        drop(state);
-        // 同上（REPL 每轮的字节码加载路径）。
-        self.drain_pending_type_loads();
-        r
-    }
-
 }

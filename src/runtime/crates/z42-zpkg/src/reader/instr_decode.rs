@@ -94,6 +94,7 @@ pub(super) fn decode_instr(op: u8, typ: u8, dst: u32, c: &mut Cursor, pool: &[St
             let param_index = c.read_u8()?;
             Instruction::MethodTypeArg { dst, param_index }
         }
+        OP_LOAD_METHOD_WITNESS => Instruction::LoadMethodWitness { dst, slot: c.read_u16()? },
         OP_METHOD_DEFAULT => {
             let param_index = c.read_u8()?;
             Instruction::MethodDefault { dst, param_index }

@@ -225,6 +225,46 @@ public sealed partial class MemberResolver {
         return g;
     }
 
+    // feat/method-group-target-typed：重载**静态**方法组 + 目标委托类型 → 精确全签名消解
+    //（ExprTyper._bindMethodGroupTargeted 的静态半边）。≤1 候选返回 null（单方法走普通
+    // BindStaticMethodGroup 直取）；≥2 时 0 匹配 E0477、恰一命中成组（StaticKey=选中者
+    // CallKey，LoadFn 定向到该重载）。经派生类名取基类静态仍拒绝（同 BindStaticMethodGroup）。
+    internal BoundExpr ResolveStaticMethodGroupTargeted(Z42ClassType sct, string clsName, string name, Z42FuncType target, Span sp, TypeEnv env) {
+        Z42ClassType owner = MemberResolver._classWithStaticNamed(env.Symbols, sct, name);
+        if (owner == null) { return null; }
+        MethodSymbol[] cands = MemberResolver._staticsOnClass(owner, name);
+        if (cands.Length < 2) { return null; }
+        if (MemberResolver.IsBaseStaticMethod(sct, cands[0])) {
+            this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
+                "static method `" + name + "` is declared on base class `" + cands[0].ContainingTypeName + "`, not on `" + clsName
+                + "`; take its reference through the declaring class: `" + cands[0].ContainingTypeName + "." + name + "`", sp);
+            return new BoundError("base static method group " + name, new Z42ErrorType(), sp);
+        }
+        MethodSymbol chosen = null;
+        int nmatch = 0;
+        int i = 0;
+        while (i < cands.Length) {
+            Z42FuncType csig = cands[i].Signature as Z42FuncType;
+            if (csig != null && csig.IsAssignableTo(target)) { chosen = cands[i]; nmatch = nmatch + 1; }
+            i = i + 1;
+        }
+        if (nmatch == 1) {
+            this._tc._access.CheckAccess(chosen.Visibility, chosen.ContainingTypeName, env, env.Symbols, "method", name, sp);
+            this._tc._access.CheckDeprecatedM(chosen, name, sp);
+            return MemberResolver._staticMethodGroup(owner, name, chosen, sp);
+        }
+        if (nmatch == 0) {
+            this._tc._diags.Error(DiagnosticCodes.FuncRefNoMatchingOverload,
+                "no overload of `" + clsName + "." + name + "` matches target delegate type `"
+                + target.Name() + "`; candidates: " + MemberResolver._candSigs(cands), sp);
+        } else {
+            this._tc._diags.Error(DiagnosticCodes.AmbiguousOverload,
+                "ambiguous reference to overloaded `" + clsName + "." + name + "` for target delegate type `"
+                + target.Name() + "`; candidates: " + MemberResolver._candSigs(cands), sp);
+        }
+        return new BoundError("unresolved static method group " + name, new Z42ErrorType(), sp);
+    }
+
     // 沿基链（含 Object 隐式根，同 `_findMethod` 的遍历规则）找**第一个**有同名静态方法的类。
     // 静态恒 mangle 无裸键（见 BindStaticMethodGroup 注释）⇒ 按 ms.Name 扫表。返回 null=全链无。
     private static Z42ClassType _classWithStaticNamed(SymbolTable symbols, Z42ClassType ct, string name) {
@@ -264,4 +304,17 @@ public sealed partial class MemberResolver {
         while (k < n) { outA[k] = buf[k]; k = k + 1; }
         return outA;
     }
+
+// feat/method-group-target-typed：候选签名列表（诊断用，镜像 ExprTyper._funcCandSigs）。
+private static string _candSigs(MethodSymbol[] cands) {
+    string s = "";
+    int i = 0;
+    while (i < cands.Length) {
+        if (i > 0) { s = s + ", "; }
+        s = s + (cands[i].Signature == null ? cands[i].Name : cands[i].Signature.Name());
+        i = i + 1;
+    }
+    return s;
+}
+
 }

@@ -244,3 +244,80 @@ fn method_parameter_array_compiles_with_bound_and_missing_args() {
         assert!(crate::jit::compile::state::runtime(&vm).unwrap().resolve_fn_by_id(&vm, idx(&module, "T.Allocate")).is_some());
     }
 }
+
+fn witness_module() -> Module {
+    let body = vec![
+        Instruction::LoadMethodWitness { dst: 1, slot: 1 },
+        Instruction::CallIndirect { dst: 2, callee: 1, args: Box::new([0]) },
+    ];
+    let invoke = |name, payload: &[&str]| func(name, 0, true, vec![
+        Instruction::ConstI64 { dst: 0, val: 7 },
+        call(1, "T.SharedWitness", &[0], payload),
+    ], Some(1));
+    module_of(vec![
+        func("T.SharedWitness", 1, true, body, Some(2)),
+        func("T.WitnessA", 1, true, vec![], Some(0)),
+        func("T.WitnessB", 1, true, vec![Instruction::ConstI64 { dst: 1, val: 99 }], Some(1)),
+        invoke("T.UseWitnessA", &["int", "$witness:T.WitnessA"]),
+        invoke("T.UseWitnessB", &["int", "$witness:T.WitnessB"]),
+        func("T.ForwardWitness", 1, true, vec![
+            call(1, "T.SharedWitness", &[0], &["$mta:0", "$mta:1"]),
+        ], Some(1)),
+        func("T.UseForwardedWitness", 0, true, vec![
+            Instruction::ConstI64 { dst: 0, val: 7 },
+            call(1, "T.ForwardWitness", &[0], &["int", "$witness:T.WitnessA"]),
+        ], Some(1)),
+        invoke("T.MissingWitness", &["int"]),
+        invoke("T.MalformedWitness", &["int", "T.WitnessA"]),
+        invoke("T.UnresolvedWitness", &["int", "$witness:T.Unresolved"]),
+    ])
+}
+
+#[test]
+fn interpreter_loads_the_witness_chosen_for_each_activation() {
+    let m = witness_module();
+    let vm = VmContext::new();
+    assert_eq!(interp(&vm, &m, "T.UseWitnessA"), Value::I64(7));
+    assert_eq!(interp(&vm, &m, "T.UseWitnessB"), Value::I64(99));
+    assert_eq!(interp(&vm, &m, "T.UseForwardedWitness"), Value::I64(7));
+}
+
+#[cfg(feature = "jit")]
+#[test]
+fn jit_loads_the_witness_chosen_for_each_activation() {
+    let m = witness_module();
+    let vm = VmContext::new();
+    assert_eq!(jit(&vm, &m, "T.UseWitnessA"), Value::I64(7));
+    assert!(crate::jit::compile::state::runtime(&vm).unwrap()
+        .resolve_fn_by_id(&vm, idx(&m, "T.SharedWitness")).is_some());
+    assert_eq!(jit(&VmContext::new(), &m, "T.UseWitnessB"), Value::I64(99));
+    assert_eq!(jit(&VmContext::new(), &m, "T.UseForwardedWitness"), Value::I64(7));
+}
+
+#[cfg(feature = "jit")]
+#[test]
+fn malformed_or_missing_witnesses_throw_in_both_engines() {
+    use crate::jit::runtime::{frame::JitFrame, invoke::{call_entry, NativeOutcome}};
+    let m = witness_module();
+    let cases = [
+        ("T.MissingWitness", "missing method witness in slot 1"),
+        ("T.MalformedWitness", "missing method witness in slot 1"),
+        ("T.UnresolvedWitness", "undefined function `T.Unresolved`"),
+    ];
+    for (name, expected) in cases {
+        let vm = VmContext::new();
+        let outcome = crate::interp::run_outcome(&vm, &m, &m.functions[idx(&m, name)], &[]).unwrap();
+        match outcome {
+            ExecOutcome::Thrown(exc) => assert_eq!(exc, Value::Str(expected.into())),
+            _ => panic!("expected {name} to throw"),
+        }
+
+        let vm = VmContext::new();
+        let rt = crate::jit::test_support::install(&vm, &m, z42::config::runtime_config().jit_config()).unwrap();
+        rt.resolve_fn_by_id(&vm, idx(&m, "T.SharedWitness")).expect("witness load compiles");
+        let entry = rt.resolve_fn_by_id(&vm, idx(&m, name)).expect("caller compiles");
+        let outcome = unsafe { call_entry(&vm, entry, JitFrame::new(&vm, entry.max_reg, &[])) };
+        assert!(matches!(outcome, NativeOutcome::Threw), "expected {name} to throw");
+        assert_eq!(vm.exec().take_exception(), Some(Value::Str(expected.into())));
+    }
+}

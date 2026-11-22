@@ -72,4 +72,67 @@ public sealed partial class ExprTyper {
         return env.Symbols.GetFuncCandidates(ns, nm).Length > 1;
     }
 
+    // feat/method-group-target-typed：**重载方法组 + 目标委托类型** → 按精确全签名消解（镜像上面的
+    // 自由函数消解）。覆盖实例 `obj.M`（候选 = _collectInstanceOverloads，含基链、按有效签名去重）
+    // 与静态 `C.F`（MemberResolver.ResolveStaticMethodGroupTargeted）。≤1 候选返回 null——单方法
+    // 路径普通绑定已正确（相容由 CheckImplicitConvert 校验）；≥2 时 0 匹配报 E0477、恰一命中构造
+    // 方法组节点并带**发射键**（thunk VCall / LoadFn 据此定向到非-primary 重载）。
+    // 覆盖位 = BindWithTarget 的调用面（声明 / 赋值 / return / 初始化器）；实参位不延迟——
+    // 重载方法组作实参仍按普通绑定报 E0425/E0401，参考手册保持记载。
+    private BoundExpr _bindMethodGroupTargeted(MemberExpr m, Z42FuncType target, TypeEnv env) {
+        // 静态形态一：target 是裸类名（非变量、可解析为类）。
+        if (m.Target is IdentExpr) {
+            IdentExpr tid = m.Target as IdentExpr;
+            if (env.LookupVar(tid.Name) == null) {
+                Z42ClassType sct = env.Symbols.GetClass(tid.Name);
+                if (sct != null) {
+                    return this._tc._member.ResolveStaticMethodGroupTargeted(sct, tid.Name, m.Name, target, m.Span, env);
+                }
+            }
+        }
+        // 静态形态二：target 是类型路径（ns 全限定 `Ns.C.F` / 嵌套 `Outer.Inner.F`）——
+        // `_nestedTypeKey` 认出的按声明类走静态消解；否则它不是类型路径，继续实例形态
+        //（不先绑 target：`Ns.C` 作表达式会报 undefined，抢掉 `_bindNestedStaticMember` 的路）。
+        string nk = this._tc._member._nestedTypeKey(m.Target, env);
+        if (nk != "") {
+            Z42ClassType sct = env.Symbols.GetClass(nk);
+            if (sct != null) {
+                return this._tc._member.ResolveStaticMethodGroupTargeted(sct, nk, m.Name, target, m.Span, env);
+            }
+        }
+        // 实例形态：target 绑定后是（非内建）类收者；绑错（error）→ null 交回普通绑定。
+        BoundExpr recv = this._bindExpr(m.Target, env);
+        if (recv is BoundError || recv.Type() is Z42ErrorType) { return null; }
+        Z42ClassType ct = recv.Type() as Z42ClassType;
+        if (ct == null || recv.Type().IsBuiltinType()) { return null; }
+        MethodSymbol[] cands = this._tc._overload._collectInstanceOverloads(env.Symbols, ct, m.Name);
+        if (cands.Length < 2) { return null; }
+        MethodSymbol chosen = null;
+        int nmatch = 0;
+        int i = 0;
+        while (i < cands.Length) {
+            Z42FuncType csig = cands[i].Signature as Z42FuncType;
+            if (csig != null && csig.IsAssignableTo(target)) { chosen = cands[i]; nmatch = nmatch + 1; }
+            i = i + 1;
+        }
+        if (nmatch != 1) {
+            if (nmatch == 0) {
+                this._tc._diags.Error(DiagnosticCodes.FuncRefNoMatchingOverload,
+                    "no overload of `" + ct.Name() + "." + m.Name + "` matches target delegate type `"
+                    + target.Name() + "`; candidates: " + this._funcCandSigs(cands), m.Span);
+            } else {
+                this._tc._diags.Error(DiagnosticCodes.AmbiguousOverload,
+                    "ambiguous reference to overloaded `" + ct.Name() + "." + m.Name + "` for target delegate type `"
+                    + target.Name() + "`; candidates: " + this._funcCandSigs(cands), m.Span);
+            }
+            return new BoundError("unresolved method group " + m.Name, new Z42ErrorType(), m.Span);
+        }
+        this._tc._access.CheckAccess(chosen.Visibility, chosen.ContainingTypeName, env, env.Symbols, "method", m.Name, m.Span);
+        this._tc._access.CheckDeprecatedM(chosen, m.Name, m.Span);
+        BoundMethodGroup g = new BoundMethodGroup(recv, ct.Name(), m.Name, chosen.Signature, m.Span);
+        g.OwnerCt = ct;
+        g.MethodKey = chosen.CallKey();
+        return g;
+    }
+
 }

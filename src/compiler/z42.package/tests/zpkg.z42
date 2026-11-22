@@ -273,3 +273,21 @@ void test_decode_pool_index_out_of_range_throws() {
     }
     Assert.True(threw);
 }
+
+[Test]
+void test_method_witness_slot_roundtrips_as_u16() {
+    var writer = new ByteWriter();
+    var pool = new ZbcStringPool();
+    var tokens = new TokenAllocator(new string[0], 0, new string[0], 0);
+    var witness = new LoadMethodWitnessInsn(new TypedReg(3, IrType.Ref), 513);
+    ZbcInstr.WriteInstr(writer, witness, pool, new int[0], tokens);
+    ZbcInstr.WriteTerm(writer, new RetTerm(false, null), new string[]{ "entry" }, 1);
+    var block = ZbcReaderInstr.DecodeBlock(new ZpkgCursor(writer.ToBytes(), 0), writer.Len(),
+        new string[0], new string[0], 0, new string[0], 0);
+    Assert.True(block.Ok);
+    Assert.Equal(1, block.InstrCount);
+    var decoded = block.Instrs[0] as LoadMethodWitnessInsn;
+    Assert.NotNull(decoded);
+    Assert.Equal(3, decoded.Dst.Id);
+    Assert.Equal(513, decoded.Slot);
+}

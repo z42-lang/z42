@@ -859,6 +859,12 @@ public sealed partial class ExprTyper : IExprVisitor<BoundExpr, TypeEnv> {
             BoundExpr fr = this._bindFuncRefTargeted(e as IdentExpr, target as Z42FuncType, env);
             if (fr != null) { return fr; }
         }
+        // feat/method-group-target-typed：成员访问形式的重载方法组（obj.M / C.F）+ 目标委托类型
+        // → 同款精确选中。返回 null = 非重载方法组形态 ⇒ 回落普通绑定。
+        if ((e is MemberExpr) && (target is Z42FuncType)) {
+            BoundExpr mg = this._bindMethodGroupTargeted(e as MemberExpr, target as Z42FuncType, env);
+            if (mg != null) { return mg; }
+        }
         return this._bindExpr(e, env);
     }
 

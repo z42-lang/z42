@@ -710,6 +710,10 @@ public sealed class CallEmitter {
     // feat/static-method-group：**静态**方法组（`C.F` / 类内裸名 `F`，Receiver=null +
     // StaticKey≠""）免 thunk——静态方法无 receiver，直接 LoadFn 该方法的发射键（与直呼
     // `C.F(x)` 的 `call @FQ.M` 同一 func_index 目标）。
+    //
+    // feat/method-group-target-typed：按目标选中的**非-primary 重载**带 MethodKey（mangle
+    // 键）——thunk 的 VCall 名 / 去重键 / thunk 名都按它拼（type-based 重载同 arity 不同键，
+    // 必须分流；单方法 MethodKey=="" ⇒ 全串退化为 MethodName，既有字节不变）。
     internal TypedReg _emitMethodGroup(BoundMethodGroup mg) {
         if (mg.StaticKey != "") {
             string sfq = (mg.OwnerCt != null ? this._ctx.QualifyType(mg.OwnerCt, mg.ClassName) : this._ctx.QualifyClass(mg.ClassName))
@@ -720,10 +724,12 @@ public sealed class CallEmitter {
         }
         Z42FuncType sig = mg.Type() as Z42FuncType;
         int arity = sig.ParamCount;
+        string vcallName = mg.MethodKey != "" ? mg.MethodKey : mg.MethodName;
         string qualClass = mg.OwnerCt != null ? this._ctx.QualifyType(mg.OwnerCt, mg.ClassName) : this._ctx.QualifyClass(mg.ClassName);
         string safeClass = CallEmitter._dotsToUnderscore(qualClass);
-        string cacheKey = qualClass + "." + mg.MethodName + "$" + arity.ToString();
-        string thunkName = this._ctx.Qualify("__mg_thunk_" + safeClass + "_" + mg.MethodName + "$" + arity.ToString() + "__");
+        string cacheKey = qualClass + "." + vcallName + "$" + arity.ToString();
+        string safeKey = CallEmitter._dotsToUnderscore(vcallName);
+        string thunkName = this._ctx.Qualify("__mg_thunk_" + safeClass + "_" + safeKey + "$" + arity.ToString() + "__");
         if (!this._ctx.Gen.MgThunks.ContainsKey(cacheKey)) {
             bool isVoid = sig.Ret is Z42VoidType;
             TypedReg idxReg  = new TypedReg(arity + 1, IrType.I32);
@@ -736,7 +742,7 @@ public sealed class CallEmitter {
             IrInstr[] tinstrs = new IrInstr[3];
             tinstrs[0] = new ConstI32Instr(idxReg, "0");
             tinstrs[1] = new ArrayGetInstr(recvReg, new TypedReg(0, IrType.Ref), idxReg);
-            tinstrs[2] = new VCallInstr(retReg, recvReg, mg.MethodName, argRegs, arity);
+            tinstrs[2] = new VCallInstr(retReg, recvReg, vcallName, argRegs, arity);
             IrTerminator term = isVoid ? new RetTerm(false, retReg) : new RetTerm(true, retReg);
             IrBlock[] blks = new IrBlock[1];
             blks[0] = new IrBlock("entry", tinstrs, 3, term, true);
