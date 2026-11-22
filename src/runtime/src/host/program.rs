@@ -98,9 +98,7 @@ impl LoadedProgram {
         options: LoadOptions,
         image_cache: &crate::loader::ImageCache,
     ) -> Result<Self> {
-        let artifact = image_cache.artifact_for(&crate::loader::content_id(bytes), || {
-            crate::loader::load_artifact_from_bytes(bytes)
-        })?;
+        let artifact = crate::loader::load_artifact_from_bytes_cached(bytes, Some(image_cache))?;
         super::load::prepare(artifact, None, &options, &crate::vm::assembly::ComponentInputs::for_request(&options), Some(image_cache))
     }
 
