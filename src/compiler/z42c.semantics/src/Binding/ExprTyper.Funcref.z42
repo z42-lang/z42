@@ -64,12 +64,34 @@ public sealed partial class ExprTyper {
     // 实参位上的裸名是否**重载自由函数**（须延迟到重载决议后按形参委托签名消解）。只延迟**重载**的（≥2 候选）——
     // 单份 funcref 实参保持急切绑定 ⇒ 既有代码零行为变化、字节中性（同 IsNamedArg 保守判据）。局部变量优先。
     public static bool IsOverloadedFuncRefArg(Expr e, TypeEnv env) {
-        if (!(e is IdentExpr)) { return false; }
-        string nm = (e as IdentExpr).Name;
-        if (env.LookupVar(nm) != null) { return false; }
-        string ns = env.Symbols.ResolveFuncNs(nm);
-        if (ns == null) { return false; }
-        return env.Symbols.GetFuncCandidates(ns, nm).Length > 1;
+        if (e is IdentExpr) {
+            string nm = (e as IdentExpr).Name;
+            if (env.LookupVar(nm) != null) { return false; }
+            string ns = env.Symbols.ResolveFuncNs(nm);
+            if (ns == null) { return false; }
+            return env.Symbols.GetFuncCandidates(ns, nm).Length > 1;
+        }
+        // feat/method-group-arg-deferral：**重载方法组实参**（`Run(obj.M)` / `Run(C.F)`）同款
+        // 延迟——回填位经 `BindWithTarget` 的 MemberExpr 分支（#1901）按形参委托签名精确选中。
+        // 只认无需绑定 receiver 即可数出候选的两种形态：target 是裸类名（静态组）或 IdentExpr
+        // 收者且类型为非内建类（实例组，局部/形参）。复杂 receiver / 基类链上的重载保持急切
+        // 绑定——探测性绑定会引发重复诊断，宁窄勿滥（同 IsNamedArg 的保守判据纪律）。
+        if (e is MemberExpr) {
+            MemberExpr me = e as MemberExpr;
+            if (!(me.Target is IdentExpr)) { return false; }
+            IdentExpr tid = me.Target as IdentExpr;
+            Z42ClassType ct = null;
+            bool wantStatic = false;
+            Z42Type vt = env.LookupVar(tid.Name);
+            if (vt == null) {
+                ct = env.Symbols.GetClass(tid.Name); wantStatic = true;   // 静态组：裸类名
+            } else if ((vt is Z42ClassType) && !vt.IsBuiltinType()) {
+                ct = vt as Z42ClassType;                                   // 实例组：类收者局部/形参
+            }
+            if (ct == null) { return false; }
+            return MemberResolver._ownMethodsOfKind(ct, me.Name, wantStatic) >= 2;
+        }
+        return false;
     }
 
     // feat/method-group-target-typed：**重载方法组 + 目标委托类型** → 按精确全签名消解（镜像上面的

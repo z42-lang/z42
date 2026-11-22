@@ -1,0 +1,21 @@
+// feat/method-group-arg-deferral：重载方法组**实参位**延迟消解的单测（负例）。
+// 正向链路由 e2e `method_group_arg_deferral` 覆盖（SemanticDump 无 stdlib）。
+namespace Z42cSemanticsMethodGroupArgDeferralTests;
+
+using Z42.Semantics;
+using Std.Harness;
+
+[Test]
+void test_no_matching_overload_in_arg_position_is_e0477() {
+    // 形参 (long)->long 与 F(int)/F(string) 都不匹配 ⇒ 延迟回填报 E0477（与 #1901 同码）。
+    string src = "class C { public int F(int x) { return x; } public string F(string s) { return s; } "
+        + "long R((long) -> long f) { return f(1); } void M() { long v = this.R(this.F); } }";
+    Assert.Equal("E0477", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_static_no_match_in_arg_position_is_e0477() {
+    string src = "class A { public static int G(int x) { return x; } public static string G(string s) { return s; } "
+        + "long R((long) -> long f) { return f(1); } void M() { long v = R(A.G); } }";
+    Assert.Equal("E0477", SemanticDump.FirstErrorCode(src));
+}
