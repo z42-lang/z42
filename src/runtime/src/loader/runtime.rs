@@ -16,6 +16,14 @@ impl<'a> RuntimeLoader<'a> {
         cache: &'a crate::metadata::ThreadRuntimeState,
         events: &'a crate::diagnostics::RuntimeObserverRegistry,
     ) -> Self { Self { state, metadata, cache, events } }
+
+    pub(crate) fn configure_native(&self, settings: super::NativeLoading) -> anyhow::Result<()> {
+        self.state.configure_native(settings)
+    }
+
+    pub(crate) fn native_loading(&self) -> &'a super::NativeLoading {
+        self.state.native_loading()
+    }
 }
 #[path = "runtime_modules.rs"]
 mod modules;
