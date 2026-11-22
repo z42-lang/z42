@@ -1,11 +1,8 @@
 //! Prepare loaded modules for VM assembly.
 use anyhow::{Context, Result};
 
-use super::{build_block_indices, merge_modules, package::build_func_index, LoadedArtifact};
-use crate::metadata::{
-    types::{build_type_registry, verify_constraints},
-    Module,
-};
+use super::{artifact::FUSION_INPUTS, merge_modules, package::prepare_module, LoadedArtifact};
+use crate::metadata::Module;
 
 /// Keep dependencies available for per-package registration, or merge them
 /// with the entry module when the caller selects the eager merge path.
@@ -16,7 +13,8 @@ pub(crate) fn prepare_program_modules(
     source: &str,
 ) -> Result<(Module, Vec<LoadedArtifact>)> {
     if !merge_eager {
-        prepare_module(&mut entry, source)?;
+        prepare_module(&mut entry, FUSION_INPUTS)
+            .with_context(|| format!("constraint verification failed for `{source}`"))?;
         return Ok((entry, dependencies));
     }
 
@@ -36,15 +34,7 @@ pub(crate) fn prepare_program_modules(
     let mut module =
         merge_modules(modules).with_context(|| format!("merging modules for `{source}`"))?;
     module.name = entry_name;
-    prepare_module(&mut module, source)?;
-    Ok((module, Vec::new()))
-}
-
-fn prepare_module(module: &mut Module, source: &str) -> Result<()> {
-    build_type_registry(module);
-    verify_constraints(module)
+    prepare_module(&mut module, FUSION_INPUTS)
         .with_context(|| format!("constraint verification failed for `{source}`"))?;
-    build_block_indices(module);
-    build_func_index(module);
-    Ok(())
+    Ok((module, Vec::new()))
 }
