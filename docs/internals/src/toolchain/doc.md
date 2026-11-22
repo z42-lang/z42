@@ -2,7 +2,7 @@
 
 > 代码：`src/compiler/z42.doc/src/`（引擎，含 `DocParser.z42` / `DocLint.z42` / `DocRefs.z42` / `DocMd.z42`）、`src/toolchain/devtools/core/doc_cmd.z42`（`DocCommand`）、
 > `src/toolchain/devtools/rust-index/`（Rust 索引器）、`scripts/src/build/docs/generate.z42`（`build docs` / `build docs index` CLI）、
-> `scripts/src/build/docs/index.z42`（Rust 索引构建）、`scripts/src/test/check/doc_lints.z42` / `scripts/src/test/check/doc_refs.z42`（检查与报告）、
+> `scripts/src/build/docs/index.z42`（Rust 索引构建）、`scripts/src/test/check/doc_lints.z42`（注释检查）、
 > `src/toolchain/launcher/core/launcher_cli.z42`（`_forwardZ42d`）、`src/compiler/z42c.syntax/src/DocBlock.z42`（doc 挂靠）
 >
 > 要查**怎么用**（旗标、输出、名字怎么写）→ 语言与库参考的 `z42` 命令页与 doc 注释页。
@@ -156,7 +156,7 @@ tag、W0805 public 声明缺 `///`、W0806 历史注记（日期 / spec 名模�
 范围只有 stdlib：编译器域的注释按 doc-system「契约不显然时写」，不要求 W0805 全覆盖。W0803（链接与
 `@throws` 类型能否解析）需要语义信息，归编译器的 DocChecker pass，不在此列。
 
-「由 z42 doc 生成」标记）自带随 gen 重写的 `file:line`，不查；learn 的引用对象在 `examples/`、不进符号索引，
+带「由 z42 doc 生成」标记的页面自带随生成重写的 `file:line`，不查；learn 的引用对象在 `examples/`、不进符号索引，
 归 learn↔examples 重放检查，也不查。
 
 ## 构建插件专用文案
@@ -181,9 +181,31 @@ SDK 的 `[component.docs]` 从同版本源码生成标准库旁挂文件并安�
 
 ## 9. 边界与限制
 
-- 只有语法级：没有继承文档、实现者列表。`@tag` 的语法级检查（§8 的 DocLint）已有；链接与 `@throws` 类型解析
-  （W0803）需要语义，归编译器 DocChecker pass，尚未落地。
+- 语法索引保留源码中的类型拼写。跨包符号链接、继承文档和实现者查询需要语义索引。
 - `z42 doc` 查询用的 Rust 索引不会自己更新：手动 `xtask build docs index`（过期会提示）。
-- doctest（`@example` 合成测试、`z42 test --doc`）尚未接。
 
-以上后续阶段见仓库根 `docs/z42-doc.md`。
+## Deferred
+
+### doc-future-semantic-index：语义索引与编译期诊断
+
+- **来源**：文档语义检查与跨包查询设计。
+- **触发原因**：语法索引足以查询签名与位置，当前标准库门禁只依赖语法级检查。
+- **前置依赖**：编译器绑定阶段提供声明的类型、作用域与继承关系。接入 W08xx 时复用诊断管线的 `[lints]` 和抑制规则。
+- **触发条件**：实现 W0803（链接、`@throws` 类型解析）或跨包文档解析时，同步设计全限定 Doc ID、继承文档与实现者查询。
+- **当前用法**：用 `xtask check doc-lints` 检查标准库的语法级问题，用 `z42 doc` 查源码与 SDK 文档。
+
+### doc-future-build-emission：项目构建输出旁挂文件
+
+- **来源**：`.zdoc` 的项目构建集成。
+- **触发原因**：显式导出已经覆盖 SDK 发布和单包分发。项目构建目前没有文档输出选项。
+- **前置依赖**：确定 `[doc]` 清单、构建输出位置与增量失效规则。语义级导出依赖语义索引，文档继续以独立文件交付。
+- **触发条件**：接入项目自动导出时定义 `emit`、`private` 的默认值及覆盖规则，同时明确 `split` 的生成粒度配置。
+- **当前用法**：用 `z42 doc --format zdoc` 显式导出，配合 `--private` 收录非公开符号。标准库的分类型配置由 xtask 维护。
+
+### doc-future-doctest：执行文档示例
+
+- **来源**：`@example` 的可执行示例设计。
+- **触发原因**：现有解析和渲染仅展示代码块。独立编译、预期失败和输出断言需要测试驱动支持。
+- **前置依赖**：定义示例作用域和测试隔离方式。可复用 `[Test]` 发现，给 `run`、`no_run`、`compile_fail`、`ignore` 各自定义判定规则。
+- **触发条件**：实现 `z42 test --doc` 时一并验证 `// =>` 预期输出和标准库门禁的耗时。
+- **当前用法**：需要执行验证的代码放入测试或 `examples/` 会话脚本。
