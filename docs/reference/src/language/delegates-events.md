@@ -46,7 +46,7 @@ public delegate bool Predicate<T>(T arg);
 | 实参个数 | **校验**：多传报 E1006、少传报 E1005（`f(args)` 与 `f.Invoke(args)` 同一条）。实参**类型**也查（E0402）。**`delegate` 形参不能写默认值**：委托类型只记参数类型，调用点走间接调用、没有可选参数这一层 ⇒ 默认值永远落不下来，故在**声明处**报错（E0402），而不是让调用点收到一个看起来矛盾的 E1005 |
 | 调用 | `f(arg)` 等价 `f.Invoke(arg)`。**委托类型的字段 / 属性可以直接调用**：`obj.F(arg)`、`C.S(arg)`（静态）等价于先读出成员再调用这个委托值，参数个数与类型照委托签名检查；类上同名**方法优先**，静态性要对得上（经实例调静态字段仍报 E0401）。`.Invoke` 脱糖成与括号调用同一个间接调用。调用路之外，委托值上可读族基类 `Std.Delegate` 的属性（见 §2.6）；其余成员名报 E0401 |
 | null | 调用 null delegate 抛 `Std.NullReferenceException`（可 `catch`，两个后端一致）。**触发前仍应查空**：`var h = X; if (h != null) { h.Invoke(args); }`（委托字段默认就是 null；靠异常发现「没人订阅」不是好写法）。⚠️ `?.Invoke()` **已不可用**——`?.` 已移除（E0480）|
-| 方法组转换 | **自由函数** `Action<int> a = SomeMethod;`、**实例方法** `obj.Method` 与**类静态方法** `C.F`（含全限定 `Ns.C.F` 与类内裸名 `F`，沿基类链按声明类取）都编译期合成 delegate 值。**重载的按目标消解三族同规**：自由函数 / 实例 / 静态方法组在有目标委托类型的写法位（声明 / 赋值 / return / 初始化器）都按签名精确选中，无匹配报 E0477、见 [§2.5](#25-重载自由函数取引用按目标委托消解)；无目标写法（`var f = …`）静态报 E0425、实例绑 primary。**实参位**目前只有自由函数延迟消解，方法组实参不延迟（见 §2.5 注）。经派生类名取基类静态方法引用与调用路同口径拒绝（E0401 点名声明类）|
+| 方法组转换 | **自由函数** `Action<int> a = SomeMethod;`、**实例方法** `obj.Method` 与**类静态方法** `C.F`（含全限定 `Ns.C.F` 与类内裸名 `F`，沿基类链按声明类取）都编译期合成 delegate 值。**重载的按目标消解三族同规**：自由函数 / 实例 / 静态方法组在有目标委托类型的写法位（声明 / 赋值 / return / 初始化器）都按签名精确选中，无匹配报 E0477、见 [§2.5](#25-重载自由函数取引用按目标委托消解)；无目标写法（`var f = …`）静态报 E0425、实例绑 primary。**实参位**同样延迟消解（feat/method-group-arg-deferral：`Run(obj.M)` / `Run(C.F)` 按形参委托签名选中；复杂 receiver 表达式与基类链上的重载保持急切绑定）。经派生类名取基类静态方法引用与调用路同口径拒绝（E0401 点名声明类）|
 | Lambda 转换 | `Func<int,int> f = x => x*2;` |
 | 目标何时解析 | **创建 delegate 值时**（lambda、方法组转换求值的那一刻），不是第一次调用时。目标函数所在的包在这时加载；目标找不到（例如运行时缺了它所在的依赖包）就在**创建处**抛 `Std.MissingSymbolException`（可 `catch`），之后的调用不再查找名字 |
 | 名字查找 | 用户 `delegate` 的身份是全限定名：两个命名空间里的同名 `delegate` 是两个类型，各用各的签名。写短名按[命名空间规则](namespaces.md)找（外围 → `using` → prelude），找不到报 `E0436`。**依赖包导出的 `public delegate` 同样可用**（`using` 它的命名空间后当类型写：局部 / 形参 / 字段，lambda 与方法组都能转进去）|
@@ -79,9 +79,9 @@ xs.Reduce(Parse);                           // 实参位：按形参委托签名
 
 > **实例/静态方法组** `obj.M` / `T.M`（`M` 有重载）取引用的按目标消解已支持（2026-11
 > feat/method-group-target-typed）：与自由函数同一条 `BindWithTarget` 精确匹配，选中重载经
-> mangle 键定向派发（实例 thunk 的 VCall 名 / 静态的 LoadFn 目标）。剩余边界：**实参位不延迟**
-> ——重载方法组直接作调用实参仍按无目标处理（静态 E0425 / 实例绑 primary），先赋给带类型的
-> 局部变量再传。
+> mangle 键定向派发（实例 thunk 的 VCall 名 / 静态的 LoadFn 目标）。实参位经
+> feat/method-group-arg-deferral 同样延迟消解；剩余收窄：复杂 receiver 表达式
+>（`arr[i].M` / `this.x.M` 等）与基类链上声明的重载保持急切绑定（先赋带类型局部再传）。
 
 ### 2.3 嵌套 delegate
 
@@ -135,6 +135,8 @@ public class Delegate {
 - **`is`**：`f is Delegate` 为 true。
 - **泛型约束**：`where TD : Delegate` 可用——函数类型实参满足该约束（订阅包装类的
   自定义策略可用它收窄）。
+- **约束成员直读**：`where TD : Delegate` 的泛型体内 `h.Target` / `h.FnName` 直接可读（2026-11 feat/delegate-constraint-members，免手写 `(Delegate)h` 上转）；任意**类约束**（`where T : SomeClass`）的字段 / 属性 / 方法同样直读（运行期收者是真实对象）。
+- **Object 协议方法**（feat/delegate-object-methods）：委托值上 `ToString()`（= 目标函数全限定名，与 `FnName` 同源）、`Equals(other)`（与 `==` / `ReferenceEquals` 同判据）、`GetHashCode()`（与相等一致）直接可用；`GetType()` 折叠为 `typeof(静态委托类型)`（同值类型的 GetType 折叠先例，`(Delegate)f` 收者报族基类 `Std.Delegate`）。
 - **反射**：`typeof(任意委托类型).BaseType` 是 `Std.Delegate`；`IsDelegate` 位不受影响。
 - ⚠️ `Target` 返回 `Closure` 的 `env[0]`——实例方法组即 receiver；捕获了值的 lambda
   是首个捕获槽（表示上无法区分二者）。`FuncRef`（无捕获 lambda / 自由函数）为 null。

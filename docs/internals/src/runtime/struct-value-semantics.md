@@ -347,7 +347,26 @@ struct 的完整对象协议。unboxed struct 仍无 vtable（这些方法经装
 - **`ToString()`**：VM boxed-vcall 臂直接返回**短类型名**（C# `ValueType.ToString` 默认；字段 dump 留后续）。
 - **`GetType()`**：`builtin_obj_get_type`（PR2a）。
 
-**VM 派发**（`exec_vcall.rs` + `jit/helpers/vcall.rs` BoxedStruct 臂，interp+JIT 对称）：`GetType`/`GetHashCode`/
+### 静态类型位点的零装箱快路（add-struct-value-eq-fastpath）
+
+上面这套装箱协议只服务**动态位点**（receiver 静态类型是 `object`/接口，如字典探测的
+`_keys[i].Equals(key)`）。receiver 静态类型就是 struct 本身时，编译器**不再装箱走 vcall**
+（`CallEmitter` 在 `_isBoxedObjectMethod` 拦截内先走快路，语义与合成 `Equals$1` / FNV 哈希逐位相同）：
+
+- **`a == b` / `a != b`**（两操作数均 blob struct 且布局**无浮点叶子**，递归含嵌套——
+  `EmitContext.LayoutHasFloatLeaf`）：单条 `__struct_eq(a, b)` builtin——运行期同名判定 +
+  基元字节 + 引用叶子 `Value` 相等（与 `Value::eq` 装箱臂同式）。`!=` 追加 `Not`。非浮点叶
+  按位相等 ⇔ `Eq`，故该等价只对 float-free 布局成立；浮点叶（±0.0/NaN 语义）保持逐叶 IR。
+- **`a.Equals(x)`**（未自声明 `Equals`）：x 静态同型（binder 已包 `BoundBox`）→ 剥壳拿裸
+  StructRef 直比（float-free → `__struct_eq`；含浮点 → 逐叶）；x 静态为其他值类型/null →
+  `ConstBool(false)`（`x is P` 编译期恒假）；x 为 object/接口/型参 → `__struct_eq`（builtin 内
+  运行期同名判定，非 struct 侧答 false；含浮点布局内联 `is`+`AsCast`+逐叶）。
+- **`a.GetHashCode()`**（未自声明）：`__struct_hash_code` 直呼——builtin 已扩为收**任意表示**
+  （`StructRef` / `StructRefHeap` / `BoxedStruct`，`convert.rs::struct_payload`），哈希走
+  payload 级 `boxed_hash::hash_struct_payload`（boxed 臂同一实现 ⇒ 跨表示同哈希）。
+
+`__struct_eq` / `__struct_hash_code` 均 compiler-emitted（无 stdlib 声明，
+`native_decl_tests` allowlist 在案）。**VM 派发**（`exec_vcall.rs` + `jit/helpers/vcall.rs` BoxedStruct 臂，interp+JIT 对称）：`GetType`/`GetHashCode`/
 `ToString`（arity 0）→ native 特判；否则 prepend `{type_name}.{method}$arity` 候选命中合成/用户方法（this=boxed
 值，合成 body 内拆箱），fallback `Std.Object.{method}`。
 

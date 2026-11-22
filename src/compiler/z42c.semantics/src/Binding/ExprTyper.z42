@@ -758,6 +758,44 @@ public sealed partial class ExprTyper : IExprVisitor<BoundExpr, TypeEnv> {
         return null;
     }
 
+    // feat/delegate-constraint-members：型参的**基类约束**解析（`where TD : SomeClass` /
+    // `where TD : Delegate`）。两个来源与 `_constraintIfaceHit` 同构：方法级 WhereClause 现读
+    //（只认可解析为**类**的 NamedType——接口走 `_constraintIfaceHit`、函数类型约束解析不成类）
+    // + 类级 ConstraintSet 的 HasBaseClass。无基类约束返回 null。
+    internal Z42ClassType _constraintBaseClass(TypeEnv env, string paramName) {
+        MethodDecl md = this._tc._curMethodDecl;
+        if (md != null) {
+            int w = 0;
+            while (w < md.WhereCount) {
+                WhereClause wc = md.Wheres[w];
+                if (wc.TypeParam == paramName) {
+                    int k = 0;
+                    while (k < wc.Count) {
+                        WhereConstraint con = wc.Constraints[k];
+                        if (con.IsType && (con.Type is NamedType)) {
+                            Z42ClassType ct = env.Symbols.GetClass((con.Type as NamedType).Name);
+                            if (ct != null) { return ct; }
+                        }
+                        k = k + 1;
+                    }
+                }
+                w = w + 1;
+            }
+        }
+        string cls = env.CurrentClass();
+        if (cls != "") {
+            string ckey = env.Symbols.ClassConstraintKey(env.Symbols.ScopeNs, cls, env.ClassTypeParamCount);
+            if (env.Symbols.HasConstraints(ckey)) {
+                ConstraintSet cs = env.Symbols.GetConstraints(ckey);
+                int pi = cs.IndexOf(paramName);
+                if (pi >= 0 && cs.Bundles[pi].HasBaseClass) {
+                    return env.Symbols.GetClass(cs.Bundles[pi].BaseClassName);
+                }
+            }
+        }
+        return null;
+    }
+
     // 接口（含其父接口闭包）是否声明了 `opMethod`。遍历收敛到 `InterfaceClosure`——
     // 成员解析那条路径要的是同一份闭包语义，两处各写一份必然漂移。
     private IfaceMethodHit _ifaceMethodClosure(TypeEnv env, string ifaceName, string opMethod) {

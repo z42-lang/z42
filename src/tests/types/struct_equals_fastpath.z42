@@ -1,0 +1,147 @@
+// add-struct-value-eq-fastpath：值 struct 相等性静态位点快路的语义矩阵。
+//   · `==`/`!=` float-free 布局走 `__struct_eq` 单指令（类型名 + 基元字节 + 引用叶子 Value 相等）
+//   · `a.Equals(x)` 直呼零装箱（同型剥壳 / 异型值编译期 false / object 位运行期同名判定）
+//   · 含浮点布局保持逐叶浮点语义（+0.0==-0.0 为真、NaN!=NaN），Equals 与 == 一致
+//   · `GetHashCode` 直呼与装箱协议同哈希（跨表示一致，值相等 ⇒ 哈希相等）
+// 与既有 boxed 路径（装箱协议 Equals$1 / FNV）交叉对账：同值必同判。
+namespace Demo;
+
+struct Pt {
+    public int x; public int y; public int z;
+    public Pt(int x, int y, int z) { this.x = x; this.y = y; this.z = z; }
+}
+
+struct Other {
+    public int x; public int y;
+    public Other(int x, int y) { this.x = x; this.y = y; }
+}
+
+struct Inner {
+    public int v; public int w;
+    public Inner(int v, int w) { this.v = v; this.w = w; }
+}
+
+struct Outer {
+    public Inner a; public Inner b;
+    public Outer(Inner a, Inner b) { this.a = a; this.b = b; }
+}
+
+struct Named {
+    public int id; public string name;
+    public Named(int id, string name) { this.id = id; this.name = name; }
+}
+
+struct Vec {
+    public double x; public double y;
+    public Vec(double x, double y) { this.x = x; this.y = y; }
+}
+
+class Cell {
+    public int n;
+    public Cell(int n) { this.n = n; }
+}
+
+struct WithRef {
+    public int n; public Cell c;
+    public WithRef(int n, Cell c) { this.n = n; this.c = c; }
+}
+
+[Record] struct Rec {
+    public int A; public int B;
+    public Rec(int a, int b) { this.A = a; this.B = b; }
+}
+
+void Main() {
+    Pt a = new Pt(1, 2, 3);
+    Pt b = new Pt(1, 2, 3);
+    Pt c = new Pt(1, 2, 9);
+
+    // ── == / != 快路（float-free blob → __struct_eq 单指令）──
+    Assert.True(a == b);
+    Assert.False(a == c);
+    Assert.True(a != c);
+    Assert.False(a != b);
+
+    // ── Equals 直呼：同型实参（剥 BoundBox，零装箱零拷贝）──
+    Assert.True(a.Equals(b));
+    Assert.False(a.Equals(c));
+
+    // ── Equals 直呼：异型值实参（编译期恒假 → ConstBool(false)）──
+    Other q = new Other(1, 2);
+    Assert.False(a.Equals(q));
+    Assert.False(a.Equals(5));
+    Assert.False(a.Equals("hi"));
+    Assert.False(a.Equals(null));
+
+    // ── Equals 直呼：object 位实参（运行期同名判定）──
+    object ob = b;
+    object oc = c;
+    object oq = q;
+    Assert.True(a.Equals(ob));
+    Assert.False(a.Equals(oc));
+    Assert.False(a.Equals(oq));
+
+    // ── 与既有 boxed 路径交叉对账 ──
+    object oa = a;
+    Assert.True(oa.Equals(ob));
+    Assert.True(oa == ob);          // 装箱 == 值相等（blob 语义，既有行为不回归）
+    Assert.False(oa == oc);
+    Assert.Equal(a == b, oa.Equals(ob));   // 装箱/非装箱同判
+
+    // ── GetHashCode：直呼与装箱协议同哈希、值相等同哈希 ──
+    Assert.Equal(a.GetHashCode(), b.GetHashCode());
+    Assert.Equal(oa.GetHashCode(), a.GetHashCode());   // 跨表示一致
+    Assert.Equal(oa.GetHashCode(), b.GetHashCode());
+
+    // ── 嵌套 struct（递归 float-free）──
+    Outer o1 = new Outer(new Inner(1, 2), new Inner(3, 4));
+    Outer o2 = new Outer(new Inner(1, 2), new Inner(3, 4));
+    Outer o3 = new Outer(new Inner(1, 2), new Inner(3, 9));
+    Assert.True(o1 == o2);
+    Assert.False(o1 == o3);
+    Assert.True(o1.Equals(o2));
+    Assert.False(o1.Equals(o3));
+    Assert.Equal(o1.GetHashCode(), o2.GetHashCode());
+
+    // ── string 叶子：按内容比较（builtin refs Value 相等 = leaf Eq 同语义）──
+    Named n1 = new Named(1, "ab");
+    Named n2 = new Named(1, "ab");
+    Named n3 = new Named(1, "ac");
+    Assert.True(n1 == n2);
+    Assert.False(n1 == n3);
+    Assert.True(n1.Equals(n2));
+    Assert.Equal(n1.GetHashCode(), n2.GetHashCode());
+
+    // ── 引用叶子：按身份比较 ──
+    Cell s1 = new Cell(7);
+    WithRef r1 = new WithRef(1, s1);
+    WithRef r2 = new WithRef(1, s1);
+    WithRef r3 = new WithRef(1, new Cell(7));
+    Assert.True(r1 == r2);
+    Assert.False(r1 == r3);
+    Assert.True(r1.Equals(r2));
+    Assert.False(r1.Equals(r3));
+
+    // ── 含浮点布局：保持浮点语义（不走按位快路）──
+    Vec v1 = new Vec(0.0, 1.0);
+    Vec v2 = new Vec(-0.0, 1.0);
+    Vec v3 = new Vec(-0.0, 1.0);
+    Vec vn = new Vec(0.0 / 0.0, 1.0);
+    Vec vn2 = new Vec(0.0 / 0.0, 1.0);
+    Assert.True(v2 == v3);          // 同位（含 -0.0）相等
+    Assert.True(v1 == v2);          // +0.0 == -0.0（浮点 Eq 语义，非按位）
+    Assert.False(vn == vn2);        // NaN != NaN
+    Assert.True(v2.Equals(v3));
+    Assert.True(v1.Equals(v2));
+    Assert.False(vn.Equals(vn2));
+    Assert.Equal(v2.GetHashCode(), v3.GetHashCode());
+
+    // ── record struct：快路与 record 语义叠加（ToString 合成不受影响）──
+    Rec ra = new Rec(1, 2);
+    Rec rb = new Rec(1, 2);
+    Rec rc = new Rec(9, 9);
+    Assert.True(ra == rb);
+    Assert.False(ra == rc);
+    Assert.True(ra.Equals(rb));
+    Assert.Equal(ra.GetHashCode(), rb.GetHashCode());
+}

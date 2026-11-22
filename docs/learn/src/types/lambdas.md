@@ -326,7 +326,9 @@ lambda 里可以直接用外层的局部变量，这样的 lambda 叫**闭包**�
 
 所有委托类型还共享一个族基类 `Std.Delegate`：`f.Target` 取方法组的接收对象（lambda /
 自由函数为 `null`）、`f.FnName` 取目标函数名，`f is Delegate` 为 true，泛型参数可以写
-`where TD : Delegate` 约束。它不改变「类型说的就是实话」——`Action<T>` 仍是单播，多播
+`where TD : Delegate` 约束——约束之下 `h.Target` / `h.FnName` 直接可读，不用先写
+`(Delegate)h`；`f.ToString()` 打出目标函数名，`f.Equals(g)` 与 `f == g` 同判据，
+`f.GetType()` 给静态委托类型。它不改变「类型说的就是实话」——`Action<T>` 仍是单播，多播
 仍要 `MulticastAction<T>`；基类只提供这些族公共接口。
 
 **调一个为 `null` 的函数值抛 `NullReferenceException`**，可以 `catch`：

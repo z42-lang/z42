@@ -217,6 +217,29 @@ pub fn delegate_eq(a: &Value, b: &Value) -> bool {
     }
 }
 
+/// feat/delegate-object-methods: `Std.Delegate.ToString` override — a delegate's
+/// textual form is its target function's qualified name (same source as `FnName`;
+/// a callable has no more meaningful spelling). Non-delegate / Null → Null, the
+/// same lenient contract as `delegate_fn_name`.
+pub fn delegate_to_str(ctx: &VmContext, delegate: &Value) -> Result<Value, BuiltinError> {
+    delegate_fn_name(ctx, delegate)
+}
+
+/// feat/delegate-object-methods: `Std.Delegate.GetHashCode` override — a hash
+/// consistent with `delegate_eq`: `FuncRef` folds the target `FnId`, `Closure`
+/// mixes the id with the env handle address (same fn **and** same env ⇒ equal ⇒
+/// same hash). Non-delegate → 0, mirroring `delegate_eq`'s lenient `false`.
+pub fn delegate_hash(delegate: &Value) -> i64 {
+    match delegate {
+        Value::FuncRef(id) => id.0 as i64,
+        Value::Closure(c) => {
+            let fn_id = crate::object::closure_data_of(c).fn_id.0 as i64;
+            fn_id ^ (c.addr() as i64)
+        }
+        _ => 0,
+    }
+}
+
 /// Identity hash of a heap address: non-negative 31 bits, stable because the
 /// GC never moves objects. The address itself is a poor hash — allocations
 /// are aligned, so its low bits are constant, and `Dictionary` picks the
@@ -337,4 +360,12 @@ pub mod typed {
     pub fn make_closure(ctx: &VmContext, fn_name: &Value, env: &Value) -> Result<Value, BuiltinError> {
         super::make_closure(ctx, fn_name, env)
     }
+
+    #[builtin(name = "__delegate_to_str", this = "ToString")]
+    pub fn delegate_to_str(ctx: &VmContext, this: &Value) -> Result<Value, BuiltinError> {
+        super::delegate_to_str(ctx, this)
+    }
+
+    #[builtin(name = "__delegate_hash", this = "GetHashCode", pure)]
+    pub fn delegate_hash(this: &Value) -> i64 { super::delegate_hash(this) }
 }

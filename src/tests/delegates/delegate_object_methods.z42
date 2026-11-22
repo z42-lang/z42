@@ -1,0 +1,49 @@
+// feat/delegate-object-methods 回归 golden：委托值上的 Object 协议方法。
+// 此前：函数类型收者报 E0401「no method ToString」；`(Delegate)f` 收者编译过、运行期
+// VCall bail（func 值无 TypeDesc）。现在四方法全通：
+//   ① ToString = FnName（同源；静态组为 mangled 全名）
+//   ② Equals 与 == / Delegate.ReferenceEquals 三口一致
+//   ③ GetHashCode 与相等一致（同值同哈希）
+//   ④ GetType 折叠为 typeof(静态委托类型)（同值类型 GetType 折叠先例）；IsDelegate 位可查
+//   ⑤ `(Delegate)f` 上转收者同套（GetType → Std.Delegate，族基类口径）
+namespace Demo;
+
+using Std;
+using Std.IO;
+
+class L {
+    public int N;
+    public void Tick(int n) { this.N = this.N + n; }
+}
+
+class Api {
+    public static int Twice(int x) { return x * 2; }
+}
+
+void Main() {
+    L l = new L();
+    Action<int> mg = l.Tick;
+    Func<int, int> f = Api.Twice;
+
+    // ── ① ToString ─────────────────────────────────────────────────────────
+    Console.WriteLine("tostr-is-fn " + (mg.ToString() == mg.FnName).ToString());
+    Console.WriteLine(f.ToString());
+
+    // ── ②③ Equals / GetHashCode 与 == 同口径 ────────────────────────────────
+    Action<int> mg2 = mg;
+    Console.WriteLine("eq " + (mg.Equals(mg2) == (mg == mg2)).ToString());
+    Console.WriteLine("req " + (mg.Equals(mg2) == Delegate.ReferenceEquals(mg, mg2)).ToString());
+    Console.WriteLine("neq " + mg.Equals(f).ToString());            // 跨委托值
+    Console.WriteLine("hash-eq " + (mg.GetHashCode() == mg2.GetHashCode()).ToString());
+
+    // ── ④ GetType 折叠 ─────────────────────────────────────────────────────
+    Console.WriteLine("gt " + mg.GetType().FullName);
+    Console.WriteLine("gt-isdel " + f.GetType().IsDelegate.ToString());
+
+    // ── ⑤ 上转收者同套 ─────────────────────────────────────────────────────
+    Delegate d = f;
+    Console.WriteLine("d-tostr " + (d.ToString() == f.FnName).ToString());
+    Console.WriteLine("d-eq " + d.Equals(f).ToString());
+    Console.WriteLine("d-hash " + (d.GetHashCode() == f.GetHashCode()).ToString());
+    Console.WriteLine("d-gt " + d.GetType().FullName);
+}

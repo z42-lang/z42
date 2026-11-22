@@ -79,6 +79,15 @@ impl RuntimeLoader<'_> {
         loader.register_decoded_artifact(artifact)
     }
 
+    /// Copy this VM's current package search order under the loader's read lock.
+    pub(crate) fn search_dirs_snapshot(&self) -> Vec<PathBuf> {
+        self.state
+            .lazy_loader
+            .read()
+            .as_ref()
+            .map_or_else(Vec::new, |loader| loader.search_dirs().to_vec())
+    }
+
     /// Clear the lazy loader (used in tests).
     pub fn uninstall_lazy_loader(&self) {
         let mut state = self.state.lazy_loader.write();

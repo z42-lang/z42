@@ -55,8 +55,13 @@ const UNDECLARED_ALLOWLIST: &[(&str, &str)] = &[
     // source, and there is no z42-callable surface for it (the index is a compile-time fact).
     ("__class_type_arg", "compiler-emitted: fix-class-level-typeof"),
     ("__class_default", "compiler-emitted: 继承链按声明类寻址（类级 default(T)）"),
-    // Invoked by the VM itself (boxed-struct `GetHashCode` protocol intercept in exec/ops/vcall).
-    ("__struct_hash_code", "VM-internal: boxed struct GetHashCode"),
+    // Invoked by the VM itself (boxed-struct `GetHashCode` protocol intercept in exec/ops/vcall),
+    // and emitted by the compiler at statically-typed struct `GetHashCode()` sites (any
+    // representation — no box).
+    ("__struct_hash_code", "VM-internal + compiler-emitted: struct GetHashCode"),
+    // Emitted by the compiler for struct `==`/`!=` and unoverridden `Equals` on float-free
+    // layouts — a single-instruction value comparison over any struct representation.
+    ("__struct_eq", "compiler-emitted: add-struct-value-eq-fastpath"),
     // 🪦 store-sync-values-in-heap 阶段 2 已落地：旧同步原语的 19 条豁免连同它们的
     // 表槽、`corelib/sync.rs`、三个 registry 一并删除 —— 所以这里**不再需要**对应条目。
     //

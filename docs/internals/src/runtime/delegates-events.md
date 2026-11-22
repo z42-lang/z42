@@ -160,6 +160,8 @@ Rust 侧四个实现零改动）：
 | `__delegate_target` | `object Target { get; }` | 从 Closure 取 `env[0]`；`FuncRef` / 非 delegate 返回 null |
 | `__delegate_fn_name` | `string FnName { get; }` | 目标函数的全限定名（值里存的是 `FnId`，名字从它指向的 `Function` 取，每次新分配一个串）|
 | `__make_closure` | `static MakeClosure(string, object[]) -> object` | 用 `(fn_name, env)` 重建 Closure：名字在这里绑成 `FnId`（与 `MkClos` 同一条路径），解析不到就抛 |
+| `__delegate_to_str` | `string ToString()` | 文本形 = 目标函数全限定名（与 FnName 同源；委托没有更有意义的文本形）；非委托返回 null |
+| `__delegate_hash` | `int GetHashCode()` | 与 eq 一致的身份哈希：FuncRef 折 FnId、Closure 混 env 句柄地址；非委托返回 0 |
 | `__delegate_eq` | `static ReferenceEquals(a, b) -> bool` | 按 `FuncRef` / `Closure` 两变体各自的身份语义比较：`FuncRef` 比 `FnId`，`Closure` 比 `fn_id` + env 指针；跨变体不等；非 delegate 返回 false 不报错。一个函数只有一个 id，所以 id 相等即「同一函数」，与此前按名字比较等价 |
 
 `Target` 为 null 就是"无 receiver 可弱化" → 包装类退化为 strong。
@@ -177,6 +179,11 @@ Rust 侧四个实现零改动）：
 - **is/as**：直接目标走 `prim_isa` 的 callable 臂（`Std.Delegate` / `Std.Object` → true）；
   泛型参数目标走 `callable_isa` 的同名特判（必须抢在注册表查询前——`Std.Delegate` 是真类、
   `is_delegate()` 位是 **false**，查表会答 false）。
+- **约束成员直读**（feat/delegate-constraint-members）：`_constraintBaseClass`（方法级
+  WhereClause 现读 + 类级 ConstraintSet.HasBaseClass）解析型参的基类约束——GS5 读路与
+  调用路在 Object/约束接口未命中后按约束类**整段重派发类路径**（字段/getter/重载/访问检查
+  全复用）；**stdlib Delegate** 约束合成 `(Delegate)h` 上转节点接直呼机制（运行期该
+  AsCast 经 prim_isa callable 臂恒放行）。
 - **元数据**：`EmitDelegates` 的 `IrClassDesc` 带 `base = "Std.Delegate"`（数据字段非
   schema，无 format-bump）⇒ 反射 `BaseType` / `IsSubclassOf` 沿基链自然成立；
   `where TD : Delegate` 约束由 `ConstraintChecker._satisfiesBase` 的 `Z42FuncType` 分支放行。

@@ -31,6 +31,16 @@ public sealed partial class ExprEmitter : IBoundExprVisitor<TypedReg, Unit> {
         return this._op.EmitSynthEqualsResult(structName, thisReg, otherReg);
     }
 
+    // add-struct-value-eq-fastpath：`__struct_eq` 单指令与「裸 receiver + object 实参」的 Equals 臂
+    // （CallEmitter 直呼路由用）——委回 OperatorEmitter（struct 相等发射簇）。
+    internal TypedReg _emitStructEqBuiltin(TypedReg a, TypedReg c) { return this._op._emitStructEqBuiltin(a, c); }
+    internal TypedReg _emitEqualsRawThis(string structName, TypedReg recv, TypedReg other) {
+        return this._op._emitEqualsRawThis(structName, recv, other);
+    }
+    internal TypedReg _emitStructLeafEq(TypedReg a, TypedReg c, string structName) {
+        return this._op._emitStructEquality(true, a, c, structName);
+    }
+
     // 表达式发射入口：记源码行后经 Accept 双分派到下面的 Visit 方法。
     // 每表达式入口记源码行（镜像 C# EmitExpr 入口 TrackLine；同行去重在 ctx）。
     // 配合 _emitStmt 的语句级 TrackLine，覆盖跨多行的表达式（如多行 return 拼接）。

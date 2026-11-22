@@ -321,6 +321,16 @@ public sealed partial class MemberResolver {
                 if (!cms.IsStatic) { ccall.IfaceSlot = IfaceSlotKeys.CallSite(chit.Owner, cms.Name); }
                 return ccall;
             }
+            // feat/delegate-constraint-members：**基类约束**提供的方法 —— `where TD : SomeClass` 下
+            // `h.M(args)` 按约束类整段重派发（重载决议 / 实参检查 / 访问检查全走类路径；运行期收者
+            // 是真实对象，VCall 派发正确）。**stdlib Delegate** 约束合成 `(Delegate)h` 上转（族基类
+            // 直呼机制，同属性路注释）。置于 Object 与约束接口之后：既有代码零行为漂移。
+            Z42ClassType gpBaseC = this._tc._expr._constraintBaseClass(env, rt.Name());
+            if (gpBaseC != null) {
+                BoundExpr gpWrapC = MemberResolver._isStdDelegateClass(gpBaseC)
+                    ? (BoundExpr)new BoundCast(recv, gpBaseC, "Delegate", sp) : recv;
+                return this._bindInstanceMemberCall(mem, gpWrapC, gpBaseC, args, argCount, rawArgs, env, sp, call);
+            }
             // check-bare-type-param-member-access B：`Object` 成员与约束都没提供 ⇒ 若这个名字
             // **在任何已知类型上都不存在**，那就是必然错（拼错 / 调不存在的方法），报 E0401。
             // 名字存在于某个类型上则照旧松绑 —— 引用类型的擦除收者运行期派发得好好的，
@@ -415,6 +425,17 @@ public sealed partial class MemberResolver {
                                                       new BoundExpr[0], 0, cgsig.Ret, m.Span), cgsig);
                 if (!cgs.IsStatic) { cgcall.IfaceSlot = IfaceSlotKeys.CallSite(cghit.Owner, cgs.Name); }
                 return cgcall;
+            }
+            // feat/delegate-constraint-members：**基类约束**提供的属性 / 字段 —— `where TD : Delegate`
+            // 下 `h.Target` / `h.FnName` 直读（不再手写 `(Delegate)h`）。泛化：任意类约束都按约束类
+            // 整段重派发类路径（字段 / getter / 访问检查全复用）；**stdlib Delegate** 约束合成
+            // `(Delegate)h` 上转节点——发射端族基类直呼机制靠收者类型识别（func 值无 vtable，
+            // 见 `_isDelegateFamilyRecv`），运行期该 AsCast 经 prim_isa callable 臂恒放行。
+            Z42ClassType gpBaseR = this._tc._expr._constraintBaseClass(env, tt.Name());
+            if (gpBaseR != null) {
+                BoundExpr gpWrapR = MemberResolver._isStdDelegateClass(gpBaseR)
+                    ? (BoundExpr)new BoundCast(target, gpBaseR, "Delegate", m.Span) : target;
+                return this._bindInstanceMember(m, gpWrapR, gpBaseR, env);
             }
             // check-bare-type-param-member-access B：同方法路 —— 只报「全仓无此成员名」。
             this.ReportTypeParamMemberUnknown(env.Symbols, tt.Name(), m.Name, false, m.Span);
@@ -543,6 +564,29 @@ public sealed partial class MemberResolver {
             }
         }
         return null;
+    }
+
+    // feat/delegate-constraint-members：是不是 **stdlib** 的委托族基类（Namespace 判据排除
+    // 用户自造同名类；本地/导入两侧都填 Std——与发射端 `_isDelegateFamilyRecv` 同一口径）。
+    private static bool _isStdDelegateClass(Z42ClassType ct) {
+        return ct != null && ct.Name() == "Delegate" && ct.Namespace == "Std";
+    }
+
+    // feat/method-group-arg-deferral：**本类**（不沿基链）上同名方法（按静态性过滤）的候选数。
+    // 实参延迟谓词（`ExprTyper.IsOverloadedFuncRefArg` 的 MemberExpr 臂）专用——探测须零副作用
+    // 故不绑 receiver、不走基链；基类链上的重载保持急切绑定（回到 #1901 前的现状行为）。
+    internal static int _ownMethodsOfKind(Z42ClassType ct, string name, bool wantStatic) {
+        int cap = ct.Methods.Capacity();
+        int n = 0;
+        int i = 0;
+        while (i < cap) {
+            if (ct.Methods.UsedAt(i)) {
+                MethodSymbol ms = ct.Methods.ValAt(i) as MethodSymbol;
+                if (ms != null && ms.Name == name && ms.IsStatic == wantStatic && ms.Signature != null) { n = n + 1; }
+            }
+            i = i + 1;
+        }
+        return n;
     }
 
 

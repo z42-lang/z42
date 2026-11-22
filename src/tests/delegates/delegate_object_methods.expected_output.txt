@@ -1,0 +1,12 @@
+tostr-is-fn true
+Demo.Api.Twice$1$int
+eq true
+req true
+neq false
+hash-eq true
+gt Std.Action<Std.Int32>
+gt-isdel true
+d-tostr true
+d-eq true
+d-hash true
+d-gt Std.Delegate

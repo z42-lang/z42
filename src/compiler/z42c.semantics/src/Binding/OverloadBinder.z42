@@ -27,6 +27,12 @@ public sealed partial class OverloadBinder {
     // 按选中签名 sig 的形参类型定型；params 尾位用元素类型；sig=null 或越界位 → 目标 null → 报 E0437。
     // 检测靠 args[i]==null（延迟位），rawArgs 提供原始 AST。已绑定位（非 null）跳过，幂等。
     public BoundExpr[] BindArgsToSignature(BoundExpr[] args, Expr[] rawArgs, int argCount, Z42FuncType sig, TypeEnv env) {
+        this._bindDeferredArgs(args, rawArgs, argCount, sig, env);
+        this.CheckArgTypes(args, rawArgs, argCount, sig, env);
+        return args;
+    }
+
+    private void _bindDeferredArgs(BoundExpr[] args, Expr[] rawArgs, int argCount, Z42FuncType sig, TypeEnv env) {
         int i = 0;
         while (i < argCount) {
             if (args[i] == null) {
@@ -41,8 +47,6 @@ public sealed partial class OverloadBinder {
             }
             i = i + 1;
         }
-        this.CheckArgTypes(args, rawArgs, argCount, sig, env);
-        return args;
     }
 
     // add-argument-type-check：实参 → 形参的**隐式可转**检查，与赋值 / return / var-decl 同一条门
@@ -278,10 +282,13 @@ public sealed partial class OverloadBinder {
         // 非-Func 形参位不动 ⇒ 非-lambda 实参绑定/装箱/params/默认值逐字节不变（design I1'/D1）。
         // 显式 `<>` 路径 ms.Signature 已由 ForExplicitTypeArgs 全代换成具体 ⇒ 此处 InferPreBinding
         // 推不出型参、SubstituteFuncParams no-op，天然不重复。
+        MethodSymbol method = ms;
         ms = this._inferFuncParamSubst(ms, args, rawArgs, rawArgCount, env);
         // add-target-typed-new：先回填延迟的 target-typed new 实参（按 ms 形参类型），再走装箱/默认值。
         // 必须在 BoxArgs 之前——BoxArgs 遍历 args 会对 null 位崩。
-        args = this.BindArgsToSignature(args, rawArgs, rawArgCount, ms.Signature, env);
+        this._bindDeferredArgs(args, rawArgs, rawArgCount, ms.Signature, env);
+        Z42FuncType checkSig = MethodTypeArgSubst.ForwardingCheckSignature(method, ms.Signature, args, rawArgCount, env);
+        this.CheckArgTypes(args, rawArgs, rawArgCount, checkSig, env);
         // add-primitive-value-boxing: 实参整数 → object/接口 形参 装箱（本方法是 5 处调用点的
         // 公共汇聚步——就地按 ms 形参类型逐位装箱；BoxArgs 对非整数/非 object·接口位 no-op）。
         // params 尾包（object[]/T[] 元素）不在此覆盖：ParamTypes[pf] 是数组类型 → BoxIfNeeded no-op（罕见）。
