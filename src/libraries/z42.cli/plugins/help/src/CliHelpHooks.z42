@@ -6,10 +6,12 @@ using Z42.Build;
 using Z42.Doc;
 using Z42.Project;
 
+/// 按枚举成员限定名生成独立的 CLI 帮助资产。
 public sealed class CliHelpHooks : BuildHooks {
     private static string Target = "z42.cli.help";
     private static string Field = "choice-help";
 
+    /// 从当前工程读取以本插件为目标的文案，并写入构建输出目录。
     public override void AfterCompile(IPipelineContext ctx) {
         ProjectManifest manifest = ctx.Manifest;
         string[] excludes = manifest.EffectiveSourceExcludes();
