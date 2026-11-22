@@ -725,6 +725,14 @@ void test_no_modifier_interface_member_defaults_private_is_reported() {
 // `E0412` 用例变绿（假通过），`_ok_` 那条两态同绿（无误报守卫）。
 
 [Test]
+void test_duplicate_concrete_impl_uses_qualified_identity() {
+    Assert.Equal("E0413", SemanticDump.FirstErrorCode(
+        "namespace Demo; interface I { int Get(); } class C {}\n"
+        + "impl I for C { public int Get() { return 1; } }\n"
+        + "impl Demo.I for Demo.C { public int Get() { return 2; } }"));
+}
+
+[Test]
 void test_impl_block_missing_interface_member_is_reported() {
     // impl 块空、没补 `M` → target 未满足接口 → E0412（此前静默通过）。
     Assert.Equal("E0412", SemanticDump.FirstErrorCode(

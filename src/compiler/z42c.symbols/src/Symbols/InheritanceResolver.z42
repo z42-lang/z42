@@ -3,9 +3,11 @@
 namespace Z42.Symbols;
 using Z42.Syntax;
 using Z42.Core;
+using Z42.IR;
 
 public sealed class InheritanceResolver {
     private SymbolCollector _sc;   // hub 反向引用：共享辅助 + partial 状态 + 编排
+    private StrMap _localConcreteImpls = new StrMap();
     public InheritanceResolver(SymbolCollector sc) { this._sc = sc; }
 
     // impl-block 收集（port-z42c-impl-block，镜像 C# CollectImpls）：
@@ -15,7 +17,7 @@ public sealed class InheritanceResolver {
     // 在 `_passSealedEnforce` 内走 AST `c.Bases` 校验；**impl 块接口**（`impl I for C`）不在
     // `c.Bases` 里、由本 pass 并进 `InterfaceNames`，故其齐备性由独立的 `_passImplIfaceComplete`
     // 在本 pass **之后**校验（fix-iface-self-completeness-gaps A2）。两条路互不重叠、各查各的。
-    internal void _passImpls(SymbolTable table, CompilationUnit cu) {
+    internal void _passImpls(SymbolTable table, CompilationUnit cu, ImportedSymbols imported) {
         table.CurrentAliases = SymbolTable.BuildAliases(cu);   // add-type-alias
         // A5b-2c：按名解析（target / trait / 方法签名里的类型）要**本 CU 的作用域** —— 根表上
         // `impl IGreet for Robot`（`using Demo.Target;`）的 `Robot` 只能靠已删的裸名回落查到（同 MemberCollector）。
@@ -31,6 +33,10 @@ public sealed class InheritanceResolver {
                     Z42ClassType target = table.GetClass(targetName);
                     string traitName = "";
                     if (implD.TraitType is NamedType) { traitName = (implD.TraitType as NamedType).Name; }
+                    if (!this._registerConcreteImpl(target, table.GetInterface(traitName), implD.Span, imported)) {
+                        i = i + 1;
+                        continue;
+                    }
                     // interface-names-fqn：`_passImpls` 跑在归一 pass **之后** ⇒ 这里追加的名字
                     // 必须自己 FQ 化，否则 `InterfaceNames` 里混进一个短名、`Implements` 比不上它
                     // （impl 块补的接口静默失效）。
@@ -53,6 +59,25 @@ public sealed class InheritanceResolver {
             }
             i = i + 1;
         }
+    }
+
+    private bool _registerConcreteImpl(Z42ClassType target, Z42InterfaceType trait, Span span, ImportedSymbols imported) {
+        if (trait == null || target.GenericParamCount > 0 || trait.TypeParamCount > 0) { return true; }
+        string key = ImportedSymbolLoader.ConcreteImplKey(target.Fqn(), trait.Fqn());
+        StrBox dependency = imported == null ? null : imported.ConcreteImplOrigins.Get(key) as StrBox;
+        if (dependency != null) {
+            this._sc.Diags.Error(DiagnosticCodes.InvalidImpl,
+                "duplicate `" + key + "` already provided by package `" + dependency.Value + "`", span);
+            return false;
+        }
+        Span previous = this._localConcreteImpls.Get(key) as Span;
+        if (previous != null) {
+            this._sc.Diags.Error(DiagnosticCodes.InvalidImpl,
+                "duplicate `" + key + "` already declared at " + previous.File + ":" + previous.Line.ToString(), span);
+            return false;
+        }
+        this._localConcreteImpls.Put(key, span);
+        return true;
     }
 
     // fix-iface-self-completeness-gaps A2：impl 块（`impl Trait for Target`）补的接口，其成员齐备性

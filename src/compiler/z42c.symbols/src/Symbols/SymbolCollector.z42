@@ -373,7 +373,8 @@ public sealed class SymbolCollector {
         // 的方法并入 target.Methods + Trait 并入 target.InterfaceNames（target 可本地或
         // imported；_mergeImports 已 seed）。镜像 C# SymbolCollector.CollectImpls。
         c = 0;
-        while (c < cuCount) { this._inherit._passImpls(table, cus[c]); c = c + 1; }
+        if (imported != null) { this.Diags.MergeFrom(imported.ImplDiagnostics); }
+        while (c < cuCount) { this._inherit._passImpls(table, cus[c], imported); c = c + 1; }
         c = 0;
         while (c < cuCount) { this._inherit._passInheritFields(table, cus[c]); c = c + 1; }
         c = 0;

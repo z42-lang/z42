@@ -125,7 +125,8 @@ public sealed class DeclBinder {
         while (j < im.MethodCount) {
             if (im.Methods[j] is MethodDecl) {
                 MethodDecl md = im.Methods[j] as MethodDecl;
-                if (md.HasBody) {
+                // A rejected impl does not register method keys.
+                if (md.HasBody && md.RegKey != "") {
                     string mkey = OverloadResolver.MethodKeyOf(md);
                     MethodSymbol ms = ct.Methods.Get(mkey) as MethodSymbol;
                     int mtpc = md.TypeParams.Count;

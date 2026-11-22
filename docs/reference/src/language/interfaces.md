@@ -62,6 +62,11 @@ class C : IA { int A() { return 3; } }
 // ✗ E0412: `C` implements `IA` but `A` must be implemented `public` (it is `private` here)
 ```
 
+## 在类型外声明实现
+
+`impl Interface for Type { ... }` 可以为已有的类或结构体实现接口。对于具体的非泛型接口和类型，
+同一对接口与类型只能有一条显式 `impl`。本包或同时可见的依赖包提供重复实现时，编译器报 `E0413`。
+
 ## 经接口调用：按签名找实现
 
 接口方法由实现方**签名相同**的那个成员兑现——实现类有同名重载时，经接口静态类型调用落到的是签名对得上
