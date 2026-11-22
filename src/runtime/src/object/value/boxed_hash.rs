@@ -11,6 +11,13 @@ pub fn struct_hash_code(gc: &crate::object::ObjRef) -> i64 {
     // add-boxed-struct-identity (P4b): read the blob out of the shared box object.
     // The blob's reference slots hold reference words — hash the bytes with them zeroed.
     let (bytes, refs) = gc.borrow().boxed_blob();
+    hash_struct_payload(&bytes, &refs)
+}
+
+/// add-struct-value-eq-fastpath：payload 级哈希——boxed、frame arena `StructRef`、
+/// `struct[]` 元素三种表示共用同一实现，同值 struct 无论从哪种表示进来哈希都相同
+/// （值相等 ⇒ 哈希相等这条契约跨表示成立）。
+pub fn hash_struct_payload(bytes: &[u8], refs: &[Value]) -> i64 {
     let mut h: u32 = 2_166_136_261;
     for &byte in bytes.iter() { h ^= byte as u32; h = h.wrapping_mul(16_777_619); }
     for r in refs.iter() {

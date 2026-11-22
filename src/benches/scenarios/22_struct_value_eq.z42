@@ -1,0 +1,38 @@
+// tier: gate
+
+// Value-struct equality hot path: `==`, unoverridden `Equals(object)` and `GetHashCode`
+// on a 3×int blob struct, all through their statically-typed sites. Guards the
+// add-struct-value-eq-fastpath lowering (`__struct_eq` / `__struct_hash_code` single
+// builtins, zero boxing) — the path struct-keyed dictionaries lean on. The `==` fast
+// path must stay competitive with the boxed-blob compare; Equals must not regress to
+// the box-both-sides vcall protocol.
+// workload: 4M ==, 4M Equals, 2M GetHashCode on alternating operands (defeats
+// loop-invariant folding); expected output (deterministic): 2487704086000000
+namespace Bench.StructValueEq;
+
+using Std.IO;
+
+struct Pt {
+    public int x; public int y; public int z;
+    public Pt(int x, int y, int z) { this.x = x; this.y = y; this.z = z; }
+}
+
+void Main() {
+    int n = 2000000;
+    Pt a = new Pt(1, 2, 3);
+    Pt b = new Pt(1, 2, 3);
+    Pt c = new Pt(1, 2, 9);
+    long acc = 0;
+    Pt bb = b;
+
+    int i = 0;
+    while (i < n) {
+        bb = b;
+        if ((i & 1) == 1) { bb = c; }
+        if (a == bb) { acc = acc + 1; }
+        if (a.Equals(bb)) { acc = acc + 1; }
+        acc = acc + bb.GetHashCode();
+        i = i + 1;
+    }
+    Console.WriteLine(acc.ToString());
+}
