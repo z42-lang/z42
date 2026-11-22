@@ -1,0 +1,69 @@
+// feat/method-group-target-typed 回归 golden：重载方法组 + 目标委托类型 → 精确全签名消解
+//（对齐自由函数的 add-target-typed-funcref-resolution）。
+//   ① 实例 type-based 重载：`Func<int,int> fi = c.F;` / `Func<string,string> fs = c.F;`
+//      ——此前后者绑到 primary F(int) 报 E0402；现在按目标选中 F(string)
+//   ② 静态重载带目标：`Func<int,int> gi = Api.G;`——此前无目标消解恒 E0425
+//   ③ return 位 / 赋值位同路
+//   ④ 与族基类交叉（feat/delegate-base-class）：选中组的 is Delegate / Target
+//   ⑤ 既有形态钉：单方法组 / 自由函数重载按目标不回归
+// 负例（typecheck 单测）：0 匹配 E0477；无目标 var 仍 E0425（静态）/ 绑 primary（实例）。
+namespace Demo;
+
+using Std;
+using Std.IO;
+
+class Calc {
+    public int Base;
+    public Calc(int b) { this.Base = b; }
+    public int F(int x) { return this.Base + x; }
+    public string F(string s) { return "[" + s + "]"; }
+    public int Single(int x) { return x + 1; }
+}
+
+class Api {
+    public static int G(int x) { return x * 2; }
+    public static string G(string s) { return "(" + s + ")"; }
+}
+
+int PickOf(Func<int, int> f) { return f(3); }   // ⑤ 实参位：单方法组急切绑（不延迟，文档记载边界）
+
+Func<string, string> ReturnPick(Calc c) { return c.F; }   // ③ return 位
+
+int FreeTwice(int x) { return x * 2; }
+string FreeTwice(string s) { return "<" + s + ">"; }
+
+void Main() {
+    Calc c = new Calc(10);
+
+    // ── ① 实例 type-based 重载按目标 ───────────────────────────────────────
+    Func<int, int> fi = c.F;
+    Func<string, string> fs = c.F;
+    Console.WriteLine(fi(5).ToString());       // 15
+    Console.WriteLine(fs("x"));                // [x]
+
+    // ── ② 静态重载带目标 ───────────────────────────────────────────────────
+    Func<int, int> gi = Api.G;
+    Func<string, string> gs = Api.G;
+    Console.WriteLine(gi(21).ToString());      // 42
+    Console.WriteLine(gs("y"));                // (y)
+
+    // ── ③ return 位 / 赋值位 ───────────────────────────────────────────────
+    Func<string, string> rp = ReturnPick(c);
+    Console.WriteLine(rp("r"));                // [r]
+    Func<int, int> re = null;
+    re = c.F;                                  // 赋值位
+    Console.WriteLine(re(7).ToString());       // 17
+
+    // ── ④ 族基类交叉 ───────────────────────────────────────────────────────
+    Console.WriteLine("fs-is-delegate " + (fs is Delegate).ToString());
+    Console.WriteLine("fs-target-is-c " + ((Calc)fs.Target == c).ToString());
+    Console.WriteLine("gs-target-null " + (gs.Target == null).ToString());
+
+    // ── ⑤ 既有形态钉 ───────────────────────────────────────────────────────
+    Func<int, int> single = c.Single;          // 单方法组照常
+    Console.WriteLine(PickOf(single).ToString());   // 4
+    Func<int, int> ff = FreeTwice;             // 自由函数重载按目标（既有）
+    Func<string, string> ffs = FreeTwice;
+    Console.WriteLine(ff(4).ToString());       // 8
+    Console.WriteLine(ffs("f"));               // <f>
+}

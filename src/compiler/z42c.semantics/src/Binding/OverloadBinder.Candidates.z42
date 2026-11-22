@@ -129,6 +129,22 @@ public sealed partial class OverloadBinder {
         return false;
     }
 
+    // feat/method-group-target-typed：同名**实例**方法候选（含基链、按有效签名去重）——
+    // 重载方法组按目标委托消解的候选面。静态方法组走 MemberResolver 的 ms.Name 扫表
+    //（静态恒 mangle 无裸键，见其注释）。
+    internal MethodSymbol[] _collectInstanceOverloads(SymbolTable symbols, Z42ClassType ct, string name) {
+        MethodSymbol[] all = this._collectOverloads(symbols, ct, name);
+        int n = 0;
+        int i = 0;
+        while (i < all.Length) { if (!all[i].IsStatic) { n = n + 1; } i = i + 1; }
+        if (n == 0) { return new MethodSymbol[0]; }
+        MethodSymbol[] outA = new MethodSymbol[n];
+        int k = 0;
+        i = 0;
+        while (i < all.Length) { if (!all[i].IsStatic) { outA[k] = all[i]; k = k + 1; } i = i + 1; }
+        return outA;
+    }
+
     private MethodSymbol[] _collectOverloads(SymbolTable symbols, Z42ClassType ct, string name) {
         // 去重键 = **有效签名**（简单名 + 形参规范类型），非 RegKey。这样一个派生类型自己声明的
         // 方法会**隐藏**基类中同签名的方法（C# method hiding：more-derived wins）——因基链自派生向基
