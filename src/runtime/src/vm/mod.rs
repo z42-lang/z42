@@ -313,26 +313,38 @@ impl VmContext {
     /// composition layer owns the adaptation, resolution never sees the VM.
     #[inline]
     pub(crate) fn resolve_services(&self) -> VmResolveServices<'_> {
-        VmResolveServices(self)
+        VmResolveServices {
+            funcs: self.funcs(),
+            builtins: &self.core.runtime.builtins,
+            static_table: &self.core.runtime.statics,
+            cctors: &self.core.runtime.cctors,
+            loader: self.loader(),
+        }
     }
 }
 
-/// `metadata::resolve::ResolveServices` implementation assembled by the VM
-/// composition layer: identity tables are borrowed as-is; the type-load
-/// settlement enqueues the requested owners and drains, keeping the
-/// "an observable prepared function has its types registered" ordering.
-pub(crate) struct VmResolveServices<'a>(&'a VmContext);
+/// The borrowed tables and loader used during token resolution.
+/// Pending owners are enqueued and drained before resolved tokens are published.
+pub(crate) struct VmResolveServices<'a> {
+    funcs: &'a crate::metadata::ids::func_table::FuncTable,
+    builtins: &'a crate::metadata::builtins::BuiltinCatalog,
+    static_table: &'a crate::metadata::statics::StaticTable,
+    cctors: &'a crate::metadata::statics::CctorRegistry,
+    loader: crate::loader::RuntimeLoader<'a>,
+}
 
 impl crate::metadata::resolve::ResolveServices for VmResolveServices<'_> {
-    fn funcs(&self) -> &crate::metadata::ids::func_table::FuncTable { self.0.funcs() }
-    fn builtins(&self) -> &crate::metadata::builtins::BuiltinCatalog { &self.0.core.runtime.builtins }
-    fn statics(&self) -> crate::metadata::statics::StaticFields<'_> { self.0.statics() }
-    fn has_loaded_type(&self, class_fq: &str) -> bool { self.0.loader().has_loaded_type(class_fq) }
+    fn funcs(&self) -> &crate::metadata::ids::func_table::FuncTable { self.funcs }
+    fn builtins(&self) -> &crate::metadata::builtins::BuiltinCatalog { self.builtins }
+    fn statics(&self) -> crate::metadata::statics::StaticFields<'_> {
+        crate::metadata::statics::StaticFields::new(self.static_table, self.cctors)
+    }
+    fn has_loaded_type(&self, class_fq: &str) -> bool { self.loader.has_loaded_type(class_fq) }
     fn settle_type_loads(&self, owners: &[String]) {
         for owner in owners {
-            self.0.loader().enqueue_type_load(owner);
+            self.loader.enqueue_type_load(owner);
         }
-        self.0.loader().drain_pending_type_loads();
+        self.loader.drain_pending_type_loads();
     }
 }
 
