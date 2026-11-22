@@ -129,6 +129,25 @@ public sealed partial class OverloadBinder {
         return false;
     }
 
+    internal MethodSymbol ResolveCompoundOverload(Z42InstantiatedType receiver, string name, BoundExpr[] args,
+                                                  int argCount, Expr[] rawArgs, TypeEnv env, Span sp) {
+        MethodSymbol[] declared = this._collectOverloads(env.Symbols, receiver.Def, name);
+        MethodSymbol[] substituted = new MethodSymbol[declared.Length];
+        int i = 0;
+        while (i < declared.Length) {
+            substituted[i] = declared[i].WithSignature(MemberResolver._substGenericSig(declared[i].Signature, receiver));
+            i = i + 1;
+        }
+        MethodSymbol selected = this._resolveOverloadCands(env.Symbols, substituted, name, args, argCount, null, sp, rawArgs, env);
+        // Use the concrete signatures for selection and the original method for the call ABI.
+        i = 0;
+        while (i < substituted.Length) {
+            if (substituted[i] == selected) { return declared[i]; }
+            i = i + 1;
+        }
+        return null;
+    }
+
     private MethodSymbol[] _collectOverloads(SymbolTable symbols, Z42ClassType ct, string name) {
         // 去重键 = **有效签名**（简单名 + 形参规范类型），非 RegKey。这样一个派生类型自己声明的
         // 方法会**隐藏**基类中同签名的方法（C# method hiding：more-derived wins）——因基链自派生向基
