@@ -204,6 +204,7 @@ public sealed class IrGenTypeEmitter {
 
     // port-z42c-impl-block 2c：发 impl 方法为 `<qualTarget>.<m>` 函数（_qClass：imported target 解析到其声明 ns）。
     public void EmitImpl(ImplDecl im) {
+        if (!im.Registered) { return; }
         IrGen g = this._g; SemanticModel model = this._model;
         string itn = "";
         if (im.TargetType is NamedType) { itn = (im.TargetType as NamedType).Name; }

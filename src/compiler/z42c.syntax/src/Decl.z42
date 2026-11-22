@@ -312,6 +312,7 @@ public sealed class ClassDecl : Decl {
 public sealed class ImplDecl : Decl {
     public TypeParamList TypeParams;
     public string[] TargetParamNames;
+    public bool Registered;
     public TypeExpr TraitType;
     public TypeExpr TargetType;
     public Decl[]   Methods;       // 经 _parseMember 解析（MethodDecl 等）

@@ -118,6 +118,7 @@ public sealed class DeclBinder {
     }
 
     internal void _bindImpl(SemanticModel model, SymbolTable symbols, ImplDecl im) {
+        if (!im.Registered) { return; }
         string targetName = "";
         if (im.TargetType is NamedType) { targetName = (im.TargetType as NamedType).Name; }
         Z42ClassType ct = ImplTargets.Resolve(symbols, im);

@@ -27,6 +27,7 @@ public sealed class InheritanceResolver {
             Decl d = cu.Decls[i];
             if (d is ImplDecl) {
                 ImplDecl implD = d as ImplDecl;
+                implD.Registered = false;
                 string targetName = "";
                 if (implD.TargetType is NamedType) { targetName = (implD.TargetType as NamedType).Name; }
                 Z42ClassType target = ImplTargets.Resolve(table, implD);
@@ -50,6 +51,7 @@ public sealed class InheritanceResolver {
                     // 必须自己 FQ 化，否则 `InterfaceNames` 里混进一个短名、`Implements` 比不上它
                     // （impl 块补的接口静默失效）。
                     if (traitName != "") { target.AddInterfaceName(SymbolTable.IfaceFqnOf(table, traitName)); }
+                    implD.Registered = true;
                     int m = 0;
                     while (m < implD.MethodCount) {
                         if (implD.Methods[m] is MethodDecl) {
@@ -152,10 +154,10 @@ public sealed class InheritanceResolver {
             Decl d = cu.Decls[i];
             if (d is ImplDecl) {
                 ImplDecl implD = d as ImplDecl;
-                if (implD.TargetType is NamedType && implD.TraitType is NamedType) {
+                if (implD.Registered && implD.TargetType is NamedType && implD.TraitType is NamedType) {
                     string targetName = (implD.TargetType as NamedType).Name;
                     string traitName = (implD.TraitType as NamedType).Name;
-                    if (targetName != "" && traitName != "" && (implD.TypeParams.Count == 0 || implD.TargetParamNames.Length > 0)) {
+                    if (targetName != "" && traitName != "") {
                         Z42ClassType ct = ImplTargets.Resolve(table, implD);
                         Z42InterfaceType it = table.GetInterface(traitName);
                         if (ct != null && it != null) {
