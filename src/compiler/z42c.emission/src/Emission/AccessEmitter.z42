@@ -253,6 +253,11 @@ public sealed class AccessEmitter {
             return dst;
         }
         // Issue B：auto-property getter dispatch — class 有 get_MemberName → VCall（镜像 C#）
+        // feat/delegate-base-class：委托族接收者（函数类型 / `(Delegate)` 上转值）例外——
+        // 委托值无 TypeDesc / vtable，VCall 必 bail（"expected object, got Closure"）；
+        // 直呼 `Std.Delegate` 的 [Native] stub getter（receiver 作 arg0），见 helper 注释。
+        TypedReg dgProp = this._emitDelegateBasePropGet(m, obj, ftag);
+        if (dgProp != null) { return dgProp; }
         // fix-autoprop-getonly-backing-write：判据补 `_isPropMember` —— `ct.Methods` **不含继承来的**
         // 访问器（只有 `_passInheritFields` 把基类 FieldSymbol 并进子类 Fields），故经子类引用读基类属性
         // （`t.Height` / 子类方法内 `this.Height`）此前落到下面按源名 FieldGet → 读回 Null。
@@ -443,6 +448,23 @@ public sealed class AccessEmitter {
     // 该成员是不是属性（含**继承来的**——基类 FieldSymbol 被 _passInheritFields 并进子类 Fields）。
     private bool _isPropMember(Z42ClassType ct, string memberName) {
         return this._propSymbol(ct, memberName) != null;
+    }
+
+    // feat/delegate-base-class：委托族接收者的属性 getter 直呼。委托值（FuncRef / Closure）
+    // 无 TypeDesc / vtable，走 VCall 必 bail（"expected object, got Closure"）——本地类与导入
+    // 类两条绑定路（BoundMember+IsProp / BoundCall getter）最终都到不了 vtable。改为直呼
+    // `Std.Delegate` 的 [Native] stub getter（receiver 作 arg0）。目标经
+    // `EmitContext.NarrowDelegateBaseTarget` 校验「确为已发射函数」，查不到不拦（落回
+    // 调用点的 VCall，永不 miscall）。不适命返回 null。
+    private TypedReg _emitDelegateBasePropGet(BoundMember m, TypedReg obj, int ftag) {
+        if (!this._ee._isDelegateFamilyRecv(m.Target.Type())) { return null; }
+        string dgTgt = this._ctx.NarrowDelegateBaseTarget("get_" + m.MemberName);
+        if (dgTgt == "") { return null; }
+        TypedReg dst = this._ctx.Alloc(ftag);
+        TypedReg[] dgArgs = new TypedReg[1];
+        dgArgs[0] = obj;
+        this._ctx.Emit(new CallInstr(dst, dgTgt, dgArgs, 1));
+        return dst;
     }
 
     // 该成员是不是**带 setter** 的属性（同上，含继承）。

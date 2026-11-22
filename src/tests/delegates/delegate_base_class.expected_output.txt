@@ -1,0 +1,17 @@
+mg-target-is-l true
+mg-fn Demo.__mg_thunk_Demo_Listener_OnTick$1__
+lam-target-is-l true
+pure-target-null true
+lam-has-fn true
+dg-fn-same true
+dg-target-is-l true
+mg-is-delegate true
+lam-is-delegate true
+obj-is-delegate true
+base Std.Delegate
+isdelegate true
+delegate-base-base Std.Object
+fn-length 40
+fn-length 19
+seen 7
+self-target-is-hub true

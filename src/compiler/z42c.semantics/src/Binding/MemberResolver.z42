@@ -350,6 +350,14 @@ public sealed partial class MemberResolver {
             }
             return new BoundMember(target, m.Name, new Z42ErrorType(), m.Span);
         }
+        // 委托收者的族基类成员（feat/delegate-base-class）：`d.Target` / `d.FnName`。Z42FuncType
+        // 不进 Classes、值无 TypeDesc，成员面除 Invoke（调用路在 BindFuncValueMemberCall）外全在
+        // 族基类 Std.Delegate 上——非调用访问整段复用类成员绑定（字段→getter→方法组→E0401），
+        // getter 绑成非虚 instance 直调，receiver 即委托值，绕开 VCall-on-Closure 的运行期 bail。
+        if (tt is Z42FuncType) {
+            Z42ClassType dt = env.Symbols.GetClass("Delegate");
+            if (dt != null) { return this._bindClassMemberAccess(m, target, dt, env); }
+        }
         // Length on array OR string → int；Count → int（镜像 C# TypeChecker.Exprs.Members 行 161-164：
         // `m.Member is "Length" && (target.Type is Z42ArrayType || target.Type == Z42Type.String)`）。
         // unify-value-types Phase 1：翻转后 string→Z42ClassType(String)——追加 Canon=="string" 判定

@@ -122,7 +122,7 @@ f += (int x) => Console.WriteLine(x * 2);
 
 - **`==` 比的是身份**：同一个函数引用、或同一个闭包（同 lifted 函数 + 同 env）为 `true`；
   函数体相同但各自独立创建的两个 lambda 为 `false`；两侧都为 `null` 为 `true`。
-  `DelegateOps.ReferenceEquals(a, b)` 是同一条判据的另一个入口（库代码里按处理器退订用它，
+  `Delegate.ReferenceEquals(a, b)` 是同一条判据的另一个入口（库代码里按处理器退订用它，
   见[委托与事件](delegates-events.md)）。
 - 闭包不实现任何序列化契约，不能被序列化。
 
