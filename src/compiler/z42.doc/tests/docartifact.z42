@@ -66,3 +66,38 @@ void test_installed_artifact_yields_to_source() {
         Directory.Delete(directory, true);
     }
 }
+
+
+[Test]
+void test_source_symbol_precedes_same_named_installed_symbol() {
+    string root = Directory.CreateTempDir("z42-doc-priority");
+    try {
+        string installed = Path.Join(root, "sdk-docs");
+        Directory.Create(installed);
+        File.WriteAllText(Path.Join(root, "Local.z42"),
+            "namespace Local;\n/// Local summary.\npublic class Option { }");
+        DocIndex archived = new DocIndex();
+        archived.AddAll(SyntaxIndexer.IndexSource(
+            "namespace Installed;\n/// Installed summary.\npublic class Option { }\npublic class OnlyInSdk { }", "sdk.z42"));
+        File.WriteAllText(Path.Join(installed, "z42.sdk.zdoc"), DocArtifact.Write("z42.sdk", archived, false));
+
+        DocQueryOptions options = new DocQueryOptions();
+        options.Root = root;
+        options.SdkDocsDir = installed;
+        options.Query = "Option";
+        DocQueryResult local = DocQuery.Run(options);
+        Assert.Equal(0, local.Exit);
+        Assert.Contains("Local summary.", local.Out);
+        Assert.False(local.Out.Contains("Installed"));
+
+        options.Query = "Installed.Option";
+        DocQueryResult sdk = DocQuery.Run(options);
+        Assert.Equal(0, sdk.Exit);
+        Assert.Contains("Installed summary.", sdk.Out);
+
+        options.Query = "OnlyInSdk";
+        Assert.Equal(0, DocQuery.Run(options).Exit);
+    } finally {
+        Directory.Delete(root, true);
+    }
+}

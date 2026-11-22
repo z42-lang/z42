@@ -38,8 +38,15 @@ public static class DocQuery {
         DocIndex ix = DocQuery.BuildIndex(o.Root, o.Pkg, o.CachePath);
         // 外部索引（仓库里 Rust 运行时的条目）放在索引根的 artifacts/doc/ 下；过期提示随结果一起给出。
         string warn = ExternalIndex.LoadDir(o.Root, Path.Join(o.Root, "artifacts/doc"), o.Pkg, ix);
-        if (o.Page == "" && o.Docs == "") { warn = warn + DocArtifact.LoadDirectory(o.SdkDocsDir, o.Pkg, ix); }
-        DocQueryResult r = DocQuery._answer(o, ix);
+        DocQueryResult r = null;
+        if (o.Page == "" && o.Docs == "" && o.SdkDocsDir != "") {
+            if (o.Search == "") { r = DocQuery._answer(o, ix, false); }
+            if (r == null || r.Exit == 1) {
+                warn = warn + DocArtifact.LoadDirectory(o.SdkDocsDir, o.Pkg, ix);
+                r = null;
+            }
+        }
+        if (r == null) { r = DocQuery._answer(o, ix); }
         if (warn.Length > 0) { r.Err = (r.Err.Length > 0) ? warn + r.Err : warn.TrimEnd(); }
         return r;
     }
@@ -152,7 +159,7 @@ public static class DocQuery {
         }
     }
 
-    private static DocQueryResult _answer(DocQueryOptions o, DocIndex ix) {
+    private static DocQueryResult _answer(DocQueryOptions o, DocIndex ix, bool fuzzy = true) {
         if (o.Page.Length > 0) { return DocQuery._page(o, ix); }
         if (o.Docs.Length > 0) { return DocQuery._docs(o, ix); }
         if (o.Search.Length > 0) {
@@ -167,7 +174,7 @@ public static class DocQuery {
             if (o.Json) { return DocQuery._ok(DocFormat.Json(tops)); }
             return DocQuery._ok(DocFormat.Outline(nsHead, tops));
         }
-        DocItem[] m = ix.Find(o.Query);
+        DocItem[] m = fuzzy ? ix.Find(o.Query) : ix.Resolve(o.Query);
         if (m.Length == 0) { return DocQuery._none(o.Query); }
         if (o.Members) {
             DocItem head = DocQuery._singleContainer(m);
