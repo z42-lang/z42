@@ -70,6 +70,23 @@ public class PropertyInfo : MemberInfo {
     [Native("__property_set_value")]
     public extern void SetValue(object obj, object value);
 
+    /// 索引实参版 `GetValue`（索引属性 `this[...]`），经 `get_Item` 读出。
+    ///
+    /// 实参按声明序映射索引形参；只写索引器（无 getter）抛 `Std.Exception`。
+    [Native("__property_get_value_indexed")]
+    public extern object GetValue(object obj, object[] index);
+
+    /// 索引实参版 `SetValue`：索引实参在前、值在末，经 `set_Item` 写入。
+    [Native("__property_set_value_indexed")]
+    public extern void SetValue(object obj, object[] index, object value);
+
+    /// 本属性的索引形参（`this[...]` 的参数），普通属性为空数组。
+    ///
+    /// 只写索引器报 setter 形参去掉末尾的 value；参数的 `Method` 宿主是
+    /// 访问器 `MethodInfo`。
+    [Native("__property_index_parameters")]
+    public extern ParameterInfo[] GetIndexParameters();
+
     // ── 自定义 attribute ─────────────────────────────────────────────────────
     // auto-property 降解为私有后备字段 `__prop_<Name>`，编译器把属性上的 attribute 挂到该字段，故 native
     // 从访问器全限定名（剥掉 get_/set_ 前缀 → 后备字段）解析。纯计算属性（无后备字段）没有 attribute。
