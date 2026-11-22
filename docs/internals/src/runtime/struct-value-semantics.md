@@ -366,7 +366,24 @@ struct 的完整对象协议。unboxed struct 仍无 vtable（这些方法经装
   payload 级 `boxed_hash::hash_struct_payload`（boxed 臂同一实现 ⇒ 跨表示同哈希）。
 
 `__struct_eq` / `__struct_hash_code` 均 compiler-emitted（无 stdlib 声明，
-`native_decl_tests` allowlist 在案）。**VM 派发**（`exec_vcall.rs` + `jit/helpers/vcall.rs` BoxedStruct 臂，interp+JIT 对称）：`GetType`/`GetHashCode`/
+`native_decl_tests` allowlist 在案）。
+
+### 值类型自动满足 IEquatable + 装箱 vcall Equals 快路（add-value-auto-iequatable）
+
+对齐 C#「所有值类型隐式实现 `IEquatable<T>`」：`where T : IEquatable` 的判定里任何值类型
+（blob struct / 基元 / enum）自动满足（编译期 `ConstraintChecker._satisfiesInterface` 与运行期
+reflection `generics.rs::constraint_satisfied_by` 同款臂，两边不分歧）——裸 struct 零样板即可作
+`Dictionary`/`HashSet` 键。这条只动**约束满足**；`is`/`as`/接口转换语义不变。
+
+字典探测（`_keys[i].Equals(key)`，receiver 静态 object）走装箱 vcall 协议，其 `Equals` 臂的快路：
+**float-free 布局**的合成体改用保留名 `Equals$1$synth`（用户方法名经 `Name$arity` 单段 mangle
+不可能产生双 `$` 段——名字即「合成体且可按位比较」的判据）；vcall 装箱臂单点探测该名，命中 →
+`VCallTarget::StructValueEq` → invoke 侧（interp `exec_vcall` + JIT `jit_vcall` 对称臂）用
+`struct_leaf::struct_value_eq`（与 `__struct_eq` builtin 同一实现）原生比较——不 unbox、不进 IR。
+含浮点布局的合成体仍名 `Equals$1`（按位比较与浮点 Eq 语义不等价），用户 `Equals` 照常解析到用户
+方法——两者行为与本变更前逐位相同。`GetHashCode` 装箱臂本就原生（FNV），不受影响。
+
+**VM 派发**（`exec_vcall.rs` + `jit/helpers/vcall.rs` BoxedStruct 臂，interp+JIT 对称）：`GetType`/`GetHashCode`/
 `ToString`（arity 0）→ native 特判；否则 prepend `{type_name}.{method}$arity` 候选命中合成/用户方法（this=boxed
 值，合成 body 内拆箱），fallback `Std.Object.{method}`。
 

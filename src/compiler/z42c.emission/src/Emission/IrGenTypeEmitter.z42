@@ -165,13 +165,17 @@ public sealed class IrGenTypeEmitter {
     }
 
     // add-struct-object-methods (PR2b)：blob 值 struct 合成 `Equals(object)`（用户未显式声明才合成）。
+    // add-value-auto-iequatable：float-free 布局用**保留名** `Equals$1$synth`（用户方法名经
+    // `Name$arity` 单段 mangle 不可能产生双 `$` 段）——runtime 装箱 vcall 臂据此走原生 blob 比较
+    //（不 unbox、不进 IR）；含浮点布局保持 `Equals$1`（按位比较与浮点 Eq 语义不等价，走逐叶体）。
     private void _emitStructEquals(ClassDecl c, Z42ClassType owner) {
         IrGen g = this._g;
         if (owner != null && g.Layouts != null && g.Layouts.IsBlobStruct(LayoutKey.OfClass(owner))
             && !owner.Methods.ContainsKey("Equals$1") && !owner.Methods.ContainsKey("Equals")) {
             var eqFe = new FunctionEmitter(this._model.Symbols, g);
-            // 特化通道下用实例化名（调用点按同一规则派发）。
-            string eqIr = (g.SpecInstName != "" ? g._qLayout(g.SpecInstName) : g._q(g._classIrShortName(c))) + ".Equals$1";
+            string eqBase = g.SpecInstName != "" ? g._qLayout(g.SpecInstName) : g._q(g._classIrShortName(c));
+            string keyName = LayoutKey.OfClass(owner);
+            string eqIr = eqBase + (g.Layouts.HasFloatLeaf(keyName) ? ".Equals$1" : ".Equals$1$synth");
             IrFunction eqF = eqFe.EmitSynthStructEquals(eqIr, owner);
             eqF.MinArg = 1;   // Equals(other) 逻辑参数 1（reconcile：默认=含 this 总数，需覆盖）
             this._out.AddFunc(eqF);

@@ -474,7 +474,9 @@ pub mod typed {
     /// same builtin directly at statically-typed `GetHashCode()` sites, skipping the box.
     #[builtin(name = "__struct_hash_code", pure)]
     pub fn struct_hash_code(ctx: &VmContext, v: &Value) -> Result<i64, BuiltinError> {
-        match struct_payload(ctx, v)? {
+        match crate::exec::ops::object::struct_leaf::struct_payload(ctx, v)
+            .map_err(|e| BuiltinError::Internal(e.to_string()))?
+        {
             Some((_, bytes, refs)) => {
                 Ok(crate::object::value::boxed_hash::hash_struct_payload(&bytes, &refs))
             }
@@ -485,51 +487,16 @@ pub mod typed {
     }
 
     /// Value equality of two struct values in any representation — the engine-level core
-    /// behind struct `==` (float-free layouts) and unoverridden `Equals`. Same exact type
-    /// name, equal primitive bytes, pairwise-`Value`-equal reference leaves: identical in
-    /// shape to the `BoxedStruct`/`BoxedStruct` arm of `Value::eq`, so boxed and unboxed
-    /// comparisons answer the same. A non-struct side (Null, object, string, …) answers
+    /// behind struct `==` (float-free layouts) and unoverridden `Equals`. Implementation
+    /// lives in `exec::ops::object::struct_leaf::struct_value_eq` (shared with the boxed
+    /// vcall `Equals` fast path). A non-struct side (Null, object, string, …) answers
     /// `false` — the runtime form of `other is P ? eq : false`. Bitwise byte equality equals
     /// per-leaf `Eq` for every non-float leaf, so the compiler only emits this for
     /// float-free layouts; float leaves keep the leaf-wise path (±0.0 equal / NaN unequal).
     #[builtin(name = "__struct_eq")]
     pub fn struct_eq(ctx: &VmContext, a: &Value, b: &Value) -> Result<bool, BuiltinError> {
-        let (pa, pb) = match (struct_payload(ctx, a)?, struct_payload(ctx, b)?) {
-            (Some(pa), Some(pb)) => (pa, pb),
-            _ => return Ok(false),
-        };
-        Ok(pa.0 == pb.0 && pa.1 == pb.1 && pa.2 == pb.2)
-    }
-
-    /// add-struct-value-eq-fastpath：任一表示（frame arena `StructRef` / 堆 `StructRefHeap`
-    /// 元素视图 / `BoxedStruct`）的 struct 值快照 `(类型名, 基元字节, 引用叶子)`。`None` =
-    /// 不是 struct 值——调用方按「不是这个 struct」处理（值相等答 false），不报错。
-    fn struct_payload(
-        ctx: &VmContext, v: &Value,
-    ) -> Result<Option<(String, Vec<u8>, Vec<Value>)>, BuiltinError> {
-        match v {
-            Value::BoxedStruct(gc) => {
-                let o = gc.borrow();
-                let (bytes, refs) = o.boxed_blob();
-                Ok(Some((o.type_desc.name.to_string(), bytes.to_vec(), refs.to_vec())))
-            }
-            Value::StructRef { idx, frame_id } => {
-                let s = ctx.exec().struct_arena.lock()
-                    .with(*idx, *frame_id, |s| {
-                        (s.type_name.to_string(), s.bytes.to_vec(), s.refs.to_vec())
-                    })
-                    .map_err(|e| BuiltinError::Internal(e.to_string()))?;
-                Ok(Some(s))
-            }
-            Value::StructRefHeap { idx, frame_id } => {
-                let e = ctx.exec().transient_arena.lock().struct_elem(*idx, *frame_id)
-                    .map_err(|e| BuiltinError::Internal(e.to_string()))?;
-                let (bytes, refs, _layout, type_name) = crate::object::snapshot_struct_element(&e)
-                    .map_err(|e| BuiltinError::Internal(e.to_string()))?;
-                Ok(Some((type_name.to_string(), bytes, refs)))
-            }
-            _ => Ok(None),
-        }
+        crate::exec::ops::object::struct_leaf::struct_value_eq(ctx, a, b)
+            .map_err(|e| BuiltinError::Internal(e.to_string()))
     }
 }
 

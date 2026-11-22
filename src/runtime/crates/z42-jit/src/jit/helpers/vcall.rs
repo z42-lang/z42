@@ -122,6 +122,16 @@ unsafe fn vcall_impl(
     };
     match resolved.target {
         VCallTarget::Immediate(v) => { frame_ref.regs[dst as usize] = v; 0 }
+        // add-value-auto-iequatable：float-free 合成 Equals 的原生比较——实参寄存器在
+        // caller 帧（arity 1 由解析路保证），与 receiver（resolved.this，装箱）做 payload
+        // 级比较（镜像 interp exec_vcall 的同臂）。
+        VCallTarget::StructValueEq => {
+            let other = frame_ref.regs[arg_regs[0] as usize].clone();
+            match crate::exec::ops::object::struct_leaf::struct_value_eq(vm_ctx, &resolved.this, &other) {
+                Ok(eq) => { frame_ref.regs[dst as usize] = Value::Bool(eq); 0 }
+                Err(e) => { set_exception(vm_ctx, Value::Str(e.to_string().into())); 1 }
+            }
+        }
         // fix-call-arity-skew: signature mismatch under the site's key → catchable throw.
         VCallTarget::Thrown(exc) => { set_exception(vm_ctx, exc); 1 }
         // Module-local or lazily loaded: compiled (or compiles at the tier threshold) →

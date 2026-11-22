@@ -99,6 +99,14 @@ pub(crate) fn vcall(
     let resolved = resolve_vcall(ctx, module, &obj_val, method, args.len(), vcall_ic)?;
     match resolved.target {
         VCallTarget::Immediate(v) => { frame.set(dst, v); Ok(None) }
+        // add-value-auto-iequatable：float-free 合成 Equals 的原生比较——实参仍在 caller
+        // 寄存器（arity 1 由解析路保证），与 receiver（resolved.this，装箱）做 payload 级比较。
+        VCallTarget::StructValueEq => {
+            let other = frame.get(args[0])?.clone();
+            let eq = crate::exec::ops::object::struct_leaf::struct_value_eq(ctx, &resolved.this, &other)?;
+            frame.set(dst, Value::Bool(eq));
+            Ok(None)
+        }
         // fix-call-arity-skew: signature mismatch under the site's key → catchable throw.
         VCallTarget::Thrown(exc) => Ok(Some(exc)),
         VCallTarget::Local { func, id } => {
