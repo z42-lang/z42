@@ -419,16 +419,16 @@ public sealed class MulticastPredicateSubscription<T> : IDisposable {
 
 /// 2 参多播 Predicate：Invoke 收集 bool[]，另给 All/Any 短路。
 ///
-/// 双通道（strong 直持 `Predicate<T1, T2>` / advanced 持 ISubscription 包装）与 COW 快照语义
+/// 双通道（strong 直持 `Func<T1, T2, bool>` / advanced 持 ISubscription 包装）与 COW 快照语义
 /// 同 2 参以下的既有家族成员，见 MulticastAction 文件头注释。
 
 public sealed class MulticastPredicate<T1, T2> {
-    Predicate<T1, T2>[] strong;
+    Func<T1, T2, bool>[] strong;
     bool[] strongAlive;
     int strongCount;
     int strongCapacity;
 
-    ISubscription<Predicate<T1, T2>>[] advanced;
+    ISubscription<Func<T1, T2, bool>>[] advanced;
     bool[] advancedAlive;
     int advancedCount;
     int advancedCapacity;
@@ -436,26 +436,26 @@ public sealed class MulticastPredicate<T1, T2> {
     /// 构造空的多播 Predicate。
     public MulticastPredicate() {
         this.strongCapacity = 4;
-        this.strong = new Predicate<T1, T2>[4];
+        this.strong = new Func<T1, T2, bool>[4];
         this.strongAlive = new bool[4];
         this.strongCount = 0;
 
         this.advancedCapacity = 4;
-        this.advanced = new ISubscription<Predicate<T1, T2>>[4];
+        this.advanced = new ISubscription<Func<T1, T2, bool>>[4];
         this.advancedAlive = new bool[4];
         this.advancedCount = 0;
     }
 
     /// 订阅处理器并返回退订凭据。
     /// @hidden
-    public IDisposable operator +=(Predicate<T1, T2> handler) { return this.Subscribe(handler); }
+    public IDisposable operator +=(Func<T1, T2, bool> handler) { return this.Subscribe(handler); }
 
     /// 按处理器身份退订。
     /// @hidden
-    public void operator -=(Predicate<T1, T2> handler) { this.Unsubscribe(handler); }
+    public void operator -=(Func<T1, T2, bool> handler) { this.Unsubscribe(handler); }
 
     /// 裸 handler 订阅 → strong 快路径（零包装开销）。
-    public IDisposable Subscribe(Predicate<T1, T2> handler) {
+    public IDisposable Subscribe(Func<T1, T2, bool> handler) {
         if (this.strongCount == this.strongCapacity) this.GrowStrong();
         int idx = this.strongCount;
         this.strong[idx] = handler;
@@ -465,7 +465,7 @@ public sealed class MulticastPredicate<T1, T2> {
     }
 
     /// ISubscription 包装器订阅 → advanced 慢路径（OnceRef / CompositeRef / 用户自定义包装器）。
-    public IDisposable SubscribeAdvanced(ISubscription<Predicate<T1, T2>> wrapper) {
+    public IDisposable SubscribeAdvanced(ISubscription<Func<T1, T2, bool>> wrapper) {
         if (this.advancedCount == this.advancedCapacity) this.GrowAdvanced();
         int idx = this.advancedCount;
         this.advanced[idx] = wrapper;
@@ -479,11 +479,11 @@ public sealed class MulticastPredicate<T1, T2> {
     ///
     /// advanced 包装通道（OnceRef / WeakRef / 自定义 ISubscription）语义上不可材料化，
     /// 不在列表内——需要枚举包装订阅时在 SubscribeAdvanced 侧自行记账。
-    public Predicate<T1, T2>[] GetInvocationList() {
+    public Func<T1, T2, bool>[] GetInvocationList() {
         int n = 0;
         int i = 0;
         while (i < this.strongCount) { if (this.strongAlive[i]) { n = n + 1; } i = i + 1; }
-        Predicate<T1, T2>[] outA = new Predicate<T1, T2>[n];
+        Func<T1, T2, bool>[] outA = new Func<T1, T2, bool>[n];
         int k = 0;
         i = 0;
         while (i < this.strongCount) {
@@ -517,7 +517,7 @@ public sealed class MulticastPredicate<T1, T2> {
     /// MulticastException<bool>。
     public bool[] Invoke(T1 a, T2 b, bool continueOnException = false) {
         int sn = this.strongCount;
-        Predicate<T1, T2>[] snapStrong = new Predicate<T1, T2>[sn];
+        Func<T1, T2, bool>[] snapStrong = new Func<T1, T2, bool>[sn];
         bool[] snapStrongAlive = new bool[sn];
         int i = 0;
         while (i < sn) {
@@ -527,7 +527,7 @@ public sealed class MulticastPredicate<T1, T2> {
         }
 
         int an = this.advancedCount;
-        ISubscription<Predicate<T1, T2>>[] snapAdv = new ISubscription<Predicate<T1, T2>>[an];
+        ISubscription<Func<T1, T2, bool>>[] snapAdv = new ISubscription<Func<T1, T2, bool>>[an];
         bool[] snapAdvAlive = new bool[an];
         i = 0;
         while (i < an) {
@@ -666,7 +666,7 @@ public sealed class MulticastPredicate<T1, T2> {
     /// （vacuous truth）。
     public bool All(T1 a, T2 b) {
         int sn = this.strongCount;
-        Predicate<T1, T2>[] snapStrong = new Predicate<T1, T2>[sn];
+        Func<T1, T2, bool>[] snapStrong = new Func<T1, T2, bool>[sn];
         bool[] snapStrongAlive = new bool[sn];
         int i = 0;
         while (i < sn) {
@@ -675,7 +675,7 @@ public sealed class MulticastPredicate<T1, T2> {
             i = i + 1;
         }
         int an = this.advancedCount;
-        ISubscription<Predicate<T1, T2>>[] snapAdv = new ISubscription<Predicate<T1, T2>>[an];
+        ISubscription<Func<T1, T2, bool>>[] snapAdv = new ISubscription<Func<T1, T2, bool>>[an];
         bool[] snapAdvAlive = new bool[an];
         i = 0;
         while (i < an) {
@@ -711,7 +711,7 @@ public sealed class MulticastPredicate<T1, T2> {
     /// 一旦遇 true 立即返回 true（短路）。空 bus 返回 false（vacuous existential）。
     public bool Any(T1 a, T2 b) {
         int sn = this.strongCount;
-        Predicate<T1, T2>[] snapStrong = new Predicate<T1, T2>[sn];
+        Func<T1, T2, bool>[] snapStrong = new Func<T1, T2, bool>[sn];
         bool[] snapStrongAlive = new bool[sn];
         int i = 0;
         while (i < sn) {
@@ -720,7 +720,7 @@ public sealed class MulticastPredicate<T1, T2> {
             i = i + 1;
         }
         int an = this.advancedCount;
-        ISubscription<Predicate<T1, T2>>[] snapAdv = new ISubscription<Predicate<T1, T2>>[an];
+        ISubscription<Func<T1, T2, bool>>[] snapAdv = new ISubscription<Func<T1, T2, bool>>[an];
         bool[] snapAdvAlive = new bool[an];
         i = 0;
         while (i < an) {
@@ -752,7 +752,7 @@ public sealed class MulticastPredicate<T1, T2> {
     }
 
     /// 按 handler 取消订阅（仅扫 strong 通道；advanced 通道用 token-based dispose）。
-    public void Unsubscribe(Predicate<T1, T2> handler) {
+    public void Unsubscribe(Func<T1, T2, bool> handler) {
         int i = 0;
         while (i < this.strongCount) {
             if (this.strongAlive[i]) {
@@ -779,7 +779,7 @@ public sealed class MulticastPredicate<T1, T2> {
 
     void GrowStrong() {
         int newCap = this.strongCapacity * 2;
-        Predicate<T1, T2>[] biggerH = new Predicate<T1, T2>[newCap];
+        Func<T1, T2, bool>[] biggerH = new Func<T1, T2, bool>[newCap];
         bool[] biggerA = new bool[newCap];
         int i = 0;
         while (i < this.strongCount) {
@@ -794,7 +794,7 @@ public sealed class MulticastPredicate<T1, T2> {
 
     void GrowAdvanced() {
         int newCap = this.advancedCapacity * 2;
-        ISubscription<Predicate<T1, T2>>[] biggerH = new ISubscription<Predicate<T1, T2>>[newCap];
+        ISubscription<Func<T1, T2, bool>>[] biggerH = new ISubscription<Func<T1, T2, bool>>[newCap];
         bool[] biggerA = new bool[newCap];
         int i = 0;
         while (i < this.advancedCount) {
@@ -835,16 +835,16 @@ public sealed class MulticastPredicateSubscription<T1, T2> : IDisposable {
 
 /// 3 参多播 Predicate：Invoke 收集 bool[]，另给 All/Any 短路。
 ///
-/// 双通道（strong 直持 `Predicate<T1, T2, T3>` / advanced 持 ISubscription 包装）与 COW 快照语义
+/// 双通道（strong 直持 `Func<T1, T2, T3, bool>` / advanced 持 ISubscription 包装）与 COW 快照语义
 /// 同 3 参以下的既有家族成员，见 MulticastAction 文件头注释。
 
 public sealed class MulticastPredicate<T1, T2, T3> {
-    Predicate<T1, T2, T3>[] strong;
+    Func<T1, T2, T3, bool>[] strong;
     bool[] strongAlive;
     int strongCount;
     int strongCapacity;
 
-    ISubscription<Predicate<T1, T2, T3>>[] advanced;
+    ISubscription<Func<T1, T2, T3, bool>>[] advanced;
     bool[] advancedAlive;
     int advancedCount;
     int advancedCapacity;
@@ -852,26 +852,26 @@ public sealed class MulticastPredicate<T1, T2, T3> {
     /// 构造空的多播 Predicate。
     public MulticastPredicate() {
         this.strongCapacity = 4;
-        this.strong = new Predicate<T1, T2, T3>[4];
+        this.strong = new Func<T1, T2, T3, bool>[4];
         this.strongAlive = new bool[4];
         this.strongCount = 0;
 
         this.advancedCapacity = 4;
-        this.advanced = new ISubscription<Predicate<T1, T2, T3>>[4];
+        this.advanced = new ISubscription<Func<T1, T2, T3, bool>>[4];
         this.advancedAlive = new bool[4];
         this.advancedCount = 0;
     }
 
     /// 订阅处理器并返回退订凭据。
     /// @hidden
-    public IDisposable operator +=(Predicate<T1, T2, T3> handler) { return this.Subscribe(handler); }
+    public IDisposable operator +=(Func<T1, T2, T3, bool> handler) { return this.Subscribe(handler); }
 
     /// 按处理器身份退订。
     /// @hidden
-    public void operator -=(Predicate<T1, T2, T3> handler) { this.Unsubscribe(handler); }
+    public void operator -=(Func<T1, T2, T3, bool> handler) { this.Unsubscribe(handler); }
 
     /// 裸 handler 订阅 → strong 快路径（零包装开销）。
-    public IDisposable Subscribe(Predicate<T1, T2, T3> handler) {
+    public IDisposable Subscribe(Func<T1, T2, T3, bool> handler) {
         if (this.strongCount == this.strongCapacity) this.GrowStrong();
         int idx = this.strongCount;
         this.strong[idx] = handler;
@@ -881,7 +881,7 @@ public sealed class MulticastPredicate<T1, T2, T3> {
     }
 
     /// ISubscription 包装器订阅 → advanced 慢路径（OnceRef / CompositeRef / 用户自定义包装器）。
-    public IDisposable SubscribeAdvanced(ISubscription<Predicate<T1, T2, T3>> wrapper) {
+    public IDisposable SubscribeAdvanced(ISubscription<Func<T1, T2, T3, bool>> wrapper) {
         if (this.advancedCount == this.advancedCapacity) this.GrowAdvanced();
         int idx = this.advancedCount;
         this.advanced[idx] = wrapper;
@@ -895,11 +895,11 @@ public sealed class MulticastPredicate<T1, T2, T3> {
     ///
     /// advanced 包装通道（OnceRef / WeakRef / 自定义 ISubscription）语义上不可材料化，
     /// 不在列表内——需要枚举包装订阅时在 SubscribeAdvanced 侧自行记账。
-    public Predicate<T1, T2, T3>[] GetInvocationList() {
+    public Func<T1, T2, T3, bool>[] GetInvocationList() {
         int n = 0;
         int i = 0;
         while (i < this.strongCount) { if (this.strongAlive[i]) { n = n + 1; } i = i + 1; }
-        Predicate<T1, T2, T3>[] outA = new Predicate<T1, T2, T3>[n];
+        Func<T1, T2, T3, bool>[] outA = new Func<T1, T2, T3, bool>[n];
         int k = 0;
         i = 0;
         while (i < this.strongCount) {
@@ -933,7 +933,7 @@ public sealed class MulticastPredicate<T1, T2, T3> {
     /// MulticastException<bool>。
     public bool[] Invoke(T1 a, T2 b, T3 c, bool continueOnException = false) {
         int sn = this.strongCount;
-        Predicate<T1, T2, T3>[] snapStrong = new Predicate<T1, T2, T3>[sn];
+        Func<T1, T2, T3, bool>[] snapStrong = new Func<T1, T2, T3, bool>[sn];
         bool[] snapStrongAlive = new bool[sn];
         int i = 0;
         while (i < sn) {
@@ -943,7 +943,7 @@ public sealed class MulticastPredicate<T1, T2, T3> {
         }
 
         int an = this.advancedCount;
-        ISubscription<Predicate<T1, T2, T3>>[] snapAdv = new ISubscription<Predicate<T1, T2, T3>>[an];
+        ISubscription<Func<T1, T2, T3, bool>>[] snapAdv = new ISubscription<Func<T1, T2, T3, bool>>[an];
         bool[] snapAdvAlive = new bool[an];
         i = 0;
         while (i < an) {
@@ -1082,7 +1082,7 @@ public sealed class MulticastPredicate<T1, T2, T3> {
     /// （vacuous truth）。
     public bool All(T1 a, T2 b, T3 c) {
         int sn = this.strongCount;
-        Predicate<T1, T2, T3>[] snapStrong = new Predicate<T1, T2, T3>[sn];
+        Func<T1, T2, T3, bool>[] snapStrong = new Func<T1, T2, T3, bool>[sn];
         bool[] snapStrongAlive = new bool[sn];
         int i = 0;
         while (i < sn) {
@@ -1091,7 +1091,7 @@ public sealed class MulticastPredicate<T1, T2, T3> {
             i = i + 1;
         }
         int an = this.advancedCount;
-        ISubscription<Predicate<T1, T2, T3>>[] snapAdv = new ISubscription<Predicate<T1, T2, T3>>[an];
+        ISubscription<Func<T1, T2, T3, bool>>[] snapAdv = new ISubscription<Func<T1, T2, T3, bool>>[an];
         bool[] snapAdvAlive = new bool[an];
         i = 0;
         while (i < an) {
@@ -1127,7 +1127,7 @@ public sealed class MulticastPredicate<T1, T2, T3> {
     /// 一旦遇 true 立即返回 true（短路）。空 bus 返回 false（vacuous existential）。
     public bool Any(T1 a, T2 b, T3 c) {
         int sn = this.strongCount;
-        Predicate<T1, T2, T3>[] snapStrong = new Predicate<T1, T2, T3>[sn];
+        Func<T1, T2, T3, bool>[] snapStrong = new Func<T1, T2, T3, bool>[sn];
         bool[] snapStrongAlive = new bool[sn];
         int i = 0;
         while (i < sn) {
@@ -1136,7 +1136,7 @@ public sealed class MulticastPredicate<T1, T2, T3> {
             i = i + 1;
         }
         int an = this.advancedCount;
-        ISubscription<Predicate<T1, T2, T3>>[] snapAdv = new ISubscription<Predicate<T1, T2, T3>>[an];
+        ISubscription<Func<T1, T2, T3, bool>>[] snapAdv = new ISubscription<Func<T1, T2, T3, bool>>[an];
         bool[] snapAdvAlive = new bool[an];
         i = 0;
         while (i < an) {
@@ -1168,7 +1168,7 @@ public sealed class MulticastPredicate<T1, T2, T3> {
     }
 
     /// 按 handler 取消订阅（仅扫 strong 通道；advanced 通道用 token-based dispose）。
-    public void Unsubscribe(Predicate<T1, T2, T3> handler) {
+    public void Unsubscribe(Func<T1, T2, T3, bool> handler) {
         int i = 0;
         while (i < this.strongCount) {
             if (this.strongAlive[i]) {
@@ -1195,7 +1195,7 @@ public sealed class MulticastPredicate<T1, T2, T3> {
 
     void GrowStrong() {
         int newCap = this.strongCapacity * 2;
-        Predicate<T1, T2, T3>[] biggerH = new Predicate<T1, T2, T3>[newCap];
+        Func<T1, T2, T3, bool>[] biggerH = new Func<T1, T2, T3, bool>[newCap];
         bool[] biggerA = new bool[newCap];
         int i = 0;
         while (i < this.strongCount) {
@@ -1210,7 +1210,7 @@ public sealed class MulticastPredicate<T1, T2, T3> {
 
     void GrowAdvanced() {
         int newCap = this.advancedCapacity * 2;
-        ISubscription<Predicate<T1, T2, T3>>[] biggerH = new ISubscription<Predicate<T1, T2, T3>>[newCap];
+        ISubscription<Func<T1, T2, T3, bool>>[] biggerH = new ISubscription<Func<T1, T2, T3, bool>>[newCap];
         bool[] biggerA = new bool[newCap];
         int i = 0;
         while (i < this.advancedCount) {
@@ -1251,16 +1251,16 @@ public sealed class MulticastPredicateSubscription<T1, T2, T3> : IDisposable {
 
 /// 4 参多播 Predicate：Invoke 收集 bool[]，另给 All/Any 短路。
 ///
-/// 双通道（strong 直持 `Predicate<T1, T2, T3, T4>` / advanced 持 ISubscription 包装）与 COW 快照语义
+/// 双通道（strong 直持 `Func<T1, T2, T3, T4, bool>` / advanced 持 ISubscription 包装）与 COW 快照语义
 /// 同 4 参以下的既有家族成员，见 MulticastAction 文件头注释。
 
 public sealed class MulticastPredicate<T1, T2, T3, T4> {
-    Predicate<T1, T2, T3, T4>[] strong;
+    Func<T1, T2, T3, T4, bool>[] strong;
     bool[] strongAlive;
     int strongCount;
     int strongCapacity;
 
-    ISubscription<Predicate<T1, T2, T3, T4>>[] advanced;
+    ISubscription<Func<T1, T2, T3, T4, bool>>[] advanced;
     bool[] advancedAlive;
     int advancedCount;
     int advancedCapacity;
@@ -1268,26 +1268,26 @@ public sealed class MulticastPredicate<T1, T2, T3, T4> {
     /// 构造空的多播 Predicate。
     public MulticastPredicate() {
         this.strongCapacity = 4;
-        this.strong = new Predicate<T1, T2, T3, T4>[4];
+        this.strong = new Func<T1, T2, T3, T4, bool>[4];
         this.strongAlive = new bool[4];
         this.strongCount = 0;
 
         this.advancedCapacity = 4;
-        this.advanced = new ISubscription<Predicate<T1, T2, T3, T4>>[4];
+        this.advanced = new ISubscription<Func<T1, T2, T3, T4, bool>>[4];
         this.advancedAlive = new bool[4];
         this.advancedCount = 0;
     }
 
     /// 订阅处理器并返回退订凭据。
     /// @hidden
-    public IDisposable operator +=(Predicate<T1, T2, T3, T4> handler) { return this.Subscribe(handler); }
+    public IDisposable operator +=(Func<T1, T2, T3, T4, bool> handler) { return this.Subscribe(handler); }
 
     /// 按处理器身份退订。
     /// @hidden
-    public void operator -=(Predicate<T1, T2, T3, T4> handler) { this.Unsubscribe(handler); }
+    public void operator -=(Func<T1, T2, T3, T4, bool> handler) { this.Unsubscribe(handler); }
 
     /// 裸 handler 订阅 → strong 快路径（零包装开销）。
-    public IDisposable Subscribe(Predicate<T1, T2, T3, T4> handler) {
+    public IDisposable Subscribe(Func<T1, T2, T3, T4, bool> handler) {
         if (this.strongCount == this.strongCapacity) this.GrowStrong();
         int idx = this.strongCount;
         this.strong[idx] = handler;
@@ -1297,7 +1297,7 @@ public sealed class MulticastPredicate<T1, T2, T3, T4> {
     }
 
     /// ISubscription 包装器订阅 → advanced 慢路径（OnceRef / CompositeRef / 用户自定义包装器）。
-    public IDisposable SubscribeAdvanced(ISubscription<Predicate<T1, T2, T3, T4>> wrapper) {
+    public IDisposable SubscribeAdvanced(ISubscription<Func<T1, T2, T3, T4, bool>> wrapper) {
         if (this.advancedCount == this.advancedCapacity) this.GrowAdvanced();
         int idx = this.advancedCount;
         this.advanced[idx] = wrapper;
@@ -1311,11 +1311,11 @@ public sealed class MulticastPredicate<T1, T2, T3, T4> {
     ///
     /// advanced 包装通道（OnceRef / WeakRef / 自定义 ISubscription）语义上不可材料化，
     /// 不在列表内——需要枚举包装订阅时在 SubscribeAdvanced 侧自行记账。
-    public Predicate<T1, T2, T3, T4>[] GetInvocationList() {
+    public Func<T1, T2, T3, T4, bool>[] GetInvocationList() {
         int n = 0;
         int i = 0;
         while (i < this.strongCount) { if (this.strongAlive[i]) { n = n + 1; } i = i + 1; }
-        Predicate<T1, T2, T3, T4>[] outA = new Predicate<T1, T2, T3, T4>[n];
+        Func<T1, T2, T3, T4, bool>[] outA = new Func<T1, T2, T3, T4, bool>[n];
         int k = 0;
         i = 0;
         while (i < this.strongCount) {
@@ -1349,7 +1349,7 @@ public sealed class MulticastPredicate<T1, T2, T3, T4> {
     /// MulticastException<bool>。
     public bool[] Invoke(T1 a, T2 b, T3 c, T4 d, bool continueOnException = false) {
         int sn = this.strongCount;
-        Predicate<T1, T2, T3, T4>[] snapStrong = new Predicate<T1, T2, T3, T4>[sn];
+        Func<T1, T2, T3, T4, bool>[] snapStrong = new Func<T1, T2, T3, T4, bool>[sn];
         bool[] snapStrongAlive = new bool[sn];
         int i = 0;
         while (i < sn) {
@@ -1359,7 +1359,7 @@ public sealed class MulticastPredicate<T1, T2, T3, T4> {
         }
 
         int an = this.advancedCount;
-        ISubscription<Predicate<T1, T2, T3, T4>>[] snapAdv = new ISubscription<Predicate<T1, T2, T3, T4>>[an];
+        ISubscription<Func<T1, T2, T3, T4, bool>>[] snapAdv = new ISubscription<Func<T1, T2, T3, T4, bool>>[an];
         bool[] snapAdvAlive = new bool[an];
         i = 0;
         while (i < an) {
@@ -1498,7 +1498,7 @@ public sealed class MulticastPredicate<T1, T2, T3, T4> {
     /// （vacuous truth）。
     public bool All(T1 a, T2 b, T3 c, T4 d) {
         int sn = this.strongCount;
-        Predicate<T1, T2, T3, T4>[] snapStrong = new Predicate<T1, T2, T3, T4>[sn];
+        Func<T1, T2, T3, T4, bool>[] snapStrong = new Func<T1, T2, T3, T4, bool>[sn];
         bool[] snapStrongAlive = new bool[sn];
         int i = 0;
         while (i < sn) {
@@ -1507,7 +1507,7 @@ public sealed class MulticastPredicate<T1, T2, T3, T4> {
             i = i + 1;
         }
         int an = this.advancedCount;
-        ISubscription<Predicate<T1, T2, T3, T4>>[] snapAdv = new ISubscription<Predicate<T1, T2, T3, T4>>[an];
+        ISubscription<Func<T1, T2, T3, T4, bool>>[] snapAdv = new ISubscription<Func<T1, T2, T3, T4, bool>>[an];
         bool[] snapAdvAlive = new bool[an];
         i = 0;
         while (i < an) {
@@ -1543,7 +1543,7 @@ public sealed class MulticastPredicate<T1, T2, T3, T4> {
     /// 一旦遇 true 立即返回 true（短路）。空 bus 返回 false（vacuous existential）。
     public bool Any(T1 a, T2 b, T3 c, T4 d) {
         int sn = this.strongCount;
-        Predicate<T1, T2, T3, T4>[] snapStrong = new Predicate<T1, T2, T3, T4>[sn];
+        Func<T1, T2, T3, T4, bool>[] snapStrong = new Func<T1, T2, T3, T4, bool>[sn];
         bool[] snapStrongAlive = new bool[sn];
         int i = 0;
         while (i < sn) {
@@ -1552,7 +1552,7 @@ public sealed class MulticastPredicate<T1, T2, T3, T4> {
             i = i + 1;
         }
         int an = this.advancedCount;
-        ISubscription<Predicate<T1, T2, T3, T4>>[] snapAdv = new ISubscription<Predicate<T1, T2, T3, T4>>[an];
+        ISubscription<Func<T1, T2, T3, T4, bool>>[] snapAdv = new ISubscription<Func<T1, T2, T3, T4, bool>>[an];
         bool[] snapAdvAlive = new bool[an];
         i = 0;
         while (i < an) {
@@ -1584,7 +1584,7 @@ public sealed class MulticastPredicate<T1, T2, T3, T4> {
     }
 
     /// 按 handler 取消订阅（仅扫 strong 通道；advanced 通道用 token-based dispose）。
-    public void Unsubscribe(Predicate<T1, T2, T3, T4> handler) {
+    public void Unsubscribe(Func<T1, T2, T3, T4, bool> handler) {
         int i = 0;
         while (i < this.strongCount) {
             if (this.strongAlive[i]) {
@@ -1611,7 +1611,7 @@ public sealed class MulticastPredicate<T1, T2, T3, T4> {
 
     void GrowStrong() {
         int newCap = this.strongCapacity * 2;
-        Predicate<T1, T2, T3, T4>[] biggerH = new Predicate<T1, T2, T3, T4>[newCap];
+        Func<T1, T2, T3, T4, bool>[] biggerH = new Func<T1, T2, T3, T4, bool>[newCap];
         bool[] biggerA = new bool[newCap];
         int i = 0;
         while (i < this.strongCount) {
@@ -1626,7 +1626,7 @@ public sealed class MulticastPredicate<T1, T2, T3, T4> {
 
     void GrowAdvanced() {
         int newCap = this.advancedCapacity * 2;
-        ISubscription<Predicate<T1, T2, T3, T4>>[] biggerH = new ISubscription<Predicate<T1, T2, T3, T4>>[newCap];
+        ISubscription<Func<T1, T2, T3, T4, bool>>[] biggerH = new ISubscription<Func<T1, T2, T3, T4, bool>>[newCap];
         bool[] biggerA = new bool[newCap];
         int i = 0;
         while (i < this.advancedCount) {
