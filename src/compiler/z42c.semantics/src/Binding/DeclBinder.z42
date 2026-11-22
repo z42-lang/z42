@@ -28,12 +28,13 @@ public sealed class DeclBinder {
     // 体绑定环境里的**实例**字段（含 _passInheritFields 并入的继承字段）作变量，供裸名访问。
     // add-static-properties：static / const 不进——此前一并定义，实例体里的裸名静态成员于是被当实例字段、
     // 发 `field_get reg0.x` 静默读回 Null；现在它们在 LookupVar 落空后由 BindBareStatic 解析成 `C.x`。
-    internal static void _defineInstanceFields(TypeEnv env, Z42ClassType ct) {
+    internal static void _defineInstanceFields(TypeEnv env, Z42ClassType ct, Z42InstantiatedType inst = null) {
         string[] fnames = ct.Fields.Keys();
+        ClassArgsMap map = inst == null ? null : new ClassArgsMap(inst);
         int k = 0;
         while (k < fnames.Length) {
             FieldSymbol fs = ct.Fields.Get(fnames[k]) as FieldSymbol;
-            if (!fs.IsStatic) { env.Define(fnames[k], fs.FieldType); }
+            if (!fs.IsStatic) { env.Define(fnames[k], map == null ? fs.FieldType : TypeSubst.Apply(fs.FieldType, map)); }
             k = k + 1;
         }
     }
@@ -119,8 +120,9 @@ public sealed class DeclBinder {
     internal void _bindImpl(SemanticModel model, SymbolTable symbols, ImplDecl im) {
         string targetName = "";
         if (im.TargetType is NamedType) { targetName = (im.TargetType as NamedType).Name; }
-        if (targetName == "" || !symbols.HasClass(targetName)) { return; }
-        Z42ClassType ct = symbols.GetClass(targetName);
+        Z42ClassType ct = ImplTargets.Resolve(symbols, im);
+        if (ct == null) { return; }
+        string[] classParams = im.TargetParamNames;
         int j = 0;
         while (j < im.MethodCount) {
             if (im.Methods[j] is MethodDecl) {
@@ -130,12 +132,16 @@ public sealed class DeclBinder {
                     string mkey = OverloadResolver.MethodKeyOf(md);
                     MethodSymbol ms = ct.Methods.Get(mkey) as MethodSymbol;
                     int mtpc = md.TypeParams.Count;
-                    string[] allParams = this._mergeParams(new string[0], 0, md.TypeParams.Names, mtpc);
-                    // add-generic-methods：impl 方法无类形参 → classParamCount=0，全部为方法级。
-                    var env = TypeEnv.Root(symbols).WithClassGenericMethod(ct.Name(), allParams, mtpc, 0, false);
+                    string[] allParams = this._mergeParams(classParams, classParams.Length, md.TypeParams.Names, mtpc);
+                    var env = TypeEnv.Root(symbols).WithClassGenericMethod(
+                        ct.Name(), allParams, classParams.Length + mtpc, classParams.Length, false);
                     if (ms != null && !ms.IsStatic) {
-                        env.Define("this", ct);
-                        DeclBinder._defineInstanceFields(env, ct);
+                        Z42Type receiver = ct;
+                        if (classParams.Length > 0) {
+                            receiver = symbols.ResolveTypeP(im.TargetType, classParams, classParams.Length);
+                        }
+                        env.Define("this", receiver);
+                        DeclBinder._defineInstanceFields(env, ct, receiver as Z42InstantiatedType);
                     }
                     BoundStmt body = this._bindMethodBody(symbols, env, md);
                     model.AddBody(targetName + "." + mkey, body);

@@ -7,7 +7,7 @@ using Z42.IR;
 
 public sealed class InheritanceResolver {
     private SymbolCollector _sc;   // hub 反向引用：共享辅助 + partial 状态 + 编排
-    private StrMap _localConcreteImpls = new StrMap();
+    private StrMap _localImpls = new StrMap();
     public InheritanceResolver(SymbolCollector sc) { this._sc = sc; }
 
     // impl-block 收集（port-z42c-impl-block，镜像 C# CollectImpls）：
@@ -29,11 +29,20 @@ public sealed class InheritanceResolver {
                 ImplDecl implD = d as ImplDecl;
                 string targetName = "";
                 if (implD.TargetType is NamedType) { targetName = (implD.TargetType as NamedType).Name; }
-                if (targetName != "" && table.HasClass(targetName)) {
-                    Z42ClassType target = table.GetClass(targetName);
-                    string traitName = "";
-                    if (implD.TraitType is NamedType) { traitName = (implD.TraitType as NamedType).Name; }
-                    if (!this._registerConcreteImpl(target, table.GetInterface(traitName), implD.Span, imported)) {
+                Z42ClassType target = ImplTargets.Resolve(table, implD);
+                NamedType traitSyntax = implD.TraitType as NamedType;
+                string traitName = traitSyntax == null ? "" : traitSyntax.Name;
+                Z42InterfaceType trait = table.GetInterface(traitName);
+                if (!this._checkImplTarget(implD, target, trait, traitSyntax)) {
+                    i = i + 1;
+                    continue;
+                }
+                if (target != null) {
+                    if (!this._registerImpl(target, trait, implD.Span, imported)) {
+                        i = i + 1;
+                        continue;
+                    }
+                    if (implD.TargetParamNames.Length > 0 && !this._openImplSlotsAvailable(target, trait, implD)) {
                         i = i + 1;
                         continue;
                     }
@@ -49,8 +58,12 @@ public sealed class InheritanceResolver {
                             // **不写 md.RegKey** —— impl-block 方法的 RegKey 因此恒为空串，
                             // 逼得所有消费点挂「退回裸名」兜底。键仍是裸 md.Name（impl 方法不参与
                             // primary/非-primary），与兜底算出的值逐字相同 → 字节中性。
-                            SymbolCollector.RegisterMethod(target, md,
-                                this._sc._methodSymbol(table, md, targetName, new string[0], 0), md.Name);
+                            string[] aliases = implD.TargetParamNames;
+                            MethodSymbol method = this._sc._methodSymbol(table, md, targetName, aliases, aliases.Length);
+                            if (aliases.Length > 0) {
+                                method = method.WithSignature(ImplTargets.NormalizeSignature(method.Signature, aliases, target));
+                            }
+                            SymbolCollector.RegisterMethod(target, md, method, md.Name);
                             target.AddOwnMethod(md.Name, Mod.Has(md.ModFlags, Mod.Virtual), false);
                         }
                         m = m + 1;
@@ -61,22 +74,61 @@ public sealed class InheritanceResolver {
         }
     }
 
-    private bool _registerConcreteImpl(Z42ClassType target, Z42InterfaceType trait, Span span, ImportedSymbols imported) {
-        if (trait == null || target.GenericParamCount > 0 || trait.TypeParamCount > 0) { return true; }
-        string key = ImportedSymbolLoader.ConcreteImplKey(target.Fqn(), trait.Fqn());
-        StrBox dependency = imported == null ? null : imported.ConcreteImplOrigins.Get(key) as StrBox;
+    private bool _checkImplTarget(ImplDecl declaration, Z42ClassType target, Z42InterfaceType trait, NamedType traitSyntax) {
+        if (declaration.TypeParams.Count == 0) {
+            NamedType targetSyntax = declaration.TargetType as NamedType;
+            if (targetSyntax == null || (targetSyntax.ArgCount == 0 && (target == null || target.GenericParamCount == 0))) {
+                return true;
+            }
+            this._sc.Diags.Error(DiagnosticCodes.InvalidImpl,
+                "a generic impl target requires all of its parameters to be declared by the impl", declaration.Span);
+            return false;
+        }
+        string[] names = ImplTargets.Match(declaration, target);
+        if (names == null || trait == null || trait.TypeParamCount != 0 || traitSyntax.ArgCount != 0) {
+            this._sc.Diags.Error(DiagnosticCodes.InvalidImpl,
+                "an open impl must pair a non-generic interface with every parameter of a generic class, once each", declaration.Span);
+            return false;
+        }
+        declaration.TargetParamNames = names;
+        return true;
+    }
+
+    private bool _openImplSlotsAvailable(Z42ClassType target, Z42InterfaceType trait, ImplDecl declaration) {
+        for (int i = 0; i < target.InterfaceCount; i = i + 1) {
+            if (target.InterfaceNames[i] == trait.Fqn()) {
+                this._sc.Diags.Error(DiagnosticCodes.InvalidImpl,
+                    "`" + target.Fqn() + "` already implements `" + trait.Fqn() + "`", declaration.Span);
+                return false;
+            }
+        }
+        for (int i = 0; i < declaration.MethodCount; i = i + 1) {
+            MethodDecl method = declaration.Methods[i] as MethodDecl;
+            if (method != null && target.Methods.ContainsKey(method.Name)) {
+                this._sc.Diags.Error(DiagnosticCodes.InvalidImpl,
+                    "open impl method `" + method.Name + "` conflicts with an existing method on `" + target.Fqn() + "`", method.Span);
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private bool _registerImpl(Z42ClassType target, Z42InterfaceType trait, Span span, ImportedSymbols imported) {
+        if (trait == null || trait.TypeParamCount > 0) { return true; }
+        string key = ImportedSymbolLoader.ImplKey(target.Fqn(), trait.Fqn());
+        StrBox dependency = imported == null ? null : imported.ImplOrigins.Get(key) as StrBox;
         if (dependency != null) {
             this._sc.Diags.Error(DiagnosticCodes.InvalidImpl,
                 "duplicate `" + key + "` already provided by package `" + dependency.Value + "`", span);
             return false;
         }
-        Span previous = this._localConcreteImpls.Get(key) as Span;
+        Span previous = this._localImpls.Get(key) as Span;
         if (previous != null) {
             this._sc.Diags.Error(DiagnosticCodes.InvalidImpl,
                 "duplicate `" + key + "` already declared at " + previous.File + ":" + previous.Line.ToString(), span);
             return false;
         }
-        this._localConcreteImpls.Put(key, span);
+        this._localImpls.Put(key, span);
         return true;
     }
 
@@ -103,8 +155,8 @@ public sealed class InheritanceResolver {
                 if (implD.TargetType is NamedType && implD.TraitType is NamedType) {
                     string targetName = (implD.TargetType as NamedType).Name;
                     string traitName = (implD.TraitType as NamedType).Name;
-                    if (targetName != "" && traitName != "" && table.HasClass(targetName)) {
-                        Z42ClassType ct = table.GetClass(targetName);
+                    if (targetName != "" && traitName != "" && (implD.TypeParams.Count == 0 || implD.TargetParamNames.Length > 0)) {
+                        Z42ClassType ct = ImplTargets.Resolve(table, implD);
                         Z42InterfaceType it = table.GetInterface(traitName);
                         if (ct != null && it != null) {
                             this._checkOneIfaceMembers(table, ct, targetName, implD.Span, it);

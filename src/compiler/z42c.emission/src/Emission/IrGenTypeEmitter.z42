@@ -207,8 +207,8 @@ public sealed class IrGenTypeEmitter {
         IrGen g = this._g; SemanticModel model = this._model;
         string itn = "";
         if (im.TargetType is NamedType) { itn = (im.TargetType as NamedType).Name; }
-        if (itn != "" && model.Symbols.HasClass(itn)) {
-            Z42ClassType iowner = model.Symbols.GetClass(itn) as Z42ClassType;
+        Z42ClassType iowner = ImplTargets.Resolve(model.Symbols, im);
+        if (iowner != null) {
             int ij = 0;
             while (ij < im.MethodCount) {
                 if (im.Methods[ij] is MethodDecl) {
@@ -220,7 +220,7 @@ public sealed class IrGenTypeEmitter {
                             bool ist = Mod.Has(imd.ModFlags, Mod.Static);
                             var ife = new FunctionEmitter(model.Symbols, g);
                             IrFunction iirf = ife.EmitFunction(g._qType(iowner, itn) + "." + imk, imd,
-                                                               model.GetBody(ikey), !ist, ist, iowner, new string[0], 0);
+                                                               model.GetBody(ikey), !ist, ist, iowner, im.TargetParamNames, im.TargetParamNames.Length);
                             iirf.Visibility = DeclFacts._visCode(imd.ModFlags, 1);   // add-member-visibility
                             iirf.MethodFlags = iirf.MethodFlags | IrGenFacts._methodFlags(imd.ModFlags);   // 或：保住 FunctionEmitter 置的 sret 位   // add-method-modifiers
                             IrGenFacts._fillParamMeta(iirf, imd, !ist);   // add-param-metadata
