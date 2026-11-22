@@ -28,7 +28,9 @@ pub use runtime::RuntimeLoader;
 
 mod artifact;
 mod dependency_candidates;
-pub(crate) use dependency_candidates::{build_declared_candidates, version_mismatch_hint};
+pub(crate) use dependency_candidates::build_declared_candidates;
+mod prelude;
+pub(crate) use prelude::{load_prelude, PRELUDE_FILE};
 pub use artifact::{load_artifact, load_artifact_from_bytes, build_block_indices, fold_availability};
 pub(crate) use artifact::{load_artifact_cached, load_artifact_from_bytes_cached, FUSION_INPUTS};
 
