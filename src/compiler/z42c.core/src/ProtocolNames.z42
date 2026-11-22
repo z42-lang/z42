@@ -56,4 +56,14 @@ public static class ProtocolNames {
     public static string GetterPrefix  = "get_";
 
     public static string IDisposable = "IDisposable";
+
+    public static string CompoundAssign(string op) {
+        if (op == "+=") { return "op_AddAssign"; }
+        if (op == "-=") { return "op_SubtractAssign"; }
+        return "";
+    }
+
+    public static bool IsCompoundAssignName(string name) {
+        return name == "op_AddAssign" || name == "op_SubtractAssign";
+    }
 }

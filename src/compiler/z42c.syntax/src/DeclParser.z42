@@ -162,7 +162,7 @@ public sealed class DeclParser {
         }
         this._p._expect(TokenKind.LBrace, "{");
         while (this._p._peek().Kind != TokenKind.RBrace && this._p._peek().Kind != TokenKind.Eof) {
-            Decl mem = this._p._memberP._parseMember(name);
+            Decl mem = this._p._memberP._parseMember(name, kind == "class");
             members = this._growDecls(members, mc); members[mc] = mem; mc = mc + 1;
         }
         this._p._expect(TokenKind.RBrace, "}");
@@ -195,7 +195,7 @@ public sealed class DeclParser {
         Decl[] methods = new Decl[8];
         int mc = 0;
         while (this._p._peek().Kind != TokenKind.RBrace && this._p._peek().Kind != TokenKind.Eof) {
-            methods = this._growDecls(methods, mc); methods[mc] = this._p._memberP._parseMember(targetName); mc = mc + 1;
+            methods = this._growDecls(methods, mc); methods[mc] = this._p._memberP._parseMember(targetName, false); mc = mc + 1;
         }
         this._p._expect(TokenKind.RBrace, "}");
         return new ImplDecl(traitTy, target, methods, mc, sp);

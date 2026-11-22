@@ -236,7 +236,9 @@ bus.SubscribeAdvanced(new CompositeRef<Action<int>>(handler, ModeFlags.Once | Mo
 ## 5. 回调字段与订阅接口
 
 `event` 是普通标识符。单个回调用委托字段保存，通过赋值替换，通过赋 `null` 清除。
-多个回调通过显式创建的多播对象管理。下例用私有字段保存订阅，通过接口公开订阅方法。
+显式创建多播对象后，用 `+= handler` 注册，用 `-= handler` 按身份退订。三个多播类型都提供
+[复合赋值重载](operators.md#复合赋值重载)，注册表达式返回 `IDisposable`。
+发布者可通过接口公开订阅方法，把多播对象留作私有字段。
 
 ```z42
 public interface IClickSource {
@@ -260,7 +262,7 @@ public class Button : IClickSource {
 }
 ```
 
-`Subscribe` 返回 `IDisposable`，用 `Dispose()` 或 [`using`](using-statement.md) 结束订阅。
+`Subscribe(handler)` 与 `+= handler` 都返回 `IDisposable`，用 `Dispose()` 或 [`using`](using-statement.md) 结束订阅。
 持有多播对象时，也可以用原处理器调用 `Unsubscribe`，或用 `SubscribeAdvanced` 安装弱引用和一次性订阅。
 
 ## 6. 异常聚合：`MulticastException`

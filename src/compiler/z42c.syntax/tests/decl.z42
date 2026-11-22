@@ -65,6 +65,17 @@ void test_event_modifier_is_rejected() {
     Assert.True(parseErrorCodes("interface I { event Action<int> Changed; }") != "");
 }
 
+[Test]
+void test_compound_assignment_operators() {
+    Assert.Equal("", parseErrorCodes("class C { public int operator +=(int x) { return x; } public void operator -=(int x) {} }"));
+    Assert.Equal("E0495", parseErrorCodes("class C { public static void operator +=(int x) {} }"));
+    Assert.Equal("E0495", parseErrorCodes("class C { public void operator -=(ref int x) {} }"));
+    Assert.Equal("E0495", parseErrorCodes("class C { public void operator +=(int x = 0) {} }"));
+    Assert.Equal("E0495", parseErrorCodes("class C { public void operator +=() {} }"));
+    Assert.Equal("E0495", parseErrorCodes("struct S { public void operator +=(int x) {} }"));
+    Assert.Equal("E0495", parseErrorCodes("class C { public void op_AddAssign(int x) {} }"));
+}
+
 // add-const-keyword：const 字段修饰进 Mods（含引用已定义 const 的常量表达式初始化器）。
 [Test]
 void test_const_field() {

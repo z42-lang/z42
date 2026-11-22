@@ -1,0 +1,8 @@
+using Demo.Compound;
+using Std.IO;
+
+void Main() {
+    Counter<string> count = new Counter<string>();
+    string value = count += "imported";
+    Console.WriteLine(value);
+}

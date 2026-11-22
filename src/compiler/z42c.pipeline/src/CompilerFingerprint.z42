@@ -188,7 +188,8 @@ public static class CompilerFingerprint {
         "ref-overload-method-signatures",
         "infer-static-interface-implementation",
         "reject-overlapping-concrete-impls",
-        "remove-event-keyword"
+        "remove-event-keyword",
+        "overload-compound-assignment"
     };
 
     // 指纹值：`Entries` 逐条以 `\n` 连接后取内容哈希（`mmh3:` 前缀，同 SourceHash）。

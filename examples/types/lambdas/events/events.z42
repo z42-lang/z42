@@ -16,8 +16,8 @@ class Button {
 void Main() {
     // ANCHOR: multi
     Button b = new Button();
-    b.Clicked.Subscribe((int x) => Console.WriteLine("  处理器一：" + x));
-    b.Clicked.Subscribe((int x) => Console.WriteLine("  处理器二：" + (x * 2)));
+    b.Clicked += (int x) => Console.WriteLine("  处理器一：" + x);
+    b.Clicked += (int x) => Console.WriteLine("  处理器二：" + (x * 2));
     Console.WriteLine("挂了 " + b.Clicked.Count() + " 个处理器");
     b.Click(5);
     // ANCHOR_END: multi

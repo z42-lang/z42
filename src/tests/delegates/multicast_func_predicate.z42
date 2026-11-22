@@ -53,13 +53,13 @@ void Main() {
     // ── 委托集合字段 ──
     var v = new Validators();
 
-    v.Validate.Subscribe((int x) => x > 0);
+    v.Validate += (int x) => x > 0;
     v.Validate.Subscribe((int x) => x < 100);
     bool[] vr = v.runValidate(50);
     Assert.True(vr[0]);
     Assert.True(vr[1]);
 
-    v.Filter.Subscribe((int x) => x > 0);
+    v.Filter += (int x) => x > 0;
     v.Filter.Subscribe((int x) => x % 2 == 0);
     Assert.True(v.allFilter(4));
     Assert.False(v.allFilter(3)); // odd

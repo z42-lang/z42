@@ -119,6 +119,10 @@ public sealed class AssignTyper {
                 }
             }
             BoundExpr target = this._et._bindExpr(a.Target, env);
+            string method = ProtocolNames.CompoundAssign(a.Op);
+            if (method != "" && this._hasCompoundAssignment(target.Type(), method, env)) {
+                return this._tc._member.BindCompoundAssignment(a, target, method, env);
+            }
             this._checkAssignable(a, target);            // E0482：赋值目标须是左值
             this._checkConstAssign(a, target, env);      // add-const-keyword：const（局部 / 字段）不可赋值
             this._checkReadonlyAssign(a, target, env);   // add-readonly-fields-opt：readonly 字段仅 ctor-this 可写
@@ -147,6 +151,13 @@ public sealed class AssignTyper {
             }
             value = this._finishValue(value, target.Type(), a.Value.Span, env);
             return new BoundAssign(target, value, target.Type(), a.Span);
+    }
+
+    private bool _hasCompoundAssignment(Z42Type receiver, string method, TypeEnv env) {
+        Z42ClassType owner = receiver as Z42ClassType;
+        if (receiver is Z42InstantiatedType) { owner = (receiver as Z42InstantiatedType).Def; }
+        return owner != null && !owner.IsStruct && !owner.IsBuiltinType()
+            && this._tc._overload._findMethod(env.Symbols, owner, method) != null;
     }
 
     // 右值收尾：隐式转换检查 → 装箱 → 表示转换（赋值与成员初始化器共用同一顺序）。

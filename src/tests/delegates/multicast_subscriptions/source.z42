@@ -30,16 +30,17 @@ void Main() {
     var bus = new Bus();
     Console.WriteLine(bus.count());      // 0
 
-    bus.Clicked.Subscribe((int x) => Console.WriteLine($"a:{x}"));
-    bus.Clicked.Subscribe((int x) => Console.WriteLine($"b:{x}"));
+    bus.Clicked += (int x) => Console.WriteLine($"a:{x}");
+    bus.Clicked += (int x) => Console.WriteLine($"b:{x}");
     Console.WriteLine(bus.count());      // 2
 
     bus.fire(1);                          // a:1 / b:1
 
     Action<int> hC = (int x) => Console.WriteLine($"c:{x}");
-    bus.Clicked.Subscribe(hC);
+    IDisposable token = bus.Clicked += hC;
     bus.fire(2);                          // a:2 / b:2 / c:2
-    bus.Clicked.Unsubscribe(hC);
+    bus.Clicked -= hC;
     bus.fire(3);                          // a:3 / b:3
+    token.Dispose();
     Console.WriteLine(bus.count());      // 2
 }
