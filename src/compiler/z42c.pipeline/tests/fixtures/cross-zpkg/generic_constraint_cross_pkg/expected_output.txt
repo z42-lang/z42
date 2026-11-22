@@ -10,3 +10,4 @@ animal
 7
 animal
 animal
+DemoCExt.Gadget

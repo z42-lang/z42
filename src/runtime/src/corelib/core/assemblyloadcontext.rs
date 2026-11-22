@@ -5,14 +5,13 @@
 //! Mechanism:
 //!   - `AssemblyLoadContext` / `Assembly` z42 objects carry a `ContextId` / `AssemblyId`
 //!     in `NativeData` (like `Std.Type`'s `TypeHandle`). The builtins here read
-//!     that handle and consult `VmCore.context_registry`.
+//!     that handle and use `RuntimeLoader` to access reflection metadata.
 //!   - `Std.Type.IsCollectible` / `.Assembly` resolve via the Type object's
 //!     `__asmId` slot (Null / 0 ⇒ root ⇒ not collectible). `Assembly.GetTypes`
 //!     stamps `__asmId` on each Type object it builds; `typeof(T)` leaves it
 //!     Null (root). This keeps `TypeDesc` unmutated (design D5).
 //!
-//! Phase 1: boundary + reflection identity only. No unload (that throws z42-side
-//! `NotSupportedException`), no cross-context execution.
+//! Collectible contexts expose reflection identity and support GC-driven unloading.
 
 use anyhow::{bail, Result};
 
@@ -121,7 +120,7 @@ pub fn lctx_default(ctx: &VmContext) -> Result<Value, BuiltinError> {
 /// `AssemblyLoadContext.CreateCollectible(string name)` (static) → a new collectible context.
 pub fn lctx_create_collectible(ctx: &VmContext, name: &crate::object::string::vstr::Str) -> Result<Value, BuiltinError> {
     let name = name.as_ref();
-    let cid = ctx.core().loader().context_registry.lock().create_collectible(name);
+    let cid = ctx.loader().create_collectible_context(name);
     build_loadcontext(ctx, cid).map_err(BuiltinError::Legacy)
 }
 
@@ -149,7 +148,7 @@ pub fn lctx_load(ctx: &VmContext, this: &Value, path: &crate::object::string::vs
 /// GC-driven (see `ContextRegistry::reclaim`).
 pub fn lctx_unload(ctx: &VmContext, this: &Value) -> Result<(), BuiltinError> {
     let cid = ctx_handle_of(this)?;
-    match ctx.core().loader().context_registry.lock().unload(cid) {
+    match ctx.loader().unload_context(cid) {
         UnloadOutcome::Marked | UnloadOutcome::AlreadyUnloading => Ok(()),
         UnloadOutcome::RootRejected => Err(BuiltinError::InvalidOperation(
             "AssemblyLoadContext.Unload: the root context cannot be unloaded".into())),
@@ -161,31 +160,21 @@ pub fn lctx_unload(ctx: &VmContext, this: &Value) -> Result<(), BuiltinError> {
 /// `ctx.Name` (instance getter).
 pub fn lctx_name(ctx: &VmContext, this: &Value) -> Result<Value, BuiltinError> {
     let cid = ctx_handle_of(this)?;
-    let name = ctx
-        .core()
-        .loader().context_registry
-        .lock()
-        .context_name(cid)
-        .unwrap_or_default();
+    let name = ctx.loader().context_name(cid).unwrap_or_default();
     Ok(Value::Str(name.into()))
 }
 
 /// `ctx.IsCollectible` (instance getter).
 pub fn lctx_is_collectible(ctx: &VmContext, this: &Value) -> Result<Value, BuiltinError> {
     let cid = ctx_handle_of(this)?;
-    let b = ctx
-        .core()
-        .loader().context_registry
-        .lock()
-        .context_is_collectible(cid)
-        .unwrap_or(false);
+    let b = ctx.loader().context_is_collectible(cid).unwrap_or(false);
     Ok(Value::Bool(b))
 }
 
 /// `ctx.GetAssemblies()` (instance) → the assemblies loaded into this context.
 pub fn lctx_assemblies(ctx: &VmContext, this: &Value) -> Result<Value, BuiltinError> {
     let cid = ctx_handle_of(this)?;
-    let aids = ctx.core().loader().context_registry.lock().context_assemblies(cid);
+    let aids = ctx.loader().context_assemblies(cid);
     let mut out = Vec::with_capacity(aids.len());
     for aid in aids {
         out.push(build_assembly(ctx, aid).map_err(BuiltinError::Legacy)?);
@@ -198,31 +187,21 @@ pub fn lctx_assemblies(ctx: &VmContext, this: &Value) -> Result<Value, BuiltinEr
 /// `asm.Name` (instance getter).
 pub fn asm_name(ctx: &VmContext, this: &Value) -> Result<Value, BuiltinError> {
     let aid = asm_handle_of(this)?;
-    let name = ctx
-        .core()
-        .loader().context_registry
-        .lock()
-        .assembly_name(aid)
-        .unwrap_or_default();
+    let name = ctx.loader().assembly_name(aid).unwrap_or_default();
     Ok(Value::Str(name.into()))
 }
 
 /// `asm.IsCollectible` (instance getter).
 pub fn asm_is_collectible(ctx: &VmContext, this: &Value) -> Result<Value, BuiltinError> {
     let aid = asm_handle_of(this)?;
-    let b = ctx.core().loader().context_registry.lock().assembly_is_collectible(aid);
+    let b = ctx.loader().assembly_is_collectible(aid);
     Ok(Value::Bool(b))
 }
 
 /// `asm.LoadContext` (instance getter) → the owning context.
 pub fn asm_loadcontext(ctx: &VmContext, this: &Value) -> Result<Value, BuiltinError> {
     let aid = asm_handle_of(this)?;
-    let cid = ctx
-        .core()
-        .loader().context_registry
-        .lock()
-        .assembly_context(aid)
-        .unwrap_or(ContextId::ROOT);
+    let cid = ctx.loader().assembly_context(aid).unwrap_or(ContextId::ROOT);
     build_loadcontext(ctx, cid).map_err(BuiltinError::Legacy)
 }
 
@@ -230,7 +209,7 @@ pub fn asm_loadcontext(ctx: &VmContext, this: &Value) -> Result<Value, BuiltinEr
 /// stamped with its `__asmId` so `IsCollectible` / `Assembly` resolve.
 pub fn asm_get_types(ctx: &VmContext, this: &Value) -> Result<Value, BuiltinError> {
     let aid = asm_handle_of(this)?;
-    let tds = ctx.core().loader().context_registry.lock().assembly_types(aid);
+    let tds = ctx.loader().assembly_types(aid);
     let mut out = Vec::with_capacity(tds.len());
     for td in tds {
         let tv = make_type_object(ctx, td);
@@ -247,7 +226,7 @@ pub fn asm_get_types(ctx: &VmContext, this: &Value) -> Result<Value, BuiltinErro
 /// lists the names.
 pub fn asm_get_functions(ctx: &VmContext, this: &Value) -> Result<Value, BuiltinError> {
     let aid = asm_handle_of(this)?;
-    let names = ctx.core().loader().context_registry.lock().assembly_function_names(aid);
+    let names = ctx.loader().assembly_function_names(aid);
     let mut out = Vec::with_capacity(names.len());
     for q in &names {
         let simple = q.rsplit('.').next().unwrap_or(q);
@@ -261,7 +240,7 @@ pub fn asm_get_functions(ctx: &VmContext, this: &Value) -> Result<Value, Builtin
 /// `Type.IsCollectible` (instance getter).
 pub fn type_is_collectible(ctx: &VmContext, this: &Value) -> Result<Value, BuiltinError> {
     let aid = type_asm_id(std::slice::from_ref(this));
-    let b = ctx.core().loader().context_registry.lock().assembly_is_collectible(aid);
+    let b = ctx.loader().assembly_is_collectible(aid);
     Ok(Value::Bool(b))
 }
 

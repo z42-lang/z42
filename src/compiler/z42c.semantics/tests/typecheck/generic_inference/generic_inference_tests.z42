@@ -400,3 +400,25 @@ void test_lambda_infer_pure_a_unannotated_stays_silent() {
         + "class Use { void f() { app((x) => x); } }";
     Assert.Equal(0, bodyDiags(src).Count());
 }
+
+[Test]
+void test_inferred_forwarding_between_differently_named_method_parameters() {
+    string src = "T Identity<T>(T value) { return value; } "
+        + "U Forward<U>(U value) { return Identity(value); }";
+    Assert.Equal(0, bodyDiags(src).Count());
+}
+
+[Test]
+void test_inferred_forwarding_substitutes_nested_argument_types() {
+    string src = "class Holder<T> {} "
+        + "Holder<T> Identity<T>(Holder<T> value) { return value; } "
+        + "Holder<U> Forward<U>(Holder<U> value) { return Identity(value); }";
+    Assert.Equal(0, bodyDiags(src).Count());
+}
+
+[Test]
+void test_inferred_forwarding_still_rejects_incompatible_arguments() {
+    string src = "void Consume<T>(T value, int count) {} "
+        + "void Forward<U>(U value) { Consume(value, true); }";
+    Assert.Equal(1, countCode(bodyDiags(src), "E0402"));
+}

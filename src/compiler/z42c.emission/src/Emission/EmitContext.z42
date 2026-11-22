@@ -134,7 +134,8 @@ public sealed class EmitContext {
 
     // add-struct-value-eq-fastpath：布局是否含浮点叶子（判定实现在 StructLayout.HasFloatLeaf，
     // 供 IrGenTypeEmitter 的合成名分流共用）。blob 按位比较与浮点 Eq 语义（+0.0==-0.0 为真、
-    // NaN!=NaN）不等价，故 `==`/`Equals` 的单指令快路只对 float-free 布局启用。
+    // NaN!=NaN）不等价，故 `==`/`Equals` 的单指令快路只对 float-free 布局启用；含浮点返回
+    // true → 调用方回落既有逐叶路径。叶子类型名是 canonical 拼写（`float`/`double`）。
     public bool LayoutHasFloatLeaf(string structName) {
         return this.Gen.Layouts.HasFloatLeaf(structName);
     }

@@ -1,6 +1,5 @@
 //! Package installation and explicit reload invalidate thread lookup caches.
 use super::*;
-use crate::loader::contexts::{AssemblyId, ContextId, ContextLoadError, ContextState};
 impl RuntimeLoader<'_> {
     /// Seed the entry package before registering dependencies, so dependency
     /// registration can find entry definitions and their package ownership.
@@ -80,6 +79,15 @@ impl RuntimeLoader<'_> {
         loader.register_decoded_artifact(artifact)
     }
 
+    /// Copy this VM's current package search order under the loader's read lock.
+    pub(crate) fn search_dirs_snapshot(&self) -> Vec<PathBuf> {
+        self.state
+            .lazy_loader
+            .read()
+            .as_ref()
+            .map_or_else(Vec::new, |loader| loader.search_dirs().to_vec())
+    }
+
     /// Clear the lazy loader (used in tests).
     pub fn uninstall_lazy_loader(&self) {
         let mut state = self.state.lazy_loader.write();
@@ -132,28 +140,6 @@ impl RuntimeLoader<'_> {
     /// (reflection's dotless lookups — see `make_type_from_name`).
     pub fn referenced_full_name(&self, short: &str) -> Option<String> {
         self.state.lazy_loader.read().as_ref().and_then(|l| l.full_name_for_short(short))
-    }
-
-    /// Load into the context's private arena for reflection.
-    pub(crate) fn load_context_artifact(
-        &self,
-        context: ContextId,
-        path: &str,
-    ) -> Result<AssemblyId, ContextLoadError> {
-        if self.state.context_registry.lock().context_state(context) != Some(ContextState::Active) {
-            return Err(ContextLoadError::Inactive);
-        }
-        let artifact = crate::loader::package::load_artifact_with_fusion(
-            self.state.vfs.as_ref(),
-            path,
-            self.state.fusion_inputs,
-        )
-        .map_err(ContextLoadError::Artifact)?;
-        let name = std::path::Path::new(path)
-            .file_stem()
-            .and_then(|name| name.to_str())
-            .unwrap_or(path);
-        Ok(self.state.context_registry.lock().load_into(context, name, artifact.module))
     }
 
     /// Load a compiled artifact at `path` into the live registries.

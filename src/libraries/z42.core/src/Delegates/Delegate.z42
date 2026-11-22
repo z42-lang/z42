@@ -28,4 +28,16 @@ public class Delegate {
     /// 用函数名 + 环境数组重建闭包；env[0] 通常是 receiver 对象。
     [Native("__make_closure")]
     public static extern object MakeClosure(string fnName, object[] env);
+
+    /// 文本形：目标函数全限定名（与 `FnName` 同源）；非委托值返回 null。
+    [Native("__delegate_to_str")]
+    public extern string ToString();
+
+    /// 与 `==` 一致的身份哈希：FuncRef 折目标函数 id，Closure 混入 env 句柄地址。
+    [Native("__delegate_hash")]
+    public extern int GetHashCode();
+
+    /// 引用相等（与 `==` / `ReferenceEquals` 同判据）；非委托实参返回 false。
+    [Native("__delegate_eq")]
+    public extern bool Equals(object other);
 }
