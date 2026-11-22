@@ -62,6 +62,12 @@ public static class DocLint {
                 string kind = (b.Kind == DocBlock.Inner) ? "//!" : "///";
                 acc.Push(new DocLintFinding(DiagnosticCodes.DocOrphanBlock, file, b.Span.Line,
                     "孤立的 " + kind + " 块——后面没有声明认领它"));
+            } else {
+                GeneratorDoc generator = GeneratorDoc.Parse(b.Text);
+                if (generator.Error.Length > 0) {
+                    acc.Push(new DocLintFinding(DiagnosticCodes.DocUnknownTag, file,
+                        b.Span.Line + generator.ErrorLineOffset, generator.Error));
+                }
             }
             i = i + 1;
         }
@@ -114,10 +120,12 @@ public static class DocLint {
             int j = 0;
             while (j < e.MemberCount) {
                 EnumMember m = e.Members[j];
-                // 枚举成员隐式 public，与显式 public 同查 W0805（param-docs 起不再豁免）；文本检查照做。
-                if (m.Doc == null) {
-                    acc.Push(new DocLintFinding(DiagnosticCodes.DocPublicMissingDoc, file, m.Span.Line,
-                        "public `" + m.Name + "` 缺 /// 文档"));
+                // 枚举成员的公开覆盖范围跟随枚举声明。
+                if (m.Doc == null || GeneratorDoc.Parse(m.Doc.Text).PublicText.Trim().Length == 0) {
+                    if (Mod.Has(e.ModFlags, Mod.Public)) {
+                        acc.Push(new DocLintFinding(DiagnosticCodes.DocPublicMissingDoc, file, m.Span.Line,
+                            "public `" + m.Name + "` 缺 /// 文档"));
+                    }
                 } else { DocLint._text(acc, m.Doc, m.Name, file); }
                 j = j + 1;
             }
@@ -143,7 +151,7 @@ public static class DocLint {
     // 一个声明的全套检查。tp / ps 为 null 表示该声明没有对应结构（@param 恒不匹配）。
     private static void _checkOne(LintAcc acc, Decl d, string name, TypeParamList tp,
                                    Param[] ps, int pc, int modFlags, string file, bool implicitPublic) {
-        if (d.Doc == null) {
+        if (d.Doc == null || GeneratorDoc.Parse(d.Doc.Text).PublicText.Trim().Length == 0) {
             // W0805：public 而无 ///——显式 public（Mod 位）或隐式 public（接口成员）都算。
             if (Mod.Has(modFlags, Mod.Public) || implicitPublic) {
                 acc.Push(new DocLintFinding(DiagnosticCodes.DocPublicMissingDoc, file, d.Span.Line,
@@ -183,7 +191,7 @@ public static class DocLint {
 
     // 文本级（挂靠不关心声明形状）：W0806 历史注记、W0807 摘要。
     private static void _text(LintAcc acc, DocBlock doc, string name, string file) {
-        string text = doc.Text;
+        string text = GeneratorDoc.Parse(doc.Text).PublicText;
         if (DocLint._hasHistory(text)) {
             acc.Push(new DocLintFinding(DiagnosticCodes.DocHistoryNote, file, doc.Span.Line,
                 "`" + name + "` 的文档里有历史注记（日期 / spec 名）——历史归 git blame"));

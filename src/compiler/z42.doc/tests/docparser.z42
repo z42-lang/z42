@@ -169,3 +169,31 @@ void test_param_empty_and_fqn_throws() {
     DocComment c = DocParser.Parse("@param seed\n@throws Std.ArgumentException 越界");
     _eq("param[seed]= | throws[Std.ArgumentException]=越界", _tags(c));
 }
+
+[Test]
+void test_generator_text_is_separate_from_public_docs() {
+    string doc = "运行 JIT。\n@generator z42.cli/choice-help 专用文案\n@warning 示例提示";
+    GeneratorDoc fields = GeneratorDoc.Parse(doc);
+    _eq("", fields.Error);
+    _eq("专用文案", fields.GetText("z42.cli/choice-help"));
+    _eq("运行 JIT。\n@warning 示例提示", fields.PublicText);
+    DocComment comment = DocParser.Parse(doc);
+    _eq("运行 JIT。", comment.Summary);
+    _eq("warning[]=示例提示", _tags(comment));
+    DocItem item = new DocItem("Ns.Mode.Jit", "enum-member", "Jit", "Ns.Mode", "Jit", 1, "public", doc);
+    Assert.Equal(-1, DocFormat.Json(new DocItem[] { item }).IndexOf("专用文案"));
+    Assert.Equal(-1, DocFormat.ShowDoc(doc).IndexOf("专用文案"));
+}
+
+[Test]
+void test_generator_text_rejects_malformed_fields() {
+    GeneratorDoc duplicate = GeneratorDoc.Parse("@generator z42.cli/choice-help one\n@generator z42.cli/choice-help two");
+    _eq("duplicate @generator field z42.cli/choice-help", duplicate.Error);
+    Assert.Equal(1, duplicate.ErrorLineOffset);
+    _eq("", duplicate.PublicText);
+    GeneratorDoc multiline = GeneratorDoc.Parse("@generator z42.cli/choice-help one\n  private continuation");
+    _eq("@generator requires a single line", multiline.Error);
+    _eq("", multiline.PublicText);
+    GeneratorDoc badKey = GeneratorDoc.Parse("@generator choice-help example");
+    _eq("expected @generator <package>/<field> <text>", badKey.Error);
+}

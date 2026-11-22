@@ -189,3 +189,19 @@ void test_clean_source_no_findings() {
         + "}\n", "A.z42");
     Assert.Equal(0, fs.Length);
 }
+
+[Test]
+void test_generator_fields_are_checked_without_counting_as_public_docs() {
+    DocLintFinding[] findings = DocLint.CheckSource(
+        "/// Execution mode.\npublic enum Mode {\n"
+        + "/// @generator z42.cli/choice-help JIT\n"
+        + "/// @generator z42.cli/choice-help JIT again\n"
+        + "Jit\n}", "Mode.z42");
+    Assert.Equal(1, _count(findings, "W0804"));
+    Assert.Equal(1, _count(findings, "W0805"));
+    Assert.Equal(0, _count(findings, "W0807"));
+
+    DocLintFinding[] internalFindings = DocLint.CheckSource(
+        "enum Mode {\n/// @generator z42.cli/choice-help JIT\nJit\n}", "Mode.z42");
+    Assert.Equal(0, internalFindings.Length);
+}

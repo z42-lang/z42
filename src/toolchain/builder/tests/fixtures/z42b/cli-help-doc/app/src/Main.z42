@@ -1,0 +1,11 @@
+namespace Example;
+
+enum Mode {
+    /// Public JIT summary.
+    /// @generator z42.cli/choice-help 仅使用 JIT
+    JitOnly,
+    /// @generator z42.cli/choice-help "both" modes
+    Both,
+}
+
+void Main() {}

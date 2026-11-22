@@ -242,19 +242,21 @@ void _eq(string expected, string actual) {
 
 [Test]
 void test_package_page_delegate_and_enum() {
-    // 委托只有签名（无体）；枚举成员进总览块、不单独成节。
+    // 委托只有签名；枚举成员有公开文档时另成一节。
     DocIndex ix = _index(
         "namespace App;\n"
         + "/// 回调。\npublic delegate void Handler(int code);\n"
         + "/// 种类。\npublic enum Kind {\n"
-        + "    /// 圆形。\n    Round,\n"
-        + "    Polygon\n"
+        + "    /// 圆形。\n    /// @generator z42.cli/choice-help 专用圆形\n    Round,\n"
+        + "    /// @generator z42.cli/choice-help 专用多边形\n    Polygon\n"
         + "}\n");
     string page = DocMd.PackagePage("z42.shapes", "src", ix);
     Assert.Contains("```z42\npublic delegate void Handler(int code)\n```", page);
     Assert.Contains("public enum Kind {", page);
     Assert.Contains("Round", page);
     Assert.Contains("Polygon", page);
-    // 枚举成员不单独成 ### 节。
-    Assert.True(!page.Contains("### Round"));
+    Assert.Contains("### Round", page);
+    Assert.Contains("圆形。", page);
+    Assert.True(!page.Contains("### Polygon"));
+    Assert.True(!page.Contains("专用"));
 }

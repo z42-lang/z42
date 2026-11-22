@@ -1,0 +1,115 @@
+namespace Z42.Doc;
+
+using Std.Text;
+
+public sealed class GeneratorDocField {
+    public string Key;
+    public string Text;
+    public int LineOffset;
+
+    public GeneratorDocField(string key, string text, int lineOffset) {
+        this.Key = key;
+        this.Text = text;
+        this.LineOffset = lineOffset;
+    }
+}
+
+public sealed class GeneratorDoc {
+    public string PublicText;
+    public GeneratorDocField[] Fields;
+    public string Error;
+    public int ErrorLineOffset;
+
+    public GeneratorDoc(string text) {
+        this.PublicText = text;
+        this.Fields = new GeneratorDocField[0];
+        this.Error = "";
+    }
+
+    public string? GetText(string key) {
+        foreach (GeneratorDocField field in this.Fields) {
+            if (field.Key == key) { return field.Text; }
+        }
+        return null;
+    }
+
+    public static GeneratorDoc Parse(string doc) {
+        var result = new GeneratorDoc(doc);
+        if (doc.IndexOf("@") < 0) { return result; }
+        string[] lines = doc.Split("\n");
+        int first = 0;
+        while (first < lines.Length && !GeneratorDoc._isField(lines[first])) { first = first + 1; }
+        if (first == lines.Length) { return result; }
+        var publicText = new StringBuilder();
+        GeneratorDocField[] fields = new GeneratorDocField[lines.Length];
+        int count = 0;
+        int publicCount = 0;
+        bool inField = false;
+        for (int i = 0; i < lines.Length; i++) {
+            string line = lines[i];
+            if (GeneratorDoc._isField(line)) {
+                GeneratorDocField field = GeneratorDoc._parseField(line, i);
+                string error = GeneratorDoc._validate(fields, count, field);
+                if (error == "") { fields[count] = field; count = count + 1; }
+                else { result._report(error, i); }
+                inField = true;
+            } else if (inField && !line.StartsWith("@")) {
+                if (line.Trim().Length > 0) { result._report("@generator requires a single line", i); }
+            } else {
+                inField = false;
+                if (publicCount > 0) { publicText.Append("\n"); }
+                publicText.Append(line);
+                publicCount = publicCount + 1;
+            }
+        }
+        result.PublicText = publicText.ToString();
+        result.Fields = new GeneratorDocField[count];
+        Array.Copy(fields, result.Fields, count);
+        return result;
+    }
+
+    private void _report(string message, int lineOffset) {
+        if (this.Error == "") { this.Error = message; this.ErrorLineOffset = lineOffset; }
+    }
+
+    private static bool _isField(string line) {
+        if (line.Length < 10 || line.Substring(0, 10).ToLower() != "@generator") { return false; }
+        return line.Length == 10 || GeneratorDoc._space(line.CharAt(10));
+    }
+
+    private static GeneratorDocField _parseField(string line, int offset) {
+        string rest = line.Substring(10).Trim();
+        int end = 0;
+        while (end < rest.Length && !GeneratorDoc._space(rest.CharAt(end))) { end = end + 1; }
+        return new GeneratorDocField(rest.Substring(0, end), rest.Substring(end).Trim(), offset);
+    }
+
+    private static bool _space(char c) { return c == ' ' || c == '\t' || c == '\r'; }
+
+    private static bool _wordChar(char c) { return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9'); }
+
+    private static bool _validKey(string key) {
+        int slash = key.IndexOf("/");
+        if (slash <= 0 || slash >= key.Length - 1) { return false; }
+        bool prevWord = false;
+        for (int i = 0; i < key.Length; i++) {
+            char c = key.CharAt(i);
+            if (GeneratorDoc._wordChar(c)) { prevWord = true; }
+            else {
+                if (!prevWord || (c != '-' && i != slash && !(c == '.' && i < slash))) { return false; }
+                prevWord = false;
+            }
+        }
+        return prevWord;
+    }
+
+    private static string _validate(GeneratorDocField[] fields, int count, GeneratorDocField field) {
+        if (!GeneratorDoc._validKey(field.Key) || field.Text.Length == 0) {
+            return "expected @generator <package>/<field> <text>";
+        }
+        for (int i = 0; i < count; i++) {
+            if (fields[i].Key == field.Key) { return "duplicate @generator field " + field.Key; }
+        }
+        return "";
+    }
+}

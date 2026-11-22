@@ -126,6 +126,36 @@ class SetupCommand : Command {
 子命令经 `ParentCommand()` 取祖先（读全局 option 字段）。只要解析不执行用 `Resolve(argv)`，
 再 `Bind(res)` 得到绑定好的目标命令。
 
+## 枚举帮助资产
+
+可选插件 `z42.cli.help` 从当前工程的枚举成员读取专用 doc 字段。包外帮助前端可用成员限定名查询这份资产。
+
+```z42
+enum Mode {
+    /// 仅使用 JIT 执行，跳过解释器。
+    /// @generator z42.cli/choice-help 仅使用 JIT
+    JitOnly,
+}
+```
+
+从仓库根构建插件及其编译期依赖，将两份产物放在同一目录。
+
+```bash
+z42 build src/compiler/z42.doc/z42.doc.z42.toml --release --output-dir artifacts/cli-help
+z42 build src/libraries/z42.cli/plugins/help/z42.z42.toml --release --output-dir artifacts/cli-help
+```
+
+在消费方清单中登记插件产物。路径相对于消费方清单。
+
+```toml
+[dependencies]
+"z42.cli.help" = { path = "tooling/z42.cli.help.zpkg" }
+```
+
+运行 `z42b build` 后，构建输出目录中的 `<project>.cli-help.json` 包含
+`format: 1` 和 `enumMembers`，后者以 `Example.Mode.JitOnly` 这样的成员限定名为键。
+帮助资产只包含显式标注的成员。
+
 ## 嵌套子命令（底层 API：`prog build package …`）
 
 多层命令树用 `AddRouter` 挂子 router，`Resolve` 逐层下钻，每层各自拦 `-h`：

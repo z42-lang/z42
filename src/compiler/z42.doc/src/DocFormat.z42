@@ -144,7 +144,7 @@ public static class DocFormat {
             DocFormat._jf(sb, "vis", it.Vis, false);
             DocFormat._jf(sb, "loc", DocFormat.Loc(it), false);
             DocFormat._jf(sb, "summary", it.Summary(), false);
-            DocFormat._jf(sb, "doc", it.Doc, false);
+            DocFormat._jf(sb, "doc", GeneratorDoc.Parse(it.Doc).PublicText, false);
             sb.Append("}");
             i = i + 1;
         }

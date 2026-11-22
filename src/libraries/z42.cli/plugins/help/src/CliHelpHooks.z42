@@ -1,0 +1,43 @@
+namespace Z42.Cli.Build;
+
+using Std.IO;
+using Std.Json;
+using Z42.Build;
+using Z42.Doc;
+using Z42.Project;
+
+public sealed class CliHelpHooks : BuildHooks {
+    private static string Field = "z42.cli/choice-help";
+
+    public override void AfterCompile(IPipelineContext ctx) {
+        ProjectManifest manifest = ctx.Manifest;
+        string[] excludes = manifest.EffectiveSourceExcludes();
+        string[] paths = SourceDiscovery.DiscoverWithExclude(ctx.Dirs.Source,
+            manifest.Sources.Include, manifest.Sources.IncludeCount, excludes, excludes.Length);
+        JsonValue members = JsonValue.OfObject();
+        foreach (string path in paths) {
+            foreach (DocItem item in SyntaxIndexer.IndexSource(ctx.ReadText(path), path)) {
+                CliHelpHooks._collect(members, item);
+            }
+        }
+        JsonValue asset = JsonValue.OfObject();
+        asset.Set("format", JsonValue.OfLong(1));
+        asset.Set("enumMembers", members);
+        string output = Path.Join(ctx.Dirs.Dist, manifest.Project.Name + ".cli-help.json");
+        ctx.Mkdir(ctx.Dirs.Dist);
+        ctx.WriteText(output, new JsonWriter(true).Write(asset) + "\n");
+        ctx.AddOutput("cli-help", output);
+    }
+
+    private static void _collect(JsonValue members, DocItem item) {
+        GeneratorDoc doc = GeneratorDoc.Parse(item.Doc);
+        if (doc.Error != "") { throw new Exception(CliHelpHooks._location(item) + doc.Error); }
+        foreach (GeneratorDocField field in doc.Fields) {
+            if (!field.Key.StartsWith("z42.cli/")) { continue; }
+            if (field.Key != CliHelpHooks.Field) { throw new Exception(CliHelpHooks._location(item) + "unknown CLI doc field " + field.Key); }
+            if (item.Kind != DocKind.EnumMember) { throw new Exception(CliHelpHooks._location(item) + field.Key + " requires an enum member"); }
+            members.Set(item.Id, JsonValue.OfString(field.Text));
+        }
+    }
+    private static string _location(DocItem item) { return item.File + ":" + item.Line.ToString() + ": "; }
+}
