@@ -200,6 +200,7 @@ public static class ZbcReaderInstr {
             int size = c.U32();
             return new StructAllocInstr(d, tn, size);
         }
+        if (op == Op.StructCopyDynamic) { return new StructCopyDynamicInstr(d, ZbcReaderInstr._ru(c.U16())); }
         if (op == Op.StructCopy) {
             TypedReg src = ZbcReaderInstr._ru(c.U16());
             int size = c.U32();

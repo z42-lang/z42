@@ -140,6 +140,17 @@ impl StructArena {
     /// (see [`Self::check_copy_invariant`] for why it is still worth passing).
     pub fn copy_into(&mut self, dst_idx: u32, dst_frame_id: u32,
                      src_idx: u32, src_frame_id: u32, size: usize) -> Result<()> {
+        self.copy_slots(dst_idx, dst_frame_id, src_idx, src_frame_id, Some(size))
+    }
+
+    /// Copy between slots whose concrete layout is only known at runtime.
+    pub fn copy_dynamic(&mut self, dst_idx: u32, dst_frame_id: u32,
+                        src_idx: u32, src_frame_id: u32) -> Result<()> {
+        self.copy_slots(dst_idx, dst_frame_id, src_idx, src_frame_id, None)
+    }
+
+    fn copy_slots(&mut self, dst_idx: u32, dst_frame_id: u32,
+                  src_idx: u32, src_frame_id: u32, static_size: Option<usize>) -> Result<()> {
         // Two indices into the same Vec. `split_at_mut` hands out two disjoint
         // borrows, so the copy is in-place — **no allocation**.
         //
@@ -166,7 +177,13 @@ impl StructArena {
             // early-return below cannot skip it: `a = a` still has a compiler
             // `size` worth cross-checking against the layout, even though its two
             // shapes are trivially equal.
-            Self::check_copy_invariant(s, d, size)?;
+            if let Some(size) = static_size {
+                Self::check_copy_invariant(s, d, size)?;
+            } else if s.type_name != d.type_name
+                || (!Arc::ptr_eq(&s.layout, &d.layout) && s.layout != d.layout)
+            {
+                anyhow::bail!("StructCopyDynamic: incompatible layouts for `{}` and `{}`", s.type_name, d.type_name);
+            }
         }
         // Self-copy (`a = a`, or two names for one slot): already validated, and
         // `split_at_mut` cannot produce two borrows of one element — nothing to do.

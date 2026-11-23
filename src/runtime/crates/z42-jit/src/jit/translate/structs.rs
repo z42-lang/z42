@@ -21,6 +21,13 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     let inst = self.builder.ins().call(self.hr_struct_copy, &[self.frame_val, self.ctx_val, d, s, sz]);
                     let ret = self.builder.inst_results(inst)[0]; self.check(ret);
                 }
+                Instruction::StructCopyDynamic { dst, src } => {
+                    let dst = self.ri(*dst);
+                    let src = self.ri(*src);
+                    let call = self.builder.ins().call(self.hr_struct_copy_dynamic, &[self.frame_val, self.ctx_val, dst, src]);
+                    let status = self.builder.inst_results(call)[0];
+                    self.check(status);
+                }
                 // symbolic-struct-field-access P2：把 (root 类型名, 字段序号路径) 传进 helper，
                 // 由它解析偏移 —— 与 interp 走**同一个** `resolve_field_path`，不在两侧各抄一份
                 // （struct 路径上「判据复制」正是本 change 要消掉的东西）。

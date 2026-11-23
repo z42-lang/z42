@@ -87,6 +87,19 @@ pub unsafe extern "C" fn jit_struct_copy(
     }
 }
 
+/// Copy between same-type arena slots whose layout is only known at runtime.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn jit_struct_copy_dynamic(
+    frame: *mut JitFrame, ctx: *const VmContext, dst: u32, src: u32,
+) -> u8 {
+    let vm = vm_ctx_ref(ctx);
+    let regs = &(*frame).regs;
+    match structs::struct_copy_dynamic(vm, super::jit_module(ctx), &regs[dst as usize], &regs[src as usize]) {
+        Ok(()) => 0,
+        Err(thrown) => { set_exception(vm, thrown); 1 }
+    }
+}
+
 /// 把 (ptr, len) 还原成 `&str` / `&[u16]`。SAFETY：指向模块函数体里的解码结果
 /// （`str_val` / `path_val` 打的常量），生命周期覆盖这段 JIT 代码。
 #[inline]

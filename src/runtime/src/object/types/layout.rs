@@ -27,7 +27,7 @@ pub const STRUCT_REF_GCREF: u8 = 2;
 /// empty reference arrays. A type with no delivered layout resolves (in
 /// `interp::ops::exec_struct::resolve_layout`) to a `size`-only empty layout, which
 /// reproduces the pre-A-use pure-primitive behavior byte-for-byte.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq)]
 pub struct StructTypeLayout {
     pub size: usize,
     pub ref_offsets: Box<[u32]>,

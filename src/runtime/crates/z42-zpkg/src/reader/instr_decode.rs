@@ -161,6 +161,7 @@ pub(super) fn decode_instr(op: u8, typ: u8, dst: u32, c: &mut Cursor, pool: &[St
             let size = c.read_u32()?;
             Instruction::StructCopy { dst, src, size }
         }
+        OP_STRUCT_COPY_DYNAMIC => Instruction::StructCopyDynamic { dst, src: u32::from(c.read_u16()?) },
         // symbolic-struct-field-access P2 (zbc 1.46)：烘焙偏移 → `(root_type, 字段序号路径)`。
         // `root_type` 兼任编号空间判别器（class ⇒ 对象合成布局 / struct ⇒ blob 布局）。
         OP_STRUCT_FIELD_GET_PRIM => {

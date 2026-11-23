@@ -76,6 +76,7 @@ impl Instruction {
             // add-struct-value-semantics Phase A: blob value type instructions.
             Instruction::StructAlloc(insn)              => Some(insn.dst),
             Instruction::StructCopy { dst, .. }         => Some(*dst),
+            Instruction::StructCopyDynamic { .. }       => None,
             Instruction::StructFieldGetPrim(insn)       => Some(insn.dst),
             Instruction::StructFieldSetPrim(_)          => None,
         }
@@ -392,6 +393,8 @@ pub enum Instruction {
         src: Reg,
         size: u32,
     },
+    /// Copy a blob between same-type slots using their runtime layouts.
+    StructCopyDynamic { dst: Reg, src: Reg },
     /// Read the primitive leaf named by `(root_type, path)` out of `base` into `dst`
     /// (symbolic-struct-field-access P2). Boxed: the payload carries a `String` +
     /// a `Box<[u16]>`, and `Instruction` is held to ≤32 B by a ratchet test.

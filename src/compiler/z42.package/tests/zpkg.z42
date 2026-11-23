@@ -291,3 +291,23 @@ void test_method_witness_slot_roundtrips_as_u16() {
     Assert.Equal(3, decoded.Dst.Id);
     Assert.Equal(513, decoded.Slot);
 }
+
+[Test]
+void test_dynamic_struct_copy_roundtrips_as_two_use_operands() {
+    var writer = new ByteWriter();
+    var pool = new ZbcStringPool();
+    var tokens = new TokenAllocator(new string[0], 0, new string[0], 0);
+    var copy = new StructCopyDynamicInstr(new TypedReg(3, IrType.Ref), new TypedReg(513, IrType.Ref));
+    ZbcInstr.WriteInstr(writer, copy, pool, new int[0], tokens);
+    ZbcInstr.WriteTerm(writer, new RetTerm(false, null), new string[]{ "entry" }, 1);
+    var block = ZbcReaderInstr.DecodeBlock(new ZpkgCursor(writer.ToBytes(), 0), writer.Len(),
+        new string[0], new string[0], 0, new string[0], 0);
+    Assert.True(block.Ok);
+    Assert.Equal(1, block.InstrCount);
+    var decoded = block.Instrs[0] as StructCopyDynamicInstr;
+    Assert.NotNull(decoded);
+    Assert.Equal(2, decoded.ReadCount());
+    Assert.Equal(3, decoded.ReadAt(0).Id);
+    Assert.Equal(513, decoded.ReadAt(1).Id);
+    Assert.True(decoded.DefReg() == null);
+}

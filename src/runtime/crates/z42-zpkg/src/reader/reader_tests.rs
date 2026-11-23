@@ -397,3 +397,14 @@ fn decode_method_struct_alloc_uses_a_u16_type_parameter_index() {
     assert!(matches!(&instructions[..], [Instruction::MethodStructAlloc { dst: 3, param_index: 513 }]));
     assert!(decode_block(&bytes[..5], &pool, &map).is_err());
 }
+
+#[test]
+fn decode_struct_copy_dynamic_uses_two_registers_without_a_size() {
+    let pool = [];
+    let map = IdMap::for_v1(&pool, vec![], vec![]);
+    let bytes = [OP_STRUCT_COPY_DYNAMIC, 0x20, 3, 0, 1, 2, OP_RET, 0, 0, 0];
+    let (instructions, _) = decode_block(&bytes, &pool, &map).unwrap();
+    assert!(matches!(&instructions[..], [Instruction::StructCopyDynamic { dst: 3, src: 513 }]));
+    assert_eq!(instructions[0].written_reg(), None);
+    assert!(decode_block(&bytes[..5], &pool, &map).is_err());
+}
