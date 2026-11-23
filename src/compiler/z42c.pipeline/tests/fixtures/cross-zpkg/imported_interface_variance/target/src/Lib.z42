@@ -15,3 +15,9 @@ public class DualMap : IMap<Animal,Cat>, IMap<Cat,Animal> {
     public Cat Apply(Animal value) { return new Cat(); }
     public Animal Apply(Cat value) { return new Animal(); }
 }
+
+public class Delivery {
+    public static string Deliver(ISink<Cat> sink, int marker = 7) {
+        return marker == 7 ? sink.Put(new Cat()) : "wrong default";
+    }
+}

@@ -125,14 +125,11 @@ public sealed partial class OverloadBinder {
         }
     }
 
-    // 单个实参的检查入口（供不经本汇聚点的路径复用：ctor 位置实参、`_adaptArgs` 的命名实参/可选参）。
-    internal void CheckArg(BoundExpr a, Z42Type pt, Span sp, TypeEnv env) {
-        if (a == null || pt == null) { return; }
-        // make-enum-distinct-type：`_isEnumSide` 跳过已摘除（理由见 `_checkOneArg`）。
-        // 这条路（ctor 位置实参 / 命名实参 / 可选参）**不经**上面的汇聚点，而那个跳过曾在两处
-        // 各写一遍——摘除时必须同样两处都摘；只摘汇聚点那处，enum 形参在 ctor 与命名实参位就
-        // 仍然不检查（"看着修好了、其实半边还瞎"）。
-        this._tc.CheckImplicitConvert(a, pt, env.Symbols, sp, "argument");
+    private BoundExpr _checkAndProjectArg(BoundExpr a, Z42Type pt, Span sp, TypeEnv env) {
+        if (a == null || pt == null) { return a; }
+        BoundExpr projected = this._tc.ConvertInterfaceVariance(a, pt, env.Symbols);
+        this._tc.CheckImplicitConvert(projected, pt, env.Symbols, sp, "argument");
+        return projected;
     }
 
     private void _checkOneArg(BoundExpr[] args, Expr[] rawArgs, int i, Z42Type pt, TypeEnv env) {
@@ -147,8 +144,7 @@ public sealed partial class OverloadBinder {
         // span 指到**实参本身**（而非调用点），定位更准。
         Span sp = args[i].Span;
         if (rawArgs != null && i < rawArgs.Length && rawArgs[i] != null) { sp = rawArgs[i].Span; }
-        args[i] = this._tc.ConvertInterfaceVariance(args[i], pt, env.Symbols);
-        this._tc.CheckImplicitConvert(args[i], pt, env.Symbols, sp, "argument");
+        args[i] = this._checkAndProjectArg(args[i], pt, sp, env);
     }
 
     // check-constraint-iface-method-args：型参收者（`where T : IEq` 的 `T`）调约束接口方法时，`Self`
@@ -589,7 +585,9 @@ public sealed partial class OverloadBinder {
                 slots[idx] = this._tc._expr.BindWithTarget(ae.Value, npt, env); filled[idx] = true;
                 // add-argument-type-check：命名实参路径不经 `_checkArgTypes` 汇聚点（本方法直接产
                 // 形参序 slots），须就地检查——否则 `f(x: wrongType)` 与 ctor 的命名实参成为漏网。
-                if (!OverloadBinder._paramMentionsTypeParam(ms, idx)) { this.CheckArg(slots[idx], npt, ae.Value.Span, env); }
+                if (!OverloadBinder._paramMentionsTypeParam(ms, idx)) {
+                    slots[idx] = this._checkAndProjectArg(slots[idx], npt, ae.Value.Span, env);
+                }
             } else {
                 if (pos >= pc) { return null; }
                 // add-target-typed-new：位置实参按对应形参类型绑定（支持 `f(new())`）。
@@ -608,7 +606,9 @@ public sealed partial class OverloadBinder {
                     && !slots[pos].Type().IsAssignableTo(ppt)) {
                     chk = (ppt as Z42ArrayType).Elem;
                 }
-                if (!OverloadBinder._paramMentionsTypeParam(ms, pos)) { this.CheckArg(slots[pos], chk, a.Span, env); }
+                if (!OverloadBinder._paramMentionsTypeParam(ms, pos)) {
+                    slots[pos] = this._checkAndProjectArg(slots[pos], chk, a.Span, env);
+                }
                 pos = pos + 1;
             }
             i = i + 1;
