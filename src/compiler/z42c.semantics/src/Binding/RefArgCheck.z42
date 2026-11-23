@@ -36,6 +36,18 @@ public static class RefArgCheck {
                 "argument " + (i + 1).ToString() + " must not be passed with `ref` — the parameter is not `ref`", sp);
         }
     }
+    // Successful argument adaptation returns in parameter order without going through CheckSymmetry.
+    internal static void CheckAdaptedSlots(TypeChecker tc, BoundExpr[] args, Z42FuncType sig) {
+        if (sig == null || !sig.HasRefInfo()) { return; }
+        int i = 0;
+        while (i < args.Length && i < sig.ParamCount) {
+            if (sig.IsRefParam(i) && args[i] is BoundRefArg) {
+                RefArgCheck._checkClosedInterfaceSlot(tc, args[i] as BoundRefArg, sig.ParamTypes[i]);
+            }
+            i = i + 1;
+        }
+    }
+
     // The address register is Unknown. Compare the writable lvalue's type
     // directly when both ends identify a closed generic interface.
     private static void _checkClosedInterfaceSlot(TypeChecker tc, BoundRefArg arg, Z42Type target) {
