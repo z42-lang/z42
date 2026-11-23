@@ -83,6 +83,28 @@ pub fn assert_pic_target(
     _ctx: &VmContext, _module: &Module, _obj_val: &Value, _method: &str, _callee: &Function,
 ) {}
 
+/// Resolve a VCall miss using the caller's activation when the slot has a
+/// method type parameter. Ordinary call sites need no name allocation.
+pub fn resolve_frame_vcall<'a>(
+    ctx: &'a VmContext, module: &'a Module, obj_val: &Value, method: &str, arity: usize,
+    ic: Option<&VCallIC>, caller_type_args: &[String],
+) -> Result<ResolvedVCall<'a>> {
+    if let Some((interface, index, member)) =
+        crate::metadata::dispatch::vcall::iface_slot_method_template(method)
+    {
+        let index = index.parse::<usize>().ok();
+        let key = match index.and_then(|i| caller_type_args.get(i)) {
+            Some(name) => {
+                let name = crate::zpkg::index::type_names::canonical_arg(name);
+                format!("{interface}<@{name}>#{member}")
+            }
+            None => format!("{interface}#{member}"),
+        };
+        return resolve_vcall(ctx, module, obj_val, &key, arity, None);
+    }
+    resolve_vcall(ctx, module, obj_val, method, arity, ic)
+}
+
 /// Slow path (PIC miss): walk the receiver-kind ladder and resolve the callee. `arity` is the
 /// explicit argument count (excluding `this`). Installs the PIC entry when possible.
 /// Resolve a `VCall` target, then check the bound definition's signature against the call.

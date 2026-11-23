@@ -26,19 +26,38 @@ class Sink<T> : ISink<T> {
     public string Put(T x) { return "Sink.T"; }
 }
 
-// 共享泛型体经 `IFoo<T>` 调用：只能发擦除键
-string Via<T>(IFoo<T> f, T v) { return f.Get(v); }
+class Router {
+    public virtual string Via<T>(IFoo<T> f, T v) { return f.Get(v); }
+}
+
+class Animal {}
+class Cat : Animal {}
+class NamedSink : IFoo<Animal>, IFoo<Cat> {
+    public string Get(Animal x) { return "animal"; }
+    public string Get(Cat x) { return "cat"; }
+}
 
 void Main() {
+    Router router = new Router();
     X x = new X();
     IFoo<int> a = x;
     IFoo<string> b = x;
     Assert.Equal("int:1", a.Get(1));
     Assert.Equal("str:q", b.Get("q"));
+    for (int i = 0; i < 20; i = i + 1) {
+        Assert.Equal("int:1", router.Via<int>(a, 1));
+        Assert.Equal("str:q", router.Via<string>(b, "q"));
+    }
+
+    NamedSink named = new NamedSink();
+    IFoo<Animal> animals = named;
+    IFoo<Cat> cats = named;
+    Assert.Equal("animal", router.Via<Animal>(animals, new Cat()));
+    Assert.Equal("cat", router.Via<Cat>(cats, new Cat()));
 
     IFoo<string> z = new Z();
     Assert.Equal("Z.str:r", z.Get("r"));
-    Assert.Equal("Z.str:s", Via<string>(new Z(), "s"));
+    Assert.Equal("Z.str:s", router.Via<string>(new Z(), "s"));
 
     ISink<string> sink = new Sink<string>();
     Assert.Equal("Sink.T", sink.Put("t"));

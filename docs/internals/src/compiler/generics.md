@@ -906,18 +906,15 @@ GenericType("Foo", [T..])   → _classes["Foo$N"] first, fallback _classes["Foo"
 - **触发条件**：跨包 visitor / 访问者类库被大量使用、调用方不想写显式类型实参时
 - **当前 workaround**：显式写出类型实参，如 `node.Accept<int>(new Eval())`
 
-### iface-slot-shared-body-type-args：共享泛型体经 `IFoo<T>` 调用重复实现了 `IFoo` 的类
+### 共享泛型体的接口槽
 
-- **来源**：fix-interface-overload-dispatch（接口调用按接口槽派发，见
-  [vm-architecture.md「接口调用：接口槽」](../runtime/vm-architecture.md#接口调用接口槽)）
-- **触发原因**：接口槽键在调用点按**编译期**已知的接口实参拼（`Demo.IFoo<string>#Get`）。共享泛型体里
-  `IFoo<T>` 的 `T` 只在运行期知道（`method_type_args` / `__class_type_arg`），调用点只能发擦除键
-  `Demo.IFoo#Get`；类侧同一擦除键被 `IFoo<int>` 与 `IFoo<string>` 各要一次时声明序首个胜出 ⇒
-  `Via<string>(x, "q")` 落到 `Get(int)`
-- **前置依赖**：运行期实参拼写与编译期 `DispatchKeys.TypeKey` 统一（`int` / `Std.Int32` 两种拼写并存，
-  同 `erased_instance_matches` 的问题）；之后调用点可发带 `$mta:N` 占位的键、`resolve_vcall` 按帧代换
-- **触发条件**：出现「泛型算法经泛型接口操作一个多次实现该接口的对象」的真实用例时
-- **当前 workaround**：在泛型体外按具体接口类型调用；或不在同一个类上重复实现同一泛型接口
+共享泛型方法通过 `IFoo<T>` 调用时，若接口唯一的实参直接来自当前方法的类型形参，
+调用点可编码 `Demo.IFoo<@$mta:0>#Get`。运行时读取调用帧中的实参，将内建别名归一到关键字，
+再按限定的接口槽匹配实现。同一调用点在不同激活中可能为同一个对象选择不同方法，因此这类调用
+跳过以接收类型为键的内联缓存。
+
+复杂类型实参、类类型形参和缺少限定槽的接收类型仍可走现有的擦除槽。普通闭合调用沿用原有接口槽。
+详见[接口槽派发](../runtime/vm-architecture.md#接口调用接口槽)。
 
 ### generic-class-tarray-struct-escape：泛型类特化体里 `new T[n]` 存 struct 元素后出帧悬垂
 

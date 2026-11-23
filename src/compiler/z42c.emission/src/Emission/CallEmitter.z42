@@ -355,7 +355,7 @@ public sealed class CallEmitter {
                 int vi = 0; while (vi < c.ArgCount) { vargs[vi] = iargs[vi]; vi = vi + 1; }
                 vargs[c.ArgCount] = sretH;   // 末尾隐藏 sret 实参
                 TypedReg vvoid = this._ctx.Alloc(IrType.Void);
-                this._ctx.Emit(new VCallInstr(vvoid, recv, c.IfaceSlot != "" ? c.IfaceSlot : c.MethodName, vargs, c.ArgCount + 1));
+                this._ctx.Emit(new VCallInstr(vvoid, recv, c.IfaceSlot != "" ? this._vcallName(c) : c.MethodName, vargs, c.ArgCount + 1));
                 return sretH;
             }
             TypedReg idst = this._ctx.Alloc(itag);
@@ -441,7 +441,17 @@ public sealed class CallEmitter {
     // VCall 的方法名：接口方法调用发**接口槽键**（fix-interface-overload-dispatch，见 `IfaceSlotKeys`
     // 抬头 —— 运行期经类描述符的接口槽别名按签名落到实现）；其余照旧（含实例泛型方法的特化名）。
     private string _vcallName(BoundCall c) {
-        if (c.IfaceSlot != "") { return c.IfaceSlot; }
+        if (c.IfaceSlot != "") {
+            if (c.OpenIfaceSlotArg != null) {
+                string arg = this._ee._typeParamMarker(c.OpenIfaceSlotArg);
+                if (arg.StartsWith("$mta:")) {
+                    int hash = c.IfaceSlot.IndexOf('#');
+                    return c.IfaceSlot.Substring(0, hash) + "<@" + arg + ">"
+                        + c.IfaceSlot.Substring(hash, c.IfaceSlot.Length - hash);
+                }
+            }
+            return c.IfaceSlot;
+        }
         return this._specializeVCallName(c);
     }
 

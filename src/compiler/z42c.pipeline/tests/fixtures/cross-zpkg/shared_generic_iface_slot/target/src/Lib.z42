@@ -1,0 +1,17 @@
+namespace DemoSlotTarget;
+
+public class Animal {}
+public class Cat : Animal {}
+
+public interface ISink<T> { string Put(T value); }
+
+public class Sink : ISink<Animal>, ISink<Cat> {
+    public string Put(Animal value) { return "animal"; }
+    public string Put(Cat value) { return "cat"; }
+}
+
+public ISink<Animal> ForAnimals(Sink sink) { return sink; }
+public ISink<Cat> ForCats(Sink sink) { return sink; }
+
+// An external caller cannot specialize this body.
+public string Send<T>(ISink<T> sink, T value) { return sink.Put(value); }

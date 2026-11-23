@@ -1,7 +1,7 @@
 /// Virtual dispatch (`VCall`): the interpreter's **invoke** side.
 ///
 /// unify-vcall-resolution : *what* to call is decided by
-/// `exec::ops::vcall::resolve_vcall` (shared with `jit/helpers/vcall.rs::jit_vcall`);
+/// `exec::ops::vcall::resolve_frame_vcall` (shared with `jit/helpers/vcall.rs::jit_vcall`);
 /// this file only keeps the interpreter-specific pieces — the receiver-kind
 /// helpers (`primitive_class_name` / `value_synthetic_type_id`),
 /// the mixed-mode divert to an already-compiled native method, and running the
@@ -12,7 +12,7 @@ use crate::object::Value;
 use crate::components::bridge::VmContext;
 use anyhow::Result;
 
-use crate::exec::ops::vcall::resolve_vcall;
+use crate::exec::ops::vcall::resolve_frame_vcall;
 use crate::metadata::dispatch::ic::{FieldICEntry, VCallIC};
 use crate::metadata::dispatch::vcall::vcall_ic_hit;
 use crate::exec::ops::vcall::VCallTarget;
@@ -48,7 +48,7 @@ pub(crate) fn vcall(
     ctx: &VmContext, module: &Module, frame: &mut Frame,
     dst: u32, obj: u32, method: &str, args: &[u32],
     // vcall_ic: per-site polymorphic inline cache (TypeId → callee FnId), populated by
-    // `resolve_vcall` on a miss; hits go straight to the callee.
+    // `resolve_frame_vcall` on a miss; hits go straight to the callee.
     vcall_ic: Option<&VCallIC>,
     // add-generic-methods: resolved FQ type-arg names for a generic instance-method
     // call (empty for non-generic). Threaded into the callee frame's method_type_args.
@@ -96,7 +96,7 @@ pub(crate) fn vcall(
     // perf-vm-iteration Phase 1 (Decision 3): no `collect_args` on any path — every
     // target below is invoked by filling the callee frame directly from the caller's
     // registers (`exec_function_from_receiver_regs`), zero args Vec.
-    let resolved = resolve_vcall(ctx, module, &obj_val, method, args.len(), vcall_ic)?;
+    let resolved = resolve_frame_vcall(ctx, module, &obj_val, method, args.len(), vcall_ic, frame.method_type_args)?;
     match resolved.target {
         VCallTarget::Immediate(v) => { frame.set(dst, v); Ok(None) }
         // add-value-auto-iequatable：float-free 合成 Equals 的原生比较——实参仍在 caller

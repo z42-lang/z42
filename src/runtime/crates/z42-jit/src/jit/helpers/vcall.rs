@@ -10,7 +10,7 @@
 use crate::metadata::dispatch::ic::VCallIC;
 use crate::metadata::Function;
 use crate::object::Value;
-use crate::exec::ops::vcall::resolve_vcall;
+use crate::exec::ops::vcall::resolve_frame_vcall;
 use crate::metadata::dispatch::vcall::vcall_ic_hit;
 use crate::exec::ops::vcall::VCallTarget;
 
@@ -116,7 +116,7 @@ unsafe fn vcall_impl(
     // ── PIC miss: decode the name now (only the slow path needs it), resolve, invoke ──
     let method = std::str::from_utf8(std::slice::from_raw_parts(method_ptr, method_len))
         .unwrap_or("<invalid>");
-    let resolved = match resolve_vcall(vm_ctx, module, &obj_val, method, argc, ic) {
+    let resolved = match resolve_frame_vcall(vm_ctx, module, &obj_val, method, argc, ic, frame_ref.method_type_args) {
         Ok(r) => r,
         Err(e) => { set_exception(vm_ctx, Value::Str(e.to_string().into())); return 1; }
     };

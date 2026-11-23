@@ -204,7 +204,11 @@ pub fn resolve_function_tokens(
                         fn_ref_site_names.push(&insn.fn_name);
                         s
                     }
-                    Instruction::VCall(_) => {
+                    // A caller type argument can select a different overload on the
+                    // same receiver TypeId. Such a site cannot use the receiver PIC.
+                    Instruction::VCall(insn)
+                        if crate::metadata::dispatch::vcall::iface_slot_method_template(&insn.method).is_none() =>
+                    {
                         let s = vcall_site_count;
                         vcall_site_count += 1;
                         s
