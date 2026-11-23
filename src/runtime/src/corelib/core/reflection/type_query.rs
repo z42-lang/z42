@@ -139,9 +139,7 @@ pub fn type_interfaces(ctx: &VmContext, ty: &Value) -> Value {
         None => return ctx.heap().alloc_array(Vec::new()),
     };
     let resolve = |name: &str| {
-        ctx.module()
-            .and_then(|m| m.type_registry.get(name).cloned().map(|td| ctx.core().runtime().current_type_desc(td)))
-            .or_else(|| ctx.loader().try_lookup_type(name))
+        ctx.loader().resolve_type(name)
     };
     // Seed the queue with the interfaces declared along the class base chain
     // (most-derived first), then BFS-expand each interface's own base interfaces

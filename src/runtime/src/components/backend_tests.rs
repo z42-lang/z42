@@ -4,7 +4,7 @@ use crate::host::{LoadedProgram, LoadOptions, ExecMode};
 use crate::vm::VmContext;
 use std::sync::atomic::{AtomicUsize, Ordering};
 fn load(mode: ExecMode, backends: BackendOptions) -> anyhow::Result<LoadedProgram> {
-    LoadedProgram::load_bytes_with_components(&crate::host::program_tests::empty_zbc(), LoadOptions {
+    LoadedProgram::load_bytes_with_components(&crate::loader::test_support::empty_zbc(), LoadOptions {
         mode, ..Default::default()
     }, crate::vm::assembly::ComponentInputs { backends, ..Default::default() })
 }

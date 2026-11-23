@@ -1,7 +1,8 @@
 //! Default runtime composition for hosts and low-level VM constructors.
 use crate::corelib;
 use crate::vm::{ExtensionState, VmExtensions, VmContext};
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
+use crate::pal::fs::Vfs;
 
 pub(crate) fn freeze(extensions: VmExtensions) -> ExtensionState {
     let mut defaults = VmExtensions::new();
@@ -19,9 +20,9 @@ pub(crate) fn freeze(extensions: VmExtensions) -> ExtensionState {
     });
     #[cfg(any(feature = "native-interop", feature = "component-loading"))]
     add(&mut defaults, crate::loader::native::SearchPaths(native_candidates));
-    add(&mut defaults, crate::host::services::services());
+    add(&mut defaults, corelib::application::Services { run_isolated, report_on_exit });
     // The service owns only Rust arguments, never the core, so this sharing cannot form a cycle.
-    let application = crate::host::app_state::state_for_vm();
+    let application = crate::vm::app_state::state_for_vm();
     add(&mut defaults, application.clone());
     add(&mut defaults, corelib::os::process::State::default());
     add(&mut defaults, corelib::core::threading::State::default());
@@ -34,6 +35,13 @@ pub(crate) fn freeze(extensions: VmExtensions) -> ExtensionState {
     #[cfg(feature = "tls")]
     add(&mut defaults, corelib::net::tls::State::default());
     extensions.with_defaults(defaults).freeze()
+}
+
+pub(crate) fn report_on_exit(ctx: &VmContext) {
+    crate::diagnostics::report_on_exit(ctx, || {
+        let config = crate::config::runtime_config();
+        (&config.sample_out, config.trace_out.as_deref())
+    });
 }
 
 fn add<T: std::any::Any + Send + Sync>(extensions: &mut VmExtensions, state: T) {
@@ -143,3 +151,61 @@ fn native_candidates(name: &str, policy: &crate::loader::NativeLoading) -> Vec<s
 #[cfg(all(test, any(feature = "native-interop", feature = "component-loading")))]
 #[path = "composition_tests.rs"]
 mod tests;
+
+/// Install the process crash reporter using the configured crash directory.
+pub fn install_crash_report() {
+    crate::diagnostics::install_crash_report(|| {
+        crate::config::runtime_config().crash_dir.as_deref()
+    });
+}
+
+pub(crate) fn resolve_search_dirs(
+    file: &str, libs: Option<&std::path::Path>, vfs: &dyn crate::pal::fs::Vfs,
+    config: &crate::config::RuntimeConfig,
+) -> Vec<PathBuf> {
+    use crate::loader::locate::{probing, search_paths};
+    let entry = search_paths::entry_directory(file);
+    let extra = probing::expand_probing_paths(entry, &config.probing_paths);
+    probing::set_unresolved_sdk_patterns(probing::unresolved_z42_home_patterns(entry, &config.probing_paths));
+    search_paths::program_search_dirs(vfs, file, &extra, libs)
+}
+
+fn run_isolated(path: &str, entry: Option<&str>, libs: Option<PathBuf>, vfs: &Arc<dyn Vfs>) -> anyhow::Result<()> {
+    crate::host::run_app(path, entry, crate::host::RunOpts {
+        mode: crate::zpkg::ExecMode::Interp,
+        search_dirs: resolve_search_dirs(path, libs.as_deref(), &**vfs, crate::config::runtime_config()),
+        vfs: Arc::clone(vfs),
+        resolver: None,
+        program_args: Vec::new(),
+        print_stats: false,
+        stats_json: false,
+        exit_after_run: false,
+    })
+}
+
+/// Apply the optional app sidecar for the Rust one-shot host before configuration freezes.
+pub(crate) fn install_app_config(file: &str) {
+    let getenv = |n: &str| std::env::var(n).ok();
+    let user = crate::config::load_layer_lenient(&getenv, "Z42_CONFIG");
+    // 显式 `Z42_APP_CONFIG` 优先，解析不出内容则回落到 app 旁边的侧车。判据与理由见
+    // `config::load_app_config_tables` —— `z42vm` 的 `main()` 与这里共用**同一份**实现
+    // （曾是两份、两种语义，见那里的头注）。
+    let app = match crate::config::load_app_config_tables(&getenv, Some(std::path::Path::new(file))) {
+        Ok((rt, _)) => rt,
+        Err(e) => {
+            // 库路径：绝不 exit（可能跑在宿主进程里）。
+            eprintln!("z42: {e}\n     -> app sidecar ignored; other layers still apply.");
+            None
+        }
+    };
+    let inputs = crate::config::Inputs {
+        user_config: user.as_ref(),
+        app_config: app.as_ref(),
+        ..Default::default()
+    };
+    let (cfg, resolution) =
+        crate::config::RuntimeConfig::resolve_with(&getenv, &inputs, &crate::config::BuildCtx::current());
+    if crate::config::init_runtime_config(cfg).is_ok() {
+        let _ = resolution.into_result(false);   // warn-only，同 from_env
+    }
+}

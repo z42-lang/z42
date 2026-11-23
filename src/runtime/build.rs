@@ -153,7 +153,7 @@ fn host_build() -> Result<(), Box<dyn Error>> {
     // ── z42 test fixtures (C7 native e2e + embedding hello) ────────────
     //
     // The Rust integration tests `z42_source_calls_numz42_via_native_attr`
-    // (cfg z42_have_z42c) and `host::host_tests::load_invoke_hello_world`
+    // (cfg z42_have_z42c) and `host::embedding_tests::load_invoke_hello_world`
     // (cfg z42_have_embedding_hello) each consume a `.zbc` compiled from a fixture source.
     // C#/dotnet was removed  — these now compile
     // with z42c (z42vm + z42c.driver.zpkg), mirroring `xtask regen`'s

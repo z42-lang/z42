@@ -106,8 +106,7 @@ fn base_declaration(
         roots.pin(base);
         return Some((definition, member_subst(&base)));
     }
-    let definition = ctx.module().and_then(|m| m.type_registry.get(name).cloned().map(|td| ctx.core().runtime().current_type_desc(td)))
-        .or_else(|| ctx.loader().try_lookup_type(name))?;
+    let definition = ctx.loader().resolve_type(name)?;
     Some((definition, None))
 }
 

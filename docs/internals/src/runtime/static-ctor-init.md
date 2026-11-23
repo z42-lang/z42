@@ -343,7 +343,7 @@ C# 不会这样：它只在 `Main` 体**直接**引用依赖模块的类型时�
 
 | 函数 | 做什么 | 谁调 |
 |---|---|---|
-| `build` | `available!` 折叠 → Core 构造 → 登记静态构造器 → loader 播种 → token 解析 → 组件连接 → 事件重放 → 程序发布 | `host/load.rs::prepare` |
+| `build` | `available!` 折叠 → Core 构造 → 登记静态构造器 → loader 播种 → token 解析 → 组件连接 → 事件重放 → 程序发布 | `vm/assembly.rs::build` |
 | `resolve_tokens` | `resolve_module`（各站点 token 预填）| `program_builder::build` |
 
 文件应用和嵌入端共用首次调用准备：
@@ -353,4 +353,4 @@ C# 不会这样：它只在 `Main` 体**直接**引用依赖模块的类型时�
   真正的包/类型初始化由执行访问屏障负责。
 
 > 新增启动步骤时，加进 `vm/assembly.rs`，两条路径自动都有；别再只改 `host::run_app`。
-> 回归测试：`host::host_tests::invoke_sees_initialized_static_fields`（stdlib 包与用户模块各一个带初始化器的静态字段）。
+> 回归测试：`host::embedding_tests::invoke_sees_initialized_static_fields`（stdlib 包与用户模块各一个带初始化器的静态字段）。

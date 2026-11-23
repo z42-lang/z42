@@ -24,7 +24,7 @@ fn strings(value: Value) -> Vec<String> {
 
 fn program(dirs: &[&str]) -> LoadedProgram {
     LoadedProgram::load_bytes(
-        &crate::host::program_tests::empty_zbc(),
+        &crate::loader::test_support::empty_zbc(),
         LoadOptions {
             mode: ExecMode::Interp,
             search_dirs: dirs.iter().map(std::path::PathBuf::from).collect(),
@@ -82,7 +82,7 @@ fn module_search_reflects_directories_added_by_later_loads() {
     let fs = std::sync::Arc::new(crate::pal::fs::MemoryFs::new());
     fs.mount(
         "/plugins/extra.zbc",
-        crate::host::program_tests::empty_zbc(),
+        crate::loader::test_support::empty_zbc(),
     );
     let ctx = VmContext::with_vfs(fs);
     ctx.loader().install_lazy_loader_with_deps(vec!["/app".into()], 0, Vec::new(), Vec::new());

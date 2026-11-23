@@ -27,13 +27,11 @@ pub use runtime::RuntimeLoader;
 
 mod artifact;
 mod dependency_candidates;
-pub(crate) use dependency_candidates::build_declared_candidates;
 mod eager;
-pub(crate) use eager::load_eager_dependencies;
 mod prelude;
-pub(crate) use prelude::{load_prelude, PRELUDE_FILE};
-mod program;
-pub(crate) use program::{prepare_program_availability, prepare_program_modules, StartupPackages};
+pub(crate) use prelude::probe_prelude;
+pub(crate) mod program;
+pub(crate) use program::{prepare_program_availability, prepare_startup, StartupPackages};
 pub use artifact::{load_artifact, load_artifact_from_bytes, build_block_indices, fold_availability};
 pub(crate) use artifact::{load_artifact_from_bytes_cached, FUSION_INPUTS};
 
@@ -44,3 +42,6 @@ pub use package::merge::merge_modules;
 pub(crate) use native_policy::NativeOrigin;
 
 mod ffi;
+
+#[cfg(test)]
+pub(crate) mod test_support;

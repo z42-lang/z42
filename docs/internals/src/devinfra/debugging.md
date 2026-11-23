@@ -1,8 +1,8 @@
 # 调试与运行时诊断
 
 > 代码：`src/runtime/src/main_startup.rs`
-> （`--info` / panic hook）、`src/runtime/src/host/signal.rs`、`src/runtime/src/pal/signal.rs`、
-> `src/runtime/src/host/app.rs`（`--stats`）、`src/runtime/src/diagnostics/observer.rs`、
+> （`--info` / panic hook）、`src/runtime/src/diagnostics/crash_report.rs`、`src/runtime/src/pal/signal.rs`、
+> `src/runtime/src/diagnostics/exit_report.rs`（`--stats`）、`src/runtime/src/diagnostics/observer.rs`、
 > `src/runtime/src/config/`、`src/runtime/crates/z42-zpkg/src/format/build_id.rs`、`scripts/src/bench/profile.z42`
 >
 > 旋钮登记表与五层优先级见[运行时设置的实现](../runtime/runtime-settings.md)；

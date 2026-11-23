@@ -8,26 +8,18 @@
 //!
 //! Sibling: `crate::interop` (interop — native code registering types into z42).
 
-use crate::host::*;
-use super::{config, ops, state};
+use super::{ZpkgResolver, abi_config, marshal, read_zpkg_namespaces, session};
 
 use std::os::raw::{c_char, c_void};
-use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::ptr;
 use std::sync::Arc;
 
+use super::abi_config::Z42HostConfig;
+use crate::host::error::{Z42HostStatus, clear_error, set_error, snapshot_last_error};
 use z42_abi::{Z42Error, Z42Value};
 
-use crate::corelib::io;
-
-
-
-use super::config::Z42HostConfig;
-use crate::host::error::{clear_error, set_error, snapshot_last_error, Z42HostStatus};
-use super::state::{is_valid_handle, HostEntry, HOST_SENTINEL};
-
-/// Opaque pointee for `Z42HostRef`. Pointers are sentinel values; the
-/// real state lives in `state::HOST`.
+/// Opaque token for the currently initialized embedding session.
 #[repr(C)]
 pub struct Z42Host {
     _private: [u8; 0],
@@ -60,41 +52,20 @@ where
     }
 }
 
-// ── Handle encoding ──────────────────────────────────────────────────────
-
-// `Z42ModuleRef` / `Z42EntryRef` opaque pointers carry an index into the
-// host's modules / entries vector encoded as `idx + 1`. Plus-one keeps
-// NULL distinct from the first valid handle. v0.1 has no generational
-// invalidation — shutdown wipes the singleton, after which any host API
-// call returns ERR_NOT_INIT regardless of stale handles.
-
-fn module_handle_to_idx(p: *mut Z42Module) -> Option<usize> {
-    let raw = p as usize;
-    if raw == 0 {
-        None
-    } else {
-        Some(raw - 1)
+fn respond<T>(
+    operation: &str,
+    result: Result<T, session::Failure>,
+    publish: impl FnOnce(T),
+) -> Z42HostStatus {
+    match result {
+        Ok(value) => {
+            publish(value);
+            clear_error();
+            Z42HostStatus::Ok
+        }
+        Err(error) => set_error(error.status, format!("{operation}: {}", error.message)),
     }
 }
-
-fn idx_to_module_handle(idx: usize) -> *mut Z42Module {
-    (idx + 1) as *mut Z42Module
-}
-
-fn entry_handle_to_idx(p: *mut Z42Entry) -> Option<usize> {
-    let raw = p as usize;
-    if raw == 0 {
-        None
-    } else {
-        Some(raw - 1)
-    }
-}
-
-fn idx_to_entry_handle(idx: usize) -> *mut Z42Entry {
-    (idx + 1) as *mut Z42Entry
-}
-
-// ── Lifecycle ────────────────────────────────────────────────────────────
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn z42_host_initialize(
@@ -109,50 +80,17 @@ pub unsafe extern "C" fn z42_host_initialize(
             );
         }
         unsafe { *out_host = ptr::null_mut() };
-        // C embedding hosts may never touch the builtins registry; native
-        // shim panic forwarding must be live before any invoke.
-        #[cfg(feature = "native-interop")]
-        crate::interop::exports::install_panic_hook();
-
-        let resolved = match unsafe { config::validate(cfg) } {
-            Ok(r) => r,
-            Err(e) => return classify_config_error(e),
+        let (config, sinks) = match unsafe { abi_config::validate(cfg) } {
+            Ok(resolved) => resolved,
+            Err(error) => return classify_config_error(error),
         };
-
-        // Probe search_paths for z42.core.zpkg — best-effort, missing
-        // corelib is reported only when actual user code references it.
-        match ops::probe_corelib(&resolved) {
-            Ok(()) => (),
-            Err(e) => {
-                return set_error(
-                    Z42HostStatus::BadConfig,
-                    format!("z42_host_initialize: corelib probe failed: {e:#}"),
-                );
-            }
-        };
-
-        match state::try_initialize(resolved, |config| {
-            io::install_host_stdout_sink(build_host_sink(config.stdout_sink, config.sink_user_data));
-            io::install_host_stderr_sink(build_host_sink(config.stderr_sink, config.sink_user_data));
-        }) {
-            state::InitOutcome::Initialized => {
-                unsafe { *out_host = HOST_SENTINEL as *mut Z42Host };
-                clear_error();
-                Z42HostStatus::Ok
-            }
-            state::InitOutcome::AlreadyInit => {
-                set_error(
-                    Z42HostStatus::AlreadyInit,
-                    "z42_host_initialize: VM is already initialized",
-                )
-            }
-            state::InitOutcome::LockPoisoned => {
-                set_error(
-                    Z42HostStatus::Internal,
-                    "z42_host_initialize: host state lock poisoned",
-                )
-            }
-        }
+        respond(
+            "z42_host_initialize",
+            session::initialize(config, sinks),
+            |token| {
+                unsafe { *out_host = token as *mut Z42Host };
+            },
+        )
     })
 }
 
@@ -165,27 +103,9 @@ pub unsafe extern "C" fn z42_host_shutdown(host: *mut Z42Host) -> Z42HostStatus 
                 "z42_host_shutdown: host handle is NULL",
             );
         }
-        match state::try_shutdown(|| {
-            io::install_host_stdout_sink(None);
-            io::install_host_stderr_sink(None);
-        }) {
-            state::ShutdownOutcome::Done => {
-                clear_error();
-                Z42HostStatus::Ok
-            }
-            state::ShutdownOutcome::NotInit => set_error(
-                Z42HostStatus::NotInit,
-                "z42_host_shutdown: VM was not initialized",
-            ),
-            state::ShutdownOutcome::LockPoisoned => set_error(
-                Z42HostStatus::Internal,
-                "z42_host_shutdown: host state lock poisoned",
-            ),
-        }
+        respond("z42_host_shutdown", session::shutdown(host as usize), |_| {})
     })
 }
-
-// ── Module / entry / invoke ─────────────────────────────────────────────
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn z42_host_load_zbc(
@@ -195,7 +115,8 @@ pub unsafe extern "C" fn z42_host_load_zbc(
     out_module: *mut *mut Z42Module,
 ) -> Z42HostStatus {
     guard(|| {
-        if !is_valid_handle(host as *const ()) {
+        let token = host as usize;
+        if !matches!(session::current(), Ok(current) if current == token) {
             return set_error(
                 Z42HostStatus::NotInit,
                 "z42_host_load_zbc: VM is not initialized",
@@ -204,48 +125,21 @@ pub unsafe extern "C" fn z42_host_load_zbc(
         if !out_module.is_null() {
             unsafe { *out_module = ptr::null_mut() };
         }
-        if bytes.is_null() && length != 0 {
+        let bytes = if length == 0 {
+            &[]
+        } else if bytes.is_null() {
             return set_error(
                 Z42HostStatus::BadZbc,
                 "z42_host_load_zbc: bytes pointer is NULL but length is non-zero",
             );
-        }
-
-        let slice = if length == 0 {
-            &[][..]
         } else {
             unsafe { std::slice::from_raw_parts(bytes, length) }
         };
-
-        // Build the merged module + ctx outside the write lock so we do
-        // I/O without blocking other readers.
-        let (config, image_cache) = match state::with_state_read(|s| (s.config.clone(), std::sync::Arc::clone(&s.image_cache))) {
-            Some(pair) => pair,
-            None => return set_error(Z42HostStatus::NotInit, "z42_host_load_zbc: host state vanished mid-call"),
-        };
-        let host_module = match ops::build_host_module(&config, slice, &image_cache) {
-            Ok(module) => module,
-            Err(error) => return set_error(Z42HostStatus::BadZbc, format!("z42_host_load_zbc: {error:#}")),
-        };
-
-        let idx = match state::with_state_write(|s| {
-            s.modules.push(std::sync::Arc::new(host_module));
-            s.modules.len() - 1
-        }) {
-            Some(i) => i,
-            None => {
-                return set_error(
-                    Z42HostStatus::NotInit,
-                    "z42_host_load_zbc: host state vanished mid-call",
-                );
+        respond("z42_host_load_zbc", session::load(token, bytes), |module| {
+            if !out_module.is_null() {
+                unsafe { *out_module = module as *mut Z42Module };
             }
-        };
-
-        if !out_module.is_null() {
-            unsafe { *out_module = idx_to_module_handle(idx) };
-        }
-        clear_error();
-        Z42HostStatus::Ok
+        })
     })
 }
 
@@ -257,7 +151,8 @@ pub unsafe extern "C" fn z42_host_resolve_entry(
     out_entry: *mut *mut Z42Entry,
 ) -> Z42HostStatus {
     guard(|| {
-        if !is_valid_handle(host as *const ()) {
+        let token = host as usize;
+        if !matches!(session::current(), Ok(current) if current == token) {
             return set_error(
                 Z42HostStatus::NotInit,
                 "z42_host_resolve_entry: VM is not initialized",
@@ -272,72 +167,27 @@ pub unsafe extern "C" fn z42_host_resolve_entry(
                 "z42_host_resolve_entry: fqn pointer is NULL",
             );
         }
-        let module_idx = match module_handle_to_idx(module) {
-            Some(i) => i,
-            None => {
-                return set_error(
-                    Z42HostStatus::EntryNotFound,
-                    "z42_host_resolve_entry: module handle is NULL",
-                );
-            }
-        };
-        let fqn_str = match unsafe { std::ffi::CStr::from_ptr(fqn) }.to_str() {
-            Ok(s) => s.to_owned(),
-            Err(_) => {
-                return set_error(
-                    Z42HostStatus::BadConfig,
-                    "z42_host_resolve_entry: fqn is not valid UTF-8",
-                );
-            }
-        };
-
-        let lookup = state::with_state_read(|s| -> Result<usize, String> {
-            let m = s
-                .modules
-                .get(module_idx)
-                .ok_or_else(|| "module handle is stale or out of range".to_string())?;
-            m.resolve_entry(&fqn_str).map_err(|e| format!("{e:#}"))
-        });
-
-        let fn_idx = match lookup {
-            Some(Ok(i)) => i,
-            Some(Err(msg)) => {
-                let status = if msg.contains("not found") {
-                    Z42HostStatus::EntryNotFound
-                } else {
-                    Z42HostStatus::EntryNotFound
-                };
-                return set_error(status, format!("z42_host_resolve_entry: {msg}"));
-            }
-            None => {
-                return set_error(
-                    Z42HostStatus::NotInit,
-                    "z42_host_resolve_entry: host state vanished mid-call",
-                );
-            }
-        };
-
-        let entry_idx = match state::with_state_write(|s| {
-            s.entries.push(HostEntry {
-                module_idx,
-                fn_idx,
-            });
-            s.entries.len() - 1
-        }) {
-            Some(i) => i,
-            None => {
-                return set_error(
-                    Z42HostStatus::NotInit,
-                    "z42_host_resolve_entry: host state vanished mid-call",
-                );
-            }
-        };
-
-        if !out_entry.is_null() {
-            unsafe { *out_entry = idx_to_entry_handle(entry_idx) };
+        if module.is_null() {
+            return set_error(
+                Z42HostStatus::EntryNotFound,
+                "z42_host_resolve_entry: module handle is NULL",
+            );
         }
-        clear_error();
-        Z42HostStatus::Ok
+        let Ok(fqn) = (unsafe { std::ffi::CStr::from_ptr(fqn) }).to_str() else {
+            return set_error(
+                Z42HostStatus::BadConfig,
+                "z42_host_resolve_entry: fqn is not valid UTF-8",
+            );
+        };
+        respond(
+            "z42_host_resolve_entry",
+            session::resolve(token, module as usize, fqn),
+            |entry| {
+                if !out_entry.is_null() {
+                    unsafe { *out_entry = entry as *mut Z42Entry };
+                }
+            },
+        )
     })
 }
 
@@ -345,164 +195,70 @@ pub unsafe extern "C" fn z42_host_resolve_entry(
 pub unsafe extern "C" fn z42_host_invoke(
     entry: *mut Z42Entry,
     args: *const Z42Value,
-    n: usize,
+    argc: usize,
     out_result: *mut Z42Value,
 ) -> Z42HostStatus {
     guard(|| {
-        if !state::is_initialized() {
-            return set_error(
-                Z42HostStatus::NotInit,
-                "z42_host_invoke: VM is not initialized",
-            );
-        }
-        let entry_idx = match entry_handle_to_idx(entry) {
-            Some(i) => i,
-            None => {
-                return set_error(
-                    Z42HostStatus::EntryNotFound,
-                    "z42_host_invoke: entry handle is NULL",
-                );
+        let token = match session::current() {
+            Ok(token) => token,
+            Err(error) => {
+                return set_error(error.status, format!("z42_host_invoke: {}", error.message));
             }
         };
-        if args.is_null() && n != 0 {
+        if entry.is_null() {
+            return set_error(
+                Z42HostStatus::EntryNotFound,
+                "z42_host_invoke: entry handle is NULL",
+            );
+        }
+        let args = if argc == 0 {
+            &[]
+        } else if args.is_null() {
             return set_error(
                 Z42HostStatus::ArgMismatch,
                 "z42_host_invoke: args pointer is NULL but n is non-zero",
             );
-        }
-        let args_slice: &[Z42Value] = if n == 0 {
-            &[]
         } else {
-            unsafe { std::slice::from_raw_parts(args, n) }
+            unsafe { std::slice::from_raw_parts(args, argc) }
         };
-
-        // Marshal args outside any lock so we don't hold the read guard
-        // during user code execution.
-        let runtime_args = match ops::marshal_args(args_slice) {
-            Ok(v) => v,
-            Err(e) => {
-                return set_error(
-                    Z42HostStatus::ArgMismatch,
-                    format!("z42_host_invoke: {e:#}"),
-                );
+        let result = marshal::invoke(token, entry as usize, args.iter());
+        respond("z42_host_invoke", result, |value| {
+            if !out_result.is_null() {
+                unsafe { *out_result = value };
             }
-        };
-
-        // Resolve module + entry under the read guard, then run with the guard
-        // released: user code can call back into the host (a sink or resolver
-        // callback calling load / shutdown), and those take the write lock.
-        // The `Arc` keeps the module alive even if such a callback shuts the
-        // host down mid-call.
-        let resolved = state::with_state_read(|s| {
-            let entry = *s.entries.get(entry_idx).ok_or_else(|| {
-                anyhow::anyhow!("entry handle is stale or out of range")
-            })?;
-            let host_module = s.modules.get(entry.module_idx).ok_or_else(|| {
-                anyhow::anyhow!("module backing this entry is missing")
-            })?;
-            Ok::<_, anyhow::Error>((std::sync::Arc::clone(host_module), entry))
-        });
-        let outcome = resolved.map(|r| {
-            r.and_then(|(host_module, entry)| ops::invoke_impl(&host_module, &entry, &runtime_args))
-        });
-
-        match outcome {
-            Some(Ok(ret)) => {
-                let z = match ops::marshal_return(ret.as_ref()) {
-                    Ok(v) => v,
-                    Err(e) => {
-                        return set_error(
-                            Z42HostStatus::ArgMismatch,
-                            format!("z42_host_invoke: {e:#}"),
-                        );
-                    }
-                };
-                if !out_result.is_null() {
-                    unsafe { *out_result = z };
-                }
-                clear_error();
-                Z42HostStatus::Ok
-            }
-            Some(Err(e)) => {
-                let msg = format!("{e:#}");
-                let status = classify_invoke_error(&msg);
-                if status == Z42HostStatus::Fatal {
-                    // This adapter returns the report in last_error; the CLI consumes
-                    // its own report when deciding the process exit code.
-                    let _ = crate::exec::stack_guard::take_report();
-                }
-                set_error(status, format!("z42_host_invoke: {msg}"))
-            }
-            None => set_error(
-                Z42HostStatus::NotInit,
-                "z42_host_invoke: host state vanished mid-call",
-            ),
-        }
+        })
     })
 }
-
-// ── Sinks ───────────────────────────────────────────────────────────────
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn z42_host_set_stdout_sink(
     host: *mut Z42Host,
-    sink: config::Z42WriteSink,
+    sink: abi_config::Z42WriteSink,
     user_data: *mut c_void,
 ) -> Z42HostStatus {
-    guard(|| set_sink(host, sink, user_data, SinkSlot::Stdout))
+    guard(|| {
+        respond(
+            "z42_host_set_stdout_sink",
+            session::set_sink(host as usize, false, abi_config::output_sink(sink, user_data)),
+            |_| {},
+        )
+    })
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn z42_host_set_stderr_sink(
     host: *mut Z42Host,
-    sink: config::Z42WriteSink,
+    sink: abi_config::Z42WriteSink,
     user_data: *mut c_void,
 ) -> Z42HostStatus {
-    guard(|| set_sink(host, sink, user_data, SinkSlot::Stderr))
-}
-
-enum SinkSlot {
-    Stdout,
-    Stderr,
-}
-
-fn set_sink(
-    host: *mut Z42Host,
-    sink: config::Z42WriteSink,
-    user_data: *mut c_void,
-    slot: SinkSlot,
-) -> Z42HostStatus {
-    let label = match slot {
-        SinkSlot::Stdout => "stdout",
-        SinkSlot::Stderr => "stderr",
-    };
-    if host as usize != HOST_SENTINEL {
-        return set_error(Z42HostStatus::NotInit,
-            format!("z42_host_set_{label}_sink: VM is not initialized"));
-    }
-    let host_sink = build_host_sink(sink, user_data as usize);
-    // Keep the session alive through installation so shutdown cannot leave a
-    // stale sink installed, and a new session cannot inherit this update.
-    let installed = state::with_state_read(|_| match slot {
-        SinkSlot::Stdout => { io::install_host_stdout_sink(host_sink); }
-        SinkSlot::Stderr => { io::install_host_stderr_sink(host_sink); }
-    });
-    if installed.is_none() {
-        return set_error(Z42HostStatus::NotInit,
-            format!("z42_host_set_{label}_sink: VM is not initialized"));
-    }
-    clear_error();
-    Z42HostStatus::Ok
-}
-
-fn build_host_sink(sink: config::Z42WriteSink, user_data: usize) -> Option<io::HostSink> {
-    sink.map(|callback| io::HostSink {
-        callback,
-        user_data: user_data as *mut c_void,
+    guard(|| {
+        respond(
+            "z42_host_set_stderr_sink",
+            session::set_sink(host as usize, true, abi_config::output_sink(sink, user_data)),
+            |_| {},
+        )
     })
 }
-
-// ── Last error ──────────────────────────────────────────────────────────
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn z42_host_last_error(_host: *mut Z42Host) -> Z42Error {
@@ -524,7 +280,7 @@ pub unsafe extern "C" fn z42_host_last_error(_host: *mut Z42Host) -> Z42Error {
 pub unsafe extern "C" fn z42_zpkg_read_namespaces(
     bytes: *const u8,
     length: usize,
-    visit: config::Z42NamespaceVisitor,
+    visit: abi_config::Z42NamespaceVisitor,
     user_data: *mut c_void,
 ) -> Z42HostStatus {
     guard(|| {
@@ -572,58 +328,32 @@ pub unsafe extern "C" fn z42_zpkg_read_namespaces(
 /// state, replacing any resolver currently configured (including ones
 /// derived from the C `zpkg_resolver` field of `Z42HostConfig`).
 ///
-/// **Not exposed as `extern "C"`** — Tier 2 (`z42-host`) uses this to
-/// hand the runtime a Rust trait object directly, sidestepping the C
-/// callback adapter. C / JNI / wasm-bindgen clients keep using
-/// `Z42HostConfig::zpkg_resolver` at init time.
+/// Rust clients can also supply the resolver in their initial configuration.
+/// C clients use `Z42HostConfig::zpkg_resolver` at initialization.
 ///
 /// Returns `Z42HostStatus::Ok` on success or `NotInit` if no VM is
 /// currently initialized.
 pub fn install_zpkg_resolver(resolver: Arc<dyn ZpkgResolver>) -> Z42HostStatus {
-    let outcome = state::with_state_write(|s| {
-        s.config.zpkg_resolver = Some(resolver);
-    });
-    match outcome {
-        Some(()) => Z42HostStatus::Ok,
-        None => set_error(
-            Z42HostStatus::NotInit,
-            "install_zpkg_resolver: VM is not initialized",
-        ),
-    }
+    respond(
+        "install_zpkg_resolver",
+        session::current().and_then(|token| session::set_resolver(token, resolver)),
+        |_| {},
+    )
 }
 
-/// Install the file system the host's VMs run on (every module loaded after this call),
-/// replacing the default one. Like [`install_zpkg_resolver`], a Tier 2 hook — not
-/// `extern "C"`: a trait object does not cross the C ABI. `z42.core.zpkg` is looked
-/// up in `search_paths` again, on `vfs`.
-///
-/// Returns `Ok`, `NotInit` if no VM is initialized, or `BadConfig` if the corelib found
-/// on `vfs` does not load (the previous file system stays installed then).
+/// Replace the file system for subsequent loads after validating its corelib.
 pub fn install_vfs(vfs: Arc<dyn crate::pal::fs::Vfs>) -> Z42HostStatus {
-    let outcome = state::with_state_write(|s| {
-        let old = std::mem::replace(&mut s.config.vfs, vfs);
-        match ops::probe_corelib(&s.config) {
-            Ok(()) => Ok(()),
-            Err(e) => {
-                s.config.vfs = old;
-                Err(e)
-            }
-        }
-    });
-    match outcome {
-        Some(Ok(())) => {
-            clear_error();
-            Z42HostStatus::Ok
-        }
-        Some(Err(e)) => set_error(Z42HostStatus::BadConfig, format!("install_vfs: corelib probe failed: {e:#}")),
-        None => set_error(Z42HostStatus::NotInit, "install_vfs: VM is not initialized"),
-    }
+    respond(
+        "install_vfs",
+        session::current().and_then(|token| session::set_vfs(token, vfs)),
+        |_| {},
+    )
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
-fn classify_config_error(e: config::ConfigError) -> Z42HostStatus {
-    use config::ConfigError as CE;
+fn classify_config_error(e: abi_config::ConfigError) -> Z42HostStatus {
+    use abi_config::ConfigError as CE;
     match e {
         CE::NullConfig => set_error(
             Z42HostStatus::BadConfig,
@@ -635,7 +365,9 @@ fn classify_config_error(e: config::ConfigError) -> Z42HostStatus {
         ),
         CE::StructTooSmall { min, got } => set_error(
             Z42HostStatus::BadConfig,
-            format!("z42_host_initialize: struct_size {got} is smaller than the v2 config ({min} bytes); set it to sizeof(Z42HostConfig)"),
+            format!(
+                "z42_host_initialize: struct_size {got} is smaller than the v2 config ({min} bytes); set it to sizeof(Z42HostConfig)"
+            ),
         ),
         CE::UnknownExecMode { raw } => set_error(
             Z42HostStatus::BadConfig,
@@ -643,37 +375,14 @@ fn classify_config_error(e: config::ConfigError) -> Z42HostStatus {
         ),
         CE::FeatureOff { mode } => set_error(
             Z42HostStatus::FeatureOff,
-            format!("z42_host_initialize: exec_mode {mode:?} requires a feature disabled at compile time"),
+            format!(
+                "z42_host_initialize: exec_mode {mode:?} requires a feature disabled at compile time"
+            ),
         ),
         CE::BadSearchPath { reason } => set_error(
             Z42HostStatus::BadConfig,
             format!("z42_host_initialize: bad search_paths ({reason})"),
         ),
-    }
-}
-
-/// Map an interpreter / runtime error message to a `Z42HostStatus`.
-/// Heuristic: the interpreter surfaces uncaught z42 exceptions via
-/// `exec::exception::format_uncaught`, which prefixes the message with
-/// "uncaught exception:". Anything else — verification failure, type
-/// registry crash, etc. — buckets as `Internal`.
-///
-/// `ArgMismatch` is classified before this function is called (in
-/// `ops::invoke_impl`) because it has a structural cause rather than a
-/// runtime error string.
-fn classify_invoke_error(msg: &str) -> Z42HostStatus {
-    if msg.starts_with(crate::exec::stack_guard::FATAL_PREFIX) {
-        Z42HostStatus::Fatal
-    } else if msg.contains("arg-count-mismatch:") {
-        Z42HostStatus::ArgMismatch
-    } else if msg.contains("uncaught exception") || msg.contains("undefined function") {
-        // "undefined function" is the interp's dispatch-time error for
-        // missing symbols (e.g. Console.WriteLine when corelib wasn't
-        // resolved). It's a runtime failure visible to the user's z42
-        // program, so we bucket it as VmException rather than Internal.
-        Z42HostStatus::VmException
-    } else {
-        Z42HostStatus::Internal
     }
 }
 
@@ -699,7 +408,10 @@ pub unsafe extern "C" fn z42_host_run_app(
             if p.is_null() {
                 None
             } else {
-                unsafe { std::ffi::CStr::from_ptr(p) }.to_str().ok().map(str::to_owned)
+                unsafe { std::ffi::CStr::from_ptr(p) }
+                    .to_str()
+                    .ok()
+                    .map(str::to_owned)
             }
         };
         let app = match cstr(app_zpkg) {
@@ -736,7 +448,12 @@ pub unsafe extern "C" fn z42_host_run_app(
             let vfs = crate::pal::fs::default_vfs();
             let opts = crate::host::RunOpts {
                 mode: crate::host::default_mode(),
-                search_dirs: crate::host::services::process_search_dirs(&app, libs.as_deref(), &*vfs),
+                search_dirs: crate::composition::resolve_search_dirs(
+                    &app,
+                    libs.as_deref(),
+                    &*vfs,
+                    crate::config::runtime_config(),
+                ),
                 vfs,
                 resolver: None,
                 program_args: prog_args,
@@ -786,5 +503,3 @@ pub unsafe extern "C" fn z42_host_run_app(
         70
     })
 }
-
-

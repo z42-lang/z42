@@ -44,7 +44,7 @@ fn linked_profiler_is_lazy_per_core_and_does_not_retain_the_vm() {
 fn explicitly_selected_profiler_uses_the_existing_component_registry() {
     let components = unsafe { api::ComponentOptions::default().with_static(
         abi::PROFILER_COMPONENT, crate::profiler::component::z42_profiler_init) };
-    let program = host::LoadedProgram::load_bytes_with_components(&crate::host::program_tests::empty_zbc(), host::LoadOptions {
+    let program = host::LoadedProgram::load_bytes_with_components(&crate::loader::test_support::empty_zbc(), host::LoadOptions {
         mode: host::ExecMode::Interp, ..Default::default()
     }, crate::vm::assembly::ComponentInputs { components, ..Default::default() }).unwrap();
     assert!(!host::profiler_loaded(program.context()));
@@ -55,7 +55,7 @@ fn explicitly_selected_profiler_uses_the_existing_component_registry() {
 #[test]
 fn loaded_program_applies_profiler_source_without_eager_attachment() {
     let program = host::LoadedProgram::load_bytes(
-        &crate::host::program_tests::empty_zbc(),
+        &crate::loader::test_support::empty_zbc(),
         host::LoadOptions {
             allow_profiling: false,
             mode: host::ExecMode::Interp,

@@ -18,7 +18,7 @@
 //!
 //! # Stack walk strategy
 //!
-//! The handler walks [`vm::VM_CORES`] → each `Arc<VmCore>` → each
+//! The handler walks [`crate::vm::VM_CORES`] → each `Arc<VmCore>` → each
 //! registered `VmContext`. The two registries are behind `Mutex`es and are
 //! taken with `try_lock` — on contention it writes a placeholder and
 //! continues, trading completeness for deadlock safety.
@@ -56,13 +56,15 @@ static INSTALLED: AtomicI32 = AtomicI32::new(0);
 
 /// Install signal handlers for the 5 covered POSIX signals.
 /// Safe to call multiple times — only first call has effect.
-pub fn install() {
+pub(crate) fn install(crash_dir: impl FnOnce() -> Option<&'static std::path::Path>) {
     if INSTALLED.swap(1, Ordering::SeqCst) != 0 {
         return;
     }
 
     // Open crash_report fd from Z42_CRASH_DIR (if set + writable)
-    open_crash_report_fd();
+    if let Some(dir) = crash_dir() {
+        open_crash_report_fd(dir);
+    }
 
     // Register the z42 crash `handler` for the 5 fatal signals (OS primitive).
     if signal::register_fatal_handlers(handler) {
@@ -70,20 +72,15 @@ pub fn install() {
     }
 }
 
-fn open_crash_report_fd() {
-    // adopt-inline-env-knobs : the `crash-dir` knob off the layered
-    // config, not a raw env read — `--set crash-dir=` / `[runtime].crash-dir` were
-    // silently ignored here. (This runs at `install()` time, pre-opening the fd; the
-    // signal handler itself only writes to the already-open fd, so nothing about
-    // async-signal-safety changes.)
-    let Some(dir_path) = crate::config::runtime_config().crash_dir.clone() else { return };
+fn open_crash_report_fd(dir_path: &std::path::Path) {
+    // Open before registering handlers so the signal path only writes to the fd.
     let ts_ns = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
     let path = dir_path.join(format!("z42vm-crash-{ts_ns}.txt"));
 
-    if let Err(e) = std::fs::create_dir_all(&dir_path) {
+    if let Err(e) = std::fs::create_dir_all(dir_path) {
         tracing::warn!("Z42_CRASH_DIR {} create failed: {e}; OS signal reports go to stderr only", dir_path.display());
         return;
     }
@@ -273,5 +270,5 @@ fn write_frame(fd: i32, frame: &crate::exec::frames::VmFrame) {
 // (PAL Phase 3); see the imports at the top of this file.
 
 #[cfg(test)]
-#[path = "signal_tests.rs"]
-mod signal_tests;
+#[path = "crash_report_tests.rs"]
+mod crash_report_tests;

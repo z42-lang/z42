@@ -25,7 +25,7 @@ thread_local! {
     // when a host application wraps an `interp::run_*` call inside its
     // `z42_host_invoke` entry, it sets this flag for the duration of the
     // call. While set, `route_stdout` / `route_stderr` consult the
-    // process-global host sinks (`HOST_STDOUT_SINK` / `HOST_STDERR_SINK`)
+    // process-global host sinks (`HOST_SINKS`)
     // first; they fall back to the test-IO stack otherwise. This keeps
     // host-driven invocation isolated from concurrent test-IO captures
     // running on other threads.
@@ -47,26 +47,57 @@ pub struct HostSink {
 unsafe impl Send for HostSink {}
 unsafe impl Sync for HostSink {}
 
-static HOST_STDOUT_SINK: RwLock<Option<HostSink>> = RwLock::new(None);
-static HOST_STDERR_SINK: RwLock<Option<HostSink>> = RwLock::new(None);
+type RustSink = std::sync::Arc<dyn Fn(&[u8]) + Send + Sync + 'static>;
 
-/// Install the process-global stdout sink. Returns the previous sink (if
-/// any) so callers can restore it on shutdown.
-pub fn install_host_stdout_sink(sink: Option<HostSink>) -> Option<HostSink> {
-    let mut guard = match HOST_STDOUT_SINK.write() {
-        Ok(g) => g,
-        Err(p) => p.into_inner(),
-    };
-    std::mem::replace(&mut *guard, sink)
+#[derive(Clone)]
+pub(crate) enum OutputSink {
+    C(HostSink),
+    Rust(RustSink),
 }
 
-/// Install the process-global stderr sink. Returns the previous sink.
+impl OutputSink {
+    fn write(&self, bytes: &[u8]) {
+        match self {
+            Self::C(sink) => unsafe {
+                (sink.callback)(bytes.as_ptr().cast(), bytes.len(), sink.user_data);
+            },
+            Self::Rust(sink) => sink(bytes),
+        }
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct HostSinks {
+    pub(crate) stdout: Option<OutputSink>,
+    pub(crate) stderr: Option<OutputSink>,
+}
+
+static HOST_SINKS: RwLock<HostSinks> = RwLock::new(HostSinks { stdout: None, stderr: None });
+
+pub(crate) fn replace_host_sinks(sinks: HostSinks) -> HostSinks {
+    std::mem::replace(&mut *HOST_SINKS.write().unwrap_or_else(|e| e.into_inner()), sinks)
+}
+
+pub(crate) fn replace_host_sink(stderr: bool, sink: Option<OutputSink>) -> Option<OutputSink> {
+    let mut sinks = HOST_SINKS.write().unwrap_or_else(|e| e.into_inner());
+    let slot = if stderr { &mut sinks.stderr } else { &mut sinks.stdout };
+    std::mem::replace(slot, sink)
+}
+
+/// Install a C stdout sink and return the previous C sink, if any.
+pub fn install_host_stdout_sink(sink: Option<HostSink>) -> Option<HostSink> {
+    match replace_host_sink(false, sink.map(OutputSink::C)) {
+        Some(OutputSink::C(previous)) => Some(previous),
+        _ => None,
+    }
+}
+
+/// Install a C stderr sink and return the previous C sink, if any.
 pub fn install_host_stderr_sink(sink: Option<HostSink>) -> Option<HostSink> {
-    let mut guard = match HOST_STDERR_SINK.write() {
-        Ok(g) => g,
-        Err(p) => p.into_inner(),
-    };
-    std::mem::replace(&mut *guard, sink)
+    match replace_host_sink(true, sink.map(OutputSink::C)) {
+        Some(OutputSink::C(previous)) => Some(previous),
+        _ => None,
+    }
 }
 
 /// Activate host-sink dispatch on the current thread. Returns the prior
@@ -80,40 +111,40 @@ pub fn host_sink_set_active(on: bool) -> bool {
     })
 }
 
-fn dispatch_host_sink(
-    text: &str,
-    append_newline: bool,
-    slot: &RwLock<Option<HostSink>>,
-) -> bool {
-    // Copy the sink out and drop the guard before calling it: the callback
-    // may re-enter the host API (`shutdown` reinstalls the slot under the
-    // write lock).
-    let host = match slot.read() {
-        Ok(g) => match *g {
-            Some(h) => h,
-            None => return false,
-        },
-        Err(_) => return false,
-    };
+/// RAII guard that toggles the per-thread "host sink active" flag.
+/// Activated on entry to `z42_host_invoke`, restored on Drop so panics
+/// or early returns can't leave a dangling flag.
+pub(crate) struct HostSinkGuard {
+    prev: bool,
+}
+
+impl HostSinkGuard {
+    pub(crate) fn enter() -> Self {
+        let prev = host_sink_set_active(true);
+        Self { prev }
+    }
+}
+
+impl Drop for HostSinkGuard {
+    fn drop(&mut self) {
+        host_sink_set_active(self.prev);
+    }
+}
+
+fn dispatch_host_sink(text: &str, append_newline: bool, stream: Stream) -> bool {
+    // Retain the callback and release the lock before calling host code.
+    let sink = HOST_SINKS.read().ok().and_then(|sinks| match stream {
+        Stream::Stdout => sinks.stdout.clone(),
+        Stream::Stderr => sinks.stderr.clone(),
+    });
+    let Some(sink) = sink else { return false };
     if append_newline {
         let mut combined = String::with_capacity(text.len() + 1);
         combined.push_str(text);
         combined.push('\n');
-        unsafe {
-            (host.callback)(
-                combined.as_ptr() as *const c_char,
-                combined.len(),
-                host.user_data,
-            );
-        }
+        sink.write(combined.as_bytes());
     } else {
-        unsafe {
-            (host.callback)(
-                text.as_ptr() as *const c_char,
-                text.len(),
-                host.user_data,
-            );
-        }
+        sink.write(text.as_bytes());
     }
     true
 }
@@ -131,11 +162,11 @@ enum Stream {
 /// pipe whose reader stalls fills up — and that part is returned as a [`Blocking`] write,
 /// run parked.
 fn route(stream: Stream, text: String, append_newline: bool) -> Blocking<()> {
-    let (host, sinks) = match stream {
-        Stream::Stdout => (&HOST_STDOUT_SINK, &STDOUT_SINKS),
-        Stream::Stderr => (&HOST_STDERR_SINK, &STDERR_SINKS),
+    let sinks = match stream {
+        Stream::Stdout => &STDOUT_SINKS,
+        Stream::Stderr => &STDERR_SINKS,
     };
-    if HOST_SINK_ACTIVE.with(|c| c.get()) && dispatch_host_sink(&text, append_newline, host) {
+    if HOST_SINK_ACTIVE.with(|c| c.get()) && dispatch_host_sink(&text, append_newline, stream) {
         return Blocking::ready(());
     }
     let captured = sinks.with(|sinks| match sinks.borrow_mut().last_mut() {

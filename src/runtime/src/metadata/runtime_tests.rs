@@ -107,6 +107,18 @@ fn image() -> Arc<PackageImage> {
 }
 
 #[test]
+fn entry_type_resolution_does_not_drain_the_package_queue() {
+    let ctx = VmContext::with_image(image()).unwrap();
+    let loader = ctx.loader();
+    loader.enqueue_type_load("Unloaded.Type");
+
+    let entry = loader.resolve_type("Pkg.C").expect("entry type");
+    let declared = &ctx.module().unwrap().type_registry["Pkg.C"];
+    assert_eq!(entry.id, declared.id);
+    assert!(!loader.type_load_drain_is_noop(&[]));
+}
+
+#[test]
 fn two_vms_share_definitions_and_isolate_all_link_state() {
     let image = image();
     let a = VmContext::with_image(image.clone()).unwrap();

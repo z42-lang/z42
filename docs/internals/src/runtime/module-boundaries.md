@@ -100,7 +100,7 @@ C 适配归能力所有者转长期留档：C 适配五文件已拍平回 host �
 测试构建注册。另清三处可见性收口遗留的孤儿再导出（object/header 的 marks glob、gc 的
 loh_bytes/VarChunkReclaim 测试专用项转 cfg(test) 门控）。
 会话内 zpkg 定义共享已落地（C# ALC「已加载即共享」规则）：`loader::ImageCache` 以内容哈希为键，
-`host::load::prepare` 的三个装载点（resolver 命中、prelude、依赖文件队列）与 C 会话的入口字节都经
+`loader::program::prepare_startup` 的三个装载点（resolver 命中、prelude、依赖文件队列）与 C 会话的入口字节都经
 它解码-or-共享——同一 zpkg（标准库居首）在会话内只解码一次，函数 IR 与定义数据经 `PackageImage`
 的 Arc 跨程序共享（`Module::from_image` 浅包装）；类型表/静态/派发缓存仍每 VM 独立（实例化状态，
 对应不同 ALC 各自的 RuntimeTypes）。Rust 宿主的 `load_file/load_bytes` 保持无缓存路径不变，
@@ -177,7 +177,7 @@ CLI/C/Rust 输入 → 功能请求与配置快照 → 入口 zpkg/依赖解析�
 ```
 
 C initialize 当前建立进程单例宿主会话，不等于创建一个承载所有顶层模块的 Core；每个 LoadedProgram 仍拥有自己的 VM。
-上述收口保留这一隔离行为和初始化失败终态，后续若改变生命周期需单独定义行为契约。C 句柄表、编组、线程错误通道归 C 适配，
+上述收口保留这一隔离行为和初始化失败终态，后续若改变生命周期需单独定义行为契约。句柄表由共享嵌入会话持有，值编组由 Rust 和 C 复用，C 线程错误通道归 C 适配，
 参数来源/进程退出/hooks 归 CLI 宿主，Core 构造与服务/模块准备归 VM。C 导出及 .h 随实际能力所有者维护，SDK include 只聚合分发。
 
 ### 状态与协议归属
@@ -203,15 +203,15 @@ C initialize 当前建立进程单例宿主会话，不等于创建一个承载�
 
 | 当前文件/文件组 | 实际职责 | 候选名称/拆分方向 |
 |---|---|---|
-| host/config.rs、corelib/core/config.rs、gc/config.rs、JIT config.rs | C 宿主配置、托管查询、GC 输入、JIT 输入 | host_abi_config.rs、runtime_config_builtins.rs、gc_config.rs、jit_config.rs |
-| host/state.rs、interop/state.rs | 宿主会话；原生模块/类型/buffer 状态 | host_session.rs、native_resources.rs |
+| host/abi_config.rs、corelib/core/config.rs、gc/config.rs、JIT config.rs | C 宿主配置、托管查询、GC 输入、JIT 输入 | 宿主配置命名已收口；其余候选为 runtime_config_builtins.rs、gc_config.rs、jit_config.rs |
+| host/session.rs、interop/state.rs | Rust/C 嵌入会话；原生模块/类型/buffer 状态 | 宿主会话命名已收口；interop 候选为 native_resources.rs |
 | threads/state.rs、loader/state.rs、exec/state.rs、metadata/state.rs | mutator、加载、执行、链接状态 | mutator_state.rs、loader_state.rs、execution_state.rs、link_state.rs |
 | 四处 builtins.rs | 组装提供方、声明导出、名称目录、执行派发 | builtin_registry_builder.rs、core_builtin_descriptors.rs、builtin_symbol_catalog.rs、builtin_dispatch.rs |
 | components/backends.rs | 来源选择、平台发现、初始引擎注册表 | source/discovery 按职责拆分；装配协调由内部 api 拥有，同构建协议位于 components::abi |
 | loader/native.rs、exec/native.rs | 原生库装入/注册；native 调用服务 | native_library_loader.rs、native_module_registration.rs、native_call_services.rs |
-| host/profiling.rs、components/profiling.rs | 宿主诊断请求；profiler 装配 | diagnostic_requests.rs、profiler_attachment.rs |
+| host/mod.rs、diagnostics/exit_report.rs、components/profiling.rs | 功能级诊断请求、退出报告与 profiler 装配 | host 转发请求，diagnostics 负责观察与输出，components 负责能力绑定 |
 | object/protocol.rs、exec/ops/stringify.rs | 对象能力契约；托管调用/默认文本物化 | 定义与执行桥已按所有者分开；继续检查 exec/ops 中布局/存储事实与执行编排的混合 |
-| host/load.rs、vm/assembly.rs、vm/defaults.rs | 宿主请求、VM 装配、默认输入 | host 转换请求，vm 持有装配顺序；loader 拥有产物准备机制 |
+| host/mod.rs、vm/program.rs、vm/assembly.rs、loader/program.rs | 宿主接口、程序会话与装配、产物准备 | host 导出加载与调用入口，vm 持有会话和装配顺序，loader 准备产物 |
 | vm/ | Core、线程视图、布局、默认服务与装配 | 多个实现按共同所有者集中；crate::vm 的类型和组件 bridge 消费路径不随物理布局变化 |
 
 `*_config`、`*_policy`、`*_registry` 等后缀表达不同职责。目录本身已足够限定的局部文件不为全仓唯一名机械改名；

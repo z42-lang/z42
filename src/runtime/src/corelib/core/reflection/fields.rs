@@ -64,9 +64,7 @@ pub fn type_fields(ctx: &VmContext, ty: &Value) -> Result<Value, BuiltinError> {
         while let Some(c) = cur {
             chain.push(c.clone());
             cur = c.base_name.as_ref().and_then(|b| {
-                ctx.module()
-                    .and_then(|m| m.type_registry.get(b).cloned().map(|td| ctx.core().runtime().current_type_desc(td)))
-                    .or_else(|| ctx.loader().try_lookup_type(b))
+                ctx.loader().resolve_type(b)
             });
         }
         for c in chain.iter().rev() {
@@ -112,9 +110,7 @@ pub fn type_fields(ctx: &VmContext, ty: &Value) -> Result<Value, BuiltinError> {
             }
         }
         cur = c.base_name.as_ref().and_then(|b| {
-            ctx.module()
-                .and_then(|m| m.type_registry.get(b).cloned().map(|td| ctx.core().runtime().current_type_desc(td)))
-                .or_else(|| ctx.loader().try_lookup_type(b))
+            ctx.loader().resolve_type(b)
         });
     }
     Ok(ctx.heap().alloc_array(out))
@@ -183,10 +179,7 @@ pub fn fieldof(ctx: &VmContext, qualified: &crate::object::string::vstr::Str) ->
         Some((c, f)) => (c, f),
         None => (qualified.as_str(), ""),
     };
-    let td = ctx
-        .module()
-        .and_then(|m| m.type_registry.get(class).cloned().map(|td| ctx.core().runtime().current_type_desc(td)))
-        .or_else(|| ctx.loader().try_lookup_type(class));
+    let td = ctx.loader().resolve_type(class);
     let td = match td {
         Some(t) => t,
         None => {
@@ -214,9 +207,7 @@ pub fn fieldof(ctx: &VmContext, qualified: &crate::object::string::vstr::Str) ->
                 .map_err(BuiltinError::Legacy);
         }
         cur = c.base_name.as_ref().and_then(|b| {
-            ctx.module()
-                .and_then(|m| m.type_registry.get(b).cloned().map(|td| ctx.core().runtime().current_type_desc(td)))
-                .or_else(|| ctx.loader().try_lookup_type(b))
+            ctx.loader().resolve_type(b)
         });
     }
     Err(BuiltinError::Internal(format!(

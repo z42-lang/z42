@@ -1,6 +1,7 @@
-#[path = "../src/main_startup.rs"]
-mod executable;
-// Static embedding reference using the same executable host implementation.
+// The static example links the same process entry used by the dynamic launcher.
+unsafe extern "C" {
+    fn z42_main_v1() -> i32;
+}
 #[cfg(all(feature = "mimalloc-alloc", not(feature = "dhat-heap")))]
 #[global_allocator]
 static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
@@ -12,5 +13,10 @@ fn main() -> anyhow::Result<()> {
     #[cfg(all(feature = "jit", z42_jit_supported))]
     unsafe { z42::components::abi::register_static_component(z42::components::abi::JIT_COMPONENT, z42_jit::component::z42_jit_init)?; }
     unsafe { z42::components::abi::register_static_component(z42::components::abi::PROFILER_COMPONENT, z42_profiler::component::z42_profiler_init)?; }
-    executable::run_from(std::env::args_os())
+    // SAFETY: the linked z42 runtime defines this CLI entry with the C ABI.
+    let status = unsafe { z42_main_v1() };
+    if status != 0 {
+        std::process::exit(status);
+    }
+    Ok(())
 }
