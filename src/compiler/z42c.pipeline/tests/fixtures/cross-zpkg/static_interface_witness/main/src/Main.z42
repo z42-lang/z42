@@ -12,4 +12,6 @@ void Main() {
     Demo.WitnessContract.Payload payload = Demo.WitnessContract.ForwardBlob<BlobWriter>();
     Console.WriteLine(payload.Number);
     Console.WriteLine(payload.Label);
+    Console.WriteLine(Demo.WitnessContract.ForwardUpdate<Seven>(4));
+    Console.WriteLine(Demo.WitnessContract.ReplaceSelf(value).Value);
 }

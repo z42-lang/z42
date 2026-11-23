@@ -23,6 +23,7 @@ public sealed partial class MemberResolver {
         var slots = new List<StaticWitnessSlot>();
         if (constraints == null) { return slots.ToArray(); }
         var structSlots = new List<StaticWitnessSlot>();
+        var refSlots = new List<StaticWitnessSlot>();
         for (int pi = 0; pi < constraints.Count; pi = pi + 1) {
             ConstraintBundle bundle = constraints.Bundles[pi];
             var seen = new StrMap();
@@ -45,12 +46,14 @@ public sealed partial class MemberResolver {
             foreach (string key in keys) {
                 var member = members.Get(key) as IfaceMethodHit;
                 StaticWitnessSlot slot = new StaticWitnessSlot(pi, member.Owner.Fqn(), member.Sym);
-                if (MemberResolver._usesDeclaredStruct(slot.Member.Signature)) { structSlots.Add(slot); }
+                if (MemberResolver._usesRefParameter(slot.Member.Signature)) { refSlots.Add(slot); }
+                else if (MemberResolver._usesDeclaredStruct(slot.Member.Signature)) { structSlots.Add(slot); }
                 else { slots.Add(slot); }
             }
         }
-        // Preserve the scalar and reference Self slot indices in existing packages.
+        // Append new signature families so existing packages retain their slot indices.
         slots.AddRange(structSlots.ToArray());
+        slots.AddRange(refSlots.ToArray());
         return slots.ToArray();
     }
 
@@ -75,7 +78,10 @@ public sealed partial class MemberResolver {
         Z42FuncType signature = method.Signature;
         if (!(signature.Ret is Z42VoidType) && !MemberResolver._isWitnessType(signature.Ret, allowsSelf)) { return false; }
         for (int i = 0; i < signature.ParamCount; i = i + 1) {
-            if (!MemberResolver._isWitnessType(signature.ParamTypes[i], allowsSelf) || signature.IsRefParam(i)) { return false; }
+            Z42Type parameter = signature.ParamTypes[i];
+            if (!MemberResolver._isWitnessType(parameter, allowsSelf)) { return false; }
+            // Whole-value struct assignment requires a blob destination, even in a callee.
+            if (signature.IsRefParam(i) && MemberResolver._isDeclaredWitnessStruct(parameter)) { return false; }
         }
         return true;
     }
@@ -88,6 +94,13 @@ public sealed partial class MemberResolver {
     private static bool _isDeclaredWitnessStruct(Z42Type type) {
         Z42ClassType declared = type as Z42ClassType;
         return declared != null && declared.IsStruct && declared.GenericParamCount == 0 && !declared.IsScalarType();
+    }
+
+    private static bool _usesRefParameter(Z42FuncType signature) {
+        for (int i = 0; i < signature.ParamCount; i = i + 1) {
+            if (signature.IsRefParam(i)) { return true; }
+        }
+        return false;
     }
 
     private static bool _usesDeclaredStruct(Z42FuncType signature) {
@@ -127,10 +140,23 @@ public sealed partial class MemberResolver {
             args, rawArgs, count, env, call.Span, true);
         this._tc._overload.CheckConstraintIfaceArgs(values, null, values.Length, method.Signature,
                                                    target.Name, member.Name, slot.Contract);
+        this._checkWitnessRefStorage(values, signature);
         var bound = new BoundCall("witness", false, null, "", member.Name, values, values.Length,
             signature.Ret, member.Span);
         bound.WitnessSlot = owner.TypeParams.Count + selected;
         return BoundCall.Marked(bound, signature);
+    }
+
+    private void _checkWitnessRefStorage(BoundExpr[] values, Z42FuncType signature) {
+        for (int i = 0; i < values.Length && i < signature.ParamCount; i = i + 1) {
+            var address = values[i] as BoundRefArg;
+            if (address == null || !signature.IsRefParam(i)) { continue; }
+            Z42Type actual = address.Inner.Type();
+            Z42Type expected = signature.ParamTypes[i];
+            if (actual is Z42ErrorType || actual is Z42UnknownType || MemberResolver._sameWitnessType(actual, expected)) { continue; }
+            this._tc._diags.Error(DiagnosticCodes.TypeMismatch,
+                "ref argument must have type `" + expected.Name() + "`, got `" + actual.Name() + "`", address.Span);
+        }
     }
 
     private BoundExpr _missingStaticWitness(MemberExpr member, string parameter) {
@@ -196,7 +222,7 @@ public sealed partial class MemberResolver {
             return false;
         }
         for (int i = 0; i < have.ParamCount; i = i + 1) {
-            if (have.IsRefParam(i) || !MemberResolver._sameWitnessType(have.ParamTypes[i], want.ParamTypes[i])) {
+            if (have.IsRefParam(i) != want.IsRefParam(i) || !MemberResolver._sameWitnessType(have.ParamTypes[i], want.ParamTypes[i])) {
                 return false;
             }
         }

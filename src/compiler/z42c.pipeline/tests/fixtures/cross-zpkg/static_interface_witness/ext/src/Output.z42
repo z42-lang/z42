@@ -3,10 +3,12 @@ namespace Demo.WitnessImpl;
 using Demo.WitnessContract;
 using Std.IO;
 
-public struct Seven : IWriter {
+public struct Seven : IRefWriter {
     public static int Create() { return 7; }
     public static void Write(int value) { Console.WriteLine(value); }
     public static void Write(string value) { Console.WriteLine("wrong overload"); }
+    public static void Update(int value) { Console.WriteLine("wrong value overload"); }
+    public static void Update(ref int value) { value = value + 50; }
 }
 
 public class Nine : IWriter {
@@ -20,6 +22,7 @@ public class ReferenceWriter : IReferenceWriter {
 
     public ReferenceWriter(int value) { this.Value = value; }
     public static ReferenceWriter Create() { return new ReferenceWriter(36); }
+    public static void Replace(ref ReferenceWriter value) { value = new ReferenceWriter(value.Value + 10); }
     public static void Write(ReferenceWriter value) { Console.WriteLine(value.Value); }
     public static void Write(string value) { Console.WriteLine("wrong Self overload"); }
 }

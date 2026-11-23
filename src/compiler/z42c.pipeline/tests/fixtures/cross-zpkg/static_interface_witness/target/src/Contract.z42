@@ -16,6 +16,7 @@ public void Forward<T>() where T : IWriter {
 public interface IReferenceWriter {
     static Self Create();
     static void Write(Self value);
+    static void Replace(ref Self value);
 }
 
 public T DispatchSelf<T>(T seed) where T : class + IReferenceWriter {
@@ -52,4 +53,23 @@ public Payload DispatchBlob<T>() where T : IBlobWriter {
 
 public Payload ForwardBlob<T>() where T : IBlobWriter {
     return DispatchBlob<T>();
+}
+
+public interface IRefWriter : IWriter {
+    static void Update(ref int value);
+}
+
+public int UpdateValue<T>(int seed) where T : IRefWriter {
+    T.Write(T.Create());
+    T.Update(ref seed);
+    return seed;
+}
+
+public int ForwardUpdate<T>(int seed) where T : IRefWriter {
+    return UpdateValue<T>(seed);
+}
+
+public T ReplaceSelf<T>(T seed) where T : class + IReferenceWriter {
+    T.Replace(ref seed);
+    return seed;
 }
