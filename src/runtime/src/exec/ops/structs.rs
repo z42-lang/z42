@@ -1,6 +1,7 @@
 //! Engine-neutral struct allocation, copying and checked symbolic field access.
 use crate::object as ty;
 use crate::object::{Value, StructTypeLayout};
+use crate::metadata::Module;
 use crate::vm::VmContext;
 use crate::exec::ops::object::struct_leaf::as_struct_ref;
 use anyhow::Result;
@@ -15,6 +16,21 @@ pub fn struct_alloc_val(
     Value::StructRef { idx, frame_id }
 }
 
+
+/// Allocate a method type argument's concrete blob layout in the current frame.
+pub fn method_struct_alloc(
+    ctx: &VmContext, module: &Module, frame_id: u32, arguments: &[String], param_index: usize,
+) -> Result<Value, Value> {
+    let missing = |message| crate::exec::exception::make_missing_symbol_exception(ctx, module, message);
+    let name = arguments.get(param_index)
+        .ok_or_else(|| missing(format!("missing method type argument in slot {param_index}")))?;
+    let descriptor = ctx.loader().try_lookup_type(name)
+        .ok_or_else(|| missing(format!("unknown struct type `{name}` for method type argument {param_index}")))?;
+    let layout = descriptor.struct_layout().filter(|_| descriptor.is_struct())
+        .ok_or_else(|| missing(format!("method type argument `{name}` has no struct layout")))?;
+    let idx = ctx.exec().struct_alloc(frame_id, Arc::from(descriptor.name.as_str()), layout);
+    Ok(Value::StructRef { idx, frame_id })
+}
 
 /// Use the loaded struct layout, or the existing size-only native fallback.
 pub(crate) fn resolve_layout(ctx: &VmContext, type_name: &str, size: u32) -> Arc<StructTypeLayout> {

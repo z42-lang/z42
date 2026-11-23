@@ -122,6 +122,17 @@ public sealed class MethodTypeArgInsn : IrDefOnlyInstr {
     }
 }
 
+public sealed class MethodStructAllocInsn : IrDefOnlyInstr {
+    public int ParamIndex;
+    public MethodStructAllocInsn(TypedReg dst, int paramIndex) { this.Dst = dst; this.ParamIndex = paramIndex; }
+    public override string Dump() { return this.Dst.Dump() + " = method_struct_alloc " + this.ParamIndex.ToString(); }
+    public override IrInstr Clone() { return new MethodStructAllocInsn(this.Dst, this.ParamIndex); }
+    public override void Write(ZbcEncoder e) {
+        e.Head(Op.MethodStructAlloc, this.Dst);
+        e.U16(this.ParamIndex);
+    }
+}
+
 public sealed class LoadMethodWitnessInsn : IrDefOnlyInstr {
     public int Slot;
     public LoadMethodWitnessInsn(TypedReg dst, int slot) { this.Dst = dst; this.Slot = slot; }
