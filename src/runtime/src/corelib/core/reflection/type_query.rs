@@ -43,9 +43,12 @@ pub fn type_element(ctx: &VmContext, ty: &Value) -> Value {
 
 // ── Base type & generic arguments ───────────────────────────────────────────
 
-/// `__type_base(typeObj) -> Type | null` — base class Type; `Std.Object` for
-/// classes with no explicit base; `null` for `Std.Object` itself / no handle.
+/// `__type_base(typeObj) -> Type | null` — base class Type, including `Std.Array`
+/// for synthetic array types and `Std.Object` for classes with no explicit base.
 pub fn type_base(ctx: &VmContext, ty: &Value) -> Value {
+    if matches!(reflected_type_key(ty), Some(ReflectedTypeKey::Array(_))) {
+        return make_type_from_name(ctx, well_known_names::STD_ARRAY);
+    }
     let definition = type_handle_of(ty);
     if let Some(definition) = &definition {
         if let Some(subst) = member_subst(ty) {
@@ -325,6 +328,14 @@ pub fn type_is_assignable_from(ctx: &VmContext, this: &Value, c: &Value) -> bool
         return match &identities.0 {
             Some(ReflectedTypeKey::Definition(id)) =>
                 ctx.types().get(*id).is_some_and(|td| td.name == STD_OBJECT),
+            _ => true,
+        };
+    }
+    if this_name == well_known_names::STD_ARRAY && matches!(identities.1, Some(ReflectedTypeKey::Array(_))) {
+        return match &identities.0 {
+            Some(ReflectedTypeKey::Definition(id)) =>
+                ctx.types().get(*id).is_some_and(|td| td.name == well_known_names::STD_ARRAY),
+            Some(ReflectedTypeKey::Array(_)) => false,
             _ => true,
         };
     }

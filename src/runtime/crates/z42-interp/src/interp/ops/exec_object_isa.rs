@@ -10,8 +10,7 @@ use crate::object::Value;
 use crate::components::bridge::VmContext;
 use anyhow::Result;
 
-use crate::metadata::dispatch::isa::array_isa;
-use crate::exec::ops::cast::{bound_param_extra_isa, isa_object, isa_td, struct_ref_isa};
+use crate::exec::ops::cast::{array_isa_in_registry, bound_param_extra_isa, isa_object, isa_td, struct_ref_isa};
 use super::super::{prim_isa, Frame};
 
 /// A target naming a type parameter of a shared generic body (`o is T`, `o is List<T>`) carries
@@ -59,7 +58,7 @@ fn is_instance_of(
     let result = match v {
         Value::Object(rc) => isa_object(ctx, &module.type_registry, rc.type_desc(), rc.type_args(), class_name, key),
         // T[] is-a Std.Array is-a Std.Object, and is-a X[] iff its element type is X (invariant).
-        Value::Array(rc) => array_isa(&rc.borrow().element_type(), class_name),
+        Value::Array(rc) => array_isa_in_registry(ctx, Some(module), &rc.borrow().element_type(), class_name),
         Value::StructRef { idx, frame_id } => struct_ref_isa(ctx, &module.type_registry, *idx, *frame_id, class_name),
         Value::Null => false,
         // add-struct-object-boxing → unify Phase 2 R3: 装箱值类型（struct 或基元）is-a 精确类型 /
@@ -144,7 +143,7 @@ fn as_cast_to(
     }
     let is_match = match &val {
         Value::Object(rc) => isa_object(ctx, &module.type_registry, rc.type_desc(), rc.type_args(), class_name, key),
-        Value::Array(rc) => array_isa(&rc.borrow().element_type(), class_name),
+        Value::Array(rc) => array_isa_in_registry(ctx, Some(module), &rc.borrow().element_type(), class_name),
         Value::Null => true,
         // fix-boxed-primitive-is-as: 未装箱裸基元按其 stdlib 类名松匹配兜底。
         other => prim_isa(other, class_name),

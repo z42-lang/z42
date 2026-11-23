@@ -207,7 +207,9 @@ public static class CompilerFingerprint {
         "project-adapted-interface-arguments",
         "guard-adapted-interface-ref-slots",
         "distinguish-closed-interface-overloads",
-        "distinguish-free-interface-overloads"
+        "distinguish-free-interface-overloads",
+        "enforce-array-element-identity",
+        "bind-runtime-interface-type-arguments"
     };
 
     // 指纹值：`Entries` 逐条以 `\n` 连接后取内容哈希（`mmh3:` 前缀，同 SourceHash）。

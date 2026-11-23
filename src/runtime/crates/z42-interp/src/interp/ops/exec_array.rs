@@ -30,6 +30,9 @@ pub(super) fn array_new(
 ) -> Result<Option<Value>> {
     let len = *frame.get(size)?;
     let (tp_prim, bound) = generic_array_args(ctx, frame, type_param_kind, type_param_index, owner);
+    let element_type = crate::exec::ops::object::array::array_elem_for_activation(
+        ctx, element_type, frame.method_type_args, || frame.get(0).ok(),
+    );
     let r = crate::exec::ops::object::array::array_new(
         ctx, &len, elem_tag, element_type, type_param_kind != 0, tp_prim, bound, stack_frame(ctx, frame, stack_alloc));
     match r {
@@ -67,6 +70,9 @@ pub(super) fn array_new_lit(
         );
     }
     let vals = elems.iter().map(|r| frame.get(*r).copied().unwrap_or(Value::Null));
+    let element_type = crate::exec::ops::object::array::array_elem_for_activation(
+        ctx, element_type, frame.method_type_args, || frame.get(0).ok(),
+    );
     let r = crate::exec::ops::object::array::array_new_lit(ctx, vals, element_type, stack_frame(ctx, frame, stack_alloc));
     match r {
         Ok(arr) => { frame.set(dst, arr); Ok(None) }
