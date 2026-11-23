@@ -177,7 +177,7 @@ CLI/C/Rust 输入 → 功能请求与配置快照 → 入口 zpkg/依赖解析�
 ```
 
 C initialize 当前建立进程单例宿主会话，不等于创建一个承载所有顶层模块的 Core；每个 LoadedProgram 仍拥有自己的 VM。
-上述收口保留这一隔离行为和初始化失败终态，后续若改变生命周期需单独定义行为契约。C 句柄表、编组、线程错误通道归 C 适配，
+上述收口保留这一隔离行为和初始化失败终态，后续若改变生命周期需单独定义行为契约。句柄表由共享嵌入会话持有，值编组由 Rust 和 C 复用，C 线程错误通道归 C 适配，
 参数来源/进程退出/hooks 归 CLI 宿主，Core 构造与服务/模块准备归 VM。C 导出及 .h 随实际能力所有者维护，SDK include 只聚合分发。
 
 ### 状态与协议归属
@@ -203,8 +203,8 @@ C initialize 当前建立进程单例宿主会话，不等于创建一个承载�
 
 | 当前文件/文件组 | 实际职责 | 候选名称/拆分方向 |
 |---|---|---|
-| host/config.rs、corelib/core/config.rs、gc/config.rs、JIT config.rs | C 宿主配置、托管查询、GC 输入、JIT 输入 | host_abi_config.rs、runtime_config_builtins.rs、gc_config.rs、jit_config.rs |
-| host/state.rs、interop/state.rs | 宿主会话；原生模块/类型/buffer 状态 | host_session.rs、native_resources.rs |
+| host/abi_config.rs、corelib/core/config.rs、gc/config.rs、JIT config.rs | C 宿主配置、托管查询、GC 输入、JIT 输入 | 宿主配置命名已收口；其余候选为 runtime_config_builtins.rs、gc_config.rs、jit_config.rs |
+| host/session.rs、interop/state.rs | Rust/C 嵌入会话；原生模块/类型/buffer 状态 | 宿主会话命名已收口；interop 候选为 native_resources.rs |
 | threads/state.rs、loader/state.rs、exec/state.rs、metadata/state.rs | mutator、加载、执行、链接状态 | mutator_state.rs、loader_state.rs、execution_state.rs、link_state.rs |
 | 四处 builtins.rs | 组装提供方、声明导出、名称目录、执行派发 | builtin_registry_builder.rs、core_builtin_descriptors.rs、builtin_symbol_catalog.rs、builtin_dispatch.rs |
 | components/backends.rs | 来源选择、平台发现、初始引擎注册表 | source/discovery 按职责拆分；装配协调由内部 api 拥有，同构建协议位于 components::abi |

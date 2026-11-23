@@ -353,4 +353,4 @@ C# 不会这样：它只在 `Main` 体**直接**引用依赖模块的类型时�
   真正的包/类型初始化由执行访问屏障负责。
 
 > 新增启动步骤时，加进 `vm/assembly.rs`，两条路径自动都有；别再只改 `host::run_app`。
-> 回归测试：`host::host_tests::invoke_sees_initialized_static_fields`（stdlib 包与用户模块各一个带初始化器的静态字段）。
+> 回归测试：`host::embedding_tests::invoke_sees_initialized_static_fields`（stdlib 包与用户模块各一个带初始化器的静态字段）。

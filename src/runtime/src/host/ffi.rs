@@ -8,14 +8,14 @@
 //!
 //! Sibling: `crate::interop` (interop — native code registering types into z42).
 
-use super::{ZpkgResolver, config, marshal, read_zpkg_namespaces, state};
+use super::{ZpkgResolver, abi_config, marshal, read_zpkg_namespaces, session};
 
 use std::os::raw::{c_char, c_void};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::ptr;
 use std::sync::Arc;
 
-use super::config::Z42HostConfig;
+use super::abi_config::Z42HostConfig;
 use crate::host::error::{Z42HostStatus, clear_error, set_error, snapshot_last_error};
 use z42_abi::{Z42Error, Z42Value};
 
@@ -54,7 +54,7 @@ where
 
 fn respond<T>(
     operation: &str,
-    result: Result<T, state::Failure>,
+    result: Result<T, session::Failure>,
     publish: impl FnOnce(T),
 ) -> Z42HostStatus {
     match result {
@@ -80,13 +80,13 @@ pub unsafe extern "C" fn z42_host_initialize(
             );
         }
         unsafe { *out_host = ptr::null_mut() };
-        let (config, sinks) = match unsafe { config::validate(cfg) } {
+        let (config, sinks) = match unsafe { abi_config::validate(cfg) } {
             Ok(resolved) => resolved,
             Err(error) => return classify_config_error(error),
         };
         respond(
             "z42_host_initialize",
-            state::initialize(config, sinks),
+            session::initialize(config, sinks),
             |token| {
                 unsafe { *out_host = token as *mut Z42Host };
             },
@@ -103,7 +103,7 @@ pub unsafe extern "C" fn z42_host_shutdown(host: *mut Z42Host) -> Z42HostStatus 
                 "z42_host_shutdown: host handle is NULL",
             );
         }
-        respond("z42_host_shutdown", state::shutdown(host as usize), |_| {})
+        respond("z42_host_shutdown", session::shutdown(host as usize), |_| {})
     })
 }
 
@@ -116,7 +116,7 @@ pub unsafe extern "C" fn z42_host_load_zbc(
 ) -> Z42HostStatus {
     guard(|| {
         let token = host as usize;
-        if !matches!(state::current(), Ok(current) if current == token) {
+        if !matches!(session::current(), Ok(current) if current == token) {
             return set_error(
                 Z42HostStatus::NotInit,
                 "z42_host_load_zbc: VM is not initialized",
@@ -135,7 +135,7 @@ pub unsafe extern "C" fn z42_host_load_zbc(
         } else {
             unsafe { std::slice::from_raw_parts(bytes, length) }
         };
-        respond("z42_host_load_zbc", state::load(token, bytes), |module| {
+        respond("z42_host_load_zbc", session::load(token, bytes), |module| {
             if !out_module.is_null() {
                 unsafe { *out_module = module as *mut Z42Module };
             }
@@ -152,7 +152,7 @@ pub unsafe extern "C" fn z42_host_resolve_entry(
 ) -> Z42HostStatus {
     guard(|| {
         let token = host as usize;
-        if !matches!(state::current(), Ok(current) if current == token) {
+        if !matches!(session::current(), Ok(current) if current == token) {
             return set_error(
                 Z42HostStatus::NotInit,
                 "z42_host_resolve_entry: VM is not initialized",
@@ -181,7 +181,7 @@ pub unsafe extern "C" fn z42_host_resolve_entry(
         };
         respond(
             "z42_host_resolve_entry",
-            state::resolve(token, module as usize, fqn),
+            session::resolve(token, module as usize, fqn),
             |entry| {
                 if !out_entry.is_null() {
                     unsafe { *out_entry = entry as *mut Z42Entry };
@@ -199,7 +199,7 @@ pub unsafe extern "C" fn z42_host_invoke(
     out_result: *mut Z42Value,
 ) -> Z42HostStatus {
     guard(|| {
-        let token = match state::current() {
+        let token = match session::current() {
             Ok(token) => token,
             Err(error) => {
                 return set_error(error.status, format!("z42_host_invoke: {}", error.message));
@@ -233,13 +233,13 @@ pub unsafe extern "C" fn z42_host_invoke(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn z42_host_set_stdout_sink(
     host: *mut Z42Host,
-    sink: config::Z42WriteSink,
+    sink: abi_config::Z42WriteSink,
     user_data: *mut c_void,
 ) -> Z42HostStatus {
     guard(|| {
         respond(
             "z42_host_set_stdout_sink",
-            state::set_sink(host as usize, false, config::output_sink(sink, user_data)),
+            session::set_sink(host as usize, false, abi_config::output_sink(sink, user_data)),
             |_| {},
         )
     })
@@ -248,13 +248,13 @@ pub unsafe extern "C" fn z42_host_set_stdout_sink(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn z42_host_set_stderr_sink(
     host: *mut Z42Host,
-    sink: config::Z42WriteSink,
+    sink: abi_config::Z42WriteSink,
     user_data: *mut c_void,
 ) -> Z42HostStatus {
     guard(|| {
         respond(
             "z42_host_set_stderr_sink",
-            state::set_sink(host as usize, true, config::output_sink(sink, user_data)),
+            session::set_sink(host as usize, true, abi_config::output_sink(sink, user_data)),
             |_| {},
         )
     })
@@ -280,7 +280,7 @@ pub unsafe extern "C" fn z42_host_last_error(_host: *mut Z42Host) -> Z42Error {
 pub unsafe extern "C" fn z42_zpkg_read_namespaces(
     bytes: *const u8,
     length: usize,
-    visit: config::Z42NamespaceVisitor,
+    visit: abi_config::Z42NamespaceVisitor,
     user_data: *mut c_void,
 ) -> Z42HostStatus {
     guard(|| {
@@ -336,7 +336,7 @@ pub unsafe extern "C" fn z42_zpkg_read_namespaces(
 pub fn install_zpkg_resolver(resolver: Arc<dyn ZpkgResolver>) -> Z42HostStatus {
     respond(
         "install_zpkg_resolver",
-        state::current().and_then(|token| state::set_resolver(token, resolver)),
+        session::current().and_then(|token| session::set_resolver(token, resolver)),
         |_| {},
     )
 }
@@ -345,15 +345,15 @@ pub fn install_zpkg_resolver(resolver: Arc<dyn ZpkgResolver>) -> Z42HostStatus {
 pub fn install_vfs(vfs: Arc<dyn crate::pal::fs::Vfs>) -> Z42HostStatus {
     respond(
         "install_vfs",
-        state::current().and_then(|token| state::set_vfs(token, vfs)),
+        session::current().and_then(|token| session::set_vfs(token, vfs)),
         |_| {},
     )
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
-fn classify_config_error(e: config::ConfigError) -> Z42HostStatus {
-    use config::ConfigError as CE;
+fn classify_config_error(e: abi_config::ConfigError) -> Z42HostStatus {
+    use abi_config::ConfigError as CE;
     match e {
         CE::NullConfig => set_error(
             Z42HostStatus::BadConfig,

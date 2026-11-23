@@ -5,10 +5,9 @@
 
 use std::ffi::CString;
 use std::os::raw::{c_char, c_void};
-use std::path::PathBuf;
 use std::sync::Arc;
 
-use super::ZpkgResolver;
+use super::{ZpkgResolver, session::SessionConfig};
 
 /// Wire-compatible version of `Z42_HOST_ABI_VERSION` from the C header.
 pub const Z42_HOST_ABI_VERSION: u32 = 2;
@@ -128,53 +127,6 @@ pub struct Z42HostConfig {
 /// Stays fixed when fields are appended later.
 pub const MIN_CONFIG_SIZE: usize = std::mem::size_of::<Z42HostConfig>();
 
-/// Owned configuration for a host session.
-#[derive(Clone)]
-pub struct ResolvedConfig {
-    pub exec_mode: Z42ExecMode,
-    pub heap_initial_bytes: usize,
-    pub heap_max_bytes: usize,
-    pub search_paths: Vec<String>,
-    /// `None` when neither the C config nor Tier 2 supplied a resolver.
-    /// Otherwise either a `CHookResolver` (built from the C pair) or a
-    /// Rust trait object handed to us by Tier 2 via
-    /// [`super::install_zpkg_resolver`].
-    pub zpkg_resolver: Option<Arc<dyn ZpkgResolver>>,
-    /// The file system the host's VMs load packages from and run on. The default VFS
-    /// (`pal::fs::default_vfs`) unless Tier 2 installed one via [`super::install_vfs`].
-    pub vfs: Arc<dyn crate::pal::fs::Vfs>,
-}
-
-impl ResolvedConfig {
-    pub(super) fn load_options(&self) -> crate::host::LoadOptions {
-        crate::host::LoadOptions {
-            native: Default::default(), allow_profiling: true,
-            mode: match self.exec_mode {
-                Z42ExecMode::Default => crate::host::default_mode(),
-                Z42ExecMode::Interp => crate::zpkg::ExecMode::Interp,
-                Z42ExecMode::Jit => crate::zpkg::ExecMode::Jit,
-                Z42ExecMode::Aot => crate::zpkg::ExecMode::Aot,
-            },
-            vfs: Arc::clone(&self.vfs),
-            search_dirs: self.search_paths.iter().map(PathBuf::from).collect(),
-            resolver: self.zpkg_resolver.clone(),
-            eager_dependencies: true,
-        }
-    }
-}
-
-impl std::fmt::Debug for ResolvedConfig {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ResolvedConfig")
-            .field("exec_mode", &self.exec_mode)
-            .field("heap_initial_bytes", &self.heap_initial_bytes)
-            .field("heap_max_bytes", &self.heap_max_bytes)
-            .field("search_paths", &self.search_paths)
-            .field("zpkg_resolver", &self.zpkg_resolver.is_some())
-            .finish()
-    }
-}
-
 /// Validation outcome. Caller maps `Err` to a `Z42HostStatus`.
 #[derive(Debug)]
 pub enum ConfigError {
@@ -192,7 +144,9 @@ pub enum ConfigError {
 /// Caller must ensure that, if `cfg` is non-null, it points to a valid
 /// `Z42HostConfig` with a valid `search_paths` array (NULL-terminated, or
 /// null pointer if no paths are configured).
-pub(crate) unsafe fn validate(cfg: *const Z42HostConfig) -> Result<(ResolvedConfig, crate::corelib::io::HostSinks), ConfigError> {
+pub(super) unsafe fn validate(
+    cfg: *const Z42HostConfig,
+) -> Result<(SessionConfig, crate::corelib::io::HostSinks), ConfigError> {
     if cfg.is_null() {
         return Err(ConfigError::NullConfig);
     }
@@ -226,7 +180,7 @@ pub(crate) unsafe fn validate(cfg: *const Z42HostConfig) -> Result<(ResolvedConf
         }) as Arc<dyn ZpkgResolver>
     });
 
-    let resolved = ResolvedConfig {
+    let resolved = SessionConfig {
         exec_mode,
         heap_initial_bytes: cfg.heap_initial_bytes,
         heap_max_bytes: cfg.heap_max_bytes,

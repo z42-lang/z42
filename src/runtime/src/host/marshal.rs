@@ -67,10 +67,10 @@ pub(super) fn invoke<'a>(
     token: usize,
     entry: usize,
     args: impl Iterator<Item = &'a Z42Value>,
-) -> std::result::Result<Z42Value, super::state::Failure> {
-    use super::{error::Z42HostStatus, state};
-    let mismatch = |error| state::Failure::new(Z42HostStatus::ArgMismatch, format!("{error:#}"));
-    let value = state::invoke(token, entry, || {
+) -> std::result::Result<Z42Value, super::session::Failure> {
+    use super::{error::Z42HostStatus, session};
+    let mismatch = |error| session::Failure::new(Z42HostStatus::ArgMismatch, format!("{error:#}"));
+    let value = session::invoke(token, entry, || {
         args.map(z42_value_to_value)
             .collect::<Result<_>>()
             .map_err(mismatch)

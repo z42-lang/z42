@@ -1,4 +1,4 @@
-use super::{LoadOptions, LoadedProgram};
+use super::program::{LoadOptions, LoadedProgram};
 use crate::{
     zpkg::{self, BasicBlock, ExecMode, Instruction, Terminator},
     object::Value,
@@ -103,7 +103,7 @@ fn repeated_invocations_preserve_static_state_and_validate_entries_and_arguments
 }
 
 #[test]
-fn interpreted_exceptions_are_reported_by_the_host_service() {
+fn interpreted_exceptions_are_reported_by_the_program() {
     let program = program(ExecMode::Interp, true);
     assert!(program
         .invoke("Demo.Main", &[])
@@ -136,7 +136,7 @@ fn jit_request_is_rejected_without_the_feature() {
 #[test]
 fn resolver_overrides_disk_prelude() {
     struct Resolver;
-    impl super::ZpkgResolver for Resolver {
+    impl crate::loader::program::ZpkgResolver for Resolver {
         fn resolve(&self, namespace: &str) -> Option<Vec<u8>> {
             assert_eq!(namespace, "z42.core");
             Some(empty_zbc())
@@ -260,12 +260,12 @@ fn session_cache_shares_definitions_between_programs() {
 fn no_eager_merge_track_registers_packages_and_runs() {
     let bytes: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/embedding_hello.zbc"));
     let libs = std::path::PathBuf::from(env!("Z42_EMBEDDING_TEST_LIBS"));
-    let options = crate::host::LoadOptions {
-        mode: crate::host::ExecMode::Interp,
+    let options = LoadOptions {
+        mode: ExecMode::Interp,
         search_dirs: vec![libs],
         ..Default::default()
     };
-    let program = super::LoadedProgram::load_bytes(bytes, options)
+    let program = LoadedProgram::load_bytes(bytes, options)
         .expect("no-eager-merge track loads");
     // The stdlib must NOT be merged into the entry module on this track: the
     // entry's own functions stay, cross-package calls resolve through the
@@ -322,11 +322,11 @@ fn no_eager_merge_unit_registration_lands_in_func_table() {
         impl_pairs: Vec::new(),
         package_name: Some("dep_pkg".into()),
     };
-    let options = crate::host::LoadOptions {
-        mode: crate::host::ExecMode::Interp,
+    let options = LoadOptions {
+        mode: ExecMode::Interp,
         ..Default::default()
     };
-    let program = super::LoadedProgram::load_bytes(&empty_zbc(), options).expect("loads");
+    let program = LoadedProgram::load_bytes(&empty_zbc(), options).expect("loads");
     let ctx = program.context();
     ctx.loader().register_eager_artifact(dep).expect("registration runs");
     assert!(
@@ -351,19 +351,19 @@ fn bare_entry_resolves_undeclared_stdlib_package_from_search_dir() {
     let wt = std::path::PathBuf::from("/Users/d.s.qiu/Documents/z42-new/wt/host-simplify");
     let zbc = std::fs::read("/tmp/ecp.zbc").expect("fixture zbc (built by this session)");
     let libs = wt.join("artifacts/intermediate/libraries/flat/release");
-    let options = crate::host::LoadOptions {
-        mode: crate::host::ExecMode::Interp,
+    let options = LoadOptions {
+        mode: ExecMode::Interp,
         search_dirs: vec![libs],
         ..Default::default()
     };
-    let program = super::LoadedProgram::load_bytes(&zbc, options).expect("loads");
+    let program = LoadedProgram::load_bytes(&zbc, options).expect("loads");
     // CI sequence: resolve + invoke Echo three times first (warms the core
     // package through the same C-harness flow), then the compression probe.
     for i in 40u64..43 {
-        let outcome = program.invoke("EngineComponentProbe.Echo", &[crate::host::Value::I64(i as i64)]);
-        assert_eq!(outcome.expect("echo runs").map(|v| match v { crate::host::Value::I64(n) => n, _ => -1 }), Some((i + (i - 39)) as i64));
+        let outcome = program.invoke("EngineComponentProbe.Echo", &[Value::I64(i as i64)]);
+        assert_eq!(outcome.expect("echo runs").map(|v| match v { Value::I64(n) => n, _ => -1 }), Some((i + (i - 39)) as i64));
     }
     let outcome = program.invoke("EngineComponentProbe.CompressionRoundtrip", &[]);
     let value = outcome.expect("compression roundtrip resolves on the default track");
-    assert_eq!(value, Some(crate::host::Value::I64(36)), "1..8 gzip roundtrip sums to 36");
+    assert_eq!(value, Some(Value::I64(36)), "1..8 gzip roundtrip sums to 36");
 }

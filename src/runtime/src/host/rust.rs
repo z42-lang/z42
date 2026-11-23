@@ -30,7 +30,6 @@
 //! concurrently returns `HostError::AlreadyInit`. Multi-instance lands
 //! in a future iteration (see embedding.md §12 Deferred).
 
-#[path = "rust_resolvers.rs"]
 mod resolvers;
 pub use resolvers::{MapResolver, SearchPathsResolver};
 use std::cell::Cell;
@@ -42,7 +41,7 @@ use z42_abi::{
     Z42_VALUE_TAG_BOOL, Z42_VALUE_TAG_F64, Z42_VALUE_TAG_I64, Z42_VALUE_TAG_NULL, Z42Value,
 };
 
-use super::{config, error::Z42HostStatus, marshal, state};
+use super::{abi_config, error::Z42HostStatus, marshal, session};
 use crate::corelib::io::{HostSinks, OutputSink};
 
 pub use z42::host::resolver::ZpkgResolver;
@@ -64,12 +63,12 @@ pub enum ExecMode {
 }
 
 impl ExecMode {
-    fn session_mode(self) -> config::Z42ExecMode {
+    fn session_mode(self) -> abi_config::Z42ExecMode {
         match self {
-            Self::Default => config::Z42ExecMode::Default,
-            Self::Interp => config::Z42ExecMode::Interp,
-            Self::Jit => config::Z42ExecMode::Jit,
-            Self::Aot => config::Z42ExecMode::Aot,
+            Self::Default => abi_config::Z42ExecMode::Default,
+            Self::Interp => abi_config::Z42ExecMode::Interp,
+            Self::Jit => abi_config::Z42ExecMode::Jit,
+            Self::Aot => abi_config::Z42ExecMode::Aot,
         }
     }
 }
@@ -272,7 +271,7 @@ pub struct Entry {
 impl Host {
     pub fn new(cfg: HostConfig) -> Result<Self, HostError> {
         let mode = cfg.exec_mode.session_mode();
-        config::check_feature_available(mode).map_err(|_| {
+        abi_config::check_feature_available(mode).map_err(|_| {
             HostError::FeatureOff(format!("z42_host_initialize: exec_mode {mode:?} requires a feature disabled at compile time"))
         })?;
         if cfg.search_paths.len() >= 4096 {
@@ -292,7 +291,7 @@ impl Host {
             })
             .collect::<Result<_, _>>()?;
 
-        let config = config::ResolvedConfig {
+        let config = session::SessionConfig {
             exec_mode: mode,
             heap_initial_bytes: cfg.heap_initial.unwrap_or(0),
             heap_max_bytes: cfg.heap_max.unwrap_or(0),
@@ -304,7 +303,7 @@ impl Host {
             stdout: cfg.stdout.map(|sink| OutputSink::Rust(Arc::from(sink))),
             stderr: cfg.stderr.map(|sink| OutputSink::Rust(Arc::from(sink))),
         };
-        let token = session_call("z42_host_initialize", || state::initialize(config, sinks))?;
+        let token = session_call("z42_host_initialize", || session::initialize(config, sinks))?;
         Ok(Self {
             token,
             _not_sync: PhantomData,
@@ -312,7 +311,7 @@ impl Host {
     }
 
     pub fn load_zbc(&self, bytes: &[u8]) -> Result<Module, HostError> {
-        session_call("z42_host_load_zbc", || state::load(self.token, bytes)).map(|token| Module {
+        session_call("z42_host_load_zbc", || session::load(self.token, bytes)).map(|token| Module {
             token,
             _not_sync: PhantomData,
         })
@@ -329,7 +328,7 @@ impl Host {
             return Err(HostError::BadConfig("fqn contains NUL".into()));
         }
         session_call("z42_host_resolve_entry", || {
-            state::resolve(self.token, module.token, fqn)
+            session::resolve(self.token, module.token, fqn)
         })
         .map(|token| Entry {
             token,
@@ -347,20 +346,20 @@ impl Host {
 
 impl Drop for Host {
     fn drop(&mut self) {
-        let _ = session_call("z42_host_shutdown", || state::shutdown(self.token));
+        let _ = session_call("z42_host_shutdown", || session::shutdown(self.token));
     }
 }
 
 fn session_call<T>(
     operation: &'static str,
-    f: impl FnOnce() -> Result<T, state::Failure>,
+    f: impl FnOnce() -> Result<T, session::Failure>,
 ) -> Result<T, HostError> {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(f))
         .map_err(|_| HostError::Internal(format!("{operation}: internal panic")))?
         .map_err(|error| translate_failure(error, operation))
 }
 
-fn translate_failure(failure: state::Failure, ctx: &'static str) -> HostError {
+fn translate_failure(failure: session::Failure, ctx: &'static str) -> HostError {
     let detail = format!("{ctx}: {}", failure.message);
     match failure.status {
         Z42HostStatus::Ok => {

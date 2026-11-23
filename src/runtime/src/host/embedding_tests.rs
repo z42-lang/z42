@@ -4,7 +4,7 @@
 //!       (Requirement: 测试覆盖)
 //!
 //! All tests serialize on `HOST_TEST_LOCK` because the embedded VM is a
-//! process singleton — concurrent tests would race on `state::HOST`.
+//! process singleton — concurrent tests would race on `session::HOST`.
 //! The end-to-end `load_invoke_hello_world` test is gated on
 //! `cfg(z42_have_embedding_hello)` so the suite still builds when
 //! the z42c toolchain / stdlib isn't built yet (e.g. CI agents that
@@ -17,8 +17,8 @@ use std::os::raw::{c_char, c_void};
 use std::ptr;
 use std::sync::{Mutex, OnceLock};
 
-use super::config::{Z42HostConfig, Z42_HOST_ABI_VERSION};
-use super::{config, state};
+use super::abi_config::{Z42HostConfig, Z42_HOST_ABI_VERSION};
+use super::{abi_config, session};
 use super::error::Z42HostStatus;
 use super::*;
 use super::Z42Module;
@@ -40,7 +40,7 @@ fn test_lock() -> std::sync::MutexGuard<'static, ()> {
 }
 
 fn current_host() -> *mut Z42Host {
-    state::current().unwrap_or(1) as *mut Z42Host
+    session::current().unwrap_or(1) as *mut Z42Host
 }
 
 /// Force the singleton back to "uninitialized" so a test starts clean.
@@ -53,8 +53,8 @@ fn reset_host() {
 fn default_config() -> Z42HostConfig {
     Z42HostConfig {
         abi_version: Z42_HOST_ABI_VERSION,
-        struct_size: config::MIN_CONFIG_SIZE as u32,
-        exec_mode: config::Z42ExecMode::Interp as i32,
+        struct_size: abi_config::MIN_CONFIG_SIZE as u32,
+        exec_mode: abi_config::Z42ExecMode::Interp as i32,
         heap_initial_bytes: 0,
         heap_max_bytes: 0,
         stdout_sink: None,
@@ -328,7 +328,7 @@ fn jit_mode_when_feature_off_returns_feature_off() {
     reset_host();
 
     let mut cfg = default_config();
-    cfg.exec_mode = config::Z42ExecMode::Jit as i32;
+    cfg.exec_mode = abi_config::Z42ExecMode::Jit as i32;
     let mut h: *mut Z42Host = ptr::null_mut();
     let status = unsafe { z42_host_initialize(&cfg, &mut h) };
 
@@ -446,8 +446,8 @@ fn load_invoke_hello_world() {
 
     let cfg = Z42HostConfig {
         abi_version: Z42_HOST_ABI_VERSION,
-        struct_size: config::MIN_CONFIG_SIZE as u32,
-        exec_mode: config::Z42ExecMode::Interp as i32,
+        struct_size: abi_config::MIN_CONFIG_SIZE as u32,
+        exec_mode: abi_config::Z42ExecMode::Interp as i32,
         heap_initial_bytes: 0,
         heap_max_bytes: 0,
         stdout_sink: Some(host_stdout_sink_callback),
@@ -529,12 +529,12 @@ fn with_hello_session<R>(
     capture: &Mutex<Vec<u8>>,
     body: impl FnOnce(*mut Z42Host, *mut Z42Module) -> R,
 ) -> R {
-    with_hello_session_mode(capture, config::Z42ExecMode::Interp, body)
+    with_hello_session_mode(capture, abi_config::Z42ExecMode::Interp, body)
 }
 
 #[cfg(z42_have_embedding_hello)]
 fn with_hello_session_mode<R>(
-    capture: &Mutex<Vec<u8>>, mode: config::Z42ExecMode,
+    capture: &Mutex<Vec<u8>>, mode: abi_config::Z42ExecMode,
     body: impl FnOnce(*mut Z42Host, *mut Z42Module) -> R,
 ) -> R {
     let user_data = capture as *const Mutex<Vec<u8>> as *mut c_void;
@@ -542,7 +542,7 @@ fn with_hello_session_mode<R>(
     let search_paths: [*const c_char; 2] = [libs_path.as_ptr(), ptr::null()];
     let cfg = Z42HostConfig {
         abi_version: Z42_HOST_ABI_VERSION,
-        struct_size: config::MIN_CONFIG_SIZE as u32,
+        struct_size: abi_config::MIN_CONFIG_SIZE as u32,
         exec_mode: mode as i32,
         heap_initial_bytes: 0,
         heap_max_bytes: 0,
@@ -899,8 +899,8 @@ fn resolver_via_map_resolver_loads_corelib_without_search_paths() {
     // No search_paths — relies entirely on the resolver.
     let cfg = Z42HostConfig {
         abi_version: Z42_HOST_ABI_VERSION,
-        struct_size: config::MIN_CONFIG_SIZE as u32,
-        exec_mode: config::Z42ExecMode::Interp as i32,
+        struct_size: abi_config::MIN_CONFIG_SIZE as u32,
+        exec_mode: abi_config::Z42ExecMode::Interp as i32,
         heap_initial_bytes: 0,
         heap_max_bytes: 0,
         stdout_sink: Some(host_simple_capture_sink),
@@ -1008,8 +1008,8 @@ fn resolver_via_c_hook_loads_corelib() {
 
     let cfg = Z42HostConfig {
         abi_version: Z42_HOST_ABI_VERSION,
-        struct_size: config::MIN_CONFIG_SIZE as u32,
-        exec_mode: config::Z42ExecMode::Interp as i32,
+        struct_size: abi_config::MIN_CONFIG_SIZE as u32,
+        exec_mode: abi_config::Z42ExecMode::Interp as i32,
         heap_initial_bytes: 0,
         heap_max_bytes: 0,
         stdout_sink: Some(host_simple_capture_sink),
@@ -1074,8 +1074,8 @@ fn resolver_miss_falls_back_to_search_paths() {
 
     let cfg = Z42HostConfig {
         abi_version: Z42_HOST_ABI_VERSION,
-        struct_size: config::MIN_CONFIG_SIZE as u32,
-        exec_mode: config::Z42ExecMode::Interp as i32,
+        struct_size: abi_config::MIN_CONFIG_SIZE as u32,
+        exec_mode: abi_config::Z42ExecMode::Interp as i32,
         heap_initial_bytes: 0,
         heap_max_bytes: 0,
         stdout_sink: Some(host_simple_capture_sink),
@@ -1141,8 +1141,8 @@ fn resolver_both_unset_load_zbc_succeeds_if_zbc_self_contained() {
     // when user code actually references a missing symbol at invoke.
     let cfg = Z42HostConfig {
         abi_version: Z42_HOST_ABI_VERSION,
-        struct_size: config::MIN_CONFIG_SIZE as u32,
-        exec_mode: config::Z42ExecMode::Interp as i32,
+        struct_size: abi_config::MIN_CONFIG_SIZE as u32,
+        exec_mode: abi_config::Z42ExecMode::Interp as i32,
         heap_initial_bytes: 0,
         heap_max_bytes: 0,
         stdout_sink: None,
@@ -1189,8 +1189,8 @@ fn resolver_corelib_miss_then_console_writeline_fails_at_invoke() {
 
     let cfg = Z42HostConfig {
         abi_version: Z42_HOST_ABI_VERSION,
-        struct_size: config::MIN_CONFIG_SIZE as u32,
-        exec_mode: config::Z42ExecMode::Interp as i32,
+        struct_size: abi_config::MIN_CONFIG_SIZE as u32,
+        exec_mode: abi_config::Z42ExecMode::Interp as i32,
         heap_initial_bytes: 0,
         heap_max_bytes: 0,
         stdout_sink: None,

@@ -62,14 +62,14 @@ pub mod signal {
     pub use crate::composition::install_crash_report as install;
 }
 pub mod error;
-// C ABI configuration, session, marshaling and entry points.
-pub(crate) mod config;
-pub(crate) mod ffi;
-pub(crate) mod marshal;
-pub(crate) mod state;
+// C ABI configuration, marshaling and entry points.
+mod abi_config;
+mod ffi;
+mod marshal;
+pub(crate) mod session;
 mod app;
 pub use z42_zpkg::{ExecMode, image::PackageImage};
-pub use config::{Z42ExecMode, Z42_HOST_ABI_VERSION, Z42HostConfig};
+pub use abi_config::{Z42ExecMode, Z42_HOST_ABI_VERSION, Z42HostConfig};
 pub use ffi::{
     Z42Host, Z42Module, Z42Entry, z42_host_initialize, z42_host_shutdown,
     z42_host_load_zbc, z42_host_resolve_entry, z42_host_invoke,
@@ -80,9 +80,8 @@ pub use resolver::{read_zpkg_namespaces, ZpkgResolver};
 pub use crate::vm::program::{default_mode, execution_available, LoadOptions, LoadedProgram};
 pub use app::{run_app, RunOpts};
 pub use crate::vm::app_state::{program_args, set_program_args};
-#[cfg(test)] mod host_tests;
+#[cfg(test)] mod embedding_tests;
 #[cfg(test)] mod app_tests;
-#[cfg(test)] mod program_tests;
 
 
 pub use crate::vm::VmExtensions;

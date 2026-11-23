@@ -3,7 +3,7 @@
 // Spec: 变更 add-embedding-api/ (H2 / H3)
 //       docs/internals/src/runtime/embedding.md §9.1, §10
 //
-// Loaded by `host::host_tests::*`.
+// Loaded by `host::embedding_tests::*`.
 // Each entry exercises a distinct host-API path:
 //
 //   Main       — H2 happy path (single line, void return)

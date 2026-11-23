@@ -1,9 +1,10 @@
 //! Shared transactions for the process-wide embedding session.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-use super::config::ResolvedConfig;
+use super::abi_config::Z42ExecMode;
 use super::error::Z42HostStatus as Status;
 use super::{LoadedProgram, ZpkgResolver};
 use crate::corelib::io::{self, HostSinks, OutputSink};
@@ -35,6 +36,47 @@ impl Failure {
     }
 }
 
+/// Owned configuration for a host session.
+pub(super) struct SessionConfig {
+    pub(super) exec_mode: Z42ExecMode,
+    pub(super) heap_initial_bytes: usize,
+    pub(super) heap_max_bytes: usize,
+    pub(super) search_paths: Vec<String>,
+    pub(super) zpkg_resolver: Option<Arc<dyn ZpkgResolver>>,
+    pub(super) vfs: Arc<dyn Vfs>,
+}
+
+impl SessionConfig {
+    pub(super) fn load_options(&self) -> crate::host::LoadOptions {
+        crate::host::LoadOptions {
+            native: Default::default(),
+            allow_profiling: true,
+            mode: match self.exec_mode {
+                Z42ExecMode::Default => crate::host::default_mode(),
+                Z42ExecMode::Interp => crate::zpkg::ExecMode::Interp,
+                Z42ExecMode::Jit => crate::zpkg::ExecMode::Jit,
+                Z42ExecMode::Aot => crate::zpkg::ExecMode::Aot,
+            },
+            vfs: Arc::clone(&self.vfs),
+            search_dirs: self.search_paths.iter().map(PathBuf::from).collect(),
+            resolver: self.zpkg_resolver.clone(),
+            eager_dependencies: true,
+        }
+    }
+}
+
+impl std::fmt::Debug for SessionConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SessionConfig")
+            .field("exec_mode", &self.exec_mode)
+            .field("heap_initial_bytes", &self.heap_initial_bytes)
+            .field("heap_max_bytes", &self.heap_max_bytes)
+            .field("search_paths", &self.search_paths)
+            .field("zpkg_resolver", &self.zpkg_resolver.is_some())
+            .finish()
+    }
+}
+
 #[derive(Clone, Copy)]
 struct Entry {
     module: Token,
@@ -43,7 +85,7 @@ struct Entry {
 
 struct Session {
     token: Token,
-    config: ResolvedConfig,
+    config: SessionConfig,
     image_cache: Arc<ImageCache>,
     modules: HashMap<Token, Arc<LoadedProgram>>,
     entries: HashMap<Token, Entry>,
@@ -103,7 +145,7 @@ pub(super) fn current() -> Result<Token> {
         .ok_or_else(Failure::not_initialized)
 }
 
-pub(super) fn initialize(config: ResolvedConfig, sinks: HostSinks) -> Result<Token> {
+pub(super) fn initialize(config: SessionConfig, sinks: HostSinks) -> Result<Token> {
     #[cfg(feature = "native-interop")]
     crate::interop::exports::install_panic_hook();
 

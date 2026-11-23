@@ -1,8 +1,8 @@
 # 嵌入宿主 API（VM 侧实现）
 
-> 代码：`src/runtime/src/host/`（`ffi.rs` extern "C" 分发 · `config.rs` 配置校验 · `error.rs` 状态码与 TLS
-> last_error · `state.rs` 单例状态 · `ops.rs` 加载/解析/调用 · `marshal.rs` 值编组 · `resolver.rs` zpkg 钩子）、
-> `src/runtime/include/z42_host.h`（Tier 1 头文件）、`src/runtime/src/host/`（Tier 2 Rust 接口）、
+> 代码：`src/runtime/src/host/`（`ffi.rs` C 入口、`abi_config.rs` C 配置与回调适配、`error.rs` 状态码与 C 线程局部错误、
+> `session.rs` 共享嵌入会话、`marshal.rs` 值编组、`rust.rs` Rust 接口）、
+> `src/runtime/include/z42_host.h`（Tier 1 头文件）、
 > `src/runtime/src/corelib/io/mod.rs`（sink 路由）、`src/toolchain/workload/{desktop,ios,android,wasm}/`（Tier 3 facade）。
 >
 > **宿主怎么调**（函数签名、返回码、生命周期与线程约束）见
@@ -83,7 +83,7 @@ mobile 端拿到的是 host 端 `z42c` 编出来的 `.zbc` / `.zpkg`，由平台
 
 ## 单例状态与句柄编码
 
-Rust 和 C 两个适配层共用 `state.rs` 的会话操作。会话持有配置、解码缓存、模块和入口注册表。
+Rust 和 C 两个适配层共用 `session.rs` 的会话操作。会话持有配置、解码缓存、模块和入口注册表。
 会话与输出回调在同一次加锁中发布或撤销。初始化会先在选定的 VFS 上验证 corelib，失败时不改动已发布会话。
 
 `Z42HostRef`、`Z42ModuleRef` 和 `Z42EntryRef` 都是不透明的非零标识，运行时不会解引用它们。
@@ -99,7 +99,7 @@ Rust 和 C 两个适配层共用 `state.rs` 的会话操作。会话持有配置
 `LoadedProgram` 持 `Pin<Box<VmContext>>`，模块本身由 ctx 拥有。
 这样并发 load 两个产物不会互相污染静态状态。
 
-`ResolvedConfig::load_options` 将会话配置转换为 `LoadOptions`。会话通过 `LoadedProgram::load_bytes_with_cache` 加载程序，与文件应用共用启动流程。C 宿主启用依赖预加载，以便在执行前解析依赖中的入口；resolver 优先于文件搜索。
+`SessionConfig::load_options` 将会话配置转换为 `LoadOptions`。会话通过 `LoadedProgram::load_bytes_with_cache` 加载程序，与文件应用共用启动流程。C 宿主启用依赖预加载，以便在执行前解析依赖中的入口；resolver 优先于文件搜索。
 
 初始化由 `LoadedProgram::initialized` 保证每个程序只准备一次，失败保持终态；静态字段、初始化器及 VM 资源在后续调用之间保留。调用参数检查、执行模式选择、异常和 fatal 收尾由统一调用服务负责，C 层只转换结果。
 
@@ -135,7 +135,7 @@ pub trait ZpkgResolver: Send + Sync {
 }
 ```
 
-- **C 函数指针 + user_data**（`Z42ZpkgResolverFn`，来自 `Z42HostConfig`）由 `host/config.rs` 的 `CHookResolver`
+- **C 函数指针 + user_data**（`Z42ZpkgResolverFn`，来自 `Z42HostConfig`）由 `host/abi_config.rs` 的 `CHookResolver`
   包一层。`user_data` 存成 `usize` 以干净地继承 `Send + Sync`。回调返回后**立刻 `to_vec()` 复制**，
   所以宿主那边「字节只需活到回调返回」的契约得以成立。
 - **Rust `Arc<dyn ZpkgResolver>`** 由 Tier 2 经 `host::install_zpkg_resolver()` 直接塞进
@@ -212,12 +212,12 @@ fn classify_invoke_error(msg: &str) -> Z42HostStatus {
   用户代码碰 `Console.WriteLine`）。它是用户的 z42 程序可见的运行期失败，归 `VmException` 而不是 `Internal`。
 
 为单个分类引入领域错误类型的成本远大于一个稳定 marker——这是明知丑但划算的取舍。
-**代价**：改这几条消息文本等于改 ABI 行为，改之前先看 `host_tests.rs`。
+**代价**：改这几条消息文本等于改 ABI 行为，改之前先看 `embedding_tests.rs`。
 
 ### `ERR_VERIFICATION` 是个空枚举值
 
 `Z42HostStatus::Verification`(11) 在运行时**没有任何发射点**。
-`verify_constraints` 失败在 `ResolvedConfig::load_options` 里被 `.context()` 包成普通 `Err`，
+`verify_constraints` 失败在 `SessionConfig::load_options` 里被 `.context()` 包成普通 `Err`，
 到 `z42_host_load_zbc` 统一映射成 `BadZbc`(10)。Tier 2 的 `translate_status` 里那个分支是死代码。
 要么给它接上发射点，要么从 ABI 里删——现状是两头不靠。
 
@@ -311,7 +311,7 @@ wasm 是单线程、且经 `z42_wasm` 而不是这个 C 符号进来，所以那
 3. Tier 2：`z42::host::rust` 的 `HostConfig` / `HostError` / `translate_status`。
 4. Tier 3 三家 facade 的桥接层（Swift `Z42VM.swift` 的 `cfg` 填充、
    Android `cpp/z42vm_jni.c`、wasm `wasm/platform/src/lib.rs`）。
-5. `src/runtime/src/host/host_tests.rs`（状态码路径）+ `workload/desktop/tests/r1_r7.c`（外部 C 消费者）。
+5. `src/runtime/src/host/embedding_tests.rs`（状态码路径）+ `workload/desktop/tests/r1_r7.c`（外部 C 消费者）。
 6. [嵌入 C ABI 契约](https://z42-lang.github.io/z42/reference/embedding/c-abi.html)——对外可见的任何变化都要落到那一页。
 
 ## CLI 与嵌入端共用的 Rust 服务

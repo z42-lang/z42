@@ -75,7 +75,7 @@ pub fn test_embedding_hello() -> Option<(&'static [u8], &'static str)> {
 #[cfg(feature = "jit-test-support")]
 #[doc(hidden)]
 pub fn test_host_jit_compiled() -> bool {
-    crate::host::state::first_program().is_some_and(|program| {
+    crate::host::session::first_program().is_some_and(|program| {
         crate::diagnostics::capture_counters(program.context()).0.jit_methods_compiled > 0
     })
 }

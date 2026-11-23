@@ -629,7 +629,7 @@ host application (iOS / Android / IDE 插件 / 其他 native)
    │
    │ z42_host_initialize(&cfg, &handle)
    ▼
-host::state::HOST  (RwLock<Option<HostState>>，进程单实例)
+host::session（进程级嵌入会话）
    │
    │ z42_host_load_zbc(handle, bytes, len, &mod)
    │ z42_host_resolve_entry(handle, mod, fqn, &entry)
@@ -642,8 +642,8 @@ LoadedProgram::invoke_index → EngineRegistry::invoke_mode（按宿主选择的
 
 | 关系 | 说明 |
 |------|------|
-| host 模块 ↔ `VmContext` | `host::state::HOST` 持有宿主会话配置与句柄注册表；每个模块句柄拥有一个 `LoadedProgram` 及其独立 `VmContext`。`ResolvedConfig::load_options` 传入 VFS、resolver、预加载策略与执行模式，经 `LoadedProgram::load_bytes` → `load::prepare` → `program_builder::build` 完成装配。首次调用准备与执行访问屏障由程序调用入口统一负责，实际后端由 `EngineRegistry::invoke_mode` 按加载时选定的模式分发 |
-| stdout / stderr | `Z42WriteSink` 函数指针经 `corelib::io::install_host_stdout_sink`（stderr 同理）登记；`invoke` 期间 `HostSinkGuard` 置位 per-thread「host sink active」标志，`corelib/io` 据此把输出路由到宿主回调，结束时复原 |
+| host 模块 ↔ `VmContext` | `host::session` 持有宿主会话配置与句柄注册表；每个模块句柄拥有一个 `LoadedProgram` 及其独立 `VmContext`。`SessionConfig::load_options` 传入 VFS、resolver、预加载策略与执行模式，经 `LoadedProgram::load_bytes` → `load::prepare` → `program_builder::build` 完成装配。首次调用准备与执行访问屏障由程序调用入口统一负责，实际后端由 `EngineRegistry::invoke_mode` 按加载时选定的模式分发 |
+| stdout / stderr | C 函数指针或 Rust 闭包经会话登记到 `corelib::io`；`invoke` 期间 `HostSinkGuard` 置位 per-thread「host sink active」标志，`corelib/io` 据此把输出路由到宿主回调，结束时复原 |
 | panic 隔离 | 每个 `extern "C"` 入口经 `host::guard()` `catch_unwind` 兜底，panic → `Z42_HOST_ERR_INTERNAL` |
 | 错误诊断 | TLS `LAST_ERROR` 由 `host::error::set_error / clear_error` 管理；与 `interop::error::LAST_ERROR` 独立（两条 ABI 各自维护） |
 
@@ -1315,8 +1315,7 @@ match callee_value {
   加载程序的执行模式由 `LoadOptions.mode` 指定。
   **z42vm CLI 默认 = jit**（built `--features jit`
   时；jit-less 构建如 wasm 回落 interp）。`--mode interp|jit` 显式覆盖。
-  注意：嵌入式 FFI 的 `z42_host_invoke`（`host/ffi.rs`）固定走 `interp::run_returning`，
-  **不受 CLI 默认影响**；`z42_run_app` 路径（`host::run_app`）的模式由 `RunOpts.mode` 决定，未指定时取 `host::default_mode()`（jit 编入则 jit，否则 interp）。
+  注意：嵌入式 C 入口 `z42_host_invoke` 按会话加载程序时选定的模式分发。一次性运行 `host::run_app` 使用调用方传入的 `RunOpts.mode`，C 一次性入口 `z42_host_run_app` 使用 `host::default_mode()`。
 - **AOT**：未实现（`host::LoadedProgram::run_entry` 对 `ExecMode::Aot` 直接报错；`host::run_app` 里已有 eager 预加载分支）
 
 两种后端共享：

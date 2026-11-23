@@ -28,6 +28,8 @@ pub(crate) mod app_state;
 pub(crate) mod assembly;
 pub(crate) mod defaults;
 pub(crate) mod program;
+#[cfg(test)]
+mod program_tests;
 
 /// State shared by all contexts of one VM, owned through `Arc<VmCore>`.
 /// Subsystems own their synchronization and teardown; contexts retain thread-local
