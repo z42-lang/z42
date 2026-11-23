@@ -206,18 +206,9 @@ fn assignable_name(ctx: &VmContext, src: &str, dst: &str) -> bool {
 }
 
 fn check_reference(ctx: &VmContext, target: &str, value: &Value, key: &TypeKeyCell) -> OpResult<()> {
-    let receiver;
-    let value = if let Value::InterfaceRef(view) = value {
-        if view.matches_target(target) {
-            return Ok(());
-        }
-        receiver = view.receiver();
-        &receiver
-    } else {
-        value
-    };
     let matches = match value {
         Value::Null => true,
+        Value::InterfaceRef(view) => view.matches_target(target),
         Value::Array(a) => array_isa_in_registry(ctx, ctx.module().map(|module| module.as_ref()), &a.borrow().element_type(), target),
         _ if prim_isa(value, target) => true,
         _ => ctx.module().is_some_and(|m| {

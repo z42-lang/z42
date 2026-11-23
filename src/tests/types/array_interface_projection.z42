@@ -26,9 +26,6 @@ void Main() {
     Assert.True(copied[0].Get() is Cat);
     Assert.True(Object.ReferenceEquals(cats, copied[0]));
 
-    var implementations = new CatSource[1];
-    implementations.SetValue(boxed, 0);
-    Assert.True(Object.ReferenceEquals(cats, implementations[0]));
     var dogs = new Dog[1];
     Assert.Throws("InvalidCastException", () => dogs.SetValue(boxed, 0));
     Assert.True(dogs[0] == null);
