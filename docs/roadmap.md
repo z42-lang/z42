@@ -392,6 +392,10 @@ MB1 起同步建立边界检查；MB6 完成覆盖，不以历史依赖基线为
 
 | 条目 | 当前边界 | 机制页 |
 |---|---|---|
+| `runtime-package-miss-io` | 惰性加载未命中时在写锁内读取并解码包 | [VM 实现](internals/src/runtime/vm-architecture.md#runtime-package-miss-io-惰性加载的读包与发布) |
+| `runtime-gc-array-cards` | minor 按记忆集属主扫描整份数组 | [GC](internals/src/runtime/gc.md#runtime-gc-array-cards-数组记忆集分段) |
+| `runtime-jit-background-compilation` | JIT 在调用线程持锁编译 | [JIT 设计](internals/src/runtime/jit-design.md#runtime-jit-background-compilation-批量或后台编译) |
+| `runtime-tier1-registration-table` | Tier 1 类型注册依赖核心导出的符号 | [原生扩展](internals/src/runtime/native-extensions.md#runtime-tier1-registration-table-tier-1-注册函数表) |
 | `runtime-future-wasm-module-loading` | 当前为最终 WASM 模块静态链接；独立模块的宿主实例化、注册和跨实例 ABI 尚未实现 | [组件化运行时](internals/src/runtime/componentized-runtime.md#runtime-future-wasm-module-loading独立-wasm-模块加载) |
 | `doc-future-semantic-index` | 语义索引、跨包文档解析与编译期 W08xx | [文档索引](internals/src/toolchain/doc.md#doc-future-semantic-index语义索引与编译期诊断) |
 | `doc-future-build-emission` | 项目构建自动生成 `.zdoc` 及 `[doc]` 清单配置 | [文档索引](internals/src/toolchain/doc.md#doc-future-build-emission项目构建输出旁挂文件) |
@@ -644,7 +648,7 @@ MB1 起同步建立边界检查；MB6 完成覆盖，不以历史依赖基线为
 | `reject-assign-to-erased-call-result` | `id(v).X = 5`（写进从擦除返回位流出的**临时**装箱 struct）今天运行期崩 `FieldSet: expected object`；写入必然被丢弃 ⇒ 应是**编译错误**（C# 同）。刻意不给 `field_set` 补 `BoxedStruct` 臂——那会把「必然无效的写」从响一声变成静默丢弃 | accept-boxed-struct-field-get 之后 |
 | `cache-struct-reflect-layout` | 按类型名缓存 `struct_reflect::compute` 的 `ComputedLayout`（布局按类型不变 ⇒ 缓存天然安全）。accept-boxed-struct-field-get 把这条原本只服务反射的**冷**路径拉上了热路径：实测 500 万次 `id(v).X` = 2.29s、同规模普通对象字段读 0.78s ⇒ 每访问约 300ns 的重算。缓存挂 `VmContext` 还是 `TypeDesc` 是独立取舍 | 有热路径诉求时 |
 | ~~`dispatch-tostring-in-native-stringify`~~ ✅ **已落地**（2026-09-25）| `Console.WriteLine(x)` / `Write(x)` 与**字符串拼接**现在派发用户 `ToString`；四条字符串化路（显式 / 插值 / 拼接 / `WriteLine`）对 class / record / 单字段 struct / 双字段 struct **给同一个答案**（无覆写 → 短类型名）。`fix-struct-tostring-paths` 只补了 `_isBlobStruct`（字段数 ≥ 2）那一支；本刀把 `builtin_println` 一族与 `exec_value::add` 接到早就在重入 VM 的 `obj_to_string`（+ 给它补装箱 struct 臂，复用 `resolve_vcall` 的判据）。⭐ **旧 golden 抬头记的「涉及 GC 根与可重入性 ⇒ 另开」前提是错的** —— 路②（`ToStr` 指令）一直在 `exec_function` 重入，重入不是新风险，只是没接线。零格式变更、零编译器改动；`compiler` 档墓铟时间持平（1m20s）| [reference structs.md](reference/src/language/structs.md) 「`ToString` 在所有字符串化路径上一致」 |
-| ~~`propagate-tostring-exception`~~ ✅ **已落地**（2026-10-06，runtime-audit P0-6）| 字符串化（拼接 / 插值 / `Console.WriteLine(obj)`）里 `ToString` 抛的异常按原类型传播，不再渲染成 `<exception: …>`；JIT `ToStr` 的非原生回落与装箱 struct 改走同一份 `stringify_dispatch`。属性构造器在 `GetCustomAttributes` 里抛的异常也保留类型 | [internals object-protocol-dispatch](internals/src/runtime/object-protocol-dispatch.md) |
+| ~~`propagate-tostring-exception`~~ ✅ **已落地**（2026-10-06）| 字符串化（拼接 / 插值 / `Console.WriteLine(obj)`）里 `ToString` 抛的异常按原类型传播，不再渲染成 `<exception: …>`；JIT `ToStr` 的非原生回落与装箱 struct 改走同一份 `stringify_dispatch`。属性构造器在 `GetCustomAttributes` 里抛的异常也保留类型 | [internals object-protocol-dispatch](internals/src/runtime/object-protocol-dispatch.md) |
 | `repl-value-display-contract` | REPL 回显对容器打 `List`（跟随 `ToString`）仍不如 `[1, 2, 3]` 有用。回显现状由 `z42.scripting/tests/repl/` 的 `[Test]` 锁住（如 `generic_decl.z42` 的 `"List"`），改契约时同步改那里 | 有 REPL 体验诉求时 |
 | `reflective-invoke-future-constraint-check` | 反射式 `where` 约束运行期校验——`MakeGenericMethod` 绕过编译期 `ConstraintChecker`（M1 直接调用仍校验）| serde/用户反射需运行期约束校验时 |
 | `reflective-invoke-future-open-generic-cross` | 开放泛型类上的泛型方法双层交叉具化（类形参 + 方法形参同时开放）| 反射调用泛型类的泛型方法且类形参也需运行期绑定时 |

@@ -2,7 +2,7 @@
 
 > 代码：`src/runtime/crates/z42-jit/src/jit/`（`mod.rs` / `compile/state.rs` / `runtime/frame.rs` / `compile/mod.rs` / `translate/` / `helpers/`）
 > 相关：[惰性逐函数 JIT](jit.md)（编译时机、调用计数 tier-up、混合模式、OSR、原生快路径） · [解释器 / JIT 标量语义](interp-jit-semantics.md)
-> 待办：编译在调用线程的编译锁内串行进行，尚无批量 / 后台编译（runtime-audit 待办 X-13）
+> 待办：编译在调用线程的编译锁内串行进行，尚无批量或后台编译
 
 本页只讲 JIT 后端的骨架：入口、两块运行时数据结构、原生函数 ABI、指令怎么翻译、异常怎么走。
 
@@ -141,3 +141,11 @@ src/runtime/crates/z42-jit/src/jit/
 加 helper 的步骤见 `src/runtime/crates/z42-jit/src/jit/README.md` 的「Helper 边界」。
 
 配置转换与安装边界见 [惰性逐函数 JIT · 配置输入](jit.md#配置输入)。
+
+## Deferred
+
+### runtime-jit-background-compilation: 批量或后台编译
+
+Cranelift 编译在调用线程持编译锁执行。批量提交和后台调度需要先验证编译等待的成本，并明确
+编译任务的包、Core 和机器码生命周期。发布路径需保留当前的失败回落和 GC 安全点语义。
+当前未生成机器码的函数可以在解释器上执行。

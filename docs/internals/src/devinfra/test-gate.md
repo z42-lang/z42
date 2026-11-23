@@ -57,7 +57,7 @@ panic「unknown builtin」→ 全体 golden 假失败，且 regen 返回 1 早�
 计数快照或到期日期。测试面中的代码注释不算断言，检查器自身也不算覆盖来源。
 
 文档符号引用用 `z42 doc --page <页>` 逐页查看（原 `check doc-refs` 报告已在引用清零后退役——#1749）。运行时的分层设计由
-[运行时审计](../../../runtime-audit.md)描述，依赖方向通过代码审查维护。
+[运行时模块边界](../runtime/module-boundaries.md)描述，依赖方向通过代码审查维护。
 
 完整 Rust 测试的 signal-crash helper 不进入本地常跑门禁；完整版本由 CI 独立步骤与 `xtask test runtime` 覆盖。
 GREEN 中保留 lib 单测与全部测试 target 的编译检查。两种入口及 GC 模式回归归属
