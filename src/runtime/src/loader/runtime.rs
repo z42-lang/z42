@@ -40,11 +40,23 @@ impl RuntimeLoader<'_> {
         self.state.lazy_loader.read().as_ref()?.probe_function(func_name)
     }
 
+    fn entry_type(&self, name: &str) -> Option<Arc<TypeDesc>> {
+        self.metadata.module.as_ref()?.type_registry.get(name).cloned()
+    }
+
+    /// Resolve an exact name, preferring the entry module before probing packages.
+    /// Package lookup can load dependencies and emit module-load events.
+    pub(crate) fn resolve_type(&self, name: &str) -> Option<Arc<TypeDesc>> {
+        self.entry_type(name)
+            .map(|td| self.metadata.current_type_desc(td))
+            .or_else(|| self.try_lookup_type(name))
+    }
+
     /// Probe the entry module before loaded packages, without triggering a load.
     /// Also returns registered types whose base chain has yet to be merged.
     pub(crate) fn probe_loaded_type(&self, name: &str) -> Option<Arc<TypeDesc>> {
-        if let Some(td) = self.metadata.module.as_ref().and_then(|m| m.type_registry.get(name)) {
-            return Some(Arc::clone(td));
+        if let Some(td) = self.entry_type(name) {
+            return Some(td);
         }
         self.state.lazy_loader.read().as_ref()?.loaded_type(name)
     }

@@ -2,13 +2,6 @@ use super::*;
 
 // ── Runtime generic instantiation (G1, plan-generic-reflection) ──────────────
 
-/// Resolve a type name to its `TypeDesc` (main module then lazy loader).
-pub(super) fn resolve_td(ctx: &VmContext, name: &str) -> Option<Arc<TypeDesc>> {
-    ctx.module()
-        .and_then(|m| m.type_registry.get(name).cloned().map(|td| ctx.core().runtime().current_type_desc(td)))
-        .or_else(|| ctx.loader().try_lookup_type(name))
-}
-
 /// True if `derived` is assignable to `target` (subclass / interface impl / self),
 /// via the VM's canonical subclass walk. Handle-less names compare by identity.
 pub(super) fn type_name_assignable(ctx: &VmContext, derived: &str, target: &str) -> bool {
@@ -32,7 +25,7 @@ pub(super) fn constraint_satisfied_by(ctx: &VmContext, arg_name: &str, constrain
     {
         let constraint_simple = crate::zpkg::index::type_names::unqualified(constraint);
         if constraint_simple == "IEquatable" {
-            let is_value = resolve_td(ctx, arg_name)
+            let is_value = ctx.loader().resolve_type(arg_name)
                 .map(|td| td.class_flags & crate::zpkg::ir::CLASS_FLAG_STRUCT != 0)
                 .unwrap_or_else(|| is_value_type_primitive(arg_name));
             if is_value { return true; }
@@ -51,7 +44,7 @@ pub(super) fn constraint_satisfied_by(ctx: &VmContext, arg_name: &str, constrain
         if crate::zpkg::index::type_names::unqualified(&cur) == target_simple {
             return true;
         }
-        if let Some(td) = resolve_td(ctx, &cur) {
+        if let Some(td) = ctx.loader().resolve_type(&cur) {
             if let Some(b) = &td.base_name {
                 stack.push(b.clone());
             }
@@ -87,7 +80,7 @@ pub(super) fn validate_type_arg_constraint(
     type_params: &[String],
     all_arg_names: &[String],
 ) -> Result<()> {
-    let arg_td = resolve_td(ctx, arg_name);
+    let arg_td = ctx.loader().resolve_type(arg_name);
     let is_value = arg_td
         .as_ref()
         .map(|td| td.class_flags & crate::zpkg::ir::CLASS_FLAG_STRUCT != 0)

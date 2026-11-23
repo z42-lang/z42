@@ -137,16 +137,7 @@ pub(super) fn make_array_type(ctx: &VmContext, element_name: &str, element: Valu
 }
 
 fn resolve_named_type(ctx: &VmContext, name: &str) -> Option<Arc<TypeDesc>> {
-    // Main module's own types first: the user program's classes live in the
-    // main module's `type_registry`; the lazy loader below only covers
-    // zpkg / stdlib types. (make-typeof-return-type — lets `typeof(UserClass)`
-    // resolve to a real handle.)
-    if let Some(m) = ctx.module() {
-        if let Some(td) = m.type_registry.get(name) {
-            return Some(ctx.core().runtime().current_type_desc(td.clone()));
-        }
-    }
-    if let Some(td) = ctx.loader().try_lookup_type(name) {
+    if let Some(td) = ctx.loader().resolve_type(name) {
         return Some(td);
     }
     // An *unqualified* class name (no `.`) that failed the FQ lookups above.
@@ -304,12 +295,7 @@ pub(super) fn canonical_type_name(tag: &str) -> String {
 /// add-collection-serde dotless fallback (with an optional force-load retry).
 pub(super) fn resolve_dotless_simple(ctx: &VmContext, name: &str) -> Option<Arc<TypeDesc>> {
     let fq = ctx.loader().unique_loaded_full_name(name)?;
-    if let Some(m) = ctx.module() {
-        if let Some(td) = m.type_registry.get(&fq) {
-            return Some(ctx.core().runtime().current_type_desc(td.clone()));
-        }
-    }
-    ctx.loader().try_lookup_type(&fq)
+    ctx.loader().resolve_type(&fq)
 }
 
 /// The canonical runtime name (`type_names::canonical`) of the type a `Std.Type` stands for:
@@ -341,9 +327,7 @@ pub(super) fn instantiation_desc(ctx: &VmContext, ty: &Value) -> Option<Arc<Type
         return None;
     }
     let name = type_value_name(ty)?;
-    ctx.module()
-        .and_then(|m| m.type_registry.get(&name).cloned().map(|td| ctx.core().runtime().current_type_desc(td)))
-        .or_else(|| ctx.loader().try_lookup_type(&name))
+    ctx.loader().resolve_type(&name)
 }
 
 pub(super) fn type_handle(args: &[Value]) -> Option<Arc<TypeDesc>> {

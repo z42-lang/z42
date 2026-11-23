@@ -281,10 +281,7 @@ pub fn propertyof(ctx: &VmContext, qualified: &crate::object::string::vstr::Str)
         Some((c, p)) => (c, p),
         None => (qualified.as_str(), ""),
     };
-    let td = ctx
-        .module()
-        .and_then(|m| m.type_registry.get(class).cloned().map(|td| ctx.core().runtime().current_type_desc(td)))
-        .or_else(|| ctx.loader().try_lookup_type(class));
+    let td = ctx.loader().resolve_type(class);
     let td = match td {
         Some(t) => t,
         None => {

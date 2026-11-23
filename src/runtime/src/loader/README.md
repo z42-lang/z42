@@ -33,6 +33,8 @@
 
 ## 基础用法
 
+反射的精确类型名通过 `RuntimeLoader::resolve_type` 查询。入口模块优先，未命中时再解析包依赖。已载探测保留独立入口，适用于只读取现有注册的调用方。
+
 常用入口为 `load_artifact`、`load_artifact_from_bytes`、`merge_modules` 和 `LazyLoader`，从 `z42::loader` 导入。调用方仍提供 VFS 与搜索目录；`ModuleSearch.Dirs` 从所属 VM 的加载器查询当前目录快照，worker 共享、不跨 VM 复用；公开入口只汇总拥有者，不在 metadata 中保留加载别名。
 `locate::search_paths` 只组合显式入口、额外路径和 libs，并通过传入 VFS 检查目录；进程环境与默认路径由 main/C/Rust/浏览器等来源实现解析。
 
