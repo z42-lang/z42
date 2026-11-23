@@ -32,8 +32,8 @@ typedef struct Z42Module* Z42ModuleRef;   /* 已加载的 .zbc / .zpkg */
 typedef struct Z42Entry*  Z42EntryRef;    /* 解析后的入口 */
 ```
 
-三种句柄都是**不透明**的：非 NULL 即有效，NULL 即无效，不得解引用、不得比较大小、不得跨进程传递。
-`z42_host_shutdown` 之后，该 VM 发出的所有 Module / Entry 句柄立即失效；拿失效句柄再调任何 API 返回 `ERR_NOT_INIT`。
+三种句柄都是**不透明**的。成功的调用返回非 NULL 句柄，调用方不得解引用、比较大小或跨进程传递。
+`z42_host_shutdown` 使该会话的 Host、Module 和 Entry 句柄失效。即使已重新初始化，使用旧句柄调用会话操作也返回 `ERR_NOT_INIT`。
 
 **ABI 演进规则**：`abi_version` 永远在偏移 0；新字段只往结构体尾部追加，不重排；主版本号变更 = 显式 break。
 调用方必须把 `struct_size` 设为 `sizeof(Z42HostConfig)`：运行时只读 `struct_size` 覆盖到的尾部字段，用老头文件编译的调用方不会被越界读，新字段对它们等于「没配置」。

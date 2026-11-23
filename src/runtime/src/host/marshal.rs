@@ -7,10 +7,10 @@
 //! arrays, pinned views, and typerefs are deferred to H3 — the H2
 //! hello-world test invokes `Hello.Main` which has signature `() -> void`.
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 
 use z42_abi::{
-    Z42Value, Z42_VALUE_TAG_BOOL, Z42_VALUE_TAG_F64, Z42_VALUE_TAG_I64, Z42_VALUE_TAG_NULL,
+    Z42_VALUE_TAG_BOOL, Z42_VALUE_TAG_F64, Z42_VALUE_TAG_I64, Z42_VALUE_TAG_NULL, Z42Value,
 };
 
 use crate::object::Value;
@@ -55,9 +55,25 @@ fn null_z42_value() -> Z42Value {
 }
 
 pub(super) const fn raw_value(tag: u32, payload: u64) -> Z42Value {
-    Z42Value { tag, reserved: 0, payload }
+    Z42Value {
+        tag,
+        reserved: 0,
+        payload,
+    }
 }
 
-pub(super) fn marshal_args(args: &[Z42Value]) -> Result<Vec<Value>> {
-    args.iter().map(z42_value_to_value).collect()
+/// Apply the primitive-value contract shared by the C and Rust adapters.
+pub(super) fn invoke<'a>(
+    token: usize,
+    entry: usize,
+    args: impl Iterator<Item = &'a Z42Value>,
+) -> std::result::Result<Z42Value, super::state::Failure> {
+    use super::{error::Z42HostStatus, state};
+    let mismatch = |error| state::Failure::new(Z42HostStatus::ArgMismatch, format!("{error:#}"));
+    let value = state::invoke(token, entry, || {
+        args.map(z42_value_to_value)
+            .collect::<Result<_>>()
+            .map_err(mismatch)
+    })?;
+    value_to_z42_value(value.as_ref()).map_err(mismatch)
 }

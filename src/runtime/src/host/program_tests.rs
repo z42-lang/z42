@@ -48,14 +48,7 @@ fn program(mode: ExecMode, throws: bool) -> LoadedProgram {
     LoadedProgram::new(ctx, mode, Some("Demo.Main".into())).unwrap()
 }
 
-pub(crate) fn empty_zbc() -> Vec<u8> {
-    use zpkg::format::*;
-    let mut bytes = vec![0; 16];
-    bytes[..4].copy_from_slice(&ZBC_MAGIC);
-    bytes[4..6].copy_from_slice(&ZBC_VERSION_MAJOR.to_le_bytes());
-    bytes[6..8].copy_from_slice(&ZBC_VERSION_MINOR.to_le_bytes());
-    bytes
-}
+use crate::loader::test_support::empty_zbc;
 
 #[test]
 fn file_and_bytes_share_preparation_and_preserve_input_errors() {

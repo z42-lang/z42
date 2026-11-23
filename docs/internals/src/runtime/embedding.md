@@ -68,7 +68,7 @@ mobile 端拿到的是 host 端 `z42c` 编出来的 `.zbc` / `.zpkg`，由平台
 参照 CoreCLR `coreclrhost.h`、JNI `JavaVM`、Lua `lua_State` 三家的经验，定了五条：
 
 1. **单会话、每加载单元一 VM** —— `z42_host_initialize` 建立进程会话（配置、输出与共享解码缓存），
-   `Z42HostRef` 是占位 sentinel。每次 `z42_host_load_zbc` 返回一个**独立加载单元**：入口产物与其
+   `Z42HostRef` 是不透明的会话标识。每次 `z42_host_load_zbc` 返回一个**独立加载单元**：入口产物与其
    依赖闭包合并为一个链接模块，独占一个 VM（类型表 / 静态字段 / 派发缓存互不可见）。同一加载单元
    内的多个 zpkg 天然共享（装载时已合并）；**依赖的 zpkg 若已被会话内任一加载单元装入，则按内容
    共享解码定义**（C# ALC「已加载即共享」规则，`loader::ImageCache`）——函数 IR 等定义数据在会话
@@ -83,45 +83,23 @@ mobile 端拿到的是 host 端 `z42c` 编出来的 `.zbc` / `.zpkg`，由平台
 
 ## 单例状态与句柄编码
 
-`state.rs` 持一个 `static HOST: RwLock<Option<HostState>>`。
-`initialize` 拿写锁、发现 `Some` 就返回 `AlreadyInit`；`shutdown` 拿写锁换成 `None`。
-sink 的发布和清理与会话状态转移持有同一把锁；失败的初始化不修改已有会话的 sink。
-配置校验和 corelib 探测在发布前完成，资源销毁在释放状态锁后进行，允许析构回调重入。
-sink 更新持有会话读锁，避免关闭后安装旧回调。状态转移只在这两处，`ops` 层一律经 `with_state_read` / `with_state_write` 访问，
-拿不到状态（`None`）时统一映射成 `ERR_NOT_INIT`。
+Rust 和 C 两个适配层共用 `state.rs` 的会话操作。会话持有配置、解码缓存、模块和入口注册表。
+会话与输出回调在同一次加锁中发布或撤销。初始化会先在选定的 VFS 上验证 corelib，失败时不改动已发布会话。
 
-```rust
-pub(crate) struct HostState {
-    pub config:  ResolvedConfig,
-    pub modules: Vec<Arc<LoadedProgram>>,   // 每个已 load 的产物 + 它自己的 VmContext
-    pub entries: Vec<HostEntry>,    // { module_idx, fn_idx }
-}
-```
+`Z42HostRef`、`Z42ModuleRef` 和 `Z42EntryRef` 都是不透明的非零标识，运行时不会解引用它们。
+进程内发出的标识不会复用。即使关闭后马上建立新会话，原句柄也返回 `ERR_NOT_INIT`。
 
-三种句柄的编码：
-
-- `Z42HostRef` = **常量 sentinel** `HOST_SENTINEL = 0x1`，永不解引用。`is_valid_handle` 只验
-  「非 NULL ∧ 等于 sentinel ∧ 当前已初始化」。
-- `Z42ModuleRef` / `Z42EntryRef` = 对应 `Vec` 的**下标 + 1**（加一是为了让 NULL 与第 0 个句柄区分开）。
-
-**没有代龄（generation）**：shutdown 抹掉整个单例，之后任何 host API 调用都返回 `ERR_NOT_INIT`，
-所以陈旧句柄不会被误当成有效句柄用——但也仅此而已，同一进程内 shutdown→initialize 之后
-拿老句柄会命中新 VM 的同下标条目。多实例落地时这里要换成带代龄的句柄。
-
-**用户代码不在锁内跑**：`z42_host_invoke` 在读锁下把 `Arc<LoadedProgram>` 和 `HostEntry` 拷出来就放锁，
-再执行。宿主回调（sink、resolver）里重入 `load_zbc` / `shutdown` 要拿写锁，若 invoke 还持着读锁就会自锁。
-回调里 `shutdown` 掉 VM 时，这次调用手里的 `Arc` 让模块活到调用结束。
-
-`HostState` 手工 `unsafe impl Send + Sync`：`ResolvedConfig` 里带函数指针和宿主的 `user_data`；
-函数指针本身是 `Send`/`Sync`，`user_data` 被存成 `usize` 而非裸指针，运行时从不解引用它。
-线程安全归宿主，这是契约的一部分。
+- 加载程序、验证新 VFS 时先取得会话快照，再在锁外执行 I/O 和回调。取回写锁时只有当前会话仍匹配才发布结果。
+- 入口查找与登记在同一临界区完成，仅检查已装配程序的入口索引。
+- 调用前取得程序的 `Arc` 并释放锁。回调可以在调用中关闭会话，此次调用持有的程序仍然可用。
+- 关闭、替换 VFS 或 resolver 时，在释放会话锁后析构被替换的资源，允许析构回调重入。
 
 ### 每个 module 一个 VmContext
 
 `LoadedProgram` 持 `Pin<Box<VmContext>>`，模块本身由 ctx 拥有。
 这样并发 load 两个产物不会互相污染静态状态。
 
-`ResolvedConfig::load_options` 将 C 配置转换为 `LoadOptions` 并调用 `LoadedProgram::load_bytes`，后者和文件应用共用加载及启动流程。C 宿主启用依赖预加载，以便在执行前解析依赖中的入口；resolver 优先于文件搜索。
+`ResolvedConfig::load_options` 将会话配置转换为 `LoadOptions`。会话通过 `LoadedProgram::load_bytes_with_cache` 加载程序，与文件应用共用启动流程。C 宿主启用依赖预加载，以便在执行前解析依赖中的入口；resolver 优先于文件搜索。
 
 初始化由 `LoadedProgram::initialized` 保证每个程序只准备一次，失败保持终态；静态字段、初始化器及 VM 资源在后续调用之间保留。调用参数检查、执行模式选择、异常和 fatal 收尾由统一调用服务负责，C 层只转换结果。
 
@@ -187,27 +165,12 @@ Swift / Kotlin / JS 都不需要自己重写 zpkg 解析。
 
 ## 输出路由：从解释器到宿主 sink
 
-sink 的落点在 `src/runtime/src/corelib/io/mod.rs`，由两级开关控制：
+输出回调保存在 `corelib::io` 的进程级槽位。会话初始化发布两个槽位，`set_*_sink` 可单独替换，关闭会话时清空。
+C 槽位持有函数指针与宿主管理的 `user_data`，Rust 槽位持有 `Arc` 闭包。
+路由复制回调并释放锁后才调用它，Rust 闭包在调用期间保持存活。
 
-```rust
-static HOST_STDOUT_SINK: RwLock<Option<HostSink>> = RwLock::new(None);   // 进程全局
-static HOST_STDERR_SINK: RwLock<Option<HostSink>> = RwLock::new(None);
-thread_local! { static HOST_SINK_ACTIVE: Cell<bool> = const { Cell::new(false) }; }
-```
-
-- **进程全局的 sink 槽**由 `install_host_stdout_sink` / `install_host_stderr_sink` 装卸：
-  `initialize` 从 config 装、`set_*_sink` 换、`shutdown` 卸（装 `None`）。
-- **线程局部的 active 标志**由 `corelib::io::HostSinkGuard::enter()` 在宿主调用入口` 开头置位、
-  `Drop` 时复位为**进入前的值**（不是无条件 false），所以 panic 或提前 return 都不会留下悬空标志。
-
-`route_stdout` 的优先级：active ∧ 全局槽非空 → 宿主 sink；否则 → test-IO 捕获栈；再否则 → 进程 stdout。
-
-**为什么要这个线程局部标志**：sink 槽是进程全局的，但只有正在执行 `z42_host_invoke` 的那条线程
-应该把输出交给宿主。没有这个标志，另一条线程上并发跑的 `TestIO.captureStdout` 会被劫持到宿主 sink 去。
-代价是 z42 程序自己 spawn 出来的线程的输出不进宿主 sink——这条限制写进了契约。
-
-`dispatch_host_sink` 先在读锁下把 `HostSink`（函数指针 + user_data，`Copy`）拷出、放锁，再调回调，
-理由同上：回调里 `shutdown` 会拿 sink 槽的写锁。
+仅当前宿主调用线程启用回调路由，`HostSinkGuard` 退出时恢复进入前的线程局部标志。
+有回调时优先交付宿主，否则交给 test-IO 捕获栈或进程输出。程序创建的 worker 沿用自己的输出路由。
 
 `WriteLine` 的换行拼在 `dispatch_host_sink` 内部同一个 buffer 里一次交付，所以「一次写出 = 一次回调」，
 顺序天然等于 z42 程序的写出顺序。
@@ -307,23 +270,9 @@ impl Host {
 `run_app()`（一次性跑 app，对应 C 的 `z42_host_run_app`）、
 内置 resolver `MapResolver`（`HashMap` eager，移动 / wasm 用）与 `SearchPathsResolver`（包文件系统扫描）。
 
-四处**不是**照抄 Tier 1 的地方：
-
-1. **闭包 sink 的跳板**。`HostConfig.stdout` 是 `Box<dyn Fn>`，C 那边只认函数指针 + `user_data`。
-   crate 把闭包装进 `Box<SinkBox>`、由 `Host` 持有保活，`user_data` 传 `&*SinkBox`，
-   `sink_trampoline` 反解引用后调闭包。
-2. **两个 sink 各自的 user_data**。Tier 1 的 `Z42HostConfig` 只有一个 `sink_user_data`，
-   于是 `Host::new` 先用 stdout 的那个完成 `initialize`，随后立刻调 `z42_host_set_stderr_sink`
-   把 stderr 的 `user_data` 换成它自己的 `SinkBox`。
-3. **Rust resolver 不走 C 往返**。`cfg.zpkg_resolver` 在 `initialize` 成功后经
-   `install_zpkg_resolver(Arc<dyn ZpkgResolver>)` 直接装进运行时状态，绕开 `CHookResolver` 适配层。
-4. **VFS 也不走 C 往返**。`HostConfig::vfs`（例如宿主先 `mount` 好文件的 `MemoryFs`）同样在 `initialize` 之后经
-   `install_vfs` 装入；之后加载的模块都建在这个文件系统上，`search_paths` 里的
-   `z42.core.zpkg` 也在它上面重新探测。
-   这几步里任何一步失败，`Host::new` 都会先 `z42_host_shutdown` 再返回 Err，不留半初始化的 VM。
-
-`Host` / `Module` / `Entry` 都手工 `unsafe impl Send`（内部真正的同步在运行时那把 `RwLock` 里，
-句柄本身只是 sentinel），但都**不是 `Sync`**——与「调用串行化由宿主负责」的契约一致。
+Rust 接口直接调用共享会话操作。应用提供的 VFS、resolver 与两个独立的 Rust 输出闭包在会话发布前准备好。
+失败以 `HostError` 返回，C API 的线程局部最近错误由 C 适配层独立维护。
+`Host` 持有会话标识，Drop 只关闭该会话。`Host`、`Module`、`Entry` 可在线程之间移动，调用仍由宿主串行驱动。
 
 ---
 

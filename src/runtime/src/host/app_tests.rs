@@ -9,7 +9,7 @@ fn run_app_consumes_explicit_vfs_resolver_and_search_paths_without_entry_default
         }
     }
     let vfs = Arc::new(crate::pal::fs::MemoryFs::new());
-    vfs.mount("/virtual/app.zbc", super::program_tests::empty_zbc());
+    vfs.mount("/virtual/app.zbc", crate::loader::test_support::empty_zbc());
     // An implicit entry-directory search would select this invalid core.
     vfs.mount("/virtual/z42.core.zpkg", b"invalid implicit prelude".to_vec());
     let resolver = Arc::new(Resolver(AtomicUsize::new(0)));
@@ -52,7 +52,7 @@ fn exit_diagnostics_reach_stderr_once() {
         }
 
         let vfs = Arc::new(crate::pal::fs::MemoryFs::new());
-        vfs.mount("/empty.zbc", super::program_tests::empty_zbc());
+        vfs.mount("/empty.zbc", crate::loader::test_support::empty_zbc());
         let live_vms = crate::vm::vm_cores_snapshot().len();
         #[cfg(z42_have_embedding_hello)]
         if case == "return" {

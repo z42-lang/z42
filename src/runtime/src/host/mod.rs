@@ -82,7 +82,7 @@ pub use app::{run_app, RunOpts};
 pub use crate::vm::app_state::{program_args, set_program_args};
 #[cfg(test)] mod host_tests;
 #[cfg(test)] mod app_tests;
-#[cfg(test)] pub(crate) mod program_tests;
+#[cfg(test)] mod program_tests;
 
 
 pub use crate::vm::VmExtensions;

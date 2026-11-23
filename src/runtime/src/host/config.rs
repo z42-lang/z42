@@ -128,18 +128,12 @@ pub struct Z42HostConfig {
 /// Stays fixed when fields are appended later.
 pub const MIN_CONFIG_SIZE: usize = std::mem::size_of::<Z42HostConfig>();
 
-/// Rust-side resolved configuration after validation. The thread-safety
-/// requirement comes from holding this inside the global `RwLock` —
-/// `*mut c_void` is not auto-`Send`, so we wrap the whole config in
-/// `unsafe impl Send + Sync` at the storage site (see `state.rs`).
+/// Owned configuration for a host session.
 #[derive(Clone)]
 pub struct ResolvedConfig {
     pub exec_mode: Z42ExecMode,
     pub heap_initial_bytes: usize,
     pub heap_max_bytes: usize,
-    pub stdout_sink: Z42WriteSink,
-    pub stderr_sink: Z42WriteSink,
-    pub sink_user_data: usize, // raw pointer kept as usize so this struct is Send
     pub search_paths: Vec<String>,
     /// `None` when neither the C config nor Tier 2 supplied a resolver.
     /// Otherwise either a `CHookResolver` (built from the C pair) or a
@@ -175,9 +169,6 @@ impl std::fmt::Debug for ResolvedConfig {
             .field("exec_mode", &self.exec_mode)
             .field("heap_initial_bytes", &self.heap_initial_bytes)
             .field("heap_max_bytes", &self.heap_max_bytes)
-            .field("stdout_sink", &self.stdout_sink.is_some())
-            .field("stderr_sink", &self.stderr_sink.is_some())
-            .field("sink_user_data", &self.sink_user_data)
             .field("search_paths", &self.search_paths)
             .field("zpkg_resolver", &self.zpkg_resolver.is_some())
             .finish()
@@ -201,7 +192,7 @@ pub enum ConfigError {
 /// Caller must ensure that, if `cfg` is non-null, it points to a valid
 /// `Z42HostConfig` with a valid `search_paths` array (NULL-terminated, or
 /// null pointer if no paths are configured).
-pub(crate) unsafe fn validate(cfg: *const Z42HostConfig) -> Result<ResolvedConfig, ConfigError> {
+pub(crate) unsafe fn validate(cfg: *const Z42HostConfig) -> Result<(ResolvedConfig, crate::corelib::io::HostSinks), ConfigError> {
     if cfg.is_null() {
         return Err(ConfigError::NullConfig);
     }
@@ -235,20 +226,22 @@ pub(crate) unsafe fn validate(cfg: *const Z42HostConfig) -> Result<ResolvedConfi
         }) as Arc<dyn ZpkgResolver>
     });
 
-    Ok(ResolvedConfig {
+    let resolved = ResolvedConfig {
         exec_mode,
         heap_initial_bytes: cfg.heap_initial_bytes,
         heap_max_bytes: cfg.heap_max_bytes,
-        stdout_sink: cfg.stdout_sink,
-        stderr_sink: cfg.stderr_sink,
-        sink_user_data: cfg.sink_user_data as usize,
         search_paths,
         zpkg_resolver,
         vfs: crate::pal::fs::default_vfs(),
-    })
+    };
+    let sinks = crate::corelib::io::HostSinks {
+        stdout: output_sink(cfg.stdout_sink, cfg.sink_user_data),
+        stderr: output_sink(cfg.stderr_sink, cfg.sink_user_data),
+    };
+    Ok((resolved, sinks))
 }
 
-fn check_feature_available(mode: Z42ExecMode) -> Result<(), ConfigError> {
+pub(super) fn check_feature_available(mode: Z42ExecMode) -> Result<(), ConfigError> {
     match mode {
         Z42ExecMode::Default | Z42ExecMode::Interp => Ok(()),
         Z42ExecMode::Jit => if cfg!(all(feature = "jit", z42_jit_supported)) { Ok(()) } else { Err(ConfigError::FeatureOff { mode }) },
@@ -294,3 +287,10 @@ unsafe fn collect_search_paths(
     })
 }
 
+
+pub(super) fn output_sink(
+    callback: Z42WriteSink, user_data: *mut c_void,
+) -> Option<crate::corelib::io::OutputSink> {
+    use crate::corelib::io::{HostSink, OutputSink};
+    callback.map(|callback| OutputSink::C(HostSink { callback, user_data }))
+}

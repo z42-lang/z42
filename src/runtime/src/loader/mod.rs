@@ -42,3 +42,6 @@ pub use package::merge::merge_modules;
 pub(crate) use native_policy::NativeOrigin;
 
 mod ffi;
+
+#[cfg(test)]
+pub(crate) mod test_support;

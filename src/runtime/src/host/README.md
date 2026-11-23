@@ -23,7 +23,7 @@ VM 内部组件门面、跨库协议与普通宿主契约的区别及当前缺�
 | `execution_available` | 按执行模式查询可用性，不暴露组件身份，不装库或创建 VM |
 | `mod.rs` | 导出 VM 程序会话的加载选项与调用入口 |
 | `run_app` / `RunOpts` | 一次性应用运行、应用参数、退出报告和进程退出时的释放策略 |
-| `ffi.rs` / `config.rs` / `state.rs` | C ABI 与不透明句柄定义、配置验证及句柄注册表；Rust 消费者从 host 根导入 Z42Host/Z42Module/Z42Entry |
+| `ffi.rs` / `config.rs` / `state.rs` | C ABI 与不透明句柄定义、配置验证以及 Rust/C 共用的会话事务；Rust 消费者从 host 根导入 Z42Host/Z42Module/Z42Entry |
 | `marshal.rs` | ABI 参数与返回值转换 |
 | `ExecMode` / `PackageImage` | 由 z42-zpkg 拥有、通过宿主门面提供的执行模式和不可变包定义类型 |
 | `host::signal` | 致命信号安装入口，VM 栈捕获与崩溃报告归 diagnostics |

@@ -1,136 +1,271 @@
-//! Process-singleton VM state for the Embedding API.
-//!
-//! Spec: docs/internals/src/runtime/embedding.md §7 + 变更 add-embedding-api/design.md D1/D5.
-//!
-//! v0.1 holds one optional `HostState` behind an `RwLock`. `initialize`
-//! takes the write lock and refuses if state is already `Some`; `shutdown`
-//! takes the write lock and replaces with `None`. Multi-instance support
-//! is in Deferred — the current shape leaves the public API unchanged.
+//! Shared transactions for the process-wide embedding session.
 
-use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
-
+use std::collections::HashMap;
+use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use super::config::ResolvedConfig;
+use super::error::Z42HostStatus as Status;
+use super::{LoadedProgram, ZpkgResolver};
+use crate::corelib::io::{self, HostSinks, OutputSink};
+use crate::loader::ImageCache;
+use crate::object::Value;
+use crate::pal::fs::Vfs;
 
-/// Resolved entry handle. Indexes into `crate::host::LoadedProgram::module().functions`.
+type Token = usize;
+type Result<T> = std::result::Result<T, Failure>;
+
+pub(super) struct Failure {
+    pub(super) status: Status,
+    pub(super) message: String,
+}
+
+impl Failure {
+    pub(super) fn new(status: Status, message: impl Into<String>) -> Self {
+        Self {
+            status,
+            message: message.into(),
+        }
+    }
+
+    pub(super) fn not_initialized() -> Self {
+        Self::new(
+            Status::NotInit,
+            "VM is not initialized or the session ended during the call",
+        )
+    }
+}
+
 #[derive(Clone, Copy)]
-pub(crate) struct HostEntry {
-    pub module_idx: usize,
-    pub fn_idx: usize,
+struct Entry {
+    module: Token,
+    function: usize,
 }
 
-/// Shape of an in-process VM. Grows as host iterations land features:
-/// Loaded programs own their VM context and initialization state.
-pub(crate) struct HostState {
-    /// Resolved configuration retained for diagnostics and the future
-    /// hot-reload / multi-instance work that will need to inspect the
-    /// originally-supplied options.
-    #[allow(dead_code)]
-    pub config: ResolvedConfig,
-    /// Session-shared zpkg decode cache: every `load_zbc` of this session
-    /// resolves artifacts through it, so a dependency (the stdlib above all)
-    /// already loaded by an earlier module is shared by definition instead of
-    /// decoded and retained again. The C# ALC "already loaded ⇒ shared" rule.
-    pub image_cache: std::sync::Arc<crate::loader::ImageCache>,
-    /// `Arc` so `z42_host_invoke` can take its module out from under the
-    /// `HOST` lock and run user code without holding it.
-    pub modules: Vec<std::sync::Arc<crate::host::LoadedProgram>>,
-    pub entries: Vec<HostEntry>,
-}
-
-// `ResolvedConfig` carries `Z42WriteSink` (function pointer) and a raw
-// user-data address stored as `usize`. Function pointers are `Send`/`Sync`
-// in Rust; the user_data address has no Rust ownership. Documented in
-// embedding.md §7: hosts must guarantee thread safety on their side.
-unsafe impl Send for HostState {}
-unsafe impl Sync for HostState {}
-
-static HOST: RwLock<Option<HostState>> = RwLock::new(None);
-
-/// Sentinel pointer returned for `Z42HostRef` while the singleton is
-/// alive. Non-null and never dereferenced — see `is_valid_handle`.
-pub(crate) const HOST_SENTINEL: usize = 0x1;
-
-/// Outcome of `try_initialize`.
-pub(crate) enum InitOutcome {
-    Initialized,
-    AlreadyInit,
-    LockPoisoned,
-}
-
-/// Publish the validated session and its sinks under the same lifecycle lock.
-/// `publish_sinks` only installs prepared callbacks; it must not call host code.
-pub(crate) fn try_initialize(
+struct Session {
+    token: Token,
     config: ResolvedConfig,
-    publish_sinks: impl FnOnce(&ResolvedConfig),
-) -> InitOutcome {
-    let mut guard = match HOST.write() {
-        Ok(g) => g,
-        Err(_) => return InitOutcome::LockPoisoned,
-    };
-    if guard.is_some() {
-        return InitOutcome::AlreadyInit;
+    image_cache: Arc<ImageCache>,
+    modules: HashMap<Token, Arc<LoadedProgram>>,
+    entries: HashMap<Token, Entry>,
+}
+
+struct Registry {
+    next: Token,
+    session: Option<Session>,
+}
+
+impl Registry {
+    // Tokens cross the ABI as opaque non-null pointers and are never dereferenced.
+    // Issuing them across sessions prevents a stale token from aliasing a new one.
+    fn allocate(&mut self) -> Result<Token> {
+        let token = self.next;
+        self.next = token
+            .checked_add(1)
+            .ok_or_else(|| Failure::new(Status::Internal, "host handles exhausted"))?;
+        Ok(token)
     }
-    publish_sinks(&config);
-    *guard = Some(HostState {
+
+    fn session(&self, token: Token) -> Result<&Session> {
+        self.session
+            .as_ref()
+            .filter(|session| session.token == token)
+            .ok_or_else(Failure::not_initialized)
+    }
+
+    fn session_mut(&mut self, token: Token) -> Result<&mut Session> {
+        self.session
+            .as_mut()
+            .filter(|session| session.token == token)
+            .ok_or_else(Failure::not_initialized)
+    }
+}
+
+static HOST: RwLock<Registry> = RwLock::new(Registry {
+    next: 1,
+    session: None,
+});
+
+fn read() -> Result<RwLockReadGuard<'static, Registry>> {
+    HOST.read()
+        .map_err(|_| Failure::new(Status::Internal, "host state lock poisoned"))
+}
+
+fn write() -> Result<RwLockWriteGuard<'static, Registry>> {
+    HOST.write()
+        .map_err(|_| Failure::new(Status::Internal, "host state lock poisoned"))
+}
+
+pub(super) fn current() -> Result<Token> {
+    read()?
+        .session
+        .as_ref()
+        .map(|session| session.token)
+        .ok_or_else(Failure::not_initialized)
+}
+
+pub(super) fn initialize(config: ResolvedConfig, sinks: HostSinks) -> Result<Token> {
+    #[cfg(feature = "native-interop")]
+    crate::interop::exports::install_panic_hook();
+
+    crate::loader::probe_prelude(&*config.vfs, &config.search_paths).map_err(|error| {
+        Failure::new(
+            Status::BadConfig,
+            format!("corelib probe failed: {error:#}"),
+        )
+    })?;
+
+    let mut registry = write()?;
+    if registry.session.is_some() {
+        return Err(Failure::new(
+            Status::AlreadyInit,
+            "VM is already initialized",
+        ));
+    }
+    let token = registry.allocate()?;
+    let previous_sinks = io::replace_host_sinks(sinks);
+    registry.session = Some(Session {
+        token,
         config,
-        image_cache: std::sync::Arc::new(crate::loader::ImageCache::default()),
-        modules: Vec::new(),
-        entries: Vec::new(),
+        image_cache: Arc::new(ImageCache::default()),
+        modules: HashMap::new(),
+        entries: HashMap::new(),
     });
-    InitOutcome::Initialized
+    drop(registry);
+    drop(previous_sinks);
+    Ok(token)
 }
 
-/// Outcome of `try_shutdown`.
-pub(crate) enum ShutdownOutcome {
-    Done,
-    NotInit,
-    LockPoisoned,
-}
-
-/// Withdraw the session and its sinks under the lifecycle lock, then destroy
-/// resources after releasing it. `clear_sinks` must not invoke host code.
-pub(crate) fn try_shutdown(clear_sinks: impl FnOnce()) -> ShutdownOutcome {
-    let mut guard = match HOST.write() {
-        Ok(g) => g,
-        Err(_) => return ShutdownOutcome::LockPoisoned,
-    };
-    if guard.is_none() {
-        return ShutdownOutcome::NotInit;
-    }
-    clear_sinks();
-    let retired = guard.take();
-    drop(guard);
-    // Component/resource destructors may re-enter the host.
+pub(super) fn shutdown(token: Token) -> Result<()> {
+    let mut registry = write()?;
+    registry.session(token)?;
+    let sinks = io::replace_host_sinks(HostSinks::default());
+    let retired = registry.session.take();
+    drop(registry);
+    // Resource and Rust callback destructors can re-enter the host.
+    drop(sinks);
     drop(retired);
-    ShutdownOutcome::Done
+    Ok(())
 }
 
-/// Whether the singleton is currently initialized.
-pub(crate) fn is_initialized() -> bool {
-    matches!(HOST.read(), Ok(g) if g.is_some())
+pub(super) fn load(token: Token, bytes: &[u8]) -> Result<Token> {
+    let (options, cache) = {
+        let registry = read()?;
+        let session = registry.session(token)?;
+        (
+            session.config.load_options(),
+            Arc::clone(&session.image_cache),
+        )
+    };
+    let program = Arc::new(
+        LoadedProgram::load_bytes_with_cache(bytes, options, &cache)
+            .map_err(|error| Failure::new(Status::BadZbc, format!("{error:#}")))?,
+    );
+
+    let mut registry = write()?;
+    registry.session(token)?;
+    let module = registry.allocate()?;
+    registry.session_mut(token)?.modules.insert(module, program);
+    Ok(module)
 }
 
-/// `true` if `handle` matches the singleton sentinel and the VM is live.
-pub(crate) fn is_valid_handle(handle_ptr: *const ()) -> bool {
-    !handle_ptr.is_null() && handle_ptr as usize == HOST_SENTINEL && is_initialized()
+pub(super) fn resolve(token: Token, module: Token, fqn: &str) -> Result<Token> {
+    let mut registry = write()?;
+    let session = registry.session(token)?;
+    if module < session.token {
+        return Err(Failure::not_initialized());
+    }
+    let program = session
+        .modules
+        .get(&module)
+        .ok_or_else(|| Failure::new(Status::EntryNotFound, "module handle is stale or invalid"))?;
+    let function = program
+        .resolve_entry(fqn)
+        .map_err(|error| Failure::new(Status::EntryNotFound, format!("{error:#}")))?;
+    let entry = registry.allocate()?;
+    registry
+        .session_mut(token)?
+        .entries
+        .insert(entry, Entry { module, function });
+    Ok(entry)
 }
 
-/// Run a closure with a read guard on the host state. Returns `None` if
-/// the VM is not initialized. Use this for non-mutating work that
-/// touches `modules` / `entries`.
-pub(crate) fn with_state_read<R>(
-    f: impl FnOnce(&HostState) -> R,
-) -> Option<R> {
-    let guard: RwLockReadGuard<'_, Option<HostState>> = HOST.read().ok()?;
-    guard.as_ref().map(f)
+pub(super) fn invoke(
+    token: Token,
+    entry: Token,
+    arguments: impl FnOnce() -> Result<Vec<Value>>,
+) -> Result<Option<Value>> {
+    let (program, function) = {
+        let registry = read()?;
+        let session = registry.session(token)?;
+        if entry < session.token {
+            return Err(Failure::not_initialized());
+        }
+        let entry = session.entries.get(&entry).ok_or_else(|| {
+            Failure::new(Status::EntryNotFound, "entry handle is stale or invalid")
+        })?;
+        let program = session.modules.get(&entry.module).ok_or_else(|| {
+            Failure::new(Status::Internal, "module backing this entry is missing")
+        })?;
+        (Arc::clone(program), entry.function)
+    };
+    let args = arguments()?;
+    let _sink = io::HostSinkGuard::enter();
+    program.invoke_index(function, &args).map_err(|error| {
+        let message = format!("{error:#}");
+        let status = if message.starts_with(crate::exec::stack_guard::FATAL_PREFIX) {
+            let _ = crate::exec::stack_guard::take_report();
+            Status::Fatal
+        } else if message.contains("arg-count-mismatch:") {
+            Status::ArgMismatch
+        } else if message.contains("uncaught exception") || message.contains("undefined function") {
+            Status::VmException
+        } else {
+            Status::Internal
+        };
+        Failure::new(status, message)
+    })
 }
 
-/// Run a closure with a write guard. Returns `None` when the VM is not
-/// initialized; otherwise yields `Some(closure_result)`.
-pub(crate) fn with_state_write<R>(
-    f: impl FnOnce(&mut HostState) -> R,
-) -> Option<R> {
-    let mut guard: RwLockWriteGuard<'_, Option<HostState>> = HOST.write().ok()?;
-    guard.as_mut().map(f)
+pub(super) fn set_sink(token: Token, stderr: bool, sink: Option<OutputSink>) -> Result<()> {
+    let registry = read()?;
+    registry.session(token)?;
+    let previous = io::replace_host_sink(stderr, sink);
+    drop(registry);
+    drop(previous);
+    Ok(())
+}
+
+pub(super) fn set_resolver(token: Token, resolver: Arc<dyn ZpkgResolver>) -> Result<()> {
+    let retired = write()?
+        .session_mut(token)?
+        .config
+        .zpkg_resolver
+        .replace(resolver);
+    drop(retired);
+    Ok(())
+}
+
+pub(super) fn set_vfs(token: Token, vfs: Arc<dyn Vfs>) -> Result<()> {
+    let search_paths = read()?.session(token)?.config.search_paths.clone();
+    crate::loader::probe_prelude(&*vfs, &search_paths).map_err(|error| {
+        Failure::new(
+            Status::BadConfig,
+            format!("corelib probe failed: {error:#}"),
+        )
+    })?;
+    let retired = std::mem::replace(&mut write()?.session_mut(token)?.config.vfs, vfs);
+    drop(retired);
+    Ok(())
+}
+
+#[cfg(feature = "jit-test-support")]
+pub(crate) fn first_program() -> Option<Arc<LoadedProgram>> {
+    read()
+        .ok()?
+        .session
+        .as_ref()?
+        .modules
+        .iter()
+        .min_by_key(|(token, _)| *token)
+        .map(|(_, program)| Arc::clone(program))
 }
