@@ -4,10 +4,17 @@ use crate::{components::api::BackendSource, vm::VmContext, host};
 #[test]
 fn unused_profiler_has_no_backend_and_disabled_source_fails_on_demand() {
     let ctx = VmContext::new();
-    let sampler = &ctx.core().diagnostics().sampler;
     ctx.core().profiling().set_source(BackendSource::Disabled).unwrap();
-    sampler.poll(&ctx);
+    crate::diagnostics::poll_sampling(&ctx);
+    crate::diagnostics::prepare_sampling(&ctx).unwrap();
+    let non_heap = crate::object::Value::Null;
+    assert!(crate::diagnostics::retention::direct_referrers(&ctx, &non_heap).unwrap().is_empty());
+    assert!(crate::diagnostics::retention::retaining_roots(&ctx, &non_heap).unwrap().is_empty());
     assert!(!host::profiler_loaded(&ctx));
+    assert!(matches!(
+        crate::corelib::core::gc::typed::write_heap_snapshot(&ctx, "unused"),
+        Err(crate::exec::builtin_abi::BuiltinError::NotSupported(_)),
+    ));
     let error = host::prepare_profiler(&ctx).unwrap_err().to_string();
     assert!(error.contains("profiler") && error.contains("disabled"), "{error}");
     assert_eq!(host::prepare_profiler(&ctx).unwrap_err().to_string(), error);

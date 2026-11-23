@@ -1,5 +1,9 @@
 //! Heap inspection result contracts; algorithms live in the profiler component.
-use crate::gc::walk::RootKind;
+use crate::{
+    gc::walk::RootKind,
+    object::{ArrRef, ObjRef, Value},
+    vm::VmContext,
+};
 /// Whether a heap referrer is a script object or an array.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
@@ -22,4 +26,44 @@ pub struct RetainerInfo {
 #[derive(Debug, Clone)]
 pub struct RootInfo {
     pub kind: RootKind,
+}
+
+pub(crate) fn direct_referrers(
+    ctx: &VmContext,
+    target: &Value,
+) -> anyhow::Result<Vec<RetainerInfo>> {
+    let Some(ptr) = target_ptr(target) else {
+        return Ok(Vec::new());
+    };
+    let backend = super::profiler(ctx)?;
+    Ok(with_world_stopped(ctx, || {
+        backend.direct_referrers(ctx.heap(), ptr)
+    }))
+}
+
+pub(crate) fn retaining_roots(ctx: &VmContext, target: &Value) -> anyhow::Result<Vec<RootInfo>> {
+    let Some(ptr) = target_ptr(target) else {
+        return Ok(Vec::new());
+    };
+    let backend = super::profiler(ctx)?;
+    Ok(with_world_stopped(ctx, || {
+        backend.retaining_roots(ctx.heap(), ptr)
+    }))
+}
+
+fn target_ptr(value: &Value) -> Option<usize> {
+    match value {
+        Value::Object(object) => Some(ObjRef::as_ptr(object) as usize),
+        Value::Array(array) => Some(ArrRef::as_ptr(array) as usize),
+        _ => None,
+    }
+}
+
+fn with_world_stopped<T>(ctx: &VmContext, query: impl FnOnce() -> T) -> T {
+    // If another collector is active, the pause request parks us until it finishes.
+    loop {
+        if let Some(_pause) = crate::threads::safepoint::request_gc_pause(ctx) {
+            return query();
+        }
+    }
 }

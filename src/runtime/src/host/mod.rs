@@ -108,4 +108,5 @@ pub fn prepare_profiler(ctx: &VmContext) -> anyhow::Result<()> {
 /// Write a heap snapshot using the configured profiler.
 pub fn write_heap_snapshot(ctx: &VmContext, path: &str) -> anyhow::Result<i64> {
     crate::diagnostics::write_heap_snapshot(ctx, path)
+        .map_err(crate::diagnostics::HeapSnapshotError::into_diagnostic)
 }

@@ -39,6 +39,7 @@ pub(crate) fn build(
         &ctx, options.mode, &options.components.components, &options.components.backends,
         &options.components.profiler, &options.jit_config,
     )?;
+    crate::diagnostics::prepare_sampling(&ctx)?;
     for (name, byte_size) in initial_events {
         ctx.core().diagnostics().runtime_observers.fire(&crate::diagnostics::RuntimeEvent::ModuleLoaded {
             name,

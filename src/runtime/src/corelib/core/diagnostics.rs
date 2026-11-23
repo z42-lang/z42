@@ -20,28 +20,6 @@ const STD_ROOTREF: &str = "Std.Diagnostics.RootRef";
 /// (7 runtime counters + `allocations` + 3 generational GC fields).
 const STD_RUNTIME_COUNTERS: &str = "Std.Diagnostics.RuntimeCounters";
 
-/// The heap identity (data ptr as usize) of a target `Value`, or `None` for
-/// non-heap values (primitive / null → no retention to report).
-fn target_ptr(v: &Value) -> Option<usize> {
-    match v {
-        Value::Object(gc) => Some(crate::object::ObjRef::as_ptr(gc) as usize),
-        Value::Array(gc) => Some(crate::object::ArrRef::as_ptr(gc) as usize),
-        _ => None,
-    }
-}
-
-/// Run a retention query with the world stopped. The query forces a collection and
-/// then walks every thread's frames for roots, so the other mutators must be parked
-/// first — the same `request_gc_pause` that `GC.ForceCollect()` uses. If another
-/// collector is active, `request_gc_pause` parks us until it is done; retry.
-fn with_world_stopped<R>(ctx: &VmContext, query: impl FnOnce() -> R) -> R {
-    loop {
-        if let Some(_pause) = crate::threads::safepoint::request_gc_pause(ctx) {
-            return query();
-        }
-    }
-}
-
 /// Allocate a z42 class instance, writing named slots by `field_index`. A class the
 /// caller's own package declares not being loaded is a loader / VM bug.
 fn alloc_named(ctx: &VmContext, type_name: &str, named: &[(&str, Value)]) -> Result<Value, BuiltinError> {
@@ -60,12 +38,8 @@ fn alloc_named(ctx: &VmContext, type_name: &str, named: &[(&str, Value)]) -> Res
 
 /// `Std.Diagnostics.Heap.DirectReferrers(object target)` (static) → `Retainer[]`.
 pub fn heap_direct_referrers(ctx: &VmContext, target: &Value) -> Result<Value, BuiltinError> {
-    let Some(ptr) = target_ptr(target) else {
-        return Ok(ctx.heap().alloc_array(Vec::new()));
-    };
-    let provider = crate::components::api::profiler_service(ctx)
-        .map_err(|e| BuiltinError::NotSupported(format!("profiler unavailable: {e:#}")))?;
-    let referrers = with_world_stopped(ctx, || provider.direct_referrers(ctx.heap(), ptr));
+    let referrers = crate::diagnostics::retention::direct_referrers(ctx, target)
+        .map_err(|error| BuiltinError::NotSupported(format!("profiler unavailable: {error:#}")))?;
     let mut out = Vec::with_capacity(referrers.len());
     for r in referrers {
         out.push(alloc_named(
@@ -82,12 +56,8 @@ pub fn heap_direct_referrers(ctx: &VmContext, target: &Value) -> Result<Value, B
 
 /// `Std.Diagnostics.Heap.RetainingRoots(object target)` (static) → `RootRef[]`.
 pub fn heap_retaining_roots(ctx: &VmContext, target: &Value) -> Result<Value, BuiltinError> {
-    let Some(ptr) = target_ptr(target) else {
-        return Ok(ctx.heap().alloc_array(Vec::new()));
-    };
-    let provider = crate::components::api::profiler_service(ctx)
-        .map_err(|e| BuiltinError::NotSupported(format!("profiler unavailable: {e:#}")))?;
-    let roots = with_world_stopped(ctx, || provider.retaining_roots(ctx.heap(), ptr));
+    let roots = crate::diagnostics::retention::retaining_roots(ctx, target)
+        .map_err(|error| BuiltinError::NotSupported(format!("profiler unavailable: {error:#}")))?;
     let mut out = Vec::with_capacity(roots.len());
     for r in roots {
         // `RootRef.Kind` is a z42 `RootKind` enum, i64-backed; the discriminant

@@ -11,7 +11,7 @@
 
 | 文件 | 职责 |
 |---|---|
-| `api.rs` | 内部准备协调、执行角色绑定/附着/查询和分析服务入口 |
+| `api.rs` | 内部准备协调、执行角色绑定/附着/查询及 profiler 来源配置 |
 | `catalog.rs` | 按启用根准备工厂依赖闭包、缓存与描述符校验、实例依赖排序和 loader 代码句柄 |
 | `options.rs` | 启用根与可用提供方配置、事务装配入口和带租约的只读查询 |
 | `instance.rs` | 每 VM 创建/销毁、核心与依赖服务、接口租约和反序清理 |
@@ -24,7 +24,7 @@
 
 ## 基础用法
 
-VM 消费者通过内部 `components::api` 请求准备、执行角色和分析服务。执行角色绑定在实例创建前验证，
+VM 消费者通过内部 `components::api` 准备和查询执行角色。分析操作由 diagnostics 提供，profiler 组件由这里装配。执行角色绑定在实例创建前验证，
 消费者不传具体提供方 ID；执行热路径使用一次装配的引擎。组件管理类型不从 host 转出；宿主功能请求由私有 VM 装配输入适配。
 独立组件通过 `z42::components::abi` 使用同构建协议，`components::bridge` 提供共享核心身份、布局和已绑定对象服务的只读借用；不提供组件管理入口。
 最终 Rust 组合根使用 `abi::register_static_component` 或 `abi::register_shared_component`；C 声明在 `include/z42_components.h` 维护，由 native 聚合进既有的 `z42_host.h` 发布；调用方不单独包含组件头。两者仅登记工厂，不调用工厂或创建 VM。
