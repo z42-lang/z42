@@ -637,7 +637,7 @@ public class Z42InterfaceType : Z42Type {
             if (direction == IrIfaceVariance.Contravariant) { return InterfaceVariance.Contravariant; }
             return InterfaceVariance.Invariant;
         }
-        if (this._varianceUses == null) { return InterfaceVariance.Invariant; }
+        if (this.IsImported || this._varianceUses == null) { return InterfaceVariance.Invariant; }
         int uses = this._varianceUses[index];
         if (uses == InterfaceVarianceInference.Input) { return InterfaceVariance.Contravariant; }
         if (uses == InterfaceVarianceInference.Output) { return InterfaceVariance.Covariant; }
