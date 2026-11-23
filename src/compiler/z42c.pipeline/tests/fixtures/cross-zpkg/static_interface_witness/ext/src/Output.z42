@@ -44,6 +44,7 @@ public struct SelfPoint : ISelfWriter {
     public int X;
     public int Y;
     public SelfPoint(int x, int y) { this.X = x; this.Y = y; }
+    public static SelfPoint Create() { return new SelfPoint(6, 7); }
     public static void Write(SelfPoint value) {
         value.X = value.X + 1;
         Console.WriteLine(value.X + value.Y);
@@ -59,10 +60,18 @@ public struct SelfPacket : ISelfWriter {
         this.Label = label;
         this.Count = count;
     }
+    public static SelfPacket Create() { return new SelfPacket(30L, "created", 7); }
     public static void Write(SelfPacket value) {
         Console.WriteLine(value.Label);
         value.Label = "changed";
         value.Count = value.Count + 1;
         Console.WriteLine(value.Prefix + value.Count);
     }
+}
+
+public struct FailingSelfFactory : ISelfWriter {
+    public int X;
+    public int Y;
+    public static FailingSelfFactory Create() { throw new InvalidOperationException("factory failed"); }
+    public static void Write(FailingSelfFactory value) { Console.WriteLine(value.X); }
 }
