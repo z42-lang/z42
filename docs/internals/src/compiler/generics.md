@@ -343,6 +343,9 @@ TypeDesc {
 含 `class` 的约束也为直接以 `Self` 为按值形参或返回类型的成员分配槽。绑定泛型体时，
 `Self` 精确替换为方法类型形参。调用点以具体类型替换 `Self`，按代换后的完整签名选择函数。
 这类调用沿用普通引用类型的传递约定，型参转发无需改变 Witness。
+签名中的具名非泛型结构体使用已知布局。发射器为按值实参复制结构体，并为复合结构体返回值分配调用方返回槽。
+Witness 指向具体静态方法，间接调用沿用这个返回槽。
+含具名结构体的 Witness 排在原有标量和引用 `Self` 槽之后，保留已有产物中的槽号。
 
 绑定期按「**方法级就近优先**」分流（`TypeOpTyper._bindTypeofExpr` /
 `ExprTyper._bindDefault` / `_bindArrayNew` / `ConstructTyper._bindNew` 同序）：方法级先查，同名时遮蔽类级。
@@ -928,9 +931,14 @@ GenericType("Foo", [T..])   → _classes["Foo$N"] first, fallback _classes["Foo"
 
 ### D-4: 协变 / 逆变（`<in T, out R>` 等）
 
-- **关联设计文档**：[`delegates-events.md`](../runtime/delegates-events.md) §12 明确"推迟到 L3 后期"
-- **触发原因**：协变 / 逆变涉及泛型 type-arg 关系约束，z42 当前 generic 系统未做这类规则，加进来牵扯 ImportedSymbols / RebuildFuncType / 子类型规则全链路。
-- **前置依赖**：L3 后期完整 type-system 规划；与 `generics.md` / `static-abstract-interface.md` 协同。
-- **触发条件**：用户大量遇到 `Func<Animal>` ↔ `Func<Dog>` 子类型替换问题。
-- **当前 workaround**：依赖具体类型，或手动 wrapper 转换。
+编译器在接口成员收集时记录本包接口形参的使用方向。按值形参贡献输入方向，返回值贡献输出方向。
+属性与索引器的 getter 和 setter 使用同一套签名规则。只有输入或只有输出时分别记为逆变或协变。
+无使用、双向使用、`ref` 和嵌套类型中的使用记为不变。父接口、关联类型、泛型方法和导入接口暂保持不变。
+这一结果存于接口符号，当前赋值检查、跨包格式和运行时派发仍沿用既有规则。
+
+接入转换需要把相同声明的不同实例之间的赋值关系与名义类型身份分开。需要验证引用实参的方向、
+值类型实参的不变性、跨包签名还原，以及转换后按接口调用时的派发和调用约定。
+`IfaceSlotKeys.CallSite` 把闭合实参编码进精确槽键。若同一类实现同一接口的多个实例，擦除槽只有一个默认项。
+方差转换后的调用必须保留所选的源接口实现，测试需覆盖目标精确槽已存在以及目标精确槽缺失两种情况。
+委托的用户可见转换仍见 [委托机制](../runtime/delegates-events.md)。
 

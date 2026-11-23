@@ -177,8 +177,7 @@ Windows 用 `GetCurrentThreadStackLimits`；其他平台返回 `None`，栈检�
 
 ### `pal/net.rs` — socket 的 OS 部分
 
-承接 `corelib/net/{error,listener,tcp}.rs` 的平台分支（runtime-audit §6.1 L-2b）。`corelib/net`
-只剩 builtin 胶水（参数、.NET 异常映射、句柄表、park），零平台 cfg：
+socket 的平台分支归 `pal/net.rs`。`corelib/net` 负责 builtin 参数、.NET 异常映射、句柄表和 park。
 
 ```rust
 // pal/net.rs

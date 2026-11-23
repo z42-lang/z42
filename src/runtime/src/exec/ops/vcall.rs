@@ -226,6 +226,15 @@ fn resolve_vcall_unchecked<'a>(
                 return Ok(ResolvedVCall { target: VCallTarget::Immediate(ty), this: obj_val.clone() });
             }
             if method == "GetHashCode" {
+                // add-value-hash-ref-leaves：用户/record 合成的 `GetHashCode` 优先（先探本类型
+                // 自己的槽位，同下方 ToString 的先例）——native FNV 只是无真实现时的兜底。此前
+                // 无条件 native ⇒ 用户哈希在装箱位点（字典/集合探测正是这条）被无视：引用叶子
+                // 哈希全同时靠单桶+用户 Equals 兜底碰巧正确，散布后「Equals 相等 ⇒ 哈希相等」
+                // 直接破约（HashSet Add 后 Contains 找不回）。
+                let type_name = b.type_desc().name.to_string();
+                if let Some(target) = resolve_own_slot(ctx, module, &type_name, method, arity) {
+                    return Ok(ResolvedVCall { target, this: obj_val.clone() });
+                }
                 let h = Value::I64(crate::object::value::boxed_hash::struct_hash_code(b));
                 return Ok(ResolvedVCall { target: VCallTarget::Immediate(h), this: obj_val.clone() });
             }

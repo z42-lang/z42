@@ -1,0 +1,91 @@
+// add-value-hash-ref-leaves：合成 GetHashCode 的引用叶子贡献——object/array 叶子从常量 0 改为
+// 地址身份哈希（GC 不移动对象 ⇒ 稳定）。此前引用叶子互异的 struct 哈希全同（全落同一桶）；
+// 现在：同引用 ⇒ 同哈希（契约），不同引用 ⇒ 良好散布（字典探测链不再退化 O(n)）。
+namespace Demo;
+
+using Std.Collections;
+
+class Cell {
+    public int v;
+    public Cell(int v) { this.v = v; }
+}
+
+struct Tagged {
+    public int id;
+    public Cell c;
+    public Tagged(int id, Cell c) { this.id = id; this.c = c; }
+}
+
+struct TaggedArr {
+    public int id;
+    public int[] xs;
+    public TaggedArr(int id, int[] xs) { this.id = id; this.xs = xs; }
+}
+
+
+struct UserHash : IEquatable {
+    public int n;
+    public Cell c;
+    public UserHash(int n, Cell c) { this.n = n; this.c = c; }
+    public bool Equals(UserHash o) { return this.n == o.n; }
+    override int GetHashCode() { return 7; }   // 用户常量哈希（刻意的坏哈希，验证装箱位点尊重用户实现）
+    override bool Equals(object other) {
+        if (other is UserHash u) { return this.n == u.n; }
+        return false;
+    }
+}
+
+void Main() {
+    Cell c1 = new Cell(1);
+    Cell c2 = new Cell(1);      // 同内容不同实例（引用身份不同）
+
+    Tagged t1 = new Tagged(1, c1);
+    Tagged t2 = new Tagged(1, c1);      // 同引用
+    Tagged t3 = new Tagged(1, c2);      // 不同引用（同内容）
+
+    // ── 契约：值相等（同引用）⇒ 同哈希；跨表示一致 ──
+    Assert.Equal(t1.GetHashCode(), t2.GetHashCode());
+    object o1 = t1;
+    Assert.Equal(o1.GetHashCode(), t1.GetHashCode());
+
+    // ── 散布：不同引用 ⇒ 哈希不同（此前恒同 ⇒ 全落同一桶）；fmix64 雪崩，碰撞 2^-31 ──
+    Assert.True(t1.GetHashCode() != t3.GetHashCode());
+
+    // ── 散布面：n 个互异引用 ⇒ n 个互异哈希（此前 n 个全同）──
+    int n = 64;
+    int[] hs = new int[n];
+    int i = 0;
+    while (i < n) {
+        Tagged tk = new Tagged(1, new Cell(i));
+        hs[i] = tk.GetHashCode();
+        i = i + 1;
+    }
+    int distinct = 0;
+    i = 0;
+    while (i < n) {
+        int j = 0;
+        bool first = true;
+        while (j < i) {
+            if (hs[j] == hs[i]) { first = false; }
+            j = j + 1;
+        }
+        if (first) { distinct = distinct + 1; }
+        i = i + 1;
+    }
+    Assert.Equal(n, distinct);          // 64 个互异引用 → 64 个互异哈希
+
+    // ── array 叶子同款（地址身份）；string 叶子仍按内容 ──
+    TaggedArr a1 = new TaggedArr(1, new int[] { 1, 2 });
+    TaggedArr a2 = new TaggedArr(1, new int[] { 1, 2 });
+    Assert.True(a1.GetHashCode() != a2.GetHashCode());   // 不同数组实例 → 不同哈希
+    Assert.Equal(a1.GetHashCode(), a1.GetHashCode());    // 稳定
+
+    // ── 装箱位点尊重用户 GetHashCode（vcall 先探用户槽位，native FNV 只兜底）──
+    // 引用叶子哈希散布后，「Equals 相等 ⇒ 哈希相等」必须靠用户哈希兜住：
+    // 相等值经用户常量哈希落同桶，用户 Equals 命中——Add 后 Contains 找得回。
+    var us = new HashSet<UserHash>();
+    Assert.True(us.Add(new UserHash(1, new Cell(1))));
+    Assert.True(us.Contains(new UserHash(1, new Cell(2))));   // 不同 Cell 实例（引用不同）⇒ 哈希若按身份则不同桶丢
+    object ub = new UserHash(1, new Cell(1));
+    Assert.Equal(7, ub.GetHashCode());                         // 装箱位点 = 用户实现，非 FNV
+}

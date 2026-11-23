@@ -44,7 +44,7 @@ RAII 令牌。`GcToVm` 的实现须保证令牌有效期间所有其他 mutator 
 包括静态字段、驻留串及各线程的异常、帧和 arena。两种视图都遵守同一暂停协议。
 堆销毁按 heap epoch 幂等撤销 SATB 注册，覆盖增量标记与 one-shot 回调 unwind；不能只依赖增量 phase 判断。
 
-加载上下文回收由 `loader/context_gc.rs` 适配：标记后创建 VM 拥有的关联快照，GC 把同一批
+加载上下文回收由 `vm/context_gc.rs` 适配：标记后创建 VM 拥有的关联快照，GC 把同一批
 标记对象交给它观察；清扫结束后才消费快照回收未被保留的上下文。增量 major 将这份不透明快照
 保留到最后一个清扫切片，不把 ContextId 或 VM 注册表放进 GC。
 
@@ -465,7 +465,7 @@ fn write_barrier_array_elem(&self, arr: &Value, idx: usize, new: &Value);
 - **出根**：minor 的 `seed_from_remembered` 逐个「穿过」记忆集里的属主（老属主不标记，只把年轻孩子入队），
   **不再有年轻孩子就清位、出集**。已死（tombstone 还没排出）的跳过并出集，增量 major 清扫期的 doomed 属主同样跳过。
 - **粒度是属主**：一个记着的数组每次 minor 被整个穿过，直到它不再持有年轻元素；没有按元素段的卡。
-  大 `object[]` 持续收年轻元素时，每次 minor 都要整个重扫（100 万元素约 6 ms）；按元素段的卡表是 runtime-audit 待办 M20。
+  大 `object[]` 持续新增年轻元素时，minor 会重新扫描整个数组。见 [数组记忆集分段的前置条件](#runtime-gc-array-cards-数组记忆集分段)。
 - **死亡**：带 `REMEMBERED_BIT` 的块被 tombstone 时进「带标记的死块」列表，`process_flagged_dead` 在 chunk 回收之前把它从记忆集删掉，
   所以记忆集里的地址永远是一个块头。
 - **晋升线降低**（adaptive promotion）有两个时机。没有周期开着时就在**定下降线的那次 minor 之后**
@@ -765,6 +765,12 @@ GC 成熟后，字符串可以从 `Value::Str` primitive 进一步
 ---
 
 ## Deferred / Future Work
+
+### runtime-gc-array-cards: 数组记忆集分段
+
+当前记忆集记录属主，minor 需要遍历进入记忆集的整份数组。分段卡表可把大数组的扫描范围收敛到被写入的区间。
+需要覆盖解释器、JIT 和批量拷贝的写屏障，也要在晋升和增量 major 时维护相同的区间语义。
+触发条件是大数组中稀疏的老到新写入成为可复现的 minor 停顿瓶颈，当前由属主粒度保证可达性。
 
 ### softref-generic-upgrade: 泛型 `SoftRef<T>` 升级
 

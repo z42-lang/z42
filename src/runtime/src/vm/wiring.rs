@@ -57,16 +57,7 @@ pub(super) fn wire(core: &Arc<VmCore>, config: &crate::config::VmConfig) {
 
     core.heap.set_external_root_scanner(Box::new(crate::threads::roots::CoreRoots(Arc::downgrade(core))));
 
-    // add-lazy-context-unload: wire the collectible-context reclaimer so a
-    // major GC reclaims `Unloading` AssemblyLoadContexts with no live refs.
-    // Captures `Weak<VmCore>` (cycle avoidance) + the unloading-count flag.
-    {
-        let unloading = core.loader.context_registry.lock().unloading_flag();
-        core.heap.set_context_reclaimer(Box::new(crate::loader::context_gc::CoreContextReclaimer {
-            core: Arc::downgrade(core),
-            unloading,
-        }));
-    }
+    core.heap.set_context_reclaimer(Box::new(super::context_gc::CoreContextReclaimer::new(core)));
 
     // Both GC and diagnostic walks enumerate the same VM roots. The heap
     // invokes these borrowed-root callbacks only while mutators are paused.

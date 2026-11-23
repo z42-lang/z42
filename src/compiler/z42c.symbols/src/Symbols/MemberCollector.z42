@@ -117,7 +117,7 @@ public sealed class MemberCollector {
                 }
             } else if (mem is MethodDecl) {
                 MethodDecl md = mem as MethodDecl;
-                it.Methods.Put(md.Name, this._sc._methodSymbol(table, md, c.Name, tp, tpc));
+                it.AddDeclaredMethod(md.Name, this._sc._methodSymbol(table, md, c.Name, tp, tpc));
             } else if (mem is PropertyDecl) {
                 // 接口属性 getter → get_X 方法符号（镜像 C# IEnumerator<T>.Current → get_Current）。
                 PropertyDecl pd = mem as PropertyDecl;
@@ -131,7 +131,7 @@ public sealed class MemberCollector {
                     // 也不受检（跨包那半由 `$IfaceNull` 哨兵携带，两边必须同时有，否则导入侧
                     // 比声明包自己还严）。判据同 `_methodSymbol`：AST 里 `NullableType` 还在。
                     gsig.RetIsNullable = (pd.Type is NullableType);
-                    it.Methods.Put(gkey, new MethodSymbol(gkey, "public", gsig, false, c.Name, false, null));
+                    it.AddDeclaredMethod(gkey, new MethodSymbol(gkey, "public", gsig, false, c.Name, false, null));
                 }
                 if (pd.HasSet) {
                     // fix-iface-property-setter：接口属性 setter → set_X(value) 方法符号（镜像下面索引器的
@@ -144,7 +144,7 @@ public sealed class MemberCollector {
                     var ssig = new Z42FuncType(sps, 1, new Z42VoidType());
                     bool[] snull = new bool[1]; snull[0] = (pd.Type is NullableType);   // carry-iface-null-marks：value 参
                     ssig.ParamIsNullable = snull;
-                    it.Methods.Put(skey, new MethodSymbol(skey, "public", ssig, false, c.Name, false, null));
+                    it.AddDeclaredMethod(skey, new MethodSymbol(skey, "public", ssig, false, c.Name, false, null));
                 }
             } else if (mem is IndexerDecl) {
                 // fix-iface-self-completeness-gaps A3：接口索引器 `T this[params]` → get_Item / set_Item
@@ -165,7 +165,7 @@ public sealed class MemberCollector {
                     }
                     var gisig = new Z42FuncType(getPs1, id.ParamCount, idRet);
                     gisig.ParamIsNullable = getNull; gisig.RetIsNullable = (id.RetType is NullableType);
-                    it.Methods.Put("get_Item", new MethodSymbol("get_Item", "public",
+                    it.AddDeclaredMethod("get_Item", new MethodSymbol("get_Item", "public",
                         gisig, false, c.Name, false, null));
                 }
                 if (id.HasSet) {
@@ -181,7 +181,7 @@ public sealed class MemberCollector {
                     setNull[id.ParamCount] = (id.RetType is NullableType);   // 末位 value 参 = 索引器类型
                     var sisig = new Z42FuncType(setPs1, id.ParamCount + 1, new Z42VoidType());
                     sisig.ParamIsNullable = setNull;
-                    it.Methods.Put("set_Item", new MethodSymbol("set_Item", "public",
+                    it.AddDeclaredMethod("set_Item", new MethodSymbol("set_Item", "public",
                         sisig, false, c.Name, false, null));
                 }
             } else if (mem is FieldDecl) {

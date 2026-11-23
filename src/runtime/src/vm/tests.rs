@@ -2,6 +2,28 @@ use super::*;
 use crate::object::Value;
 
 #[test]
+fn context_reclaimer_and_snapshot_do_not_retain_core() {
+    use crate::gc::to_vm::ContextReclaim;
+
+    let ctx = VmContext::new();
+    let weak = Arc::downgrade(ctx.core());
+    let context = ctx.loader().create_collectible_context("plugin");
+    ctx.loader().unload_context(context);
+    // The previous public Loader path still names the VM-owned adapter.
+    let reclaimer: crate::loader::context_gc::CoreContextReclaimer =
+        super::context_gc::CoreContextReclaimer::new(ctx.core());
+
+    assert!(reclaimer.is_unloading());
+    let snapshot = reclaimer.snapshot();
+    assert!(!snapshot.is_empty());
+    drop(ctx);
+
+    assert!(weak.upgrade().is_none());
+    assert!(reclaimer.snapshot().is_empty());
+    assert!(!snapshot.is_empty());
+}
+
+#[test]
 fn registered_worker_keeps_core_alive_until_context_is_dropped() {
     let parent = VmContext::new();
     let core = parent.core_arc();

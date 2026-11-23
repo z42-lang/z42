@@ -91,6 +91,7 @@ pub struct HelperIds {
     pub default_of:     FuncId,
     pub method_type_arg: FuncId,
     pub load_method_witness: FuncId,
+    pub method_struct_alloc: FuncId,
     pub method_default: FuncId,
     // vcall
     pub vcall:          FuncId,
@@ -159,6 +160,7 @@ pub fn register_symbols(builder: &mut JITBuilder) {
     reg!("jit_default_of",    object::jit_default_of);
     reg!("jit_method_type_arg", object::jit_method_type_arg);
     reg!("jit_load_method_witness", object::jit_load_method_witness);
+    reg!("jit_method_struct_alloc", struct_ops::jit_method_struct_alloc);
     reg!("jit_method_default", object::jit_method_default);
     reg!("jit_convert",       object::jit_convert);
     reg!("jit_field_get",     object_field::jit_field_get);
@@ -290,6 +292,7 @@ pub fn declare_imports(jit: &mut JITModule) -> Result<HelperIds> {
         default_of:     decl!("jit_default_of",     [ptr, ptr, i32t, i32t],                      [i8t]),
         method_type_arg: decl!("jit_method_type_arg", [ptr, ptr, i32t, i32t], []),
         load_method_witness: decl!("jit_load_method_witness", [ptr, ptr, i32t, i32t], [i8t]),
+        method_struct_alloc: decl!("jit_method_struct_alloc", [ptr, ptr, i32t, i32t], [i8t]),
         method_default: decl!("jit_method_default", [ptr, i32t, i32t], []),
         // jit_convert(frame, ctx, dst, src, to_tag) -> u8  (spec fix-numeric-cast-lowering)
         convert:        decl!("jit_convert",        [ptr, ptr, i32t, i32t, i32t],                [i8t]),

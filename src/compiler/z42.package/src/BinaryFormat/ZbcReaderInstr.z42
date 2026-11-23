@@ -150,6 +150,7 @@ public static class ZbcReaderInstr {
         }
         if (op == Op.MethodTypeArg) { return new MethodTypeArgInsn(d, c.U8()); }
         if (op == Op.LoadMethodWitness) { return new LoadMethodWitnessInsn(d, c.U16()); }
+        if (op == Op.MethodStructAlloc) { return new MethodStructAllocInsn(d, c.U16()); }
         if (op == Op.MethodDefault) { return new MethodDefaultInsn(d, c.U8()); }
         if (op == Op.Builtin) {
             string name = ZbcReaderInstr._p(pool, c.U32());
