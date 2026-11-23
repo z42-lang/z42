@@ -66,6 +66,12 @@ string Deliver(ISink<Cat> sink, int marker = 7) {
     return marker == 7 ? sink.Put(new Cat()) : "wrong default";
 }
 
+string ChooseFree(int marker) { return "int"; }
+string ChooseFree(IProducer<Animal> input) { return "free animal"; }
+string ChooseFree(IProducer<Cat> input) {
+    return input.Get() is Kitten ? "free cat from kitten" : "free cat";
+}
+
 IProducer<Animal> Widen(IProducer<Cat> cats) {
     return cats;
 }
@@ -81,6 +87,10 @@ void Main() {
     Assert.Equal("animal", VarianceOverloads.Choose(animals));
     Assert.Equal("cat", VarianceOverloads.Choose(cats));
     Assert.Equal("cat from kitten", VarianceOverloads.Choose(source: kittens));
+    Assert.Equal("int", ChooseFree(7));
+    Assert.Equal("free animal", ChooseFree(animals));
+    Assert.Equal("free cat", ChooseFree(cats));
+    Assert.Equal("free cat from kitten", ChooseFree(input: kittens));
     Assert.Equal(true, animals.Get() is Cat);
     Assert.Equal(true, Object.ReferenceEquals(cats, animals));
     object widened = animals;

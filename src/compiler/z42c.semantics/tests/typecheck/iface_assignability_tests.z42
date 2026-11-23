@@ -262,3 +262,13 @@ void test_ref_interface_parameters_do_not_introduce_static_overloads() {
         + " public static void Use(ref ISource<Cat> x) {} }";
     Assert.Equal("E0408", SemanticDump.FirstErrorCode(src));
 }
+
+[Test]
+void test_closed_interface_free_overloads_distinguish_instantiations() {
+    string context = "namespace D; class Animal {} class Cat : Animal {}"
+        + " interface ISource<T> { T Read(); } void Take(int n) {}"
+        + " void Take(ISource<Animal> x) {} void Take(ISource<Cat> x) {}";
+    Assert.Equal(0, SemanticDump.ErrorCount(context
+        + " void F(ISource<Cat> cats) { Take(cats); }"));
+    Assert.Equal("E0408", SemanticDump.FirstErrorCode(context + " void Take(ISource<Cat> other) {}"));
+}
