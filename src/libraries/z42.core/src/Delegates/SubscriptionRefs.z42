@@ -195,3 +195,27 @@ public sealed class WeakRef<TD> : ISubscription<TD> {
         // noop
     }
 }
+
+// ── 链式门面（feat/asweak-facade）───────────────────────────────────────────
+/// 订阅策略的链式入口——`handler.AsWeak()` 替代手写 `new WeakRef<TD>(handler)`。
+///
+/// 三个助手都是泛型静态方法（`where TD : Delegate`），编译器把委托值收者上的
+/// `.AsWeak()` / `.AsOnce()` / `.AsOnceWeak()` 成员调用转发到这里（类型实参 = 收者的
+/// 委托类型）。组合语义：Weak 不强持 receiver；Once 首调后失活；OnceWeak 二者叠加
+///（CompositeRef 模式位）。
+public static class Subscriptions {
+    /// 弱引用 receiver 的订阅包装（语义同 `new WeakRef<TD>(handler)`）。
+    public static ISubscription<TD> AsWeak<TD>(TD handler) where TD : Delegate {
+        return new WeakRef<TD>(handler);
+    }
+
+    /// 一次性订阅（语义同 `new OnceRef<TD>(handler)`）。
+    public static ISubscription<TD> AsOnce<TD>(TD handler) where TD : Delegate {
+        return new OnceRef<TD>(handler);
+    }
+
+    /// 一次性 + 弱引用叠加（语义同 `new CompositeRef<TD>(h, Once|Weak)`）。
+    public static ISubscription<TD> AsOnceWeak<TD>(TD handler) where TD : Delegate {
+        return new CompositeRef<TD>(handler, ModeFlags.Once | ModeFlags.Weak);
+    }
+}

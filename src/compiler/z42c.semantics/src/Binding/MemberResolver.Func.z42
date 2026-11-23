@@ -99,6 +99,13 @@ public sealed partial class MemberResolver {
             // `int r = f.Invoke(1)` 这类赋值压根不被检查。
             return new BoundIndirectCall(recv, args, argCount, ft.Ret, sp);
         }
+        // feat/asweak-facade：链式订阅门面——`handler.AsWeak()` / `.AsOnce()` / `.AsOnceWeak()`
+        // 转发到 `Std.Subscriptions` 的同名泛型静态助手（显式类型实参 = 收者的委托类型，返回
+        // ISubscription<收者类型>）。等价手写形态：`bus.SubscribeAdvanced(new WeakRef<TD>(handler))`。
+        if (argCount == 0 && (mem.Name == "AsWeak" || mem.Name == "AsOnce" || mem.Name == "AsOnceWeak")) {
+            BoundExpr facade = this._bindSubscriptionFacade(mem, recv, ft, env, sp);
+            if (facade != null) { return facade; }
+        }
         // feat/delegate-object-methods：委托值上的 **Object 协议方法**——重派发到族基类
         //（Delegate 自有 ToString / GetHashCode / Equals extern；GetType 经发射端折叠为
         // typeof(静态委托类型)，同值类型的 GetType 折叠先例）。发射端族基类直呼分支按
@@ -115,8 +122,38 @@ public sealed partial class MemberResolver {
         // ——见 `_bindInstanceMember` 的 Z42FuncType 分支），不存在「懒加载导致候选集不完整」的
         // 情形 ⇒ 判「不存在」不会误报。
         this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
-            "no method `" + mem.Name + "` on delegate type `" + ft.Name() + "` (delegate calls go through `Invoke`; base-class members are `Target` / `FnName` / `ToString` / `Equals` / `GetHashCode` / `GetType`; enumeration is `Multicast*.GetInvocationList`)", mem.NameSpan);
+            "no method `" + mem.Name + "` on delegate type `" + ft.Name() + "` (delegate calls go through `Invoke`; base-class members are `Target` / `FnName` / `ToString` / `Equals` / `GetHashCode` / `GetType`; subscription facades are `AsWeak` / `AsOnce` / `AsOnceWeak`; enumeration is `Multicast*.GetInvocationList`)", mem.NameSpan);
         BoundExpr[] fa = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, null, env);   // 错误路径清 null 占位
         return new BoundIndirectCall(recv, fa, argCount, new Z42ErrorType(), sp);
+    }
+
+    // feat/asweak-facade：在 Std.Subscriptions 上按**源名**扫静态方法（静态恒 mangle 无裸键，
+    // 见 stabilize-dispatch-keys 方案A——同 MemberResolver._ownMethodsOfKind 的扫表纪律），
+    // 以显式类型实参 [ft] 代换签名后绑成一次静态调用。解析不出返回 null（回落 E0401 路径）。
+    private BoundExpr _bindSubscriptionFacade(MemberExpr mem, BoundExpr recv, Z42FuncType ft, TypeEnv env, Span sp) {
+        Z42ClassType host = env.Symbols.GetClass("Subscriptions");
+        if (host == null) { return null; }
+        int cap = host.Methods.Capacity();
+        MethodSymbol ms = null;
+        int i = 0;
+        while (i < cap) {
+            if (host.Methods.UsedAt(i)) {
+                MethodSymbol cand = host.Methods.ValAt(i) as MethodSymbol;
+                if (cand != null && cand.Name == mem.Name && cand.IsStatic && cand.Signature != null) { ms = cand; break; }
+            }
+            i = i + 1;
+        }
+        if (ms == null) { return null; }
+        this._tc._access.CheckAccess(ms.Visibility, ms.ContainingTypeName, env, env.Symbols, "method", mem.Name, sp);
+        this._tc._access.CheckDeprecatedM(ms, mem.Name, sp);
+        Z42Type[] targs = new Z42Type[1];
+        targs[0] = ft;
+        MethodSymbol sub = MethodTypeArgSubst.Substitute(ms, targs);
+        BoundExpr[] fargs = new BoundExpr[1];
+        fargs[0] = recv;
+        BoundCall bc = BoundCall.Marked(new BoundCall("static", false, null, "Subscriptions", ms.CallKey(),
+                                                      fargs, 1, sub.Signature.Ret, sp), sub.Signature);
+        MemberResolver._setMethodTypeArgs(bc, targs, 1, env);
+        return bc;
     }
 }

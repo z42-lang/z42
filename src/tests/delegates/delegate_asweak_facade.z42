@@ -1,0 +1,67 @@
+// feat/asweak-facade 回归 golden：订阅策略链式门面——`handler.AsWeak()` / `.AsOnce()` /
+// `.AsOnceWeak()`（转发到 Std.Subscriptions 同名泛型静态助手，类型实参 = 收者委托类型）。
+//   ① AsOnce：首调后失活（第二次 Invoke 不再触发）
+//   ② AsWeak：弱引用 receiver——listener 作用域退出 + GC.ForceCollect 后自动短路
+//   ③ AsOnceWeak：一次性 + 弱引用叠加（CompositeRef 模式位）
+//   ④ 方法组收者（l.Tick.AsOnce()）与多元数委托（4 参）同套
+// （此前手写 `new WeakRef<TD>(handler)` / `new CompositeRef<TD>(h, flags)`——功能等价
+//  但不 fluent；internals §6 记载的 Deprioritize 项，本 PR 销账。）
+namespace Demo;
+
+using Std;
+using Std.IO;
+
+public class Listener {
+    public static int Calls = 0;
+    public int N;
+    public void Tick(int n) { this.N = this.N + n; Listener.Calls = Listener.Calls + 1; }
+    public void Tick4(int a, int b, int c, int d) { this.N = this.N + a; }
+}
+
+// 独立函数限定 listener 作用域——返回后只剩 WeakHandle 持 listener（同 weak_subscription_lapsed）。
+void BindWeakChained(MulticastAction<int> bus) {
+    var l = new Listener();
+    bus.SubscribeAdvanced(((Action<int>)l.Tick).AsWeak());
+}
+
+void Main() {
+    // ── ① AsOnce：一次性 ───────────────────────────────────────────────────
+    var bus = new MulticastAction<int>();
+    var t = new Listener();
+    Action<int> h1 = (int n) => { t.N = t.N + n; };
+    bus.SubscribeAdvanced(h1.AsOnce());
+    bus.Invoke(5);
+    bus.Invoke(5);
+    Console.WriteLine("once N " + t.N.ToString());          // 5（第二次失活）
+
+    // ── ② AsWeak：弱引用 + GC 失效 ────────────────────────────────────────
+    Listener.Calls = 0;
+    BindWeakChained(bus);
+    GC.ForceCollect();
+    bus.Invoke(42);
+    Console.WriteLine("lapsed " + Listener.Calls.ToString());   // 0
+
+    // ── ③ AsOnceWeak：叠加 ────────────────────────────────────────────────
+    var bus2 = new MulticastAction<int>();
+    var t2 = new Listener();
+    Action<int> h2 = (int n) => { t2.N = t2.N + n; };
+    var sub = h2.AsOnceWeak();
+    Console.WriteLine("alive " + sub.IsAlive().ToString());  // true
+    bus2.SubscribeAdvanced(sub);
+    bus2.Invoke(3);
+    bus2.Invoke(3);
+    Console.WriteLine("once-weak N " + t2.N.ToString());     // 3
+
+    // ── ④ 方法组收者 + 4 参多播 ───────────────────────────────────────────
+    var bus4 = new MulticastAction<int, int, int, int>();
+    var l4 = new Listener();
+    bus4.SubscribeAdvanced(l4.Tick4.AsOnce());
+    bus4.Invoke(1, 0, 0, 0);
+    bus4.Invoke(2, 0, 0, 0);
+    Console.WriteLine("mg4 N " + l4.N.ToString());           // 1
+
+    // 门面返回值即包装实例——可显式持有 / 查活（与手写构造完全同型）
+    Action<int> h3 = (int n) => { };
+    ISubscription<Action<int>> s3 = h3.AsWeak();
+    Console.WriteLine("typed-alive " + s3.IsAlive().ToString());
+}

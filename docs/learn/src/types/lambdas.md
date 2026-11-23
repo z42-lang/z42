@@ -299,7 +299,8 @@ lambda 里可以直接用外层的局部变量，这样的 lambda 叫**闭包**�
 
 `OnceRef` 是**这一个订阅**响一次就失活，别的订阅不受影响。另外还有 `WeakRef`（处理器的
 宿主对象被回收后自动失活，用来避免「忘了退订导致对象一直活着」）和 `CompositeRef`
-（把两种叠加）。
+（把两种叠加）。这三种都能链着写：`bus.SubscribeAdvanced(handler.AsOnce())` /
+`.AsWeak()` / `.AsOnceWeak()`——不用手写 `new`。
 
 > 注意 `Count` 是**方法** `Count()` 不是属性；包装策略走的是 `SubscribeAdvanced` 而不是
 > `Subscribe` 的重载。完整 API 见

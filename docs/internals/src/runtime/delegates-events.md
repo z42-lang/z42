@@ -274,13 +274,14 @@ impl<TDelegate> TDelegate where TDelegate : Delegate { ... AsWeak() ... }
 impl<TDelegate> ISubscription<TDelegate> { ... AsWeak() ... }
 ```
 
-**全仓零实现**。约束那半已解决：`where TDelegate : Delegate` 随族基类落地
-（`ConstraintChecker._satisfiesBase` 的 `Z42FuncType` 分支，见 §2.3a）。剩余根因：
-SymbolCollector 收集 `impl` 目标时只接受 `NamedType`，**不接受**
-泛型实例化 target（`ISubscription<T>` / `Action<T>` 都不行）。要做需 Parser / AST /
-SymbolCollector 三层联动。
-**当前 workaround**：`new CompositeRef<T>(h, ModeFlags.Once | ModeFlags.Weak)` 直接构造，
-功能等价，只是不够 fluent。**Deprioritize**——等真有用户因美感受阻再启动。
+**已落地**（feat/asweak-facade，2026-11-23）：不走 `impl`（其 target 须解析为类——委托是
+结构化函数类型、无类符号，泛型实例化 target 也不被收集），改走**成员调用拦截**：
+`BindFuncValueMemberCall` 对 `AsWeak` / `AsOnce` / `AsOnceWeak`（0 参）转发到
+`Std.Subscriptions` 的同名泛型静态助手（静态恒 mangle 无裸键 ⇒ 按源名扫表；显式类型实参 =
+收者的 `Z42FuncType`，经 `MethodTypeArgSubst.Substitute` 代换签名后绑成一次静态调用）。
+顺带修存量缺口：`Conversion._hasGenericParam` 的结构化递归漏了 `Z42InstantiatedInterfaceType`
+（接口实例化是 `Z42InterfaceType` 子类而非 `Z42InstantiatedType`）⇒ 形如
+`ISubscription<Action<T>>` 的参数判成「不含型参」、与具体实参比结构误报 E0402。
 
 ### N>4 arity 的 `Action` / `Func`
 

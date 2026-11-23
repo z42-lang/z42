@@ -258,9 +258,12 @@ bus.SubscribeAdvanced(new WeakRef<Action<int>>(listener.OnEvent));
 bus.SubscribeAdvanced(new CompositeRef<Action<int>>(handler, ModeFlags.Once | ModeFlags.Weak));
 ```
 
-> **没有 `.AsWeak()` / `.AsOnce()` 链式扩展方法**——全仓零实现。构造包装类要显式
-> `new`，或在已有 `CompositeRef` 上 `WithMode(...)` 累加。在 generic interface 上挂
-> `impl` 扩展方法当前不可用，这是该写法缺席的直接原因。
+> **链式门面**（feat/asweak-facade）：`handler.AsWeak()` / `handler.AsOnce()` /
+> `handler.AsOnceWeak()` 在任意委托值上可用——转发到 `Std.Subscriptions` 的同名泛型静态
+> 助手（类型实参 = 收者的委托类型，返回 `ISubscription<TD>`），等价于手写
+> `new WeakRef<TD>(handler)` 等构造。收者须是**具体委托类型**（`Action<int>` 等有类型的
+> 变量 / 方法组；无目标类型的 lambda 字面量与 `(Delegate)` 上转值不行——前者无从定型，
+> 后者类型已擦除）。
 
 **`WeakRef` / `CompositeRef(Weak)` 的退化**：包装类构造时把 handler 拆成
 "弱引用 receiver + 函数名"。没有 receiver 的 handler（静态方法、无捕获 lambda）
