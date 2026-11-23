@@ -104,6 +104,12 @@ class Sub<U> : GBox<U> { public Sub() { } }    // Sub<int>().V 是 int
 class Deep : DInt      { public Deep() { } }   // Deep().V 也是 int
 ```
 
+**泛型类体内经 `this` 调基类成员**（feat/generic-base-subst）同样代换：在 `Sub<U>` 的方法体里
+`this.V` 的静态类型是 `U`；基类**方法**的形参 / 返回位也按派生类声明的基类实换代换
+（`class Kid<T> : Box<Action<T>>` 体内 `this.Get()` 返回 `Action<T>`、`this.Put(handler)`
+按 `Action<T>` 检查实参）——多跳链逐跳用各自派生类的基类实参。此前的缺口是拿到基类裸
+型参名（`X` / `THandler`），实参位误拒、返回位漏检。
+
 > ⚠️ **限制：基类来自别的包时，这条路只通到编译期。** `class DInt : GBox<int>` 其中 `GBox`
 > 由另一个 zpkg 提供 —— 能编过，但运行期抛
 > ``MissingSymbolException: base type `…GBox<int>` … could not be resolved``。

@@ -1,0 +1,47 @@
+// feat/generic-base-subst 回归 golden：泛型类**体内**经 this 调基类成员时，
+// 基类级型参按「派生类声明的基类实参」代换——此前拿到基类裸签名
+//（E0402 `Action<T>`→`X` 双向：实参位误拒 / 返回位漏检）。
+// 实例化收者（Box<int>）与闭式基类（DInt : GBox<int>）早有两条路；本 PR 补第三条。
+namespace Demo;
+
+using Std;
+using Std.IO;
+
+class Box<X> where X : Delegate {
+    public X[] Items;
+    public Box() { this.Items = new X[4]; }
+    public void Put(X v) { this.Items[0] = v; }
+    public X Get() { return this.Items[0]; }
+    public X[] All() { return this.Items; }
+}
+
+// 开放基类（实参 = 子类自己的型参）
+class Kid<T> : Box<Action<T>> {
+    public Kid() : base() { }
+
+    public Action<T> Grab() { return this.Get(); }        // 返回位代换
+    public void Give(Action<T> h) { this.Put(h); }        // 实参位代换
+    public Action<T>[] Snapshot() { return this.All(); }  // 数组元素位代换
+}
+
+// 闭式基类（既有能力钉）
+class Closed : Box<Func<int, int>> {
+    public Closed() : base() { }
+    public Func<int, int> Grab() { return this.Get(); }
+}
+
+void Main() {
+    Tally t = new Tally();
+    Kid<int> k = new Kid<int>();
+    k.Give((int n) => { t.N = t.N + n; });      // lambda 经代换签名 target-type 成 Action<int>
+    Action<int> g = k.Grab();
+    g(5);
+    Console.WriteLine(t.N.ToString());          // 5
+    Console.WriteLine(k.Snapshot().Length.ToString());   // 4
+
+    Closed c = new Closed();
+    c.Put((int x) => x * 2);
+    Console.WriteLine(c.Get()(21).ToString());  // 42
+}
+
+class Tally { public int N; }
