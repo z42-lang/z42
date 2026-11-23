@@ -373,7 +373,6 @@ public sealed class ConstructTyper {
         if (cms != null && (CallParams.DeclOf(cms) != null || adaptImported)) {
             BoundExpr[] adapted = this._tc._overload._adaptArgs(cms, rawArgs, argc, env, sp);   // PR6b：sp = 调用点，供 caller 宏注入
             if (adapted != null) {
-                RefArgCheck.CheckAdaptedSlots(this._tc, adapted, cms.Signature);
                 // `_adaptArgs` 只做命名实参重排 + 默认值填充，**不打包 params 尾参**。
                 // 等 arity 且尾参不是数组时它给回的是「一个元素」，这里补成尾包
                 // （方法路径由 `_withParamsExpansion` 做同一件事）。
