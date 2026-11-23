@@ -86,10 +86,17 @@ void test_partial_interface_variance_combines_all_fragments() {
 
 [Test]
 void test_inferred_variance_preserves_nominal_conversion_rules() {
-    var iface = collectVarianceInterface("interface IOut<T> { T Get(); }", "IOut");
-    var narrow = new Z42InstantiatedInterfaceType(iface, new Z42Type[] { new Z42ClassType("Dog", false, "") }, 1);
-    var broad = new Z42InstantiatedInterfaceType(iface, new Z42Type[] { new Z42ClassType("Animal", false, "") }, 1);
+    var parser = new Parser(
+        "class Animal { } class Dog : Animal { } interface IOut<T> { T Get(); }", "variance.z42");
+    var unit = parser.ParseCompilationUnit();
+    var symbols = new SymbolCollector().Collect(unit).WithScopeOf(unit);
+    var iface = symbols.GetInterface("IOut");
+    var dog = symbols.GetClass("Dog");
+    var animal = symbols.GetClass("Animal");
+    var narrow = new Z42InstantiatedInterfaceType(iface, new Z42Type[] { dog }, 1);
+    var broad = new Z42InstantiatedInterfaceType(iface, new Z42Type[] { animal }, 1);
+    Assert.Equal(true, symbols.IsSubclassOfType(dog, animal));
     Assert.Equal(true, iface.ParameterVariance(0) == InterfaceVariance.Covariant);
     Assert.Equal(false, Z42InterfaceType.SameInterface(narrow, broad));
-    Assert.Equal(ConvKind.None, Conversion.Classify(narrow, broad, new SymbolTable()).Kind);
+    Assert.Equal(ConvKind.None, Conversion.Classify(narrow, broad, symbols).Kind);
 }
