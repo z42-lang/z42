@@ -93,6 +93,7 @@ pub(super) const OP_METHOD_DEFAULT: u8  = 0xB3;
 pub(super) const OP_CALL_GENERIC: u8    = 0xB4;
 pub(super) const OP_VCALL_GENERIC: u8   = 0xB5;
 pub(super) const OP_LOAD_METHOD_WITNESS: u8 = 0xB6;
+pub(super) const OP_METHOD_STRUCT_ALLOC: u8 = 0xB7;
 
 // add-struct-value-semantics Phase A: blob value type instructions (byte-region ops).
 pub(super) const OP_STRUCT_ALLOC: u8          = 0xC0;
