@@ -39,3 +39,30 @@ public class BlobWriter : IBlobWriter {
 
     public static void Write(int value) { Console.WriteLine("wrong Payload overload"); }
 }
+
+public struct SelfPoint : ISelfWriter {
+    public int X;
+    public int Y;
+    public SelfPoint(int x, int y) { this.X = x; this.Y = y; }
+    public static void Write(SelfPoint value) {
+        value.X = value.X + 1;
+        Console.WriteLine(value.X + value.Y);
+    }
+}
+
+public struct SelfPacket : ISelfWriter {
+    public long Prefix;
+    public string Label;
+    public int Count;
+    public SelfPacket(long prefix, string label, int count) {
+        this.Prefix = prefix;
+        this.Label = label;
+        this.Count = count;
+    }
+    public static void Write(SelfPacket value) {
+        Console.WriteLine(value.Label);
+        value.Label = "changed";
+        value.Count = value.Count + 1;
+        Console.WriteLine(value.Prefix + value.Count);
+    }
+}

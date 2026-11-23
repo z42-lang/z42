@@ -14,4 +14,11 @@ void Main() {
     Console.WriteLine(payload.Label);
     Console.WriteLine(Demo.WitnessContract.ForwardUpdate<Seven>(4));
     Console.WriteLine(Demo.WitnessContract.ReplaceSelf(value).Value);
+    SelfPoint point = new SelfPoint(3, 4);
+    Demo.WitnessContract.ForwardValueSelf(point);
+    Console.WriteLine(point.X);
+    SelfPacket packet = new SelfPacket(20L, "packet", 5);
+    Demo.WitnessContract.ForwardValueSelf(packet);
+    Console.WriteLine(packet.Count);
+    Console.WriteLine(packet.Label);
 }

@@ -437,6 +437,9 @@ blob struct 走 **sret**（调用方传一个隐藏返回槽），而泛型体�
 静态约束方法支持标量 `ref` 形参，以及 `class` 约束下的 `ref Self`。调用写成 `T.Update(ref value)`，`value` 必须可取址且其类型须与形参一致。
 同名的按值实现与按引用实现按参数传递方式区分。以上规则也适用于跨包调用。
 
+泛型自由函数可以用 `where T : struct + IWriter` 调用接口中声明为 `static void Write(Self value);` 的方法。
+`T.Write(value)` 按值传递 `value`，实现修改形参时调用者的值保持原样。
+
 ### 实现接口静态成员：四项校验（含跨包）
 
 无函数体的静态接口方法要求实现方提供 `public static` 方法。满足性校验会逐项比对。
