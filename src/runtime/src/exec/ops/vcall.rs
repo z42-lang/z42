@@ -151,15 +151,21 @@ fn resolve_interface_ref_vcall<'a>(
     method: &str,
     arity: usize,
 ) -> Result<ResolvedVCall<'a>> {
-    let receiver = Value::Object(view.receiver());
+    let receiver = view.receiver();
     if let Some((interface, member)) = method.rsplit_once('#') {
         let source = view.source();
         let erased = crate::zpkg::index::type_names::erased;
         if erased(source.as_str()) == erased(interface) {
             let key = format!("{source}#{member}");
-            let implementation = resolve_iface_slot(ctx, module, &receiver, &key, false)
-                .ok_or_else(|| anyhow::anyhow!("VCall: missing source interface slot `{key}`"))?;
-            return resolve_checked_vcall(ctx, module, &receiver, &implementation, arity, None);
+            if let Some(implementation) = resolve_iface_slot(ctx, module, &receiver, &key, false) {
+                return resolve_checked_vcall(ctx, module, &receiver, &implementation, arity, None);
+            }
+            // Older and open generic implementers can have only the ordinary
+            // source slot. Reuse its dispatch rules, keeping the target out of lookup.
+            if let Value::Str(legacy) = view.legacy() {
+                return resolve_vcall(ctx, module, &receiver, &format!("{legacy}#{member}"), arity, None);
+            }
+            bail!("VCall: missing source interface slot `{key}`");
         }
     }
     resolve_vcall(ctx, module, &receiver, method, arity, None)

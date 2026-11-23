@@ -1,0 +1,10 @@
+namespace DemoVarianceTarget;
+
+public class Animal {}
+public class Cat : Animal {}
+public interface ISink<T> { string Put(T value); }
+
+public class DualSink : ISink<Animal>, ISink<Cat> {
+    public string Put(Animal value) { return "animal"; }
+    public string Put(Cat value) { return "cat"; }
+}

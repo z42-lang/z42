@@ -286,7 +286,8 @@ fn interface_view_survives_roots_fields_and_array_elements() {
         }
         let check = |stored, expected, original| {
             let Value::InterfaceRef(view) = stored else { panic!("source interface lost") };
-            assert!(ObjRef::ptr_eq(&view.receiver(), &original), "object identity changed");
+            let Value::Object(receiver) = view.receiver() else { panic!("object") };
+            assert!(ObjRef::ptr_eq(&receiver, &original), "object identity changed");
             assert_eq!(view.source().as_str(), expected);
         };
         let upgrade = |weak| match heap.upgrade_weak(weak) {

@@ -390,7 +390,11 @@ public sealed class BoundConvert : BoundExpr {
     // post-construction 写入（同 `MethodTypeArgs` / `RetIsNullable` 的先例）。
     public bool CheckedRefCast;
     private Z42Type _type;
-    public BoundConvert(BoundExpr e, Z42Type type, Span span) { this.Span = span; this.E = e; this._type = type; this.CheckedRefCast = false; }
+    public bool InterfaceProjection;
+    public BoundConvert(BoundExpr e, Z42Type type, Span span) {
+        this.Span = span; this.E = e; this._type = type;
+        this.CheckedRefCast = false; this.InterfaceProjection = false;
+    }
     public override Z42Type Type() { return this._type; }
     public override R Accept<R, D>(IBoundExprVisitor<R, D> v, D d) { return v.VisitConvert(this, d); }
     public override string  Dump() { return "(convert " + this.E.Dump() + " :" + this._type.Name() + ")"; }

@@ -41,6 +41,17 @@ fn is_instance_of(
     key: &TypeKeyCell, bound_param: bool,
 ) -> Result<()> {
     let v = frame.get(obj)?;
+    let original;
+    let v = if let Value::InterfaceRef(view) = v {
+        if view.matches_target(class_name) {
+            frame.set(dst, Value::Bool(true));
+            return Ok(());
+        }
+        original = view.receiver();
+        &original
+    } else {
+        v
+    };
     if bound_param && bound_param_extra_isa(ctx, &module.type_registry, v, class_name) {
         frame.set(dst, Value::Bool(true));
         return Ok(());
@@ -83,6 +94,15 @@ fn as_cast_to(
     key: &TypeKeyCell, bound_param: bool,
 ) -> Result<()> {
     let val = frame.get(obj)?.clone();
+    let val = if let Value::InterfaceRef(view) = val {
+        if class_name == "Std.Object" || class_name == "Object" || view.matches_target(class_name) {
+            frame.set(dst, val);
+            return Ok(());
+        }
+        view.receiver()
+    } else {
+        val
+    };
     if bound_param && bound_param_extra_isa(ctx, &module.type_registry, &val, class_name) {
         frame.set(dst, val);
         return Ok(());

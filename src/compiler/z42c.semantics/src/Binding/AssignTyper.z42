@@ -162,6 +162,7 @@ public sealed class AssignTyper {
 
     // 右值收尾：隐式转换检查 → 装箱 → 表示转换（赋值与成员初始化器共用同一顺序）。
     private BoundExpr _finishValue(BoundExpr value, Z42Type targetType, Span valueSpan, TypeEnv env) {
+        value = this._tc.ConvertInterfaceVariance(value, targetType, env.Symbols);
         this._tc.CheckImplicitConvert(value, targetType, env.Symbols, valueSpan, "assign");   // tighten-implicit-conversions：窄化→E0439 / 常量例外
         // make-enum-distinct-type 1.5：**赋值**（含 `arr[i] = v` 数组元素 store、字段 store、
         // 局部再赋值）此前根本没有装箱点——`TypeChecker.BoxIfNeeded` 头注释宣称的「var-decl /

@@ -35,6 +35,7 @@ const UNDECLARED_ALLOWLIST: &[(&str, &str)] = &[
     // Emitted directly by the compiler (value boxing lowering), never spelled in stdlib source.
     ("__box_prim",   "compiler-emitted: add-primitive-value-boxing"),
     ("__box_struct", "compiler-emitted: add-struct-value-semantics"),
+    ("__project_interface", "compiler-emitted: implicit interface variance"),
     // Emitted by the compiler for `available!(X)`. Doubly undeclarable: it is never spelled in
     // stdlib source, AND on the normal path it never *executes* — `fold_availability` replaces
     // the call with a `ConstBool` at module load. The runtime impl is a diagnostic fallback

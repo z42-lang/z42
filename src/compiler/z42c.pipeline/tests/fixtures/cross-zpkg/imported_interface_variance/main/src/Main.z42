@@ -1,0 +1,11 @@
+namespace DemoVarianceApp;
+
+using Std.IO;
+using DemoVarianceTarget;
+
+void Main() {
+    DualSink dual = new DualSink();
+    ISink<Animal> source = dual;
+    ISink<Cat> converted = source;
+    Console.WriteLine(converted.Put(new Cat()));
+}

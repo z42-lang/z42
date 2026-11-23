@@ -200,7 +200,8 @@ public static class CompilerFingerprint {
         "bind-generic-interface-slots",
         "dispatch-ref-static-witness",
         "bind-value-self-witness-parameters",
-        "bind-value-self-witness-returns"
+        "bind-value-self-witness-returns",
+        "enable-interface-variance-conversions"
     };
 
     // 指纹值：`Entries` 逐条以 `\n` 连接后取内容哈希（`mmh3:` 前缀，同 SourceHash）。
