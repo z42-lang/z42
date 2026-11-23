@@ -236,7 +236,9 @@ fn holds_box_of(ctx: &VmContext, holder: &str, strukt: &str) -> bool {
         _ => {}
     }
     let Some(m) = ctx.module() else { return true };
-    let known = m.type_registry.contains_key(holder) || ctx.loader().try_lookup_type(holder).is_some();
+    let definition = erased(holder);
+    let known = lookup_desc(ctx, holder).is_some()
+        || (definition != holder && lookup_desc(ctx, definition).is_some());
     !known || crate::exec::ops::cast::is_subclass_or_eq_td(ctx, &m.type_registry, strukt, holder)
 }
 

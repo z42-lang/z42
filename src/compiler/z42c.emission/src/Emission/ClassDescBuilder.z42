@@ -373,6 +373,7 @@ public sealed partial class ClassDescBuilder {
             cd2.Interfaces = ifqs;
             cd2.InterfaceCount = expanded.Length;
         }
+        this._addClosedInterfaceIdentities(cd2, c, ctd);
         this._fillIfaceSlots(cd2, ctd);
         // class-shape flags（zbc 1.12，G12）：从修饰符/kind 推导（镜像 C# cls.IsAbstract/IsSealed/IsStruct/IsRecord）。
         int flags = 0;

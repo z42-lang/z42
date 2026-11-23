@@ -1,0 +1,53 @@
+using Std;
+
+class Dog {}
+class Cat {}
+interface ISource<T> { T Read(); }
+interface IChildSource<T> : ISource<T> {}
+interface IMarker<T> {}
+class CatSource : IChildSource<Cat>, IMarker<Cat> {
+    public Cat Read() { return new Cat(); }
+}
+class DerivedCatSource : CatSource {}
+struct CatMarker : IMarker<Cat> { public int Tag; }
+
+void Main() {
+    object value = new DerivedCatSource();
+    Assert.True(value is IChildSource<Cat>);
+    Assert.True(value is ISource<Cat>);
+    Assert.True(value is ISource);
+    Assert.False(value is ISource<Dog>);
+    Assert.True((value as ISource<Dog>) == null);
+    Assert.Throws("InvalidCastException", () => { var wrong = (ISource<Dog>)value; });
+
+    Assert.True(value is IMarker<Cat>);
+    Assert.False(value is IMarker<Dog>);
+    Assert.True(typeof(ISource<Cat>).IsAssignableFrom(value.GetType()));
+    Assert.False(typeof(ISource<Dog>).IsAssignableFrom(value.GetType()));
+
+    var interfaces = value.GetType().GetInterfaces();
+    Assert.Equal(3, interfaces.Length);
+    Assert.Equal(typeof(IChildSource<Cat>), interfaces[0]);
+    Assert.Equal(typeof(IMarker<Cat>), interfaces[1]);
+    Assert.Equal(typeof(ISource<Cat>), interfaces[2]);
+
+    var cats = new ISource<Cat>[1];
+    cats.SetValue(value, 0);
+    Assert.True(cats[0].Read() is Cat);
+
+    var dogs = new ISource<Dog>[1];
+    Assert.Throws("InvalidCastException", () => dogs.SetValue(value, 0));
+    var sources = new DerivedCatSource[] { new DerivedCatSource() };
+    Assert.Throws("InvalidCastException", () => Array.CopyRange(sources, 0, dogs, 0, 1));
+    Assert.True(dogs[0] == null);
+
+    var markers = new IMarker<Dog>[1];
+    Assert.Throws("InvalidCastException", () => markers.SetValue(value, 0));
+
+    var structs = new CatMarker[1];
+    var boxedMarkers = new IMarker<Cat>[1];
+    Array.CopyRange(structs, 0, boxedMarkers, 0, 1);
+    Assert.True(boxedMarkers[0] is IMarker<Cat>);
+    Assert.Throws("ArrayTypeMismatchException", () => Array.CopyRange(structs, 0, markers, 0, 1));
+    Assert.True(markers[0] == null);
+}

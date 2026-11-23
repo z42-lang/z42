@@ -1,0 +1,75 @@
+namespace Z42.Emission;
+
+using Std.Collections;
+using Z42.IR;
+using Z42.Symbols;
+using Z42.Syntax;
+
+public sealed partial class ClassDescBuilder {
+    // Use the existing private TYPE attribute channel so old packages and readers
+    // can keep their legacy interface table. A partial closure cannot replace that table.
+    private void _addClosedInterfaceIdentities(IrClassDesc cd, ClassDecl declaration, Z42ClassType owner) {
+        if (owner == null || owner.InterfaceCount == 0 || owner.IsPartial || declaration.TypeParams.Count > 0) {
+            return;
+        }
+        SymbolTable symbols = this._scope();
+        var pending = new List<Z42InterfaceType>();
+        int i = 0;
+        while (i < declaration.BaseCount) {
+            var parent = symbols.ResolveType(declaration.Bases[i]) as Z42InterfaceType;
+            if (parent != null) { pending.Add(parent); }
+            i = i + 1;
+        }
+        // An impl block contributes a name without a bound reference in this declaration.
+        if (pending.Count != owner.InterfaceCount) { return; }
+
+        var names = new List<string>();
+        var seen = new StrMap();
+        bool hasConstructed = false;
+        i = 0;
+        while (i < pending.Count) {
+            Z42InterfaceType iface = pending[i];
+            i = i + 1;
+            var instance = iface as Z42InstantiatedInterfaceType;
+            if (instance == null && iface.TypeParamCount > 0) { return; }
+            if (!IfaceSlotKeys.IsClosed(iface)) { return; }
+            string name = LayoutKey.Of(iface);
+            if (name == "") { return; }
+            if (seen.ContainsKey(name)) { continue; }
+            seen.Put(name, "1");
+            names.Add(name);
+            hasConstructed = hasConstructed || instance != null;
+            if (!this._appendClosedInterfaceParents(symbols, iface, pending)) { return; }
+        }
+        if (!hasConstructed) { return; }
+        this._emitClosedInterfaceNames(cd, names);
+    }
+
+    private bool _appendClosedInterfaceParents(SymbolTable symbols, Z42InterfaceType iface, List<Z42InterfaceType> pending) {
+        if (iface.BaseCount == 0) { return true; }
+        // Base refs retain their declaration spelling. Resolve them only in
+        // that compilation unit's scope.
+        if (this._g.IfaceDecls == null || !this._g.IfaceDecls.ContainsKey(iface.Fqn())) { return false; }
+        int i = 0;
+        while (i < iface.BaseCount) {
+            Z42InterfaceType parent = InterfaceClosure.BaseAt(symbols, iface, i);
+            if (parent == null) { return false; }
+            pending.Add(parent);
+            i = i + 1;
+        }
+        return true;
+    }
+
+    private void _emitClosedInterfaceNames(IrClassDesc cd, List<string> names) {
+        var attrs = new IrAttrRef[cd.AttrCount + names.Count];
+        int i = 0;
+        while (i < cd.AttrCount) { attrs[i] = cd.Attrs[i]; i = i + 1; }
+        int j = 0;
+        while (j < names.Count) {
+            attrs[i + j] = new IrAttrRef("$ClosedInterface", names[j]);
+            j = j + 1;
+        }
+        cd.Attrs = attrs;
+        cd.AttrCount = attrs.Length;
+    }
+}
