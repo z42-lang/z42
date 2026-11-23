@@ -248,13 +248,12 @@ void test_array_identity_retains_closed_interface_arguments() {
     Assert.Equal("E0402", SemanticDump.FirstErrorCode(context
         + " void F(ISource<Dog>[] source) { ISource<Animal>[] target = source; }"));
     Assert.Equal("E0402", SemanticDump.FirstErrorCode(context
-        + " void F(ISource<Dog>[][] source) { ISource<Animal>[][] target = source; }"));
+        + " ISource<Animal>[][] F(ISource<Dog>[][] source) { return source; }"));
     Assert.Equal("E0402", SemanticDump.FirstErrorCode(context
         + " void F(Box<ISource<Dog>>[] source) { Box<ISource<Animal>>[] target = source; }"));
     Assert.Equal("E0424", SemanticDump.FirstErrorCode(context
         + " void F(ISource<Dog>[] source) { var target = (ISource<Animal>[])source; }"));
     Assert.Equal(0, SemanticDump.ErrorCount(context
-        + " void F(ISource<Dog> source, ISource<Dog>[][] nested, int[] values) {"
-        + " ISource<Animal> widened = source; ISource<Dog>[][] same = nested;"
-        + " Int32[] aliases = values; }"));
+        + " ISource<Dog>[][] F(ISource<Dog> source, ISource<Dog>[][] nested, int[] values) {"
+        + " ISource<Animal> widened = source; Int32[] aliases = values; return nested; }"));
 }
