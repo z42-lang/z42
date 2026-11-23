@@ -29,6 +29,11 @@
 //! ```compile_fail
 //! use z42::vm::program::LoadedProgram;
 //! ```
+//! ```
+//! use z42::host::resolver::{read_zpkg_namespaces, ZpkgResolver};
+//! let _: Option<&dyn ZpkgResolver> = None;
+//! let _ = read_zpkg_namespaces;
+//! ```
 //! C handle consumers import the owning host API rather than implementation files:
 //! ```
 //! use z42::host::{Z42Host, Z42Module, Z42Entry};
@@ -48,7 +53,10 @@ pub use crate::{object::Value, pal::fs::Vfs, metadata::Module};
 // VmContext stays reachable at `z42::vm` only: hosts express functional
 // requests; the low-level context is a VM-internal facility.
 use crate::vm::VmContext;
-pub mod resolver;
+/// Package resolver contract and resolver-key discovery.
+pub mod resolver {
+    pub use crate::loader::program::{read_zpkg_namespaces, ZpkgResolver};
+}
 pub mod signal;
 pub mod error;
 // C ABI configuration, session, marshaling and entry points.

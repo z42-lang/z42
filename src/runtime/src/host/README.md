@@ -27,7 +27,7 @@ VM 内部组件门面、跨库协议与普通宿主契约的区别及当前缺�
 | `ops.rs` / `marshal.rs` | ABI 操作适配和参数、返回值转换 |
 | `ExecMode` / `PackageImage` | 由 z42-zpkg 拥有、通过宿主门面提供的执行模式和不可变包定义类型 |
 | `signal.rs` | 致命信号安装入口，VM 栈捕获与崩溃报告归 diagnostics |
-| `resolver.rs` | 宿主包解析接口、C 回调适配和 `read_zpkg_namespaces` 包解析键查询 |
+| `host::resolver` | 导出 loader 的包解析接口和 `read_zpkg_namespaces` 包解析键查询，C 回调适配归 `config.rs` |
 | `services.rs` | 嵌入端搜索路径与核心库隔离运行适配 |
 
 ## 基础用法

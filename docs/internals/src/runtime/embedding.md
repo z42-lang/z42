@@ -157,7 +157,7 @@ pub trait ZpkgResolver: Send + Sync {
 }
 ```
 
-- **C 函数指针 + user_data**（`Z42ZpkgResolverFn`，来自 `Z42HostConfig`）被 `resolver::CHookResolver`
+- **C 函数指针 + user_data**（`Z42ZpkgResolverFn`，来自 `Z42HostConfig`）由 `host/config.rs` 的 `CHookResolver`
   包一层。`user_data` 存成 `usize` 以干净地继承 `Send + Sync`。回调返回后**立刻 `to_vec()` 复制**，
   所以宿主那边「字节只需活到回调返回」的契约得以成立。
 - **Rust `Arc<dyn ZpkgResolver>`** 由 Tier 2 经 `host::install_zpkg_resolver()` 直接塞进
