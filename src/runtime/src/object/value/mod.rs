@@ -15,5 +15,8 @@ pub use cells::Cells;
 pub mod format;
 pub mod boxed_hash;
 
+mod interface_ref;
+pub use interface_ref::InterfaceRef;
+
 mod kind;
 pub use kind::value_kind_name;

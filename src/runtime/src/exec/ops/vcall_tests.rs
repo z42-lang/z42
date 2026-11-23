@@ -214,12 +214,12 @@ fn iface_slot_key_parts() {
 }
 
 /// An object of `Demo.W` whose vtable holds `Get` (the bare-keyed `Get(int)`) and
-/// `Get$1$string`, with the interface-slot aliases `aliases` pointing at slot 1.
-fn w_object(ctx: &VmContext, aliases: &[&str]) -> Value {
+/// `Get$1$string`, with interface-slot aliases pointing at the specified slots.
+fn w_object(ctx: &VmContext, aliases: &[(&str, usize)]) -> Value {
     let mut vtable_index = NameIndex::new();
     vtable_index.insert("Get".to_string(), 0);
     vtable_index.insert("Get$1$string".to_string(), 1);
-    for a in aliases { vtable_index.insert(a.to_string(), 1); }
+    for &(key, slot) in aliases { vtable_index.insert(key.to_string(), slot); }
     let td = Arc::new(TypeDesc {
         class_flags: 0,
         visibility: 0,
@@ -257,7 +257,7 @@ fn target_name(r: &ResolvedVCall<'_>) -> String {
 fn iface_slot_key_dispatches_through_the_alias() {
     let ctx = VmContext::with_module(w_module());
     let entry = Arc::clone(ctx.module().unwrap());
-    let obj = w_object(&ctx, &["Demo.IPlain#Get", "Demo.IFoo#Get"]);
+    let obj = w_object(&ctx, &[("Demo.IPlain#Get", 1), ("Demo.IFoo#Get", 1)]);
 
     let r = resolve_vcall(&ctx, &entry, &obj, "Demo.IPlain#Get", 1, None).unwrap();
     assert_eq!(target_name(&r), "Demo.W.Get$1$string");
@@ -274,4 +274,52 @@ fn iface_slot_key_without_a_table_falls_back_to_the_bare_name() {
     let obj = w_object(&ctx, &[]);
     let r = resolve_vcall(&ctx, &entry, &obj, "Demo.IPlain#Get", 1, None).unwrap();
     assert_eq!(target_name(&r), "Demo.W.Get");
+}
+
+#[test]
+fn interface_view_uses_its_exact_source_slot_with_or_without_a_target_slot() {
+    let ctx = VmContext::with_module(w_module());
+    let entry = Arc::clone(ctx.module().unwrap());
+    let object = w_object(&ctx, &[
+        ("Demo.IFoo<@int>#Get", 0),
+        ("Demo.IFoo<@string>#Get", 1),
+        ("Demo.IFoo#Get", 0),
+    ]);
+    let Value::Object(receiver) = object else { panic!("object") };
+    let make_view = |source| {
+        let key = ctx.heap().alloc_str(source);
+        Value::InterfaceRef(crate::object::InterfaceRef::new(ctx.heap(), receiver, key).unwrap())
+    };
+    let left = make_view("Demo.IFoo<@int>");
+    let right = make_view("Demo.IFoo<@string>");
+    assert_eq!(left, right);
+    assert!(crate::corelib::core::object::obj_ref_eq(&left, &object));
+    assert!(crate::corelib::core::object::obj_ref_eq(&object, &right));
+
+    let ic = VCallIC::default();
+    vcall_ic_install(&ic, receiver.type_desc().id.0, 0);
+    assert!(vcall_ic_hit(Some(&ic), &object).is_some());
+    assert!(vcall_ic_hit(Some(&ic), &right).is_none());
+    for method in ["Demo.IFoo<@int>#Get", "Demo.IFoo<@object>#Get"] {
+        let l = resolve_vcall(&ctx, &entry, &left, method, 1, Some(&ic)).unwrap();
+        let r = resolve_vcall(&ctx, &entry, &right, method, 1, Some(&ic)).unwrap();
+        assert_eq!(target_name(&l), "Demo.W.Get");
+        assert_eq!(target_name(&r), "Demo.W.Get$1$string");
+        assert!(matches!(l.this, Value::Object(_)));
+        assert!(matches!(r.this, Value::Object(_)));
+
+        for (view, expected) in [(left, 1), (right, 2)] {
+            let mut frame = Frame::new(&ctx, &[], 4);
+            frame.set(0, view);
+            frame.set(1, Value::I64(0));
+            let thrown = crate::interp::ops::exec_vcall::vcall(
+                &ctx, &entry, &mut frame, 2, 0, method, &[1], Some(&ic), &[],
+            ).unwrap();
+            assert!(thrown.is_none());
+            assert_eq!(*frame.get(2).unwrap(), Value::I64(expected));
+        }
+    }
+
+    let missing = make_view("Demo.IFoo<@Missing>");
+    assert!(resolve_vcall(&ctx, &entry, &missing, "Demo.IFoo<@int>#Get", 1, None).is_err());
 }

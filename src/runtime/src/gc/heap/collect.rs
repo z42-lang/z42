@@ -74,6 +74,7 @@ impl crate::gc::Heap {
         match v {
             Value::Object(gc) => ObjRef::mark(gc, kind),
             Value::Array(gc)  => ArrRef::mark(gc, kind),
+            Value::InterfaceRef(view) => ArrRef::mark(&view.backing(), kind),
             // unify-gc-heap PR-2: mark the closure block (region_var); env marked via trace.
             Value::Closure(c) => c.mark(kind),
             // unify-gc-heap PR-4: mark the string block (leaf).
@@ -227,6 +228,7 @@ impl crate::gc::Heap {
         match v {
             Value::Object(gc) | Value::BoxedStruct(gc) => ObjRef::is_marked(gc, kind),
             Value::Array(gc) => ArrRef::is_marked(gc, kind),
+            Value::InterfaceRef(view) => ArrRef::is_marked(&view.backing(), kind),
             Value::Closure(c) => c.is_marked(kind),
             Value::Str(s) => s.is_marked(kind),
             _ => true,

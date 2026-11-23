@@ -24,6 +24,7 @@ impl crate::gc::Heap {
             // prematurely.
             Value::BoxedStruct(gc) => ObjRef::gen_age(gc),
             Value::Array(gc)  => ArrRef::gen_age(gc),
+            Value::InterfaceRef(view) => ArrRef::gen_age(&view.backing()),
             // fix-minor-gc-skips-var-region (#533) gave the closure block its own age, and
             // `gen_age_of` — the judge the minor mark phase actually uses — reads *that*.
             // This barrier was still reading the `env` array's age, so the two could disagree

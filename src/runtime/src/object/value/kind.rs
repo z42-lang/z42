@@ -10,7 +10,7 @@ pub fn value_kind_name(v: &Value) -> &'static str {
         Value::Str(_) => "string",
         Value::Null => "null",
         Value::Array(_) => "数组",
-        Value::Object(_) => "对象",
+        Value::Object(_) | Value::InterfaceRef(_) => "对象",
         Value::BoxedStruct(_) => "装箱值类型",
         _ => "值",
     }

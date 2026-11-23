@@ -77,6 +77,7 @@ fn prefetch(v: &Value) {
     let p: *const u8 = match v {
         Value::Object(o) | Value::BoxedStruct(o) => o.var_ref().header_raw().as_ptr(),
         Value::Array(a) => a.var_ref().header_raw().as_ptr().cast(),
+        Value::InterfaceRef(view) => view.backing().var_ref().header_raw().as_ptr().cast(),
         Value::Str(s) => s.as_ptr(),
         Value::Closure(c) => c.header_raw().as_ptr(),
         _ => return,

@@ -470,6 +470,7 @@ impl crate::gc::Heap {
             // Object model R6 / R8 / R9: an object's or array's whole block — header and payload —
             // the figure its allocation charged and its sweep credits (`alloc_charge_bytes`).
             Value::Array(rc) => GcBlockHeader::DATA_OFFSET + rc.var_ref().payload_size(),
+            Value::InterfaceRef(view) => GcBlockHeader::DATA_OFFSET + view.backing().var_ref().payload_size(),
             Value::Object(rc) | Value::BoxedStruct(rc) => {
                 GcBlockHeader::DATA_OFFSET + rc.var_ref().payload_size()
             }

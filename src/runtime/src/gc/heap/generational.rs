@@ -111,6 +111,7 @@ impl crate::gc::Heap {
         match v {
             Value::Object(gc) => ObjRef::gen_age(gc),
             Value::Array(gc)  => ArrRef::gen_age(gc),
+            Value::InterfaceRef(view) => ArrRef::gen_age(&view.backing()),
             // fix-minor-gc-skips-var-region : the closure block carries its own
             // age now, so report *its* age rather than its `env` array's.
             //

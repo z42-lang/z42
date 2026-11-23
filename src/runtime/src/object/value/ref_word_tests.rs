@@ -242,3 +242,67 @@ fn clear_refs_for_sweep_zeroes_every_word() {
     assert_eq!(edges, 0);
     assert!(holder.borrow().snapshot_fields().iter().all(|&b| b == 0));
 }
+
+#[test]
+fn interface_view_survives_roots_fields_and_array_elements() {
+    use crate::object::{InterfaceRef, ObjRef, store_field_slot, try_store_array_element};
+    for mode in [GcMode::StwMarkSweep, GcMode::GenerationalMarkSweep] {
+        let heap = Heap::default();
+        heap.set_mode(mode);
+        let _guard = crate::gc::ambient::HeapGuard::enter(&heap);
+
+        let holder = heap.alloc_object(ref_cell_td(1), vec![], NativeData::None);
+        let array = ArrayObj::alloc_typed(&heap, "object", vec![Value::Null]);
+        let (Value::Object(field_owner), Value::Array(array_owner)) = (holder, array) else {
+            panic!("reference storage must allocate");
+        };
+        let holder_root = heap.pin_root(holder);
+        let array_root = heap.pin_root(array);
+        if mode == GcMode::GenerationalMarkSweep {
+            for _ in 0..=crate::gc::PROMOTION_THRESHOLD {
+                heap.force_collect();
+            }
+        }
+
+        let make_view = |tag| {
+            let receiver = heap.alloc_object(plain_td("Receiver"), vec![], NativeData::None);
+            let Value::Object(object) = receiver else { panic!("object") };
+            let weak = heap.make_weak(&receiver).unwrap();
+            let source = heap.alloc_str(tag);
+            let reference = InterfaceRef::new(&heap, object, source).unwrap();
+            (Value::InterfaceRef(reference), weak)
+        };
+        let (direct, weak_direct) = make_view("Demo.IFoo<@Root>");
+        assert_eq!(discriminant(&direct), 19);
+        assert_eq!(VALUE_TAG_TO_KIND[19], SLOW_PATH_KIND);
+        let direct_root = heap.pin_root(direct);
+        let (field, weak_field) = make_view("Demo.IFoo<@Field>");
+        store_field_slot(&heap, &field_owner, 0, &field).unwrap();
+        let (elem, weak_elem) = make_view("Demo.IFoo<@Array>");
+        try_store_array_element(&heap, &array_owner, 0, &elem).unwrap();
+
+        for _ in 0..3 {
+            heap.force_collect();
+        }
+        let check = |stored, expected, original| {
+            let Value::InterfaceRef(view) = stored else { panic!("source interface lost") };
+            assert!(ObjRef::ptr_eq(&view.receiver(), &original), "object identity changed");
+            assert_eq!(view.source().as_str(), expected);
+        };
+        let upgrade = |weak| match heap.upgrade_weak(weak) {
+            Some(Value::Object(object)) => object,
+            _ => panic!("receiver must survive via its interface reference"),
+        };
+        check(direct, "Demo.IFoo<@Root>", upgrade(&weak_direct));
+        check(field_owner.borrow().field_value(0), "Demo.IFoo<@Field>", upgrade(&weak_field));
+        check(array_owner.borrow().get(0).unwrap(), "Demo.IFoo<@Array>", upgrade(&weak_elem));
+
+        heap.unpin_root(direct_root);
+        heap.unpin_root(holder_root);
+        heap.unpin_root(array_root);
+        heap.collect_full();
+        assert!(heap.upgrade_weak(&weak_direct).is_none());
+        assert!(heap.upgrade_weak(&weak_field).is_none());
+        assert!(heap.upgrade_weak(&weak_elem).is_none());
+    }
+}
