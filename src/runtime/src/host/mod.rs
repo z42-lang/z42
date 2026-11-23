@@ -20,9 +20,14 @@
 //! use z42::host::BackendSource;
 //! ```
 //! ```
-//! let mut request = z42::host::LoadOptions::default();
+//! use z42::host::{LoadOptions, LoadedProgram};
+//! let mut request = LoadOptions::default();
+//! let _ = LoadedProgram::load_bytes;
 //! request.native.allow_runtime = false;
 //! request.allow_profiling = false;
+//! ```
+//! ```compile_fail
+//! use z42::vm::program::LoadedProgram;
 //! ```
 //! C handle consumers import the owning host API rather than implementation files:
 //! ```
@@ -44,7 +49,6 @@ pub use crate::{object::Value, pal::fs::Vfs, metadata::Module};
 // requests; the low-level context is a VM-internal facility.
 use crate::vm::VmContext;
 pub mod resolver;
-pub(crate) mod program;
 pub mod signal;
 pub mod error;
 // C ABI configuration, session, marshaling and entry points.
@@ -64,8 +68,8 @@ pub use ffi::{
     z42_zpkg_read_namespaces, install_zpkg_resolver, install_vfs, z42_host_run_app,
 };
 pub use resolver::{read_zpkg_namespaces, ZpkgResolver};
-pub use program::{LoadOptions, LoadedProgram};
-pub use app::{default_mode, execution_available, run_app, RunOpts};
+pub use crate::vm::program::{default_mode, execution_available, LoadOptions, LoadedProgram};
+pub use app::{run_app, RunOpts};
 pub use crate::vm::app_state::{program_args, set_program_args};
 #[cfg(test)] mod host_tests;
 #[cfg(test)] mod app_tests;

@@ -17,26 +17,58 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
-pub(crate) enum ProgramSource<'a> {
+enum ProgramSource<'a> {
     File(&'a str),
     Bytes(&'a [u8]),
 }
 
-pub(crate) struct ProgramRequest {
-    pub(crate) native: NativeLoading,
-    pub(crate) allow_profiling: bool,
-    pub(crate) mode: ExecMode,
-    pub(crate) vfs: Arc<dyn Vfs>,
-    pub(crate) search_dirs: Vec<PathBuf>,
-    pub(crate) resolver: Option<Arc<dyn ZpkgResolver>>,
-    pub(crate) eager_dependencies: bool,
+/// Host-provided inputs. A byte source has no implicit working-directory search.
+pub struct LoadOptions {
+    /// Allowed native deployment sources and search directories, captured per VM.
+    pub native: NativeLoading,
+    /// Permit optional sampling and heap inspection; false never activates a profiler.
+    pub allow_profiling: bool,
+    pub mode: ExecMode,
+    pub vfs: Arc<dyn Vfs>,
+    pub search_dirs: Vec<PathBuf>,
+    pub resolver: Option<Arc<dyn ZpkgResolver>>,
+    /// Preload declared imports for hosts that resolve dependency entries before invocation.
+    pub eager_dependencies: bool,
 }
 
-pub(crate) fn load_program(
+impl Default for LoadOptions {
+    fn default() -> Self {
+        Self {
+            native: Default::default(),
+            allow_profiling: true,
+            mode: default_mode(),
+            vfs: crate::pal::fs::default_vfs(),
+            search_dirs: Vec::new(),
+            resolver: None,
+            eager_dependencies: false,
+        }
+    }
+}
+
+/// Build-default execution mode: JIT when compiled in (make-jit-default),
+/// else Interp (jit-less builds — wasm / `--features interp-only`). Callers
+/// without an explicit mode (embedding one-shot) use this.
+pub fn default_mode() -> ExecMode {
+    #[cfg(all(feature = "jit", z42_jit_supported))]
+    {
+        ExecMode::Jit
+    }
+    #[cfg(not(all(feature = "jit", z42_jit_supported)))]
+    {
+        ExecMode::Interp
+    }
+}
+
+fn load_program(
     source: ProgramSource<'_>,
-    request: ProgramRequest,
+    request: LoadOptions,
     image_cache: Option<&ImageCache>,
-) -> Result<Program> {
+) -> Result<LoadedProgram> {
     let components = ComponentInputs {
         profiler: if request.allow_profiling {
             Default::default()
@@ -48,12 +80,12 @@ pub(crate) fn load_program(
     load_program_with_components(source, request, image_cache, &components)
 }
 
-pub(crate) fn load_program_with_components(
+fn load_program_with_components(
     source: ProgramSource<'_>,
-    request: ProgramRequest,
+    request: LoadOptions,
     image_cache: Option<&ImageCache>,
     components: &ComponentInputs,
-) -> Result<Program> {
+) -> Result<LoadedProgram> {
     let (artifact, path) = match source {
         ProgramSource::File(path) => (loader::load_artifact(&*request.vfs, path)?, Some(path)),
         ProgramSource::Bytes(bytes) => (
@@ -86,10 +118,12 @@ pub(crate) fn load_program_with_components(
         },
         prepared.initial_events,
     )?;
-    Program::new(ctx, request.mode, prepared.entry_hint)
+    LoadedProgram::new(ctx, request.mode, prepared.entry_hint)
 }
 
-pub(crate) fn execution_available(mode: ExecMode) -> bool {
+/// Query whether this host can prepare an execution mode, without loading code
+/// or constructing a VM. Component identities remain an internal concern.
+pub fn execution_available(mode: ExecMode) -> bool {
     use crate::components::api::{self, ExecutionRole};
     match mode {
         ExecMode::Interp => api::execution_available(ExecutionRole::Baseline),
@@ -100,7 +134,7 @@ pub(crate) fn execution_available(mode: ExecMode) -> bool {
 
 /// One loaded module and its VM. Initialization is shared by all entry invocations.
 /// Drive a context from one thread at a time; worker execution uses its own context.
-pub(crate) struct Program {
+pub struct LoadedProgram {
     ctx: Pin<Box<VmContext>>,
     module: Arc<Module>,
     mode: ExecMode,
@@ -108,7 +142,34 @@ pub(crate) struct Program {
     initialized: OnceLock<()>,
 }
 
-impl Program {
+impl LoadedProgram {
+    pub fn load_file(path: &str, options: LoadOptions) -> Result<Self> {
+        load_program(ProgramSource::File(path), options, None)
+    }
+
+    pub fn load_bytes(bytes: &[u8], options: LoadOptions) -> Result<Self> {
+        load_program(ProgramSource::Bytes(bytes), options, None)
+    }
+
+    /// Decode package definitions through the session's shared cache. Linkage,
+    /// statics and initialization state remain per VM.
+    pub fn load_bytes_with_cache(
+        bytes: &[u8],
+        options: LoadOptions,
+        image_cache: &ImageCache,
+    ) -> Result<Self> {
+        load_program(ProgramSource::Bytes(bytes), options, Some(image_cache))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn load_bytes_with_components(
+        bytes: &[u8],
+        options: LoadOptions,
+        components: ComponentInputs,
+    ) -> Result<Self> {
+        load_program_with_components(ProgramSource::Bytes(bytes), options, None, &components)
+    }
+
     pub(crate) fn new(
         ctx: Pin<Box<VmContext>>,
         mode: ExecMode,
@@ -127,22 +188,26 @@ impl Program {
         })
     }
 
-    pub(crate) fn context(&self) -> &VmContext {
+    /// Low-level channel for the packaged engine verification and JIT harnesses.
+    #[doc(hidden)]
+    pub fn context(&self) -> &VmContext {
         &self.ctx
     }
-    pub(crate) fn module(&self) -> &Module {
+    pub fn module(&self) -> &Module {
         &self.module
     }
 
-    pub(crate) fn resolve_entry(&self, name: &str) -> Result<usize> {
+    pub fn resolve_entry(&self, name: &str) -> Result<usize> {
         resolve_fqn(self.module(), name)
     }
 
-    pub(crate) fn invoke(&self, name: &str, args: &[Value]) -> Result<Option<Value>> {
+    /// Invoke an entry. Managed arguments are rooted across preparation and execution;
+    /// callers retaining a managed return value must root it before subsequent VM calls.
+    pub fn invoke(&self, name: &str, args: &[Value]) -> Result<Option<Value>> {
         self.invoke_index(self.resolve_entry(name)?, args)
     }
 
-    pub(crate) fn run_entry(&self, entry: Option<&str>) -> Result<()> {
+    pub fn run_entry(&self, entry: Option<&str>) -> Result<()> {
         let entry = entry.or(self.entry_hint.as_deref()).ok_or_else(|| {
             anyhow!("no entry point: pass the function name or rebuild with an entry in the zpkg")
         })?;

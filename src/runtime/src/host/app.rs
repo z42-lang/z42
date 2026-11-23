@@ -1,28 +1,8 @@
 //! One-shot application execution through the Rust host service.
-use super::program::{LoadOptions, LoadedProgram};
-use crate::vm::{app_state::set_program_args, program};
+use super::{LoadOptions, LoadedProgram};
+use crate::vm::app_state::set_program_args;
 use crate::zpkg::ExecMode;
 use anyhow::Result;
-/// Build-default execution mode: JIT when compiled in (make-jit-default),
-/// else Interp (jit-less builds — wasm / `--features interp-only`). Callers
-/// without an explicit mode (embedding one-shot) use this.
-pub fn default_mode() -> ExecMode {
-    #[cfg(all(feature = "jit", z42_jit_supported))]
-    {
-        ExecMode::Jit
-    }
-    #[cfg(not(all(feature = "jit", z42_jit_supported)))]
-    {
-        ExecMode::Interp
-    }
-}
-
-/// Query whether this host can prepare an execution mode, without loading code
-/// or constructing a VM. Component identities remain an internal concern.
-pub fn execution_available(mode: ExecMode) -> bool {
-    program::execution_available(mode)
-}
-
 /// A host implementation resolves loading inputs, program arguments and reporting.
 /// This service loads and executes without choosing process search defaults.
 pub struct RunOpts {

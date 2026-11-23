@@ -21,7 +21,7 @@ VM 内部组件门面、跨库协议与普通宿主契约的区别及当前缺�
 | [`../components/`](../components/README.md) | VM 内部能力门面、工厂加载、后端选择和实例管理 |
 | `LoadedProgram` / `LoadOptions` | 文件或字节加载、宿主 VFS 与 resolver、入口解析、模式选择、重复调用及初始化状态 |
 | `execution_available` | 按执行模式查询可用性，不暴露组件身份，不装库或创建 VM |
-| `program.rs` | 将 Rust 请求转给 VM 程序会话，包准备由 loader 完成 |
+| `mod.rs` | 导出 VM 程序会话的加载选项与调用入口 |
 | `run_app` / `RunOpts` | 一次性应用运行、应用参数、退出报告和进程退出时的释放策略 |
 | `ffi.rs` / `config.rs` / `state.rs` | C ABI 与不透明句柄定义、配置验证及句柄注册表；Rust 消费者从 host 根导入 Z42Host/Z42Module/Z42Entry |
 | `ops.rs` / `marshal.rs` | ABI 操作适配和参数、返回值转换 |
@@ -60,7 +60,7 @@ CLI 和 Rust 调用方使用 `host::run_app`，或用 `LoadedProgram::load_file`
 
 ## 核心文件
 
-`program.rs` 提供程序加载与调用入口，`ffi.rs` 实现 C ABI。`program_tests.rs` 覆盖输入来源、重复调用、初始化错误和执行模式；`host_tests.rs` 覆盖 ABI 契约。
+`mod.rs` 导出程序加载与调用入口，`ffi.rs` 实现 C ABI。`program_tests.rs` 覆盖输入来源、重复调用、初始化错误和执行模式；`host_tests.rs` 覆盖 ABI 契约。
 
 核心 builtin 描述由 corelib/builtins.rs 提供，interop 通用注册器冻结匹配的查询目录和执行表；host 不列举或预登记独立库。vm/extensions.rs 注入每 VM 状态和 loader 的按名称路径服务。独立库首次限定模块调用才经 loader 读取库自身描述并由 interop 校验登记，未使用时不加载或创建状态。
 
