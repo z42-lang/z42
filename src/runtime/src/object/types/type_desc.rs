@@ -335,6 +335,19 @@ impl TypeDesc {
     }
 
     /// add-struct-value-semantics: whether this type is a value struct (Type.IsValueType).
+    /// Language base type used for type tests and reflection. Value shapes do not
+    /// use inherited fields or vtables for their storage.
+    pub fn nominal_base_name(&self) -> Option<&str> {
+        use crate::zpkg::index::well_known_names::{STD_ENUM, STD_VALUE_TYPE};
+        if self.is_enum() {
+            return Some(STD_ENUM);
+        }
+        if self.is_struct() {
+            return Some(STD_VALUE_TYPE);
+        }
+        self.base_name.as_deref()
+    }
+
     #[inline] pub fn is_struct(&self)             -> bool { self.class_flags & crate::zpkg::ir::CLASS_FLAG_STRUCT != 0 }
     /// add-record-value-semantics: whether this type is a `[Record]` (Type.IsRecord). Used by the
     /// boxed-struct vcall arm to step aside from the native ToString intercept so a record struct's

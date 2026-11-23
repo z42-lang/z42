@@ -1,0 +1,4 @@
+namespace Std;
+
+/// 抽象引用基类。具体值类型经装箱可以赋给 ValueType。
+public abstract class ValueType {}

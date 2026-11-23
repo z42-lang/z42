@@ -12,6 +12,10 @@ use crate::exec::builtin_abi as abi;
 /// 名，`raw` = 裸 i64。宽度未知（不该发生）→ 全 8 字节 signed 兜底（仍能 round-trip i64）。
 /// 无引用叶子（整数）→ `struct_refs`/`slots` 空。
 pub(crate) fn box_prim_to_heap(ctx: &VmContext, class: &str, raw: i64) -> Result<Value> {
+    box_scalar_bits(ctx, class, raw.to_le_bytes())
+}
+
+fn box_scalar_bits(ctx: &VmContext, class: &str, bytes: [u8; 8]) -> Result<Value> {
     let td = ctx.loader().try_lookup_type(class).ok_or_else(|| {
         anyhow::anyhow!("__box_prim: unknown prim wrapper type `{class}`")
     })?;
@@ -27,7 +31,7 @@ pub(crate) fn box_prim_to_heap(ctx: &VmContext, class: &str, raw: i64) -> Result
     } else {
         int_wrapper_scalar_spec(&td.name).unwrap_or((8, true))
     };
-    let struct_bytes: Box<[u8]> = raw.to_le_bytes()[..width].to_vec().into_boxed_slice();
+    let struct_bytes: Box<[u8]> = bytes[..width].to_vec().into_boxed_slice();
     match ctx.heap().alloc_boxed_prim(td, struct_bytes) {
         Value::Object(gc) => Ok(Value::BoxedStruct(gc)),
         other => Ok(other), // Null under strict-OOM refusal
@@ -436,8 +440,8 @@ pub mod typed {
     /// Box an integer primitive into a heap `ScriptObject` with reference identity (C#
     /// semantics: `object o = 5; object p = 5; ReferenceEquals(o, p) == false`). The
     /// compiler emits `__box_prim(%value, "<FQ wrapper>")` at prim → object / interface
-    /// conversions; only integers come through here (bool / char / double / string keep
-    /// their own `Value` variants). An already boxed value is returned as is.
+    /// conversions. Single also uses a box when converting to ValueType so it can be
+    /// distinguished from Double. An already boxed value is returned as is.
     ///
     /// `Null` here breaks the invariant "a value-type slot never holds `Null`" (E0475 /
     /// E0476 / E0483 rule out every legal way to get one): a VM or compiler bug, so it
@@ -459,7 +463,10 @@ pub mod typed {
                     .map_err(|e| BuiltinError::Internal(e.to_string())),
                 other => Err(BuiltinError::Internal(format!("__box_prim: class argument is {other:?}, not a type name"))),
             },
-            other => Err(BuiltinError::Internal(format!("__box_prim: expected an integer, got {other:?}"))),
+            Value::F64(raw) if matches!(class, Value::Str(c) if &**c == crate::zpkg::index::well_known_names::STD_SINGLE) =>
+                super::box_scalar_bits(ctx, crate::zpkg::index::well_known_names::STD_SINGLE, raw.to_le_bytes())
+                    .map_err(|e| BuiltinError::Internal(e.to_string())),
+            other => Err(BuiltinError::Internal(format!("__box_prim: unexpected scalar {other:?} for {class:?}"))),
         }
     }
 

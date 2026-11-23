@@ -143,8 +143,8 @@ pub fn value_to_str(v: &Value) -> String {
             let o = gc.borrow();
             match o.boxed_enum_name() {
                 Some(name) => name,
-                None => match o.boxed_prim_i64() {
-                    Some(n) => n.to_string(),
+                None => match o.boxed_scalar() {
+                    Some(scalar) => value_to_str(&scalar),
                     None => format!("{}{{...}}", gc.type_desc().name),
                 },
             }

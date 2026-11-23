@@ -193,6 +193,7 @@
         - [ValueTuple6](stdlib/core.ValueTuple6.md)
         - [ValueTuple7](stdlib/core.ValueTuple7.md)
         - [ValueTuple8](stdlib/core.ValueTuple8.md)
+        - [ValueType](stdlib/core.ValueType.md)
         - [Version](stdlib/core.Version.md)
     - [Std.Runtime]()
         - [Clock](stdlib/core.Clock.md)

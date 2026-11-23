@@ -2,8 +2,7 @@ namespace Std;
 
 /// 对象协议基类：每个 z42 引用类型都隐式继承这些成员。
 ///
-/// 结构体类型**不**继承 Object——编译器直接为其合成值语义的 Equals / GetHashCode / ToString
-/// （无装箱、无 vtable）。
+/// 值类型经 ValueType 进入对象层级，其实例可通过装箱使用对象协议。
 public class Object {
     /// 返回本对象的运行时类型描述符。
     [Native("__obj_get_type")]

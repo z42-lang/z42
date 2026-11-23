@@ -302,10 +302,10 @@ pub fn convert_value(v: Value, to_tag: u8) -> Result<Value> {
         _ => {}
     }
     // add-primitive-value-boxing → unify Phase 2 R3：`(T)o` 于装箱基元 → 先拆箱再转标量。
-    // 基元盒现是 `BoxedStruct`（标量存 struct_bytes）；非整数盒 boxed_prim_i64 返 None → 不拦截。
+    // 基元盒现是 `BoxedStruct`（标量存 struct_bytes）；非标量盒 boxed_scalar 返 None → 不拦截。
     if let Value::BoxedStruct(gc) = &v {
-        if let Some(n) = gc.borrow().boxed_prim_i64() {
-            return convert_value(Value::I64(n), to_tag);
+        if let Some(scalar) = gc.borrow().boxed_scalar() {
+            return convert_value(scalar, to_tag);
         }
     }
     // 引用类型 identity cast —— 值的动态种类已匹配窄化后的静态目标。
@@ -372,8 +372,8 @@ pub fn hard_cast_failure(v: &Value, to_tag: u8) -> Option<(&'static str, String)
 fn hard_cast_failure_slow(v: &Value, to_tag: u8) -> Option<(&'static str, String)> {
     // 装箱基元先拆箱再判（与 convert_value 的首个分支对齐）。
     if let Value::BoxedStruct(gc) = v {
-        if let Some(n) = gc.borrow().boxed_prim_i64() {
-            return hard_cast_failure(&Value::I64(n), to_tag);
+        if let Some(scalar) = gc.borrow().boxed_scalar() {
+            return hard_cast_failure(&scalar, to_tag);
         }
     }
     // 引用类型 identity / null → 引用目标：合法，与 convert_value 的放行表逐条对齐。

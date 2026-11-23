@@ -308,7 +308,7 @@ fn is_subclass_or_eq_td_walk(
         {
             return true;
         }
-        let base = match cur_td.base_name.as_deref() {
+        let base = match cur_td.nominal_base_name() {
             Some(b) => b,
             None => return false,
         };

@@ -62,6 +62,9 @@ public sealed class TypeOpTyper {
             if (this._rejectImpossibleCast(ur, operand.Type(), target, env.Symbols, "cannot cast", cx.Span)) {
                 return new BoundError("impossible cast", new Z42ErrorType(), cx.Span);
             }
+            if (TypeFacts.CanBoxToValueBase(operand.Type(), target)) {
+                return new BoundConvert(this._tc.BoxIfNeeded(operand, target), target, cx.Span);
+            }
             BoundConvert bc = new BoundConvert(operand, target, cx.Span);
             // make-ref-hard-cast-checked：引用**下**转（基→派生）此前在发射层**一条指令都不发**
             // ⇒ `(B)o`（o 其实是 A）不抛、返回非 null，错类型的对象原样流下去，到很远的地方才崩。
@@ -84,6 +87,9 @@ public sealed class TypeOpTyper {
             ConvResult ur = Conversion.Classify(operand.Type(), asTarget, env.Symbols);
             if (this._rejectImpossibleCast(ur, operand.Type(), asTarget, env.Symbols, "`as` never succeeds", ax.Span)) {
                 return new BoundError("impossible as", new Z42ErrorType(), ax.Span);
+            }
+            if (TypeFacts.CanBoxToValueBase(operand.Type(), asTarget)) {
+                operand = this._tc.BoxIfNeeded(operand, asTarget);
             }
             return new BoundCast(operand, asTarget, tn, ax.Span);
     }
@@ -594,8 +600,12 @@ public sealed class TypeOpTyper {
             this._tc.ChkAmbiguousBareNameT(env.Symbols, ix.Type, ix.Type.Span);   // add-bare-name-ambiguity-diagnostic：E0456
             // is-pattern 绑定：声明变量（narrowed 类型）使 true 分支可用（同 env，_bindIf 先绑 cond 再绑 then）。
             if (ix.BindName != "") { this._tc.DefineLocal(env, ix.BindName, env.ResolveType(ix.Type), ix.Span); }
+            Z42Type target = env.ResolveType(ix.Type);
+            if (TypeFacts.CanBoxToValueBase(operand.Type(), target)) {
+                operand = this._tc.BoxIfNeeded(operand, target);
+            }
             BoundIsExpr bie = new BoundIsExpr(operand, tn, ix.BindName, ix.Span);
-            bie.TargetType = env.ResolveType(ix.Type);   // P2：发射端据此算实例化身份名（`TypeName` 丢实参）
+            bie.TargetType = target;   // P2：发射端据此算实例化身份名（`TypeName` 丢实参）
             return bie;
     }
 

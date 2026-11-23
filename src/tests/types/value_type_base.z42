@@ -1,0 +1,122 @@
+namespace ValueTypeBase;
+
+using Std;
+
+struct Point { public int X; public int Y; }
+struct SingleField { public int X; }
+struct Empty {}
+struct Pair<T> { public T A; public T B; }
+enum Color { Red = 1, Blue = 2 }
+enum OtherColor { Red = 1 }
+class Reference {}
+
+ValueType ThroughValueType(ValueType value) { return value; }
+
+void Main() {
+    Type valueType = typeof(ValueType);
+    Type enumType = typeof(Std.Enum);
+    Assert.True(valueType.IsAbstract);
+    Assert.True(valueType.IsClass);
+    Assert.False(valueType.IsValueType);
+    Assert.Equal(typeof(object), valueType.BaseType);
+    Assert.True(enumType.IsAbstract);
+    Assert.False(enumType.IsEnum);
+    Assert.False(enumType.IsValueType);
+    Assert.Equal(valueType, enumType.BaseType);
+
+    Assert.Equal(valueType, typeof(Point).BaseType);
+    Assert.Equal(valueType, typeof(Empty).BaseType);
+    Assert.Equal(valueType, typeof(Pair<int>).BaseType);
+    Assert.Equal(valueType, typeof(ValueTuple2<int, int>).BaseType);
+    ValueType tuple = (1, 2);
+    Assert.Equal(valueType, tuple.GetType().BaseType);
+    Assert.Equal(valueType, typeof(int).BaseType);
+    Assert.Equal(valueType, typeof(float).BaseType);
+    Assert.Equal(enumType, typeof(Color).BaseType);
+    Assert.True(typeof(Color).IsEnum);
+    Assert.True(typeof(Color).IsValueType);
+    Assert.False(typeof(Color).IsClass);
+    Assert.True(valueType.IsAssignableFrom(typeof(Color)));
+    Assert.True(valueType.IsAssignableFrom(typeof(Pair<int>)));
+    Assert.True(valueType.IsAssignableFrom(typeof(int)));
+    Assert.True(enumType.IsAssignableFrom(typeof(Color)));
+    Assert.False(enumType.IsAssignableFrom(typeof(int)));
+    Assert.False(valueType.IsAssignableFrom(typeof(Reference)));
+    Assert.False(valueType.IsAssignableFrom(typeof(Point[])));
+
+    Point p = new Point();
+    p.X = 7;
+    p.Y = 9;
+    ValueType point = p;
+    p.X = 10;
+    Point restored = (Point)point;
+    Assert.Equal(7, restored.X);
+    Assert.Equal(9, restored.Y);
+    Assert.Equal(typeof(Point), point.GetType());
+    Assert.Equal(typeof(Point), ThroughValueType(p).GetType());
+    Assert.Equal(typeof(Point), ((ValueType)p).GetType());
+    Assert.True(p is ValueType);
+    ValueType[] boxes = new ValueType[1];
+    boxes[0] = p;
+    Assert.Equal(10, ((Point)boxes[0]).X);
+    Point[] source = new Point[1];
+    source[0] = p;
+    Array.CopyRange(source, 0, boxes, 0, 1);
+    Assert.Equal(10, ((Point)boxes[0]).X);
+
+    SingleField field = new SingleField();
+    field.X = 4;
+    ValueType fieldBox = field;
+    Assert.Equal(typeof(SingleField), fieldBox.GetType());
+    field = (SingleField)fieldBox;
+    Assert.Equal(4, field.X);
+
+    Pair<int> pair = new Pair<int>();
+    pair.A = 11;
+    ValueType generic = pair;
+    Assert.Equal(typeof(Pair<int>), generic.GetType());
+    Assert.Equal(11, ((Pair<int>)generic).A);
+
+    ValueType empty = new Empty();
+    Assert.Equal(typeof(Empty), empty.GetType());
+    Empty restoredEmpty = (Empty)empty;
+    Assert.Equal(typeof(Empty), restoredEmpty.GetType());
+
+    ValueType wide = 77L;
+    Assert.Equal(typeof(long), wide.GetType());
+    Assert.Equal(77L, (long)wide);
+    Assert.False(wide is int);
+
+    ValueType flag = true;
+    Assert.Equal(typeof(bool), flag.GetType());
+    Assert.True((bool)flag);
+    Assert.Equal(typeof(bool), ((ValueType)true).GetType());
+    ValueType ratio = 1.25f;
+    Assert.Equal(typeof(float), ratio.GetType());
+    Assert.Equal(1.25f, (float)ratio);
+    ValueType otherRatio = 1.25;
+    Assert.Equal(typeof(double), otherRatio.GetType());
+    Assert.Equal(1.25, (double)otherRatio);
+
+    Std.Enum color = Color.Blue;
+    ValueType enumAsValue = color;
+    object boxed = enumAsValue;
+    Assert.True(boxed is ValueType);
+    Assert.True(boxed is Std.Enum);
+    Assert.True(boxed is Color);
+    Assert.False(boxed is OtherColor);
+    Assert.Equal("Blue", color.ToString());
+    Assert.Equal(typeof(Color), enumAsValue.GetType());
+    Assert.True((Color)color == Color.Blue);
+    Assert.True((Color)enumAsValue == Color.Blue);
+    Assert.True((boxed as ValueType) != null);
+
+    bool wrongIntegerRejected = false;
+    try { int wrong = (int)wide; }
+    catch (InvalidCastException) { wrongIntegerRejected = true; }
+    Assert.True(wrongIntegerRejected);
+    bool wrongEnumRejected = false;
+    try { OtherColor wrong = (OtherColor)color; }
+    catch (InvalidCastException) { wrongEnumRejected = true; }
+    Assert.True(wrongEnumRejected);
+}

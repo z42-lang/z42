@@ -188,6 +188,8 @@ public static class Conversion {
         // 反向（Delegate → 具体委托）是显式下转——运行期按擦除规则判定（callable_isa 认 Std.Delegate）。
         if ((from is Z42FuncType) && Conversion._isDelegateBase(to)) { return new ConvResult(ConvKind.ImplicitRef); }
         if ((to is Z42FuncType) && Conversion._isDelegateBase(from)) { return new ConvResult(ConvKind.ExplicitRef); }
+        if (TypeFacts.CanBoxToValueBase(from, to)) { return new ConvResult(ConvKind.Boxing); }
+        if (TypeFacts.CanBoxToValueBase(to, from)) { return new ConvResult(ConvKind.Unboxing); }
         // 数值 prim 对（两侧均数值 prim）→ 数值矩阵（Identity / ImplicitNumeric / ExplicitNumeric，永不 None）
         // 双路：翻转后数值基元为 Z42ClassType(Scalar)——_isNumericBuiltin 认 Prim ∪ Scalar 值类型。
         if (Conversion._isNumericBuiltin(from) && Conversion._isNumericBuiltin(to)) {

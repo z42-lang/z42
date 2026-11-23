@@ -59,7 +59,7 @@ pub fn type_base(ctx: &VmContext, ty: &Value) -> Value {
     }
     // Older definitions rely on the specialized descriptor for a closed base name.
     let Some(td) = instantiation_desc(ctx, ty).or(definition) else { return Value::Null };
-    match &td.base_name {
+    match td.nominal_base_name() {
         Some(b) => make_type_from_name(ctx, b),
         None => {
             if td.name == STD_OBJECT {
@@ -266,11 +266,9 @@ pub fn type_is_sealed(ty: &Value) -> bool {
     class_flag_set(ty, crate::zpkg::ir::CLASS_FLAG_SEALED)
 }
 
-/// `__type_is_value_type(typeObj) -> bool` — true for a `struct` (value type).
-/// Reads the struct bit captured in the TYPE-section flags byte (no new wire).
-/// add-reflection-value-record-flags.
+/// `__type_is_value_type(typeObj) -> bool` — true for a concrete struct or enum.
 pub fn type_is_value_type(ty: &Value) -> bool {
-    class_flag_set(ty, crate::zpkg::ir::CLASS_FLAG_STRUCT)
+    type_handle_of(ty).is_some_and(|td| td.is_struct() || td.is_enum())
 }
 
 /// `__type_is_record(typeObj) -> bool` — true if the type was declared `record`.
@@ -354,16 +352,12 @@ pub fn type_is_assignable_from(ctx: &VmContext, this: &Value, c: &Value) -> bool
 }
 
 /// `__type_is_class(typeObj) -> bool` — true for a reference class type
-/// (incl. `record`). Mirrors C# `Type.IsClass`: a type with a real handle that
-/// is neither a value type (`struct`) nor an interface. Handle-less Types
-/// (primitive / array / enum) → false (z42 arrays are name-only synthetic, so
-/// — unlike C# — `typeof(int[]).IsClass == false`; see reflection.md Deferred).
+/// (incl. `record`). Value types, interfaces and synthetic array Types report false.
 pub fn type_is_class(ty: &Value) -> bool {
-    use crate::zpkg::ir::{CLASS_FLAG_INTERFACE, CLASS_FLAG_STRUCT};
-    type_handle_of(ty)
-        .map(|td| td.class_flags & CLASS_FLAG_STRUCT == 0
-                  && td.class_flags & CLASS_FLAG_INTERFACE == 0)
-        .unwrap_or(false)
+    type_handle_of(ty).is_some_and(|td| {
+        !td.is_struct() && !td.is_enum()
+            && td.class_flags & crate::zpkg::ir::CLASS_FLAG_INTERFACE == 0
+    })
 }
 
 /// add-reflection-generic-predicates: true if the type name is a primitive

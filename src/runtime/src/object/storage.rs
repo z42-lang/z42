@@ -534,6 +534,14 @@ impl ScriptObject {
         Some(v)
     }
 
+    /// Read a scalar box while preserving the scalar kind used by the evaluator.
+    pub fn boxed_scalar(&self) -> Option<Value> {
+        if self.type_desc.name == crate::zpkg::index::well_known_names::STD_SINGLE {
+            return self.cells().load_bits(0, 8).map(|bits| Value::F64(f64::from_bits(bits)));
+        }
+        self.boxed_prim_i64().map(Value::I64)
+    }
+
     /// make-enum-distinct-type 1.5: if this object is an **enum box**, the declared
     /// member name for the value it carries — C# `Enum.ToString()`; `None` for every
     /// other box, so callers keep their existing behaviour. Convenience for code that

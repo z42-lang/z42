@@ -67,10 +67,13 @@ pub fn value_synthetic_type_id(obj: &Value) -> Option<u32> {
 /// `Std.String`）匹配，外加 `Std.Object` 基类（所有基元 is-a object）。编译器 `QualifyTypeName`
 /// 发 FQ 形（`Std.String`/`Std.Int32`/`Std.Object`），此处直接比 FQ。
 pub fn prim_isa(val: &Value, class_name: &str) -> bool {
-    use crate::zpkg::index::well_known_names::STD_DELEGATE;
+    use crate::zpkg::index::well_known_names::{STD_DELEGATE, STD_VALUE_TYPE};
     // 所有基元 is-a object。
     if class_name == "Std.Object" || class_name == "Object" {
         return primitive_class_name(val).is_some() || matches!(val, Value::Closure(_) | Value::FuncRef(_));
+    }
+    if class_name == STD_VALUE_TYPE {
+        return matches!(val, Value::I64(_) | Value::F64(_) | Value::Bool(_) | Value::Char(_));
     }
     match val {
         // 整数宽度不可辨：z42 运行时用单一 Value::I64 表示 int/long/short/byte/…（boxed 后
