@@ -559,14 +559,12 @@ public sealed partial class ClassDescBuilder {
         // 接口写 (Item, "")。从语义 Z42InterfaceType 取（MemberCollector._fillInterface 已填），供跨包
         // ImportedSymbolLoader 恢复 AssocTypeNames、删 ConstraintChecker/InheritanceResolver 的 IsImported 守卫。
         SymbolTable stI = this._scope();
-        if (stI != null) {
-            Z42InterfaceType itSym = stI.GetInterface(c.Name);
-            if (itSym != null && itSym.AssocTypeCount > 0) {
-                string[] an = new string[itSym.AssocTypeCount]; string[] at = new string[itSym.AssocTypeCount];
-                int ai = 0;
-                while (ai < itSym.AssocTypeCount) { an[ai] = itSym.AssocTypeNames[ai]; at[ai] = ""; ai = ai + 1; }
-                cd.AssocNames = an; cd.AssocTypes = at; cd.AssocCount = itSym.AssocTypeCount;
-            }
+        Z42InterfaceType itSym = stI == null ? null : stI.GetInterface(c.Name);
+        if (itSym != null && itSym.AssocTypeCount > 0) {
+            string[] an = new string[itSym.AssocTypeCount]; string[] at = new string[itSym.AssocTypeCount];
+            int ai = 0;
+            while (ai < itSym.AssocTypeCount) { an[ai] = itSym.AssocTypeNames[ai]; at[ai] = ""; ai = ai + 1; }
+            cd.AssocNames = an; cd.AssocTypes = at; cd.AssocCount = itSym.AssocTypeCount;
         }
         // 接口方法签名（zbc 1.28，fix-crosspkg-interface-impl）：从成员抽名/返回/参数类型
         // （源拼写，同 _typeFieldName 字段策略——TsigReconcile 重建后经 ImportedSymbolLoader._resolve 消费）。
@@ -638,7 +636,8 @@ public sealed partial class ClassDescBuilder {
         cd.IfaceMethodParamCounts = buf.pcs; cd.IfaceMethodCount = buf.count;
         cd.IfaceMethodParamTypes = buf.pts; cd.IfaceMethodParamTotal = buf.ptCount;
         cd.IfaceMethodStatic = buf.statics;
-        cd.Attrs = signatureAttrs; cd.AttrCount = signatureAttrs.Length;
+        cd.Attrs = ClassDescBuilder._ifaceVarianceAttr(signatureAttrs, itSym);
+        cd.AttrCount = cd.Attrs.Length;
         return cd;
     }
 
@@ -752,6 +751,24 @@ public sealed partial class ClassDescBuilder {
             i = i + 1;
         }
         return attrs;
+    }
+
+    private static IrAttrRef[] _ifaceVarianceAttr(IrAttrRef[] refs, Z42InterfaceType it) {
+        if (it == null || it.TypeParamCount == 0) { return refs; }
+        string directions = "";
+        bool hasVariant = false;
+        int i = 0;
+        while (i < it.TypeParamCount) {
+            InterfaceVariance variance = it.ParameterVariance(i);
+            char direction = IrIfaceVariance.Invariant;
+            if (variance == InterfaceVariance.Covariant) { direction = IrIfaceVariance.Covariant; }
+            if (variance == InterfaceVariance.Contravariant) { direction = IrIfaceVariance.Contravariant; }
+            if (direction != IrIfaceVariance.Invariant) { hasVariant = true; }
+            directions = directions + direction.ToString();
+            i = i + 1;
+        }
+        if (!hasVariant) { return refs; }
+        return ClassDescBuilder._appendAttrRef(refs, IrIfaceVariance.Sentinel, directions);
     }
 
     private static IrAttrRef[] _appendAttrRef(IrAttrRef[] refs, string typeName, string payload) {

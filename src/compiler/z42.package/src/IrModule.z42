@@ -148,6 +148,36 @@ public static class IrIfaceRef {
     }
 }
 
+// Producer-inferred directions in interface type parameter order.
+public static class IrIfaceVariance {
+    public static string Sentinel = "$IfaceVariance";
+    public static char Covariant = 'o';
+    public static char Contravariant = 'i';
+    public static char Invariant = '-';
+
+    public static string Read(IrAttrRef[] attrs, int count, int arity) {
+        if (arity <= 0) { return ""; }
+        string directions = "";
+        int i = 0;
+        while (i < count) {
+            if (attrs[i].TypeName == IrIfaceVariance.Sentinel) {
+                string payload = attrs[i].FactoryFunc;
+                if (directions != "" || payload.Length != arity) { return ""; }
+                int j = 0;
+                while (j < arity) {
+                    char direction = payload[j];
+                    if (direction != IrIfaceVariance.Covariant && direction != IrIfaceVariance.Contravariant
+                        && direction != IrIfaceVariance.Invariant) { return ""; }
+                    j = j + 1;
+                }
+                directions = payload;
+            }
+            i = i + 1;
+        }
+        return directions;
+    }
+}
+
 public static class IrParamDefault {
     public static string Sentinel = "$Default";          // ConstBlob 常量默认值
     public static string CallerPrefix = "$Caller:";       // caller 宏（+member|line|file|module）

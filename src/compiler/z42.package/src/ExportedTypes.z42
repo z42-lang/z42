@@ -177,6 +177,7 @@ public sealed class ExportedInterfaceZ {
     // （原注释后半句「而 `Z42InterfaceType.BaseNames` 存裸名 ⇒ 消费侧须剥短名」**已过期**：
     //  enforce-fqn-name-identity 起 `BaseNames` 也归一成 FQ，消费侧不再剥。）
     public string[]          BaseNames;      public int BaseCount;
+    public string VarianceDirections;
     public ExportedInterfaceZ(string name, ExportedMethodZ[] methods, int methodCount,
                               string[] typeParams, int tpCount) {
         this.Name = name; this.Methods = methods; this.MethodCount = methodCount;
@@ -184,6 +185,7 @@ public sealed class ExportedInterfaceZ {
         this.Visibility = "public";
         this.AssocTypeNames = new string[0]; this.AssocTypeCount = 0;
         this.BaseNames = new string[0]; this.BaseCount = 0;
+        this.VarianceDirections = "";
     }
 }
 

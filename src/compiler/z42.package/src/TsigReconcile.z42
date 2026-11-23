@@ -432,6 +432,7 @@ public static class TsigReconcile {
         }
         ExportedInterfaceZ eiz = new ExportedInterfaceZ(bare, methods, cd.IfaceMethodCount,
                                       cd.TypeParams, cd.TypeParamCount);
+        eiz.VarianceDirections = IrIfaceVariance.Read(cd.Attrs, cd.AttrCount, cd.TypeParamCount);
         eiz.Visibility = TsigReconcile._visStr(cd.Visibility);   // complete-class-access-control ④：接口可见性字节 → 字符串（跨包 internal 接口引用强制）
         // 关联类型名单（zbc 1.42，assoc-type-crosspkg）：接口记录的 TYPE assoc 块 = 声明的 `type Item;` 名列表
         // （type 恒 ""）→ ExportedInterfaceZ.AssocTypeNames，供 ImportedSymbolLoader.AddAssocType 恢复。
