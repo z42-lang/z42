@@ -20,7 +20,7 @@ public sealed class CallEmitter {
         int i = 0;
         while (i < c.ArgCount) {
             TypedReg a = this._ee.Emit(c.Args[i]);
-            if (this._ee._isBlobStruct(c.Args[i].Type())) {
+            if (!(c.Args[i] is BoundRefArg) && this._ee._isBlobStruct(c.Args[i].Type())) {
                 string sn = this._ee._blobStructName(c.Args[i].Type());
                 int sz = this._ctx.Gen.Layouts.StructSize(sn);
                 TypedReg cp = this._ctx.Alloc(IrType.Ref);

@@ -67,3 +67,17 @@ void test_ref_discard_ok() {
         + " static void M() { C.T(ref _); } }";
     Assert.Equal("", SemanticDump.FirstErrorCode(src));
 }
+
+[Test]
+void test_static_witness_requires_ref_modifier() {
+    string src = "interface I { static void Update(ref int value); }\n"
+        + "void Run<T>() where T : I { int value = 3; T.Update(value); }";
+    Assert.Equal("E0472", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_static_witness_ref_argument_requires_exact_storage_type() {
+    string src = "interface I { static void Update(ref long value); }\n"
+        + "void Run<T>() where T : I { int value = 3; T.Update(ref value); }";
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(src));
+}
