@@ -1,10 +1,8 @@
-// feat/delegate-invocation-list 回归 golden：`GetInvocationList()` 两层落地。
-//   ① 族基类（对齐 C# `Delegate.GetInvocationList`）：单播委托恒为长度 1 的数组（即自身）；
-//      null 委托为空数组；函数类型直收与 `(Delegate)` 上转收者同套
-//   ② 多播三类（MulticastAction/Func/Predicate）：strong 通道处理器快照——COW（取之后再
-//      订阅/退订不影响本数组）、元素可直接当委托调用；advanced 包装通道不可材料化（文档言明）
-// （reference §10 原判「明确不做」，2026-11-22 User 裁定翻案：分层落地——族基类给移植
-//  代码统一入口，多播类给真正的枚举面。）
+// feat/delegate-invocation-list 回归 golden：多播 `GetInvocationList()`——strong 通道
+// 处理器快照（COW：取之后再订阅/退订不影响本数组）、元素可直接当委托调用；advanced 包装通道
+// 不可材料化（文档言明）。
+// （#1921 曾同载族基类单播版——恒 [自身]、信息量为零，2026-11-23 User 裁定删除；
+//  多播枚举是 GetInvocationList 的真实需求方，保留。）
 namespace Demo;
 
 using Std;
@@ -15,26 +13,11 @@ class L {
     public void Tick(int n) { this.N = this.N + n; }
 }
 
-class Api {
-    public static int Twice(int x) { return x * 2; }
-}
-
 void Main() {
     L l = new L();
     Action<int> mg = l.Tick;
-    Func<int, int> f = Api.Twice;
 
-    // ── ① 族基类 ───────────────────────────────────────────────────────────
-    Delegate[] list = f.GetInvocationList();
-    Console.WriteLine("len " + list.Length.ToString());
-    Console.WriteLine("self " + (list[0] == f).ToString());
-    Action<int> none = null;
-    Console.WriteLine("null-len " + none.GetInvocationList().Length.ToString());
-    Console.WriteLine("mg-len " + mg.GetInvocationList().Length.ToString());
-    Delegate d = f;
-    Console.WriteLine("d-len " + d.GetInvocationList().Length.ToString());
-
-    // ── ② 多播 strong 通道快照 + COW ───────────────────────────────────────
+    // ── 多播 strong 通道快照 + COW ─────────────────────────────────────────
     var bus = new MulticastAction<int>();
     Action<int> h1 = (int k) => { l.N = l.N + k; };
     Action<int> h2 = (int k) => { l.N = l.N - k; };
@@ -48,13 +31,13 @@ void Main() {
     bus.Unsubscribe(h1);
     Console.WriteLine("after-unsub " + bus.GetInvocationList().Length.ToString());
 
-    // ── ② 快照元素直接当委托调用 ──────────────────────────────────────────
+    // ── 快照元素直接当委托调用 ──────────────────────────────────────────
     l.N = 0;
     Action<int>[] s2 = bus.GetInvocationList();
     if (s2.Length > 0) { s2[0](3); }
     Console.WriteLine("N " + l.N.ToString()); // h2(3) ⇒ -3
 
-    // ── ② MulticastPredicate 同款 ─────────────────────────────────────────
+    // ── MulticastPredicate 同款 ─────────────────────────────────────────
     var preds = new MulticastPredicate<int>();
     preds.Subscribe((int x) => x > 0);
     preds.Subscribe((int x) => x % 2 == 0);
