@@ -101,6 +101,8 @@
         - [ISubscription](stdlib/core.ISubscription.md)
         - [MulticastAction](stdlib/core.MulticastAction.md)
         - [MulticastSubscription](stdlib/core.MulticastSubscription.md)
+        - [MulticastDelegate](stdlib/core.MulticastDelegate.md)
+        - [MulticastDelegateSubscription](stdlib/core.MulticastDelegateSubscription.md)
         - [MulticastFunc](stdlib/core.MulticastFunc.md)
         - [MulticastFuncSubscription](stdlib/core.MulticastFuncSubscription.md)
         - [MulticastPredicate](stdlib/core.MulticastPredicate.md)

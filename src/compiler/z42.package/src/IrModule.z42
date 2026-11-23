@@ -18,6 +18,24 @@ public sealed class IrAttrRef {
 // add-deprecated-directive（PR5，零格式-bump）：`[Deprecated]` 经既有 attr-ref 块持久化的哨兵（TypeName=Sentinel、
 // FactoryFunc=消息）。生产方 ClassDescBuilder._attrRefs 追加、消费方 TsigReconcile/反射按 TypeName 识别并剥离。
 // 常量放 z42.package（叶子库）供 z42c.semantics（生产）与 z42.package/TsigReconcile（消费）共用；`$` 前缀不撞 D8 `*Attribute`。
+// feat/multicast-base-class（跨包段）：开放泛型基的**声明全拼写**（`Std.MulticastDelegate<Action<TArg, TResult>>`）
+// 经类级 attr-ref 哨兵持久化——TYPE 的 BaseName 刻意剥 <...>（查找键），实参只随这个哨兵走。
+// 生产方 ClassDescBuilder（开放泛型基分支）、消费方 TsigReconcile → ExportedClassZ → ImportedSymbolLoader
+// （重建 BaseRef 供 #1923 的 `_substBaseHop` 逐跳代换）。`$` 前缀不撞 D8 `*Attribute`。
+public static class IrBaseRef {
+    public static string Sentinel = "$BaseRef";
+    // attrs 中是否含基类拼写哨兵。
+    public static bool Has(IrAttrRef[] attrs, int count) {
+        int i = 0; while (i < count) { if (attrs[i] != null && attrs[i].TypeName == IrBaseRef.Sentinel) { return true; } i = i + 1; }
+        return false;
+    }
+    // 哨兵负载（声明全拼写）；无哨兵 → ""。
+    public static string Spelling(IrAttrRef[] attrs, int count) {
+        int i = 0; while (i < count) { if (attrs[i] != null && attrs[i].TypeName == IrBaseRef.Sentinel) { return attrs[i].FactoryFunc; } i = i + 1; }
+        return "";
+    }
+}
+
 public static class IrDeprecation {
     public static string Sentinel = "$Deprecated";
     // attrs 中是否含弃用哨兵。

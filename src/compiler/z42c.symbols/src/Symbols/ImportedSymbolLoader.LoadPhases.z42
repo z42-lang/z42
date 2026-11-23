@@ -75,6 +75,12 @@ public static partial class ImportedSymbolLoader {
                 // 不再落到裸名表猜（`Type : MemberInfo` 这类跨 ns 基类，声明方的 `using` 不随元数据走）。
                 if (hasBase) { baseName = cl.BaseFqn != null && cl.BaseFqn != "" ? cl.BaseFqn : cl.BaseName; }
                 Z42ClassType nct = new Z42ClassType(cl.Name, hasBase, baseName);
+                // feat/multicast-base-class（跨包段）：开放泛型基重建 BaseRef（TypeExpr 形态）——
+                // #1923 的 _substBaseHop 在跨包消费时按它代换基类成员签名（本地类由 StubCollector
+                // 从 AST 回填，导入类只有这里）。闭合/非泛型基无拼写，BaseRef 保持 null（既有行为）。
+                if (cl.BaseRefSpelling != null && cl.BaseRefSpelling != "") {
+                    nct.BaseRef = ImportedSymbolLoader._parseBaseRef(cl.BaseRefSpelling);
+                }
                 // enforce-access-control：来自依赖 zpkg（跨包）→ internal 成员不可访问。
                 // z42b-owns-test-targets：**例外** —— 本次编译是 <parentPkg> 的测试/bench 目标时，
                 // 加载父包按同包待遇（internal 可见）。其余依赖照旧。parentPkg=="" → 恒 true（现状）。

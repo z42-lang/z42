@@ -811,7 +811,30 @@ public sealed class Z42FuncType : Z42Type {
         }
         return s + ")->" + this.Ret.Dump();
     }
-    public override bool IsAssignableTo(Z42Type other) {
+    // feat/multicast-base-class：函数类型的 CanonName 按**叶子 CanonName** 归一拼接。此前沿用基类
+    // 的 PrimModel.Canon(Name())——整串匹配不进泛型内部 ⇒ `Func<T1,T2,bool>`（Builtin 叶）与
+    // `Func<T1,T2,Boolean>`（包装类叶，ResolveTypeP 对 bool 关键字在两路下各给一形）CanonName
+    // 相异 ⇒ 重载去重键撞不开（跨包基类成员展平版 vs 链上代换版伪重载）。语义上两形同 Canon，
+    // 比较面（IsAssignableTo 的 _partEq）早已按叶 Canon 相容——本 override 只把同一口径带给键。
+    private string _fcanon;
+    public override string CanonName() {
+        if (this._fcanon != null) { return this._fcanon; }
+        bool isVoid = this.Ret is Z42VoidType;
+        string s = isVoid ? "Action<" : "Func<";
+        int i = 0;
+        while (i < this.ParamCount) {
+            if (i > 0) { s = s + ","; }
+            s = s + this.ParamTypes[i].CanonName();
+            i = i + 1;
+        }
+        if (!isVoid) {
+            if (this.ParamCount > 0) { s = s + ","; }
+            s = s + this.Ret.CanonName();
+        }
+        this._fcanon = s + ">";
+        return this._fcanon;
+    }
+        public override bool IsAssignableTo(Z42Type other) {
         if (other is Z42ErrorType) { return true; }
         // add-argument-type-check R7（欠债表 bug C）：此前是 `this.Dump() == other.Dump()` 逐字比 →
         // `Func<int>` ≠ `Func<Int32>`（同一类型的两种拼写），甚至 `Action` ≠ `Action`（一侧是 imported

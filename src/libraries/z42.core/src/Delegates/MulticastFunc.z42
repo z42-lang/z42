@@ -28,6 +28,16 @@ public sealed class MulticastFunc<TArg, TResult> : MulticastDelegate<Func<TArg, 
 
     }
 
+    /// 订阅处理器并返回退订凭据。
+    /// @hidden
+    public IDisposable operator +=(Func<TArg, TResult> handler) { return this.Subscribe(handler); }
+
+    /// 按处理器身份退订。
+    /// @hidden
+    public void operator -=(Func<TArg, TResult> handler) { this.Unsubscribe(handler); }
+
+
+
     [Suppress("style.fnLinesHard", "132 body lines；拆分见 code-organization.md")]
     /// 触发所有活跃 handler，收集返回值进 TResult[]（strong-first / advanced-after 顺序）。
     ///
@@ -170,6 +180,7 @@ public sealed class MulticastFunc<TArg, TResult> : MulticastDelegate<Func<TArg, 
 
 }
 
+/// 内部订阅 token —— Subscribe 返回它，Dispose 把对应通道的 alive[idx] 置 false。
 public sealed class MulticastFuncSubscription<TArg, TResult> : IDisposable {
     MulticastFunc<TArg, TResult> bus;
     int idx;
@@ -206,6 +217,16 @@ public sealed class MulticastFunc<T1, T2, TResult> : MulticastDelegate<Func<T1, 
         return new MulticastFuncSubscription<T1, T2, TResult>(this, idx, isAdvanced);
 
     }
+
+    /// 订阅处理器并返回退订凭据。
+    /// @hidden
+    public IDisposable operator +=(Func<T1, T2, TResult> handler) { return this.Subscribe(handler); }
+
+    /// 按处理器身份退订。
+    /// @hidden
+    public void operator -=(Func<T1, T2, TResult> handler) { this.Unsubscribe(handler); }
+
+
 
     [Suppress("style.fnLinesHard", "132 body lines；拆分见 code-organization.md")]
     /// 触发所有活跃 handler，收集返回值进 TResult[]（strong-first / advanced-after 顺序）。
@@ -349,6 +370,7 @@ public sealed class MulticastFunc<T1, T2, TResult> : MulticastDelegate<Func<T1, 
 
 }
 
+/// 内部订阅 token —— Subscribe 返回它，Dispose 把对应通道的 alive[idx] 置 false。
 public sealed class MulticastFuncSubscription<T1, T2, TResult> : IDisposable {
     MulticastFunc<T1, T2, TResult> bus;
     int idx;
@@ -385,6 +407,16 @@ public sealed class MulticastFunc<T1, T2, T3, TResult> : MulticastDelegate<Func<
         return new MulticastFuncSubscription<T1, T2, T3, TResult>(this, idx, isAdvanced);
 
     }
+
+    /// 订阅处理器并返回退订凭据。
+    /// @hidden
+    public IDisposable operator +=(Func<T1, T2, T3, TResult> handler) { return this.Subscribe(handler); }
+
+    /// 按处理器身份退订。
+    /// @hidden
+    public void operator -=(Func<T1, T2, T3, TResult> handler) { this.Unsubscribe(handler); }
+
+
 
     [Suppress("style.fnLinesHard", "132 body lines；拆分见 code-organization.md")]
     /// 触发所有活跃 handler，收集返回值进 TResult[]（strong-first / advanced-after 顺序）。
@@ -528,6 +560,7 @@ public sealed class MulticastFunc<T1, T2, T3, TResult> : MulticastDelegate<Func<
 
 }
 
+/// 内部订阅 token —— Subscribe 返回它，Dispose 把对应通道的 alive[idx] 置 false。
 public sealed class MulticastFuncSubscription<T1, T2, T3, TResult> : IDisposable {
     MulticastFunc<T1, T2, T3, TResult> bus;
     int idx;
@@ -564,6 +597,16 @@ public sealed class MulticastFunc<T1, T2, T3, T4, TResult> : MulticastDelegate<F
         return new MulticastFuncSubscription<T1, T2, T3, T4, TResult>(this, idx, isAdvanced);
 
     }
+
+    /// 订阅处理器并返回退订凭据。
+    /// @hidden
+    public IDisposable operator +=(Func<T1, T2, T3, T4, TResult> handler) { return this.Subscribe(handler); }
+
+    /// 按处理器身份退订。
+    /// @hidden
+    public void operator -=(Func<T1, T2, T3, T4, TResult> handler) { this.Unsubscribe(handler); }
+
+
 
     [Suppress("style.fnLinesHard", "132 body lines；拆分见 code-organization.md")]
     /// 触发所有活跃 handler，收集返回值进 TResult[]（strong-first / advanced-after 顺序）。
@@ -707,6 +750,7 @@ public sealed class MulticastFunc<T1, T2, T3, T4, TResult> : MulticastDelegate<F
 
 }
 
+/// 内部订阅 token —— Subscribe 返回它，Dispose 把对应通道的 alive[idx] 置 false。
 public sealed class MulticastFuncSubscription<T1, T2, T3, T4, TResult> : IDisposable {
     MulticastFunc<T1, T2, T3, T4, TResult> bus;
     int idx;

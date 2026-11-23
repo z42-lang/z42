@@ -153,6 +153,7 @@ public sealed class MulticastAction<T> : MulticastDelegate<Action<T>> {
 
 }
 
+/// 内部订阅 token —— Subscribe 返回它，Dispose 把对应通道的 alive[idx] 置 false。
 public sealed class MulticastSubscription<T> : IDisposable {
     MulticastAction<T> bus;
     int idx;
@@ -317,6 +318,7 @@ public sealed class MulticastAction : MulticastDelegate<Action> {
 
 }
 
+/// 内部订阅 token —— Subscribe 返回它，Dispose 把对应通道的 alive[idx] 置 false。
 public sealed class MulticastSubscription : IDisposable {
     MulticastAction bus;
     int idx;
@@ -481,6 +483,7 @@ public sealed class MulticastAction<T1, T2> : MulticastDelegate<Action<T1, T2>> 
 
 }
 
+/// 内部订阅 token —— Subscribe 返回它，Dispose 把对应通道的 alive[idx] 置 false。
 public sealed class MulticastSubscription<T1, T2> : IDisposable {
     MulticastAction<T1, T2> bus;
     int idx;
@@ -645,6 +648,7 @@ public sealed class MulticastAction<T1, T2, T3> : MulticastDelegate<Action<T1, T
 
 }
 
+/// 内部订阅 token —— Subscribe 返回它，Dispose 把对应通道的 alive[idx] 置 false。
 public sealed class MulticastSubscription<T1, T2, T3> : IDisposable {
     MulticastAction<T1, T2, T3> bus;
     int idx;
@@ -809,6 +813,7 @@ public sealed class MulticastAction<T1, T2, T3, T4> : MulticastDelegate<Action<T
 
 }
 
+/// 内部订阅 token —— Subscribe 返回它，Dispose 把对应通道的 alive[idx] 置 false。
 public sealed class MulticastSubscription<T1, T2, T3, T4> : IDisposable {
     MulticastAction<T1, T2, T3, T4> bus;
     int idx;
