@@ -193,8 +193,6 @@ pub fn array_new<F: FnOnce() -> u32>(
     alloc(ArrayObj::alloc_filled(ctx.heap(), bound.unwrap_or(element_type), kind, n, default), || format!("array[{n}]"))
 }
 
-/// `new T[n]`'s element type as bound at run time: the argument's name, interned. `None` when
-/// the parameter is not bound here (the array keeps reporting `T`).
 /// Bind parameters inside a constructed element name using the current activation.
 #[inline]
 pub fn array_elem_for_activation<'a>(
@@ -208,6 +206,8 @@ pub fn array_elem_for_activation<'a>(
     ElemType::intern(&env.substitute(ctx, &element))
 }
 
+/// `new T[n]`'s element type as bound at run time: the argument's name, interned. `None` when
+/// the parameter is not bound here (the array keeps reporting `T`).
 pub fn type_param_bound_elem(arg: Option<&str>) -> Option<ElemType> {
     arg.filter(|a| !a.is_empty() && !crate::zpkg::index::type_param_markers::has_markers(a)).map(ElemType::intern)
 }
