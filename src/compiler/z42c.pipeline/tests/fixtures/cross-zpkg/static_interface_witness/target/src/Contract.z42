@@ -28,3 +28,28 @@ public T DispatchSelf<T>(T seed) where T : class + IReferenceWriter {
 public U ForwardSelf<U>(U seed) where U : class + IReferenceWriter {
     return DispatchSelf(seed);
 }
+
+public struct Payload {
+    public int Number;
+    public string Label;
+
+    public Payload(int number, string label) {
+        this.Number = number;
+        this.Label = label;
+    }
+}
+
+public interface IBlobWriter {
+    static Payload Create();
+    static void Write(Payload value);
+}
+
+public Payload DispatchBlob<T>() where T : IBlobWriter {
+    Payload value = T.Create();
+    T.Write(value);
+    return value;
+}
+
+public Payload ForwardBlob<T>() where T : IBlobWriter {
+    return DispatchBlob<T>();
+}

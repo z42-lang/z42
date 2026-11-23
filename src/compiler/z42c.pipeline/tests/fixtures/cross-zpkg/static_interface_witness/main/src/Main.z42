@@ -9,4 +9,7 @@ void Main() {
     Demo.WitnessLocal.DispatchLocal();
     ReferenceWriter value = Demo.WitnessContract.ForwardSelf(new ReferenceWriter(27));
     Console.WriteLine(value.Value + 1);
+    Demo.WitnessContract.Payload payload = Demo.WitnessContract.ForwardBlob<BlobWriter>();
+    Console.WriteLine(payload.Number);
+    Console.WriteLine(payload.Label);
 }

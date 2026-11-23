@@ -134,7 +134,7 @@ public sealed class CallEmitter {
     [Suppress("style.fnLinesHard", "144 body lines；拆分见 code-organization.md")]
     internal TypedReg _emitCall(BoundCall c) {
         if (c.Kind == "witness") {
-            TypedReg[] args = this._emitArgs(c);
+            TypedReg[] args = this._emitStructAwareArgs(c);
             TypedReg function = this._ctx.Alloc(IrType.Ref);
             this._ctx.Emit(new LoadMethodWitnessInsn(function, c.WitnessSlot));
             return this._emitIndirectCall(function, args, c.ArgCount, c.Type());
