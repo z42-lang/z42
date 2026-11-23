@@ -160,7 +160,6 @@ Rust 侧四个实现零改动）：
 | `__delegate_target` | `object Target { get; }` | 从 Closure 取 `env[0]`；`FuncRef` / 非 delegate 返回 null |
 | `__delegate_fn_name` | `string FnName { get; }` | 目标函数的全限定名（值里存的是 `FnId`，名字从它指向的 `Function` 取，每次新分配一个串）|
 | `__make_closure` | `static MakeClosure(string, object[]) -> object` | 用 `(fn_name, env)` 重建 Closure：名字在这里绑成 `FnId`（与 `MkClos` 同一条路径），解析不到就抛 |
-| `__delegate_invocation_list` | `Delegate[] GetInvocationList()` | 调用列表快照：callable → `[self]`（单播恒一元）；null / 非委托 → 空数组。多播枚举是 stdlib 侧 `Multicast*.GetInvocationList()`（strong 通道 COW 快照，纯 z42） |
 | `__delegate_to_str` | `string ToString()` | 文本形 = 目标函数全限定名（与 FnName 同源；委托没有更有意义的文本形）；非委托返回 null |
 | `__delegate_hash` | `int GetHashCode()` | 与 eq 一致的身份哈希：FuncRef 折 FnId、Closure 混 env 句柄地址；非委托返回 0 |
 | `__delegate_eq` | `static ReferenceEquals(a, b) -> bool` | 按 `FuncRef` / `Closure` 两变体各自的身份语义比较：`FuncRef` 比 `FnId`，`Closure` 比 `fn_id` + env 指针；跨变体不等；非 delegate 返回 false 不报错。一个函数只有一个 id，所以 id 相等即「同一函数」，与此前按名字比较等价 |
