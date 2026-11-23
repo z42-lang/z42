@@ -21,4 +21,15 @@ void Main() {
     Demo.WitnessContract.ForwardValueSelf(packet);
     Console.WriteLine(packet.Count);
     Console.WriteLine(packet.Label);
+    SelfPoint createdPoint = Demo.WitnessContract.ForwardCreateValueSelf<SelfPoint>();
+    SelfPacket createdPacket = Demo.WitnessContract.ForwardCreateValueSelf<SelfPacket>();
+    GC.Collect();
+    Console.WriteLine(createdPoint.X + createdPoint.Y);
+    Console.WriteLine(createdPacket.Count);
+    Console.WriteLine(createdPacket.Label);
+    try {
+        Demo.WitnessContract.ForwardCreateValueSelf<FailingSelfFactory>();
+    } catch (InvalidOperationException error) {
+        Console.WriteLine(error.Message);
+    }
 }

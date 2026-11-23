@@ -25,6 +25,7 @@ public sealed partial class MemberResolver {
         var structSlots = new List<StaticWitnessSlot>();
         var refSlots = new List<StaticWitnessSlot>();
         var valueSelfSlots = new List<StaticWitnessSlot>();
+        var valueSelfReturnSlots = new List<StaticWitnessSlot>();
         for (int pi = 0; pi < constraints.Count; pi = pi + 1) {
             ConstraintBundle bundle = constraints.Bundles[pi];
             var seen = new StrMap();
@@ -46,7 +47,9 @@ public sealed partial class MemberResolver {
             foreach (string key in keys) {
                 var member = members.Get(key) as IfaceMethodHit;
                 StaticWitnessSlot slot = new StaticWitnessSlot(pi, member.Owner.Fqn(), member.Sym);
-                if (bundle.RequiresStruct && MemberResolver._usesSelfParameter(slot.Member.Signature)) {
+                if (bundle.RequiresStruct && MemberResolver._isWitnessSelf(slot.Member.Signature.Ret)) {
+                    valueSelfReturnSlots.Add(slot);
+                } else if (bundle.RequiresStruct && MemberResolver._usesSelfParameter(slot.Member.Signature)) {
                     valueSelfSlots.Add(slot);
                 } else if (MemberResolver._usesRefParameter(slot.Member.Signature)) { refSlots.Add(slot); }
                 else if (MemberResolver._usesDeclaredStruct(slot.Member.Signature)) { structSlots.Add(slot); }
@@ -57,6 +60,7 @@ public sealed partial class MemberResolver {
         slots.AddRange(structSlots.ToArray());
         slots.AddRange(refSlots.ToArray());
         slots.AddRange(valueSelfSlots.ToArray());
+        slots.AddRange(valueSelfReturnSlots.ToArray());
         return slots.ToArray();
     }
 
@@ -79,7 +83,8 @@ public sealed partial class MemberResolver {
         if (method == null || !method.IsStatic || method.TypeParamCount != 0
             || method.Signature == null) { return false; }
         Z42FuncType signature = method.Signature;
-        if (!(signature.Ret is Z42VoidType) && !MemberResolver._isWitnessType(signature.Ret, referenceSelf)) { return false; }
+        if (!(signature.Ret is Z42VoidType)
+            && !MemberResolver._isWitnessType(signature.Ret, referenceSelf || valueSelf)) { return false; }
         for (int i = 0; i < signature.ParamCount; i = i + 1) {
             Z42Type parameter = signature.ParamTypes[i];
             bool allowsSelf = referenceSelf || (valueSelf && !signature.IsRefParam(i));
