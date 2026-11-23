@@ -20,6 +20,11 @@ public static class DispatchKeys {
         return DispatchKeys._methodKey(name, signature.ParamTypes, signature.ParamCount, signature, true);
     }
 
+    public static string ClosedOverloadTypeKey(Z42Type t) {
+        if (!(t is Z42InstantiatedInterfaceType) || !IfaceSlotKeys.IsClosed(t)) { return ""; }
+        return "@" + LayoutKey.Of(t);
+    }
+
     private static string _methodKey(string name, Z42Type[] paramTypes, int paramCount, Z42FuncType signature,
                                      bool qualifyInterfaces) {
         string s = name + "$" + paramCount.ToString();
@@ -28,9 +33,8 @@ public static class DispatchKeys {
             // ':' is reserved for generic instantiations in emitted function names.
             string mode = signature != null && signature.IsRefParam(i) ? "&" : "";
             Z42Type t = paramTypes[i];
-            string key = qualifyInterfaces && t is Z42InstantiatedInterfaceType && IfaceSlotKeys.IsClosed(t)
-                ? "@" + LayoutKey.Of(t) : DispatchKeys.TypeKey(t);
-            s = s + "$" + mode + key;
+            string key = qualifyInterfaces ? DispatchKeys.ClosedOverloadTypeKey(t) : "";
+            s = s + "$" + mode + (key == "" ? DispatchKeys.TypeKey(t) : key);
             i = i + 1;
         }
         return s;

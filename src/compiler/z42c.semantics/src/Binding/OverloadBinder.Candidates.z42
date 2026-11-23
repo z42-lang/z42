@@ -254,7 +254,10 @@ public sealed partial class OverloadBinder {
         while (i < s.ParamTypes.Length) {
             if (s.ParamsFrom >= 0 && i == s.ParamsFrom) { k = k + "..."; }
             if (s.IsRefParam(i)) { k = k + "&"; }
-            k = k + (s.ParamTypes[i] == null ? "?" : s.ParamTypes[i].CanonName()) + ",";
+            Z42Type param = s.ParamTypes[i];
+            string key = ms.IsStatic ? DispatchKeys.ClosedOverloadTypeKey(param) : "";
+            if (key == "") { key = param == null ? "?" : param.CanonName(); }
+            k = k + key + ",";
             i = i + 1;
         }
         return k;
