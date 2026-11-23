@@ -307,11 +307,19 @@ public sealed partial class ExprEmitter {
             string en = this._rtArgName((a as Z42ArrayType).Elem);
             return en == "" ? "" : en + "[]";
         }
-        Z42InstantiatedType it = a as Z42InstantiatedType;
-        string s = this._ctx.QualifyType(it, it.Def.Name()) + "<";
+        if (a is Z42InstantiatedInterfaceType) {
+            var ii = a as Z42InstantiatedInterfaceType;
+            return this._boundConstructedArgName(this._typeofName(ii), ii.TypeArgs, ii.ArgCount);
+        }
+        var it = a as Z42InstantiatedType;
+        return this._boundConstructedArgName(this._ctx.QualifyType(it, it.Def.Name()), it.TypeArgs, it.ArgCount);
+    }
+
+    private string _boundConstructedArgName(string definition, Z42Type[] args, int count) {
+        string s = definition + "<";
         int k = 0;
-        while (k < it.ArgCount) {
-            string an = this._rtArgName(it.TypeArgs[k]);
+        while (k < count) {
+            string an = this._rtArgName(args[k]);
             if (an == "") { return ""; }
             if (k > 0) { s = s + ","; }
             s = s + an;
@@ -320,15 +328,26 @@ public sealed partial class ExprEmitter {
         return s + ">";
     }
 
-    // 类型里是否出现型参（`T` / `List<T>` / `T[]`）。
+    // 类型里是否出现型参（`T` / `List<T>` / `IFoo<T>` / `T[]`）。
     private bool _hasTypeParam(Z42Type a) {
         if (a is Z42GenericParamType) { return true; }
         if (a is Z42ArrayType) { return this._hasTypeParam((a as Z42ArrayType).Elem); }
+        if (a is Z42InstantiatedInterfaceType) {
+            var ii = a as Z42InstantiatedInterfaceType;
+            return this._hasTypeParamInArgs(ii.TypeArgs, ii.ArgCount);
+        }
         if (a is Z42InstantiatedType) {
-            Z42InstantiatedType it = a as Z42InstantiatedType;
-            if (it.Def == null) { return false; }
-            int k = 0;
-            while (k < it.ArgCount) { if (this._hasTypeParam(it.TypeArgs[k])) { return true; } k = k + 1; }
+            var it = a as Z42InstantiatedType;
+            return it.Def != null && this._hasTypeParamInArgs(it.TypeArgs, it.ArgCount);
+        }
+        return false;
+    }
+
+    private bool _hasTypeParamInArgs(Z42Type[] args, int count) {
+        int i = 0;
+        while (i < count) {
+            if (this._hasTypeParam(args[i])) { return true; }
+            i = i + 1;
         }
         return false;
     }

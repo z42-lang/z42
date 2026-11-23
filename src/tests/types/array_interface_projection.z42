@@ -1,0 +1,32 @@
+namespace ArrayInterfaceProjection;
+
+using Std;
+
+class Animal {}
+class Cat : Animal {}
+class Dog : Animal {}
+interface IProducer<T> { T Get(); }
+class CatSource : IProducer<Cat> {
+    public Cat Get() { return new Cat(); }
+}
+
+void Main() {
+    IProducer<Cat> cats = new CatSource();
+    IProducer<Animal> animals = cats;
+    object boxed = animals;
+    Assert.True(boxed is IProducer<Animal>);
+
+    var producers = new IProducer<Animal>[1];
+    producers.SetValue(boxed, 0);
+    Assert.True(producers[0].Get() is Cat);
+    Assert.True(Object.ReferenceEquals(cats, producers[0]));
+
+    var copied = new IProducer<Animal>[1];
+    Array.CopyRange(new object[] { boxed }, 0, copied, 0, 1);
+    Assert.True(copied[0].Get() is Cat);
+    Assert.True(Object.ReferenceEquals(cats, copied[0]));
+
+    var dogs = new Dog[1];
+    Assert.Throws("InvalidCastException", () => dogs.SetValue(boxed, 0));
+    Assert.True(dogs[0] == null);
+}

@@ -1,0 +1,25 @@
+namespace ArrayReflectedBase;
+
+using Std;
+
+class Animal {}
+class Dog : Animal {}
+interface ISource<T> { T Read(); }
+
+void Main() {
+    object dogs = new Dog[1];
+    Type reflected = dogs.GetType();
+    Type root = typeof(Array);
+    Assert.True(dogs is Array);
+    Assert.Equal(root, reflected.BaseType);
+    Assert.Equal(typeof(object), root.BaseType);
+    Assert.True(root.IsAssignableFrom(reflected));
+    Assert.True(root.IsAssignableFrom(typeof(int[])));
+    Assert.True(root.IsAssignableFrom(typeof(Dog[][])));
+    Assert.True(root.IsAssignableFrom(typeof(ISource<Dog>[])));
+    Assert.False(root.IsAssignableFrom(typeof(Dog)));
+    Assert.True(typeof(Dog[]).IsAssignableFrom(reflected));
+    Assert.False(typeof(Animal[]).IsAssignableFrom(reflected));
+    Assert.False(typeof(ISource<Animal>[]).IsAssignableFrom(typeof(ISource<Dog>[])));
+    Assert.False(typeof(Dog[]).IsAssignableFrom(root));
+}

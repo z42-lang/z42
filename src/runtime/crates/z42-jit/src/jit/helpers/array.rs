@@ -21,6 +21,9 @@ pub unsafe extern "C" fn jit_array_new(
 ) -> u8 {
     let element_type = ElemType::from_raw(et);
     let frame = &mut *frame;
+    let element_type = crate::exec::ops::object::array::array_elem_for_activation(
+        vm_ctx_ref(ctx), element_type, frame.method_type_args, || frame.regs.first(),
+    );
     let len = frame.regs[size as usize];
     let (tp_prim, bound) = match (tp_kind, usize::try_from(tp_index)) {
         (1, Ok(index)) => crate::exec::ops::object::array::method_type_param_array_args(frame.method_type_args, index),
@@ -45,12 +48,15 @@ pub unsafe extern "C" fn jit_array_new_lit(
     et: *const ElemTypeInfo,
 ) -> u8 {
     let elems = std::slice::from_raw_parts(elems_ptr, elem_cnt);
-    let regs = &(*frame).regs;
+    let frame = &mut *frame;
+    let regs = &frame.regs;
     let vals = elems.iter().map(|&r| regs[r as usize]);
-    let element_type = ElemType::from_raw(et);
+    let element_type = crate::exec::ops::object::array::array_elem_for_activation(
+        vm_ctx_ref(ctx), ElemType::from_raw(et), frame.method_type_args, || regs.first(),
+    );
     let r = crate::exec::ops::object::array::array_new_lit(vm_ctx_ref(ctx), vals, element_type, None::<fn() -> u32>);
     match r {
-        Ok(arr) => { (*frame).regs[dst as usize] = arr; 0 }
+        Ok(arr) => { frame.regs[dst as usize] = arr; 0 }
         Err(e) => raise(ctx, e),
     }
 }

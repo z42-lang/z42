@@ -3,6 +3,22 @@ use crate::object::{TypeDesc, Value};
 use crate::vm::VmContext;
 use crate::metadata::dispatch::isa::*;
 
+/// Array type tests consult the declaring module and its loader only when a
+/// mismatching bare name could be an erased type argument.
+pub fn array_isa_in_registry(
+    ctx: &VmContext,
+    module: Option<&crate::metadata::Module>,
+    elem: &str,
+    target: &str,
+) -> bool {
+    array_isa_with_nominal_types(elem, target, |name| array_type_is_registered(ctx, module, name))
+}
+
+pub(crate) fn array_type_is_registered(ctx: &VmContext, module: Option<&crate::metadata::Module>, name: &str) -> bool {
+    module.is_some_and(|m| m.type_registry.contains_key(name))
+        || ctx.loader().try_lookup_type(name).is_some_and(|td| td.name.as_str() == name)
+}
+
 // ── Subclass check ───────────────────────────────────────────────────────────
 
 /// Returns true if `derived` equals `target`, is a subclass, or (when `target`

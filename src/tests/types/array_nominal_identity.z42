@@ -1,0 +1,39 @@
+using Std;
+
+class ArrayDog {}
+class ArrayCat {}
+interface IArraySource<T> { T Read(); }
+class ArrayDogSource : IArraySource<ArrayDog> {
+    public ArrayDog Read() { return new ArrayDog(); }
+}
+
+void Main() {
+    object plain = new ArrayDog[1];
+    Assert.Equal(true, plain is ArrayDog[]);
+    Assert.Equal(false, plain is ArrayCat[]);
+    Assert.Equal(true, (plain as ArrayCat[]) == null);
+    Assert.Throws("InvalidCastException", () => { var wrong = (ArrayCat[])plain; });
+
+    var dogs = new ArrayDog[1];
+    var original = new ArrayDog();
+    dogs.SetValue(original, 0);
+    Assert.Throws("InvalidCastException", () => dogs.SetValue(new ArrayCat(), 0));
+    Assert.Equal(true, Object.ReferenceEquals(original, dogs[0]));
+
+    IArraySource<ArrayDog>[] sources = new IArraySource<ArrayDog>[1];
+    object boxed = sources;
+    Assert.Equal(true, boxed is IArraySource<ArrayDog>[]);
+    Assert.Equal(false, boxed is IArraySource<ArrayCat>[]);
+    Assert.Equal(true, (boxed as IArraySource<ArrayCat>[]) == null);
+
+    var dog = new ArrayDogSource();
+    sources.SetValue(dog, 0);
+    Assert.Equal(true, Object.ReferenceEquals(dog, sources[0]));
+
+    var nested = new ArrayDog[][] { new ArrayDog[1] };
+    object boxedNested = nested;
+    Assert.Equal(true, boxedNested is ArrayDog[][]);
+    Assert.Equal(false, boxedNested is ArrayCat[][]);
+    Assert.Throws("InvalidCastException", () => nested.SetValue(new ArrayCat[1], 0));
+    Assert.Equal(true, nested[0] is ArrayDog[]);
+}
