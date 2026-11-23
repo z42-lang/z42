@@ -828,6 +828,7 @@ public sealed class InheritanceResolver {
                     // 静态接口成员不走实例 vtable，不登记。
                     if (!ims.IsStatic) {
                         ct.AddIfaceSlot(IfaceSlotKeys.Exact(it, ims.Name), cm);
+                        ct.AddIfaceSlot(IfaceSlotKeys.QualifiedExact(it, ims.Name), cm);
                         ct.AddIfaceSlot(IfaceSlotKeys.Erased(it, ims.Name), cm);
                     }
                     return;

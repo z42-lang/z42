@@ -137,6 +137,17 @@ public sealed class BoundCall : BoundExpr {
     // 方法名 —— 运行期经类描述符登记的接口槽别名按签名落到实现，而不是按裸名撞上首个同名重载。
     // 默认 ""（post-construction，由手里有归属接口的绑定点写入，同 `OwnerCt` 的先例）。
     public string      IfaceSlot;
+    public Z42Type     OpenIfaceSlotArg;
+
+    public void BindIfaceSlot(Z42InterfaceType owner, string method) {
+        this.IfaceSlot = IfaceSlotKeys.CallSite(owner, method);
+        if (owner is Z42InstantiatedInterfaceType) {
+            var inst = owner as Z42InstantiatedInterfaceType;
+            if (inst.ArgCount == 1 && inst.TypeArgs[0] is Z42GenericParamType) {
+                this.OpenIfaceSlotArg = inst.TypeArgs[0];
+            }
+        }
+    }
     private Z42Type _retType;
     public BoundCall(string kind, bool hasReceiver, BoundExpr receiver, string ownerClass,
                      string methodName, BoundExpr[] args, int argCount, Z42Type retType, Span span) { this.Span = span;
@@ -151,6 +162,7 @@ public sealed class BoundCall : BoundExpr {
         this.InstRetType = null;
         this.OwnerCt = null;
         this.IfaceSlot = "";
+        this.OpenIfaceSlotArg = null;
     }
 
     // 泛型方法调用点的返回类型代换（GenericCallRet）在类型实参解析 / 推断之后才定下来，晚于构造。

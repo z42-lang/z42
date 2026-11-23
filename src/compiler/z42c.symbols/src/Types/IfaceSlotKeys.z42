@@ -13,10 +13,8 @@
 // 键形：`<接口 FQN>[<实参键,…>]#<接口方法名>`。
 //   · 精确键带实参（`Demo.IFoo<string>#Get`）——仅当实参**全部闭合**（不含任何型参）时才有；
 //   · 擦除键不带实参（`Demo.IFoo#Get`）——总有。
-// 调用点优先发精确键；运行期精确键未命中再试擦除键（共享泛型体里的 `IFoo<T>` 只能发擦除键）。
-// 类侧两种键都登记；同一擦除键被两个实例化各要一次时（`X : IFoo<int>, IFoo<string>`）**声明序首个**
-// 胜出 —— 只有「共享泛型体经 `IFoo<T>` 调用一个重复实现了 `IFoo` 的类」会落到它上面（已知限制，见
-// internals generics.md）。
+// 闭合调用点使用精确键，运行期未命中时试擦除键。多个实例共用擦除键时采用首个声明。
+// 共享方法体也可携带 `$mta` 占位，运行时绑定后查对应的限定键。
 //
 // `#` 不出现在任何类型名 / 方法键里（MangleKey 用 `$`、特化名用 `:`、嵌套类型用 `+`），故运行期按
 // 最后一个 `#` 切分即可，且普通方法键永远不会被误认成接口槽键。
@@ -46,6 +44,17 @@ public static class IfaceSlotKeys {
             i = i + 1;
         }
         return s + ">" + "#" + method;
+    }
+
+    // Activation-dependent slots use qualified nominal arguments. Keep these
+    // aliases distinct from the existing signature keys, whose arguments are short names.
+    public static string QualifiedExact(Z42InterfaceType it, string method) {
+        if (!(it is Z42InstantiatedInterfaceType)) { return ""; }
+        var inst = it as Z42InstantiatedInterfaceType;
+        if (inst.ArgCount != 1 || !(inst.TypeArgs[0] is Z42ClassType)) { return ""; }
+        var arg = inst.TypeArgs[0] as Z42ClassType;
+        string name = arg.PrimCode() >= 0 ? arg.CanonName() : arg.Fqn();
+        return IfaceSlotKeys._defFqn(it) + "<@" + name + ">#" + method;
     }
 
     // 调用点用的键：有精确键用精确键，否则擦除键。

@@ -1,0 +1,15 @@
+namespace DemoSlotApp;
+
+using Std.IO;
+using DemoSlotTarget;
+
+void Main() {
+    Sink sink = new Sink();
+    ISink<Animal> animals = ForAnimals(sink);
+    ISink<Cat> cats = ForCats(sink);
+    for (int i = 0; i < 20; i = i + 1) {
+        Assert.Equal("animal", Send<Animal>(animals, new Cat()));
+        Assert.Equal("cat", Send<Cat>(cats, new Cat()));
+    }
+    Console.WriteLine("OK");
+}

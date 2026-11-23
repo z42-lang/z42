@@ -193,7 +193,7 @@ public sealed partial class MemberResolver {
                 BoundCall ifc = BoundCall.Marked(new BoundCall("instance", true, recv, it.Name(), mem.Name, args, argCount,
                                      ifRet, sp), ims.Signature);
                 // fix-interface-overload-dispatch：按**归属接口**（继承来的成员归父接口，实参已逐层代下）发接口槽键。
-                if (!ims.IsStatic) { ifc.IfaceSlot = IfaceSlotKeys.CallSite(iown != null ? iown : it, ims.Name); }
+                if (!ims.IsStatic) { ifc.BindIfaceSlot(iown != null ? iown : it, ims.Name); }
                 return this._applyMethodTypeArgs(ifc, call, ims, env, iown != null ? iown : it);
             }
             this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
@@ -318,7 +318,7 @@ public sealed partial class MemberResolver {
                 BoundCall ccall = BoundCall.Marked(new BoundCall("instance", true, recv, rt.Name(), mem.Name, args, argCount, csig.Ret, sp), csig);
                 // fix-interface-overload-dispatch：约束接口提供的实例方法同样按接口槽派发（实现类的重载
                 // 不能靠裸名猜）。静态接口成员（`static abstract op_*`）不走实例 vtable，保持原样。
-                if (!cms.IsStatic) { ccall.IfaceSlot = IfaceSlotKeys.CallSite(chit.Owner, cms.Name); }
+                if (!cms.IsStatic) { ccall.BindIfaceSlot(chit.Owner, cms.Name); }
                 return ccall;
             }
             // feat/delegate-constraint-members：**基类约束**提供的方法 —— `where TD : SomeClass` 下
@@ -370,7 +370,7 @@ public sealed partial class MemberResolver {
                 if (gown is Z42InstantiatedInterfaceType) { gRet = MemberResolver._substIfaceArgs(gRet, gown as Z42InstantiatedInterfaceType); }
                 BoundCall gcall = BoundCall.Marked(new BoundCall("instance", true, target, it.Name(), "get_" + m.Name, new BoundExpr[0], 0,
                                      gRet, m.Span), ig.Signature);
-                gcall.IfaceSlot = IfaceSlotKeys.CallSite(gown, ig.Name);   // fix-interface-overload-dispatch：同方法那条
+                gcall.BindIfaceSlot(gown, ig.Name);   // fix-interface-overload-dispatch：同方法那条
                 return gcall;
             }
             return new BoundMember(target, m.Name, new Z42ErrorType(), m.Span);
@@ -423,7 +423,7 @@ public sealed partial class MemberResolver {
                 this._tc._access.CheckDeprecatedM(cgs, m.Name, m.Span);
                 BoundCall cgcall = BoundCall.Marked(new BoundCall("instance", true, target, tt.Name(), "get_" + m.Name,
                                                       new BoundExpr[0], 0, cgsig.Ret, m.Span), cgsig);
-                if (!cgs.IsStatic) { cgcall.IfaceSlot = IfaceSlotKeys.CallSite(cghit.Owner, cgs.Name); }
+                if (!cgs.IsStatic) { cgcall.BindIfaceSlot(cghit.Owner, cgs.Name); }
                 return cgcall;
             }
             // feat/delegate-constraint-members：**基类约束**提供的属性 / 字段 —— `where TD : Delegate`

@@ -1,0 +1,8 @@
+[project]
+name = "demo.slotapp"
+version = "0.1.0"
+kind = "exe"
+pack = true
+
+[dependencies]
+"demo.slottarget" = "0.1.0"

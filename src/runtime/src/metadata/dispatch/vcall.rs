@@ -43,11 +43,17 @@ pub(crate) fn iface_slot_method(method: &str) -> Option<&str> {
     method.rfind('#').map(|i| &method[i + 1..])
 }
 
+/// An interface slot whose concrete argument is carried by the caller's frame.
+pub(crate) fn iface_slot_method_template(key: &str) -> Option<(&str, &str, &str)> {
+    let (interface, tail) = key.split_once("<@$mta:")?;
+    let (index, method) = tail.split_once(">#")?;
+    Some((interface, index, method))
+}
+
 /// The erased form of an interface-slot key: type arguments dropped from the interface part
 /// (`Demo.IFoo<int>#Get` → `Demo.IFoo#Get`). `None` when the key carries none. A class that
 /// implements a generic interface whose arguments mention its own type parameters only
-/// registers the erased key, and a shared generic body calling through `IFoo<T>` only emits
-/// it.
+/// registers the erased key.
 pub(crate) fn erased_iface_slot_key(key: &str) -> Option<String> {
     let hash = key.rfind('#')?;
     let lt = key[..hash].find('<')?;

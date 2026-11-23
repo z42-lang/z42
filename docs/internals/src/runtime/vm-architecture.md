@@ -1209,11 +1209,12 @@ if let Some(&slot) = type_desc.vtable_index.get(method) {
   实现方法所在的槽（不新增 vtable 项）。别名指的是槽而不是函数，所以子类 override 该方法时继承来的别名
   自动跟过去；子类重新声明接口时自己的别名覆盖继承的。实现方法继承自尚未合并的跨包基类时别名先跳过，
   `try_fixup_inheritance` 重算布局时补上。
-- **调用点**：接口静态类型收者、以及 `where` 约束接口提供的实例方法，VCall 的方法名都是接口槽键
-  （有精确键发精确键，否则擦除键；共享泛型体里的 `IFoo<T>` 只能发擦除键）。`resolve_vcall` 先把它翻成
-  实现方法的键再走阶梯（[object-protocol-dispatch.md](object-protocol-dispatch.md)），PIC 照常按接收者类型缓存。
-- **已知限制**：共享泛型体经 `IFoo<T>` 调用一个**重复实现了** `IFoo` 的类（`X : IFoo<int>, IFoo<string>`）
-  只能命中擦除键 ⇒ 落到声明序首个实例化的实现。
+- **调用点**：VCall 使用接口槽键；`resolve_vcall` 先找到实现键，再走[虚调用的解析阶梯](object-protocol-dispatch.md)。
+  闭合调用继续按接收类型使用内联缓存。
+- **共享泛型调用**：唯一的接口实参直接来自方法形参时，调用点可带方法帧占位符（例如
+  `Demo.IFoo<@$mta:0>#Get`）。解释器和 JIT 共享绑定逻辑。绑定后的限定键（`Demo.IFoo<@Demo.Cat>#Get`）
+  由接口签名匹配时预先登记，未命中时沿用擦除槽。同一接收类型可以随调用帧的实参选择不同实现，
+  因此加载器不给这类调用点分配内联缓存。
 
 类层面同一个问题的另一半在编译器：派生类**新增**的同名重载若也拿裸键，会在 `merge_with_base` 里按键覆盖
 基类那个签名不同的方法的槽（`B b = new D(); b.Get("s")` 跑进 `D.Get(int)`）。`InheritanceResolver`
