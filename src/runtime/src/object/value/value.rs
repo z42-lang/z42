@@ -137,6 +137,8 @@ pub enum Value {
     /// element). Payload boxed (8 B pointer) so `Value` stays 24 B. GC follows `arr`.
     /// make-value-copy: 8B handle into `VmContext.exec.transient_arena` (payload `StructArrayElem`).
     StructRefHeap { idx: u32, frame_id: u32 } = 18,
+    /// Receiver and exact source interface for an interface conversion.
+    InterfaceRef(InterfaceRef) = 19,
 }
 
 // unify-object-byte-layout PR-5 : `Value` is the interpreter's
@@ -230,7 +232,7 @@ impl Value {
     #[inline]
     pub fn is_heap_ref(&self) -> bool {
         match self {
-            Value::Object(_) | Value::Array(_) | Value::Closure(_) => true,
+            Value::Object(_) | Value::Array(_) | Value::Closure(_) | Value::InterfaceRef(_) => true,
             // unify-gc-heap PR-4: strings are GC blocks now — storing one into a heap
             // slot (object ref field / array element / struct ref leaf) is a heap edge
             // that needs a write barrier (generational card),
@@ -272,6 +274,7 @@ impl Value {
             // Object model R9: an array is one block — its elements are its children (every
             // mode: REF words, MIXED cells, struct[] leaves, FROZEN values).
             Value::Array(rc) => rc.borrow().visit_refs(visit),
+            Value::InterfaceRef(view) => view.backing().borrow().visit_refs(visit),
             Value::Closure(vref) => {
                 // unify-gc-heap PR-2/PR-5: the closure's `ClosureData` is a GC block in region_var.
                 // SAFETY: a reachable closure names an alive block; payload is one ClosureData.
@@ -325,6 +328,8 @@ impl Value {
 impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
+            (Value::InterfaceRef(view), value) => Value::Object(view.receiver()).eq(value),
+            (value, Value::InterfaceRef(view)) => value.eq(&Value::Object(view.receiver())),
             (Value::I64(a),  Value::I64(b))  => a == b,
             (Value::F64(a),  Value::F64(b))  => a == b,
             (Value::Bool(a), Value::Bool(b)) => a == b,

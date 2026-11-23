@@ -482,3 +482,50 @@ fn jit_executes_dynamic_struct_copy_across_frames() {
     assert!(matches!(outcome, NativeOutcome::Threw));
     assert!(matches!(vm.exec().take_exception(), Some(Value::Str(s)) if s.starts_with("StructCopyDynamic: incompatible layouts")));
 }
+
+#[cfg(feature = "jit")]
+#[test]
+fn native_vcall_keeps_the_source_interface() {
+    use crate::jit::runtime::frame::JitFrame;
+    use crate::jit::runtime::invoke::{NativeOutcome, call_entry};
+    use crate::object::{InterfaceRef, NativeData, TypeDesc};
+    use z42::object::tokens::{TypeId, alloc_type_id_block};
+
+    let module = module_of(vec![
+        func("Sink.Put", 1, false, vec![Instruction::ConstI32 { dst: 1, val: 1 }], Some(1)),
+        func("Sink.PutCat", 1, false, vec![Instruction::ConstI32 { dst: 1, val: 2 }], Some(1)),
+        func("Call", 1, true, vec![vcall(1, 0, "ISink<@Animal>#Put", &[])], Some(1)),
+    ]);
+    let vm = VmContext::new();
+    let rt = crate::jit::test_support::install(&vm, &module, z42::config::runtime_config().jit_config())
+        .expect("install");
+    let entry = rt.resolve_fn_by_id(&vm, idx(&module, "Call")).expect("the caller compiles");
+    let td = std::sync::Arc::new(TypeDesc {
+        id: TypeId(alloc_type_id_block(1)),
+        name: "Sink".to_owned(),
+        class_flags: 0,
+        visibility: 0,
+        base_name: None,
+        fields: Vec::new(),
+        field_index: Default::default(),
+        vtable: vec![("Put".to_owned(), "Sink.Put".to_owned()),
+                     ("PutCat".to_owned(), "Sink.PutCat".to_owned())],
+        vtable_index: [("Put".to_owned(), 0), ("PutCat".to_owned(), 1),
+                       ("ISink<@Animal>#Put".to_owned(), 0), ("ISink<@Cat>#Put".to_owned(), 1),
+                       ("ISink#Put".to_owned(), 0)].into_iter().collect(),
+        cold: None,
+    });
+    let object = vm.heap().alloc_object(td, Vec::new(), NativeData::None);
+    let Value::Object(receiver) = object else { panic!("object") };
+    let source = vm.heap().alloc_str("ISink<@Cat>");
+    let view = Value::InterfaceRef(InterfaceRef::new(vm.heap(), receiver, source).unwrap());
+
+    for (value, expected) in [(object, 1), (view, 2), (object, 1), (view, 2)] {
+        let args = [value];
+        match unsafe { call_entry(&vm, entry, JitFrame::new(&vm, entry.max_reg, &args)) } {
+            NativeOutcome::Returned(Some(Value::I64(n))) => assert_eq!(n, expected),
+            NativeOutcome::Threw => panic!("threw {:?}", vm.exec().take_exception()),
+            _ => panic!("expected an integer result"),
+        }
+    }
+}

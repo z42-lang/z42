@@ -118,6 +118,9 @@ pub fn resolve_vcall<'a>(
     ctx: &'a VmContext, module: &'a Module, obj_val: &Value, method: &str, arity: usize,
     ic: Option<&VCallIC>,
 ) -> Result<ResolvedVCall<'a>> {
+    if let Value::InterfaceRef(view) = obj_val {
+        return resolve_interface_ref_vcall(ctx, module, *view, method, arity);
+    }
     // Null receiver: never cached (`receiver_type_id(Null)` is `None`, so the PIC check above
     // this call already missed on the existing tag match) ⇒ the check costs the hit path
     // nothing. Catchable `NullReferenceException`, same text in both engines.
@@ -133,10 +136,39 @@ pub fn resolve_vcall<'a>(
     let method: &str = match iface_slot_method(method) {
         None => method,
         Some(bare) => {
-            slot_impl = resolve_iface_slot(ctx, module, obj_val, method);
+            slot_impl = resolve_iface_slot(ctx, module, obj_val, method, true);
             slot_impl.as_deref().unwrap_or(bare)
         }
     };
+    resolve_checked_vcall(ctx, module, obj_val, method, arity, ic)
+}
+
+#[cold]
+fn resolve_interface_ref_vcall<'a>(
+    ctx: &'a VmContext,
+    module: &'a Module,
+    view: crate::object::InterfaceRef,
+    method: &str,
+    arity: usize,
+) -> Result<ResolvedVCall<'a>> {
+    let receiver = Value::Object(view.receiver());
+    if let Some((interface, member)) = method.rsplit_once('#') {
+        let source = view.source();
+        let erased = crate::zpkg::index::type_names::erased;
+        if erased(source.as_str()) == erased(interface) {
+            let key = format!("{source}#{member}");
+            let implementation = resolve_iface_slot(ctx, module, &receiver, &key, false)
+                .ok_or_else(|| anyhow::anyhow!("VCall: missing source interface slot `{key}`"))?;
+            return resolve_checked_vcall(ctx, module, &receiver, &implementation, arity, None);
+        }
+    }
+    resolve_vcall(ctx, module, &receiver, method, arity, None)
+}
+
+fn resolve_checked_vcall<'a>(
+    ctx: &'a VmContext, module: &'a Module, obj_val: &Value, method: &str, arity: usize,
+    ic: Option<&VCallIC>,
+) -> Result<ResolvedVCall<'a>> {
     let resolved = resolve_vcall_unchecked(ctx, module, obj_val, method, arity, ic)?;
     let phys = arity + 1;   // + receiver
     let (name, sig) = match &resolved.target {
@@ -157,10 +189,10 @@ pub fn resolve_vcall<'a>(
 /// key, then its erased form, on the receiver's type and then on its erased generic
 /// definition (instantiations whose descriptor carries no table of its own). `None` when the
 /// type has no matching slot.
-pub(crate) fn resolve_iface_slot(
-    ctx: &VmContext, module: &Module, obj_val: &Value, key: &str,
+fn resolve_iface_slot(
+    ctx: &VmContext, module: &Module, obj_val: &Value, key: &str, allow_erased: bool,
 ) -> Option<String> {
-    let erased = erased_iface_slot_key(key);
+    let erased = if allow_erased { erased_iface_slot_key(key) } else { None };
     let lookup = |name: &str| module.type_registry.get(name).cloned().or_else(|| ctx.loader().try_lookup_type(name));
     let probe = |td: &crate::object::TypeDesc| -> Option<String> {
         crate::metadata::dispatch::vcall::iface_slot_implementation(td, key, erased.as_deref())

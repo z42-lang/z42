@@ -106,6 +106,7 @@ pub fn value_to_str(v: &Value) -> String {
             format!("[{}]", inner.join(", "))
         }
         Value::Object(rc) => format!("{}{{...}}", rc.type_desc().name),
+        Value::InterfaceRef(view) => value_to_str(&Value::Object(view.receiver())),
         // P1-2 PR 8: callables hold a `FnId`; without a `ctx` the name is not reachable, so
         // the id is shown. The ctx-aware display (`exec::ops::stringify::with_obj_str`, which
         // string interpolation / `Console.WriteLine` / `ToStr` use) prints the name.
