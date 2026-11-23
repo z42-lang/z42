@@ -32,4 +32,6 @@ void test_multi_statement_line() {
     Assert.Equal("true", _step(s, "var f = 0; if (f == 0) { f = 1; } f == 1"));
     Assert.Equal("1", _step(s, "var t = 0; try { t = 1; } catch { t = 2; } t"));
     Assert.Equal("3", _step(s, "int d2 = 0; do { d2 = d2 + 1; } while (d2 < 3); d2"));
+    // 数组初始化器的 `}` 后仍可接下标，整段应保留为同一个表达式。
+    Assert.Equal("42", _step(s, "var index = 1; new int[] { 10, 42 }[index]"));
 }

@@ -225,6 +225,11 @@ string _fxExec(FixtureCtx cx, FixtureTool t, TomlValue st) {
     foreach (var a in t.Pre) { p = p.Arg(a); }
     if (t.Target) { p = p.Arg(_fxAbs(cx, _fxStr(st, "target", cx))); }
     p = _fxEnv(cx, t, st, p.WorkingDirectory(_fxCwd(cx, st)).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()));
+    if (st.ContainsKey("stdin_file")) {
+        string input = _fxAbs(cx, _fxStr(st, "stdin_file", cx));
+        if (!File.Exists(input)) { return "stdin_file 不存在：" + input; }
+        p = p.Stdin(Stdio.Pipe()).StdinBytes(File.ReadAllBytes(input));
+    }
     foreach (var a in _fxStrings(st, "args", cx)) { p = p.Arg(a); }
     return _fxCheck(st, p.Run(), cx);
 }

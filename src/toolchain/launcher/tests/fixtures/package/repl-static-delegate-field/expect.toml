@@ -1,0 +1,9 @@
+desc = "打包 SDK 的 REPL 跨轮声明、赋值、调用静态委托字段并读取字段反射信息"
+tags = ["launcher"]
+args = ["repl"]
+stdin_file = "session.txt"
+env = { Z42_CACHE_DIR = "{case}/repl-cache" }
+env_remove = ["Z42_PROBING_PATHS"]
+exit = 0
+stdout_contains = ["delegate=1", "FieldInfo"]
+output_not_contains = ["E0202:", "E0401:", "E0403:", "Exception:"]

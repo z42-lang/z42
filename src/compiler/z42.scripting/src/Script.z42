@@ -204,12 +204,7 @@ public static class Script {
         if (rewritten.EndsWith(";")) { rewritten = rewritten.Substring(0, rewritten.Length - 1).Trim(); }
         if (trimmed.EndsWith(";")) { trimmed = trimmed.Substring(0, trimmed.Length - 1).Trim(); }
 
-        // fix-repl-block-statement-tail：语句体的 `return null;` 拼接分隔符。语句以 `}` 结尾
-        // （while/if/for/try 的**块语句**，REPL 常见写法）时块自终止，再拼 `;` 是空语句
-        // （parser 拒，E0201「unexpected token in expression」）——整轮编译失败、循环体副作用
-        // 丢失（`int a = 0` + `while (a < 3) { a = a + 1; }` 两轮后 a 仍为 0）。块尾改用空白
-        // 分隔；其余语句维持 `;`。多语句中段以分号相隔、块语句后跟下一语句本就不需要分号。
-        string tailSep = rewritten.EndsWith("}") ? " " : "; ";
+        string tailSep = Script._statementSeparator(rewritten);
 
         // ── 编译 ──
         ReplCompileResult art;
@@ -373,9 +368,20 @@ public static class Script {
 
     // ══ fix-repl-multi-statement：多语句单行 ═══════════════════════════════════
 
+    // 用语法区分自终止的块语句与以 `}` 结尾的表达式语句（如给字段赋块体 lambda）。
+    private static bool _isCompleteStatement(string source) {
+        Parser parser = new Parser(source, "<repl>");
+        parser.ParseStatement();
+        return parser._peek().Kind == TokenKind.Eof && !parser.Diagnostics().HasErrors();
+    }
+
+    private static string _statementSeparator(string source) {
+        return source.Trim().EndsWith("}") && Script._isCompleteStatement(source) ? " " : "; ";
+    }
+
     // token 级顶层切分：按括号深度 0 的 `;` 把输入切成语句段（尾段无分号也保留）。
     // 圆/方括号内的分号不切（调用实参 / 数组初始化器安全）；**顶层花括号块闭合后**若下一
-    // token 非块延续（else / catch / finally / while（do-while 尾）/ `.`），也切——块语句
+    // token 非块延续（else / catch / finally / while（do-while 尾）/ `.`），且确为自终止的语句或声明，也切——块语句
     // 自终止，`if (…) { … } k` 的尾表达式 `k` 是独立一段（只按分号切会把它粘进块段，被
     // 语句判定吞掉返回值）。**尖括号不计深度**——泛型实参自平衡，而顶层比较表达式
     // （`a < b; c > d`）若计深度会把切点误保护进「泛型」里，两害取其轻。
@@ -403,8 +409,10 @@ public static class Script {
                         || nk == TokenKind.While || nk == TokenKind.Dot;
                     if (!continues && nk != TokenKind.Semicolon && nk != TokenKind.Eof) {
                         string seg = input.Substring(start, lx.TokenAt(i + 1).Span.Start - start).Trim();
-                        if (seg.Length > 0) { segs.Add(seg); }
-                        start = lx.TokenAt(i + 1).Span.Start;
+                        if (Script._isCompleteStatement(seg) || Classifier.Classify(seg).IsDecl) {
+                            segs.Add(seg);
+                            start = lx.TokenAt(i + 1).Span.Start;
+                        }
                     }
                 }
             }
@@ -513,12 +521,12 @@ public static class Script {
         while (di < decls.Count) { prelude = prelude + decls[di] + "\n"; di = di + 1; }
         prelude = prelude + "}\n";
 
-        // 函数体：语句段拼接（块尾空格 / 其余分号——同 fix-repl-block-statement-tail）+ 尾表达式。
+        // 函数体：语句段拼接 + 尾表达式，语句分隔与单段 Eval 共用。
         string body = "";
         int bi = 0;
         while (bi < bodySegs.Count) {
             string s = bodySegs[bi].Trim();
-            body = body + s + (s.EndsWith("}") ? " " : "; ");
+            body = body + s + Script._statementSeparator(s);
             bi = bi + 1;
         }
         bool hasValue = lastExpr.Length > 0;
@@ -528,7 +536,7 @@ public static class Script {
             // 尾表达式段失败 → 回退纯语句（副作用调用等），镜像单段路径。
             string lex = lastExpr.Trim();
             ReplCompileResult artS = Script._compileBody(state, n, prelude, efn,
-                body + lex + (lex.EndsWith("}") ? " " : "; ") + "return null;");
+                body + lex + Script._statementSeparator(lex) + "return null;");
             if (artS.ErrorCount == 0) { art = artS; hasValue = false; }
         }
         if (art.ErrorCount > 0) {

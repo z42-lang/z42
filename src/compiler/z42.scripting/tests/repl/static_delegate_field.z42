@@ -1,0 +1,19 @@
+namespace Z42ScriptingTests;
+
+using Z42.Scripting;
+using Std.Harness;
+
+[Test]
+void test_static_delegate_field_across_rounds() {
+    ScriptState s = Script.Create();
+    Assert.Equal("ok", _step(s, "struct A {\n    public static Action<int> a;\n    public static int Seen;\n}"));
+    Assert.Equal("ok", _step(s, "A.a = (a) => { A.Seen = a; }"));
+    Assert.Equal("ok", _step(s, "A.a(1)"));
+    Assert.Equal("1", _step(s, "A.Seen"));
+    Assert.Equal("FieldInfo", _step(s, "fieldof(A.a)"));
+    Assert.Equal("a", _step(s, "fieldof(A.a).Name"));
+    Assert.Equal("true", _step(s, "fieldof(A.a).IsStatic"));
+    Assert.Equal("ok", _step(s, "A.a = (a) => { A.Seen = a + 1; };"));
+    Assert.Equal("3", _step(s, "A.a(2); A.Seen"));
+    Assert.Equal("5", _step(s, "A.a = (a) => { A.Seen = a + 2; }; A.a(3); A.Seen"));
+}

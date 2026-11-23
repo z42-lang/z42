@@ -1,0 +1,7 @@
+struct A {
+    public static Action<int> a;
+}
+A.a = (a) => {Console.WriteLine("delegate=" + a);}
+A.a(1)
+fieldof(A.a)
+.exit
