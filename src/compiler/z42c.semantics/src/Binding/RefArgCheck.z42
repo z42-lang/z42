@@ -21,7 +21,11 @@ public static class RefArgCheck {
         if (args[i] == null) { return; }
         bool paramRef = sig.IsRefParam(i);
         bool argRef = args[i] is BoundRefArg;
-        if (paramRef == argRef) { return; }
+        if (paramRef && argRef) {
+            RefArgCheck._checkClosedInterfaceSlot(tc, args[i] as BoundRefArg, sig.ParamTypes[i]);
+            return;
+        }
+        if (!paramRef && !argRef) { return; }
         Span sp = args[i].Span;
         if (paramRef) {
             tc._diags.Error(DiagnosticCodes.RefArgModifierMissing,
@@ -32,6 +36,23 @@ public static class RefArgCheck {
                 "argument " + (i + 1).ToString() + " must not be passed with `ref` — the parameter is not `ref`", sp);
         }
     }
+    // The address register is Unknown. Compare the writable lvalue's type
+    // directly when both ends identify a closed generic interface.
+    private static void _checkClosedInterfaceSlot(TypeChecker tc, BoundRefArg arg, Z42Type target) {
+        if (arg.Inner == null || !(arg.Inner.Type() is Z42InstantiatedInterfaceType)
+            || !(target is Z42InstantiatedInterfaceType)) { return; }
+        Z42Type source = arg.Inner.Type();
+        if (!IfaceSlotKeys.IsClosed(source) || !IfaceSlotKeys.IsClosed(target)) { return; }
+
+        string sourceKey = LayoutKey.Of(source);
+        string targetKey = LayoutKey.Of(target);
+        if (sourceKey != "" && targetKey != "" && sourceKey != targetKey) {
+            tc._diags.Error(DiagnosticCodes.TypeMismatch,
+                "ref argument has type " + Z42Type.DiagName(source)
+                + " but the writable parameter requires " + Z42Type.DiagName(target), arg.Span);
+        }
+    }
+
     // Keep the original candidates when no mode fits so binding can report the
     // modifier error on the selected signature.
     public static MethodSymbol[] MatchingOverloads(MethodSymbol[] methods, BoundExpr[] args, int count) {

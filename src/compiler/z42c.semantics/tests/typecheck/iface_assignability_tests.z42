@@ -169,3 +169,20 @@ void test_inferred_variance_rejects_reverse_and_invariant_conversions() {
     Assert.Equal("E0402", SemanticDump.FirstErrorCode(context
         + " void F(IOut<int> x) { IOut<object> y = x; }"));
 }
+
+[Test]
+void test_closed_interface_ref_arguments_require_the_same_type() {
+    string context = "namespace D; class Animal {} class Cat : Animal {}"
+        + " interface IOut<T> { T Read(); }";
+    string takeAnimal = " void Take(ref IOut<Animal> arg) {}";
+    string takeCat = " void Take(ref IOut<Cat> arg) {}";
+    string callWithCat = " void Call(IOut<Cat> x) { Take(ref x); }";
+    string callWithAnimal = " void Call(IOut<Animal> x) { Take(ref x); }";
+    string widen = context + takeAnimal + callWithCat;
+    string narrow = context + takeCat + callWithAnimal;
+    Assert.Equal(1, SemanticDump.ErrorCount(widen));
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(widen));
+    Assert.Equal(1, SemanticDump.ErrorCount(narrow));
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(narrow));
+    Assert.Equal(0, SemanticDump.ErrorCount(context + takeAnimal + callWithAnimal));
+}

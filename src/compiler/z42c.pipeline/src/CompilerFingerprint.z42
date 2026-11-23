@@ -199,7 +199,8 @@ public static class CompilerFingerprint {
         "preserve-imported-interface-variance",
         "bind-generic-interface-slots",
         "dispatch-ref-static-witness",
-        "enable-interface-variance-conversions"
+        "enable-interface-variance-conversions",
+        "guard-closed-interface-ref-arguments"
     };
 
     // 指纹值：`Entries` 逐条以 `\n` 连接后取内容哈希（`mmh3:` 前缀，同 SourceHash）。
