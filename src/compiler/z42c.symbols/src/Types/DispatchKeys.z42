@@ -20,6 +20,10 @@ public static class DispatchKeys {
         return DispatchKeys._methodKey(name, signature.ParamTypes, signature.ParamCount, signature, true);
     }
 
+    internal static string ClosedFreeOverloadKey(string name, Z42FuncType signature) {
+        return DispatchKeys._methodKey(name, signature.ParamTypes, signature.ParamCount, null, true);
+    }
+
     public static string ClosedOverloadTypeKey(Z42Type t) {
         if (!(t is Z42InstantiatedInterfaceType) || !IfaceSlotKeys.IsClosed(t)) { return ""; }
         return "@" + LayoutKey.Of(t);
