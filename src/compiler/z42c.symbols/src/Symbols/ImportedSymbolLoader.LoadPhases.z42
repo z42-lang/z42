@@ -85,6 +85,7 @@ public static partial class ImportedSymbolLoader {
                 // z42b-owns-test-targets：**例外** —— 本次编译是 <parentPkg> 的测试/bench 目标时，
                 // 加载父包按同包待遇（internal 可见）。其余依赖照旧。parentPkg=="" → 恒 true（现状）。
                 nct.IsImported = !(parentPkg != "" && pkgName == parentPkg);
+                nct.IsAbstract = cl.IsAbstract;
                 nct.IsSealed = cl.IsSealed;   // impl-sealed-semantics-devirt：跨包 sealed 类（继承强制 + 去虚化）
                 nct.IsDeprecated = cl.IsDeprecated; nct.DeprecationMsg = cl.DeprecationMsg;   // add-deprecated-directive：跨包类级弃用（use-site 告警）
                 nct.Visibility = cl.Visibility;   // enforce-class-access：跨包类声明可见性（internal 类跨包引用 deny）

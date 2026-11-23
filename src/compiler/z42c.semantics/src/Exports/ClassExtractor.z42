@@ -107,6 +107,7 @@ public static class ClassExtractor {
         // 导出名用裸名（镜像 C# ExportedClassDef：ct.Name，非 IrName()）。
         string ecExportName = c.Name;
         ExportedClassZ ez = new ExportedClassZ(ecExportName, !isStruct, isStruct ? "" : baseName, f.Items, f.Count, m.Methods, m.Mc, c.TypeParams.Names, c.TypeParams.Count);
+        ez.IsAbstract = Mod.Has(c.ModFlags, Mod.Abstract);
         if (ct != null && ct.InterfaceCount > 0) {                  // 类接口表（port-z42c-interface）
             ez.Interfaces = ct.InterfaceNames;
             ez.InterfaceCount = ct.InterfaceCount;

@@ -489,3 +489,13 @@ void unreferenced_duplicate_is_silent() {
     Assert.Equal(0, dupCount(d, "E0601"));
     Assert.Equal(0, dupCount(d, "E0606"));
 }
+
+[Test]
+void imported_abstract_class_cannot_be_created() {
+    string[] srcs = new string[]{"namespace Demo.Types; public abstract class Shape {}"};
+    string[] namespaces = new string[]{"Demo.Types"};
+    string[] packages = new string[]{"demo.types"};
+    ImportedSymbols imports = dupImports(srcs, namespaces, packages, namespaces);
+    string[] diags = dupDiags("namespace App; using Demo.Types; void F() { Shape x = new Shape(); }", imports);
+    Assert.Equal(1, dupCount(diags, "cannot create an instance of abstract class"));
+}

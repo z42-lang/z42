@@ -779,6 +779,7 @@ public static class TsigReconcile {
         if (!isStruct && cd.HasBase && cd.BaseName != "" && cd.BaseName != "Std.Object") { ecz.BaseFqn = cd.BaseName; }
         // feat/multicast-base-class（跨包段）：开放泛型基声明全拼写随 $BaseRef 哨兵搬运。
         ecz.BaseRefSpelling = IrBaseRef.Spelling(cd.Attrs, cd.AttrCount);
+        ecz.IsAbstract = (cd.Flags & 1) != 0;
         ecz.IsSealed = (cd.Flags & 2) != 0;   // impl-sealed-semantics-devirt：CLASS_FLAG_SEALED（TYPE Flags bit1）
         ecz.IsRecord = (cd.Flags & 8) != 0;   // complete-generic-instantiation：CLASS_FLAG_RECORD（TYPE Flags bit3）
         ecz.IsDeprecated = IrDeprecation.Has(cd.Attrs, cd.AttrCount); ecz.DeprecationMsg = IrDeprecation.Msg(cd.Attrs, cd.AttrCount);   // add-deprecated-directive（attr-ref 哨兵）

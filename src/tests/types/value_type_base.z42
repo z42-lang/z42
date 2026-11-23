@@ -1,6 +1,7 @@
 namespace ValueTypeBase;
 
 using Std;
+using Std.Reflection;
 
 struct Point { public int X; public int Y; }
 struct SingleField { public int X; }
@@ -23,6 +24,8 @@ void Main() {
     Assert.False(enumType.IsEnum);
     Assert.False(enumType.IsValueType);
     Assert.Equal(valueType, enumType.BaseType);
+    Assert.Throws("Exception", () => { Activator.CreateInstance(valueType); });
+    Assert.Throws("Exception", () => { Activator.CreateInstance(enumType); });
 
     Assert.Equal(valueType, typeof(Point).BaseType);
     Assert.Equal(valueType, typeof(Empty).BaseType);

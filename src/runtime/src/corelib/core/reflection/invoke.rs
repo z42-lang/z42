@@ -397,6 +397,10 @@ pub fn activator_create(ctx: &VmContext, t: &Value) -> anyhow::Result<Value> {
         Some(td) => td,
         None => bail!("Activator.CreateInstance: type has no runtime handle (primitive/array/synthetic?)"),
     };
+    if td.class_flags & crate::zpkg::ir::CLASS_FLAG_ABSTRACT != 0 {
+        bail!("Activator.CreateInstance: cannot instantiate abstract type `{}`", td.name);
+    }
+
     // fix-new-prim-value: 构造一个基元 = 它的零值，不是「一个 0 字段的 ScriptObject」。
     //
     // 这是 `new T()`（T 为方法级型参）在 T 绑到基元时走到的路径——编译期发
