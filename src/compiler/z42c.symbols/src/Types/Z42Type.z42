@@ -552,6 +552,7 @@ public sealed class Z42ClassType : Z42Type {
 // `IFoo<int>` 的类型实参（design D6 修订，见该类注释）。本类自身语义不变。
 public class Z42InterfaceType : Z42Type {
     protected string _name;
+    private int[] _varianceUses;
     public StrMap Methods;    // name → MethodSymbol
     public bool   IsPartial;       // add-partial-types：由多个 partial 接口碎片合并而成
     public string PartialMainFile; // 主碎片文件（min-path）；仅主碎片 emit 合并接口 TYPE record
@@ -603,6 +604,33 @@ public class Z42InterfaceType : Z42Type {
     public string Fqn() {
         if (this.Namespace == "") { return this._name; }
         return this.Namespace + "." + this._name;
+    }
+
+    internal void AddDeclaredMethod(string key, MethodSymbol method) {
+        // Observe declarations before inserting the lookup key. Partial
+        // fragments and declarations sharing a key contribute independently.
+        if (this.TypeParamCount > 0 && !this.IsImported) {
+            if (this._varianceUses == null) { this._varianceUses = new int[this.TypeParamCount]; }
+            int i = 0;
+            while (i < this.TypeParamCount) {
+                int uses = InterfaceVarianceInference.MethodUse(method, this.TypeParamNames[i]);
+                this._varianceUses[i] = this._varianceUses[i] | uses;
+                i = i + 1;
+            }
+        }
+        this.Methods.Put(key, method);
+    }
+
+    /// Inferred direction for a parameter of a collected interface definition.
+    public InterfaceVariance ParameterVariance(int index) {
+        if (this.IsImported || this.BaseCount > 0 || this.AssocTypeCount > 0
+            || this._varianceUses == null || index < 0 || index >= this.TypeParamCount) {
+            return InterfaceVariance.Invariant;
+        }
+        int uses = this._varianceUses[index];
+        if (uses == InterfaceVarianceInference.Input) { return InterfaceVariance.Contravariant; }
+        if (uses == InterfaceVarianceInference.Output) { return InterfaceVariance.Covariant; }
+        return InterfaceVariance.Invariant;
     }
 
     public void AddBase(string name) { this.AddBaseRef(name, null); }

@@ -10,6 +10,7 @@
 | 功能 | 入口 |
 |------|------|
 | 符号收集 | `SymbolCollector.CollectAll`（各簇 pass 见 `Symbols/StubCollector` 等） |
+| 接口方差分析 | `Z42InterfaceType.ParameterVariance`，基于已收集的声明签名 |
 | 类型解析 | `SymbolTable.ResolveTypeP` / `GetClass` / `GetInterface` |
 | 导入装载 | `ImportedSymbolLoader.Load`（+ `.Fill` / `.Resolve` 分片） |
 | struct 布局 | `StructLayout`（+ `.Query` 读端查询面分片） |
