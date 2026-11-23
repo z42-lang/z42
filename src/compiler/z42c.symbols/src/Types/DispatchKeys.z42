@@ -11,13 +11,13 @@ public static class DispatchKeys {
     }
 
     public static string MethodKey(string name, Z42Type[] paramTypes, int paramCount, Z42FuncType signature) {
-        return DispatchKeys._methodKey(name, paramTypes, paramCount, signature, false);
+        return DispatchKeys._methodKey(name, paramTypes, paramCount, signature, false, true);
     }
 
     // Closed interface overloads use nominal arguments for identity. Their old
     // registration key is still used unless another declaration already owns it.
     public static string ClosedOverloadKey(string name, Z42FuncType signature) {
-        return DispatchKeys._methodKey(name, signature.ParamTypes, signature.ParamCount, signature, true);
+        return DispatchKeys._methodKey(name, signature.ParamTypes, signature.ParamCount, signature, true, true);
     }
 
     public static string ClosedOverloadTypeKey(Z42Type t) {
@@ -29,14 +29,15 @@ public static class DispatchKeys {
     }
 
     private static string _methodKey(string name, Z42Type[] paramTypes, int paramCount, Z42FuncType signature,
-                                     bool qualifyInterfaces) {
+                                     bool qualifyInterfaces, bool includeRefMode) {
         string s = name + "$" + paramCount.ToString();
         int i = 0;
         while (i < paramCount) {
             // ':' is reserved for generic instantiations in emitted function names.
-            string mode = signature != null && signature.IsRefParam(i) ? "&" : "";
+            bool byRef = signature != null && signature.IsRefParam(i);
+            string mode = byRef && includeRefMode ? "&" : "";
             Z42Type t = paramTypes[i];
-            string key = qualifyInterfaces ? DispatchKeys.ClosedOverloadTypeKey(t) : "";
+            string key = qualifyInterfaces && !byRef ? DispatchKeys.ClosedOverloadTypeKey(t) : "";
             s = s + "$" + mode + (key == "" ? DispatchKeys.TypeKey(t) : key);
             i = i + 1;
         }
