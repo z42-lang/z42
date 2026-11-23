@@ -105,7 +105,7 @@ fn initialize_twice_returns_already_init() {
 
 fn assert_host_sinks_receive_output(capture: &StdoutCapture) {
     let ctx = VmContext::new();
-    let _active = super::ops::HostSinkGuard::enter();
+    let _active = crate::corelib::io::HostSinkGuard::enter();
     let _ = crate::corelib::io::typed::println(&ctx, &Value::I64(17)).unwrap();
     let _ = crate::corelib::io::typed::eprintln(&ctx, &Value::I64(23)).unwrap();
     assert_eq!(&*capture.bytes.lock().unwrap(), b"17\n23\n");

@@ -18,7 +18,7 @@ use crate::object::Value;
 /// Convert a host-supplied `Z42Value` into a runtime `Value` for use as
 /// an interpreter argument. Unsupported tags surface as an `anyhow`
 /// error which the caller maps to `Z42_HOST_ERR_ARG_MISMATCH`.
-pub fn z42_value_to_value(z: &Z42Value) -> Result<Value> {
+fn z42_value_to_value(z: &Z42Value) -> Result<Value> {
     match z.tag {
         Z42_VALUE_TAG_NULL => Ok(Value::Null),
         Z42_VALUE_TAG_I64 => Ok(Value::I64(z.payload as i64)),
@@ -33,28 +33,16 @@ pub fn z42_value_to_value(z: &Z42Value) -> Result<Value> {
 /// Convert a runtime `Value` returned from the interpreter back into a
 /// host-visible `Z42Value`. `None` (void return) maps to a NULL-tagged
 /// value so callers always get a defined out_result.
-pub fn value_to_z42_value(v: Option<&Value>) -> Result<Z42Value> {
+pub(super) fn value_to_z42_value(v: Option<&Value>) -> Result<Z42Value> {
     let v = match v {
         Some(v) => v,
         None => return Ok(null_z42_value()),
     };
     match v {
         Value::Null => Ok(null_z42_value()),
-        Value::I64(i) => Ok(Z42Value {
-            tag: Z42_VALUE_TAG_I64,
-            reserved: 0,
-            payload: *i as u64,
-        }),
-        Value::F64(f) => Ok(Z42Value {
-            tag: Z42_VALUE_TAG_F64,
-            reserved: 0,
-            payload: f.to_bits(),
-        }),
-        Value::Bool(b) => Ok(Z42Value {
-            tag: Z42_VALUE_TAG_BOOL,
-            reserved: 0,
-            payload: if *b { 1 } else { 0 },
-        }),
+        Value::I64(i) => Ok(raw_value(Z42_VALUE_TAG_I64, *i as u64)),
+        Value::F64(f) => Ok(raw_value(Z42_VALUE_TAG_F64, f.to_bits())),
+        Value::Bool(b) => Ok(raw_value(Z42_VALUE_TAG_BOOL, u64::from(*b))),
         other => bail!(
             "z42_host_invoke: return value of kind {other:?} is not supported by H2 (null / i64 / f64 / bool only); strings + objects land in H3"
         ),
@@ -62,10 +50,14 @@ pub fn value_to_z42_value(v: Option<&Value>) -> Result<Z42Value> {
 }
 
 /// Canonical NULL-tagged value. Stable across H2 / H3 / H4.
-pub fn null_z42_value() -> Z42Value {
-    Z42Value {
-        tag: Z42_VALUE_TAG_NULL,
-        reserved: 0,
-        payload: 0,
-    }
+fn null_z42_value() -> Z42Value {
+    raw_value(Z42_VALUE_TAG_NULL, 0)
+}
+
+pub(super) const fn raw_value(tag: u32, payload: u64) -> Z42Value {
+    Z42Value { tag, reserved: 0, payload }
+}
+
+pub(super) fn marshal_args(args: &[Z42Value]) -> Result<Vec<Value>> {
+    args.iter().map(z42_value_to_value).collect()
 }

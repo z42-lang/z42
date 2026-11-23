@@ -209,32 +209,16 @@ pub struct Value(Z42Value);
 
 impl Value {
     pub fn null() -> Self {
-        Self(Z42Value {
-            tag: Z42_VALUE_TAG_NULL,
-            reserved: 0,
-            payload: 0,
-        })
+        Self(super::marshal::raw_value(Z42_VALUE_TAG_NULL, 0))
     }
     pub fn i64(v: i64) -> Self {
-        Self(Z42Value {
-            tag: Z42_VALUE_TAG_I64,
-            reserved: 0,
-            payload: v as u64,
-        })
+        Self(super::marshal::raw_value(Z42_VALUE_TAG_I64, v as u64))
     }
     pub fn f64(v: f64) -> Self {
-        Self(Z42Value {
-            tag: Z42_VALUE_TAG_F64,
-            reserved: 0,
-            payload: v.to_bits(),
-        })
+        Self(super::marshal::raw_value(Z42_VALUE_TAG_F64, v.to_bits()))
     }
     pub fn bool(v: bool) -> Self {
-        Self(Z42Value {
-            tag: Z42_VALUE_TAG_BOOL,
-            reserved: 0,
-            payload: if v { 1 } else { 0 },
-        })
+        Self(super::marshal::raw_value(Z42_VALUE_TAG_BOOL, if v { 1 } else { 0 }))
     }
 
     pub fn is_null(self) -> bool {

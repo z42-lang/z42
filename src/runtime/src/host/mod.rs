@@ -57,13 +57,15 @@ use crate::vm::VmContext;
 pub mod resolver {
     pub use crate::loader::program::{read_zpkg_namespaces, ZpkgResolver};
 }
-pub mod signal;
+/// Process crash reporting for native and Rust hosts.
+pub mod signal {
+    pub use crate::composition::install_crash_report as install;
+}
 pub mod error;
 // C ABI configuration, session, marshaling and entry points.
 pub(crate) mod config;
 pub(crate) mod ffi;
 pub(crate) mod marshal;
-pub(crate) mod ops;
 pub(crate) mod state;
 mod app;
 pub(crate) mod services;

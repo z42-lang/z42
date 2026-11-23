@@ -19,7 +19,7 @@
 //!   frame stack goes 0 → 1 and drops it when the stack is empty again
 //!   (`exec/call/engine_guards.rs`). Every nested interp / JIT frame on that
 //!   context runs under it and touches no thread-local.
-//! - **Host re-entry**: `host::ops::invoke_impl` installs one unconditionally —
+//! - **Host re-entry**: `exec::invoke_entry` installs one unconditionally —
 //!   the one way another VM's code can run on a thread whose stack already
 //!   holds this context's frames.
 //! - **JIT entry**: `jit::run_fn` installs one before its first push,

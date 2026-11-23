@@ -80,6 +80,26 @@ pub fn host_sink_set_active(on: bool) -> bool {
     })
 }
 
+/// RAII guard that toggles the per-thread "host sink active" flag.
+/// Activated on entry to `z42_host_invoke`, restored on Drop so panics
+/// or early returns can't leave a dangling flag.
+pub(crate) struct HostSinkGuard {
+    prev: bool,
+}
+
+impl HostSinkGuard {
+    pub(crate) fn enter() -> Self {
+        let prev = host_sink_set_active(true);
+        Self { prev }
+    }
+}
+
+impl Drop for HostSinkGuard {
+    fn drop(&mut self) {
+        host_sink_set_active(self.prev);
+    }
+}
+
 fn dispatch_host_sink(
     text: &str,
     append_newline: bool,

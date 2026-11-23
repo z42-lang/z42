@@ -11,7 +11,7 @@
 `LoadOptions` 只表达功能请求与加载环境；组件装配输入保持 VM 内部。
 VM 内部组件门面、跨库协议与普通宿主契约的区别及当前缺口见[运行时模块边界](../../../../docs/internals/src/runtime/module-boundaries.md)。
 
-普通宿主的 C 声明位于 [`../../include/z42_host_api.h`](../../include/z42_host_api.h)，由 `include/z42_host.h` 统一聚合发布；C ABI 的实现由 `ffi.rs`、`config.rs`、`state.rs`、`ops.rs` 和 `marshal.rs` 共同维护，由 host 根导出。
+普通宿主的 C 声明位于 [`../../include/z42_host_api.h`](../../include/z42_host_api.h)，由 `include/z42_host.h` 统一聚合发布；C ABI 的实现由 `ffi.rs`、`config.rs`、`state.rs` 和 `marshal.rs` 共同维护，由 host 根导出。
 
 ## 功能索引
 
@@ -24,9 +24,9 @@ VM 内部组件门面、跨库协议与普通宿主契约的区别及当前缺�
 | `mod.rs` | 导出 VM 程序会话的加载选项与调用入口 |
 | `run_app` / `RunOpts` | 一次性应用运行、应用参数、退出报告和进程退出时的释放策略 |
 | `ffi.rs` / `config.rs` / `state.rs` | C ABI 与不透明句柄定义、配置验证及句柄注册表；Rust 消费者从 host 根导入 Z42Host/Z42Module/Z42Entry |
-| `ops.rs` / `marshal.rs` | ABI 操作适配和参数、返回值转换 |
+| `marshal.rs` | ABI 参数与返回值转换 |
 | `ExecMode` / `PackageImage` | 由 z42-zpkg 拥有、通过宿主门面提供的执行模式和不可变包定义类型 |
-| `signal.rs` | 致命信号安装入口，VM 栈捕获与崩溃报告归 diagnostics |
+| `host::signal` | 致命信号安装入口，VM 栈捕获与崩溃报告归 diagnostics |
 | `host::resolver` | 导出 loader 的包解析接口和 `read_zpkg_namespaces` 包解析键查询，C 回调适配归 `config.rs` |
 | `services.rs` | 嵌入端搜索路径与核心库隔离运行适配 |
 

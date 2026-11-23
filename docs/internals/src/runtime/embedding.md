@@ -121,7 +121,7 @@ pub(crate) struct HostState {
 `LoadedProgram` 持 `Pin<Box<VmContext>>`，模块本身由 ctx 拥有。
 这样并发 load 两个产物不会互相污染静态状态。
 
-`ops::build_host_module` 将 C 配置转换为 `LoadOptions` 并调用 `LoadedProgram::load_bytes`，后者和文件应用共用加载及启动流程。C 宿主启用依赖预加载，以便在执行前解析依赖中的入口；resolver 优先于文件搜索。
+`ResolvedConfig::load_options` 将 C 配置转换为 `LoadOptions` 并调用 `LoadedProgram::load_bytes`，后者和文件应用共用加载及启动流程。C 宿主启用依赖预加载，以便在执行前解析依赖中的入口；resolver 优先于文件搜索。
 
 初始化由 `LoadedProgram::initialized` 保证每个程序只准备一次，失败保持终态；静态字段、初始化器及 VM 资源在后续调用之间保留。调用参数检查、执行模式选择、异常和 fatal 收尾由统一调用服务负责，C 层只转换结果。
 
@@ -197,7 +197,7 @@ thread_local! { static HOST_SINK_ACTIVE: Cell<bool> = const { Cell::new(false) }
 
 - **进程全局的 sink 槽**由 `install_host_stdout_sink` / `install_host_stderr_sink` 装卸：
   `initialize` 从 config 装、`set_*_sink` 换、`shutdown` 卸（装 `None`）。
-- **线程局部的 active 标志**由 `ops::HostSinkGuard::enter()` 在 `invoke_impl` 开头置位、
+- **线程局部的 active 标志**由 `corelib::io::HostSinkGuard::enter()` 在宿主调用入口` 开头置位、
   `Drop` 时复位为**进入前的值**（不是无条件 false），所以 panic 或提前 return 都不会留下悬空标志。
 
 `route_stdout` 的优先级：active ∧ 全局槽非空 → 宿主 sink；否则 → test-IO 捕获栈；再否则 → 进程 stdout。
@@ -254,7 +254,7 @@ fn classify_invoke_error(msg: &str) -> Z42HostStatus {
 ### `ERR_VERIFICATION` 是个空枚举值
 
 `Z42HostStatus::Verification`(11) 在运行时**没有任何发射点**。
-`verify_constraints` 失败在 `ops::build_host_module` 里被 `.context()` 包成普通 `Err`，
+`verify_constraints` 失败在 `ResolvedConfig::load_options` 里被 `.context()` 包成普通 `Err`，
 到 `z42_host_load_zbc` 统一映射成 `BadZbc`(10)。Tier 2 的 `translate_status` 里那个分支是死代码。
 要么给它接上发射点，要么从 ABI 里删——现状是两头不靠。
 

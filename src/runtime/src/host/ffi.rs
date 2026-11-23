@@ -9,7 +9,7 @@
 //! Sibling: `crate::interop` (interop — native code registering types into z42).
 
 use crate::host::*;
-use super::{config, ops, state};
+use super::{config, marshal, state};
 
 use std::os::raw::{c_char, c_void};
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -121,7 +121,7 @@ pub unsafe extern "C" fn z42_host_initialize(
 
         // Probe search_paths for z42.core.zpkg — best-effort, missing
         // corelib is reported only when actual user code references it.
-        match ops::probe_corelib(&resolved) {
+        match crate::loader::probe_prelude(&*resolved.vfs, &resolved.search_paths) {
             Ok(()) => (),
             Err(e) => {
                 return set_error(
@@ -223,7 +223,7 @@ pub unsafe extern "C" fn z42_host_load_zbc(
             Some(pair) => pair,
             None => return set_error(Z42HostStatus::NotInit, "z42_host_load_zbc: host state vanished mid-call"),
         };
-        let host_module = match ops::build_host_module(&config, slice, &image_cache) {
+        let host_module = match LoadedProgram::load_bytes_with_cache(slice, config.load_options(), &image_cache) {
             Ok(module) => module,
             Err(error) => return set_error(Z42HostStatus::BadZbc, format!("z42_host_load_zbc: {error:#}")),
         };
@@ -302,12 +302,7 @@ pub unsafe extern "C" fn z42_host_resolve_entry(
         let fn_idx = match lookup {
             Some(Ok(i)) => i,
             Some(Err(msg)) => {
-                let status = if msg.contains("not found") {
-                    Z42HostStatus::EntryNotFound
-                } else {
-                    Z42HostStatus::EntryNotFound
-                };
-                return set_error(status, format!("z42_host_resolve_entry: {msg}"));
+                return set_error(Z42HostStatus::EntryNotFound, format!("z42_host_resolve_entry: {msg}"));
             }
             None => {
                 return set_error(
@@ -378,7 +373,7 @@ pub unsafe extern "C" fn z42_host_invoke(
 
         // Marshal args outside any lock so we don't hold the read guard
         // during user code execution.
-        let runtime_args = match ops::marshal_args(args_slice) {
+        let runtime_args = match marshal::marshal_args(args_slice) {
             Ok(v) => v,
             Err(e) => {
                 return set_error(
@@ -403,12 +398,15 @@ pub unsafe extern "C" fn z42_host_invoke(
             Ok::<_, anyhow::Error>((std::sync::Arc::clone(host_module), entry))
         });
         let outcome = resolved.map(|r| {
-            r.and_then(|(host_module, entry)| ops::invoke_impl(&host_module, &entry, &runtime_args))
+            r.and_then(|(host_module, entry)| {
+                let _sink = io::HostSinkGuard::enter();
+                host_module.invoke_index(entry.fn_idx, &runtime_args)
+            })
         });
 
         match outcome {
             Some(Ok(ret)) => {
-                let z = match ops::marshal_return(ret.as_ref()) {
+                let z = match marshal::value_to_z42_value(ret.as_ref()) {
                     Ok(v) => v,
                     Err(e) => {
                         return set_error(
@@ -602,7 +600,7 @@ pub fn install_zpkg_resolver(resolver: Arc<dyn ZpkgResolver>) -> Z42HostStatus {
 pub fn install_vfs(vfs: Arc<dyn crate::pal::fs::Vfs>) -> Z42HostStatus {
     let outcome = state::with_state_write(|s| {
         let old = std::mem::replace(&mut s.config.vfs, vfs);
-        match ops::probe_corelib(&s.config) {
+        match crate::loader::probe_prelude(&*s.config.vfs, &s.config.search_paths) {
             Ok(()) => Ok(()),
             Err(e) => {
                 s.config.vfs = old;
@@ -658,9 +656,6 @@ fn classify_config_error(e: config::ConfigError) -> Z42HostStatus {
 /// "uncaught exception:". Anything else — verification failure, type
 /// registry crash, etc. — buckets as `Internal`.
 ///
-/// `ArgMismatch` is classified before this function is called (in
-/// `ops::invoke_impl`) because it has a structural cause rather than a
-/// runtime error string.
 fn classify_invoke_error(msg: &str) -> Z42HostStatus {
     if msg.starts_with(crate::exec::stack_guard::FATAL_PREFIX) {
         Z42HostStatus::Fatal

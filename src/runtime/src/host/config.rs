@@ -5,6 +5,7 @@
 
 use std::ffi::CString;
 use std::os::raw::{c_char, c_void};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use super::ZpkgResolver;
@@ -148,6 +149,24 @@ pub struct ResolvedConfig {
     /// The file system the host's VMs load packages from and run on. The default VFS
     /// (`pal::fs::default_vfs`) unless Tier 2 installed one via [`super::install_vfs`].
     pub vfs: Arc<dyn crate::pal::fs::Vfs>,
+}
+
+impl ResolvedConfig {
+    pub(super) fn load_options(&self) -> crate::host::LoadOptions {
+        crate::host::LoadOptions {
+            native: Default::default(), allow_profiling: true,
+            mode: match self.exec_mode {
+                Z42ExecMode::Default => crate::host::default_mode(),
+                Z42ExecMode::Interp => crate::zpkg::ExecMode::Interp,
+                Z42ExecMode::Jit => crate::zpkg::ExecMode::Jit,
+                Z42ExecMode::Aot => crate::zpkg::ExecMode::Aot,
+            },
+            vfs: Arc::clone(&self.vfs),
+            search_dirs: self.search_paths.iter().map(PathBuf::from).collect(),
+            resolver: self.zpkg_resolver.clone(),
+            eager_dependencies: true,
+        }
+    }
 }
 
 impl std::fmt::Debug for ResolvedConfig {

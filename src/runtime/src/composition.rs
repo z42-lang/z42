@@ -150,3 +150,10 @@ fn native_candidates(name: &str, policy: &crate::loader::NativeLoading) -> Vec<s
 #[cfg(all(test, any(feature = "native-interop", feature = "component-loading")))]
 #[path = "composition_tests.rs"]
 mod tests;
+
+/// Install the process crash reporter using the configured crash directory.
+pub fn install_crash_report() {
+    crate::diagnostics::install_crash_report(|| {
+        crate::config::runtime_config().crash_dir.as_deref()
+    });
+}
