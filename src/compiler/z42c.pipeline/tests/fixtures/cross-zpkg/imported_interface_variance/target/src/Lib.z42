@@ -23,6 +23,6 @@ public class Delivery {
 }
 
 public class VarianceOverloads {
-    public static string Choose(ISink<Animal> source) { return "select animal"; }
-    public static string Choose(ISink<Cat> source) { return "select cat"; }
+    public static string Choose(ISink<Animal> wanted) { return "select animal"; }
+    public static string Choose(ISink<Cat> wanted) { return "select cat"; }
 }
