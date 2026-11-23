@@ -380,6 +380,16 @@ public static class Conversion {
             while (i < it.ArgCount) { if (Conversion._hasGenericParam(it.TypeArgs[i])) { return true; } i = i + 1; }
             return false;
         }
+        // feat/asweak-facade（存量缺口）：接口实例化的实参同样递归——Z42InstantiatedInterfaceType 是
+        // Z42InterfaceType 的子类而非 Z42InstantiatedType，R1b 的结构化递归漏了它 ⇒ 参数形如
+        // `ISubscription<Action<T>>`（跨包展平签名）判成「不含型参」，与具体实参比结构 E0402，
+        // 而本应走 B 分支的 GenericErase 放行。
+        if (t is Z42InstantiatedInterfaceType) {
+            Z42InstantiatedInterfaceType iit = t as Z42InstantiatedInterfaceType;
+            int i = 0;
+            while (i < iit.ArgCount) { if (Conversion._hasGenericParam(iit.TypeArgs[i])) { return true; } i = i + 1; }
+            return false;
+        }
         if (t is Z42FuncType) {
             Z42FuncType ft = t as Z42FuncType;
             int i = 0;

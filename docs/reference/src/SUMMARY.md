@@ -112,6 +112,7 @@
         - [OnceRef](stdlib/core.OnceRef.md)
         - [CompositeRef](stdlib/core.CompositeRef.md)
         - [WeakRef](stdlib/core.WeakRef.md)
+        - [Subscriptions](stdlib/core.Subscriptions.md)
         - [Disposable](stdlib/core.Disposable.md)
         - [Enum](stdlib/core.Enum.md)
         - [AggregateException](stdlib/core.AggregateException.md)

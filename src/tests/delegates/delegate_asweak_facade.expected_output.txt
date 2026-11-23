@@ -1,0 +1,6 @@
+once N 5
+lapsed 0
+alive true
+once-weak N 3
+mg4 N 1
+typed-alive true
