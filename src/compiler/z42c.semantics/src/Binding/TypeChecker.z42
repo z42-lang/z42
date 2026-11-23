@@ -340,24 +340,44 @@ public sealed class TypeChecker {
             || !(target is Z42InstantiatedInterfaceType) || value is BoundRefArg) { return value; }
         var from = value.Type() as Z42InstantiatedInterfaceType;
         var to = target as Z42InstantiatedInterfaceType;
-        if (from.ArgCount != 1 || to.ArgCount != 1 || from.Def.Fqn() != to.Def.Fqn()
-            || Z42InterfaceType.SameInterface(from, to)) { return value; }
+        if (from.ArgCount == 0 || from.ArgCount != to.ArgCount || from.Def.Fqn() != to.Def.Fqn()
+            || !IfaceSlotKeys.IsClosed(from) || !IfaceSlotKeys.IsClosed(to)) { return value; }
 
-        Z42ClassType a = from.TypeArgs[0] as Z42ClassType;
-        Z42ClassType b = to.TypeArgs[0] as Z42ClassType;
-        if (a == null || b == null || a.IsStruct || b.IsStruct || a.IsEnum || b.IsEnum
-            || a.IsScalarType() || b.IsScalarType()) { return value; }
-
-        InterfaceVariance direction = from.Def.ParameterVariance(0);
-        if (direction == InterfaceVariance.Invariant) { return value; }
-        Z42ClassType derived = direction == InterfaceVariance.Covariant ? a : b;
-        Z42ClassType baseType = direction == InterfaceVariance.Covariant ? b : a;
-        if (baseType.Fqn() != "Std.Object" && baseType.Fqn() != "object"
-            && !syms.IsSubclassOfType(derived, baseType)) { return value; }
+        bool changed = false;
+        int i = 0;
+        while (i < from.ArgCount) {
+            Z42Type sourceArg = from.TypeArgs[i];
+            Z42Type targetArg = to.TypeArgs[i];
+            string sourceKey = LayoutKey.Of(sourceArg);
+            string targetKey = LayoutKey.Of(targetArg);
+            if (sourceKey == "" || targetKey == "") { return value; }
+            if (sourceKey != targetKey) {
+                if (!TypeChecker._allowsVariantArgument(sourceArg, targetArg, from.Def.ParameterVariance(i), syms)) {
+                    return value;
+                }
+                changed = true;
+            }
+            i = i + 1;
+        }
+        if (!changed) { return value; }
 
         var conversion = new BoundConvert(value, target, value.Span);
         conversion.InterfaceProjection = true;
         return conversion;
+    }
+
+    private static bool _allowsVariantArgument(Z42Type source, Z42Type target, InterfaceVariance direction, SymbolTable syms) {
+        if (direction == InterfaceVariance.Invariant || !(source is Z42ClassType) || !(target is Z42ClassType)) {
+            return false;
+        }
+        Z42ClassType a = source as Z42ClassType;
+        Z42ClassType b = target as Z42ClassType;
+        if (a.IsStruct || b.IsStruct || a.IsEnum || b.IsEnum || a.IsScalarType() || b.IsScalarType()) {
+            return false;
+        }
+        Z42ClassType derived = direction == InterfaceVariance.Covariant ? a : b;
+        Z42ClassType baseType = direction == InterfaceVariance.Covariant ? b : a;
+        return baseType.Fqn() == "Std.Object" || baseType.Fqn() == "object" || syms.IsSubclassOfType(derived, baseType);
     }
 
     public BoundExpr ConvertIfNeeded(BoundExpr value, Z42Type target, SymbolTable syms) {

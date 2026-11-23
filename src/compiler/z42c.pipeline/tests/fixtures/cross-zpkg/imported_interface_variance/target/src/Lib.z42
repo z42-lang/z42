@@ -8,3 +8,10 @@ public class DualSink : ISink<Animal>, ISink<Cat> {
     public string Put(Animal value) { return "animal"; }
     public string Put(Cat value) { return "cat"; }
 }
+
+public interface IMap<TIn,TOut> { TOut Apply(TIn value); }
+
+public class DualMap : IMap<Animal,Cat>, IMap<Cat,Animal> {
+    public Cat Apply(Animal value) { return new Cat(); }
+    public Animal Apply(Cat value) { return new Animal(); }
+}
