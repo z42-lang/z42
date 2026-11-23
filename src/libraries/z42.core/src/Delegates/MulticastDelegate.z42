@@ -1,0 +1,220 @@
+namespace Std;
+
+// ── 多播总线泛型基类（feat/multicast-base-class）──────────────────────────────
+/// 多播总线的公共实现：双通道存储 + 订阅 / 退订 / 计数 / 快照 / 遍历骨架。
+///
+/// 通道与快照语义（与历史上的 1 参原版逐位一致）：
+///   - strong 通道 —— 直持 THandler，裸 handler `Subscribe` 走此路径，零包装开销；
+///   - advanced 通道 —— 持 ISubscription<THandler>（OnceRef / WeakRef / 自定义包装器），
+///     遍历慢路径走 IsAlive + Get + OnInvoked。
+/// Invoke 时拷贝当前数组遍历副本（COW snapshot）：触发期间 Subscribe / Dispose 影响
+/// 下次触发，不影响本次。
+/// `MulticastAction<..>` / `MulticastFunc<..>` / `MulticastPredicate<..>` 继承本类，
+/// 只各自提供 Invoke（经 `Walk` 回调适配参数表与结果收集）与族特有成员（All / Any）。
+public class MulticastDelegate<THandler> where THandler : Delegate {
+    // ── strong fast path ──
+    THandler[] strong;
+    bool[] strongAlive;
+    int strongCount;
+    int strongCapacity;
+
+    // ── advanced slow path ──
+    ISubscription<THandler>[] advanced;
+    bool[] advancedAlive;
+    int advancedCount;
+    int advancedCapacity;
+
+    /// 构造空的多播总线。
+    public MulticastDelegate() {
+        this.strongCapacity = 4;
+        this.strong = new THandler[4];
+        this.strongAlive = new bool[4];
+        this.strongCount = 0;
+
+        this.advancedCapacity = 4;
+        this.advanced = new ISubscription<THandler>[4];
+        this.advancedAlive = new bool[4];
+        this.advancedCount = 0;
+    }
+
+    /// 裸 handler 订阅 → strong 快路径，返回退订凭据。
+    public IDisposable Subscribe(THandler handler) {
+        if (this.strongCount == this.strongCapacity) this.GrowStrong();
+        int idx = this.strongCount;
+        this.strong[idx] = handler;
+        this.strongAlive[idx] = true;
+        this.strongCount = this.strongCount + 1;
+        return this.NewSubscription(idx, false);
+    }
+
+    /// ISubscription 包装器订阅 → advanced 慢路径。
+    public IDisposable SubscribeAdvanced(ISubscription<THandler> wrapper) {
+        if (this.advancedCount == this.advancedCapacity) this.GrowAdvanced();
+        int idx = this.advancedCount;
+        this.advanced[idx] = wrapper;
+        this.advancedAlive[idx] = true;
+        this.advancedCount = this.advancedCount + 1;
+        return this.NewSubscription(idx, true);
+    }
+
+    /// 当前活跃订阅总数（strong + advanced）。
+    public int Count() {
+        int c = 0;
+        int i = 0;
+        while (i < this.strongCount) {
+            if (this.strongAlive[i]) c = c + 1;
+            i = i + 1;
+        }
+        i = 0;
+        while (i < this.advancedCount) {
+            if (this.advancedAlive[i] && this.advanced[i].IsAlive()) c = c + 1;
+            i = i + 1;
+        }
+        return c;
+    }
+
+    /// strong 通道处理器的快照（COW：取之后再订阅 / 退订不影响本数组）。
+    ///
+    /// advanced 包装通道（OnceRef / WeakRef / 自定义 ISubscription）语义上不可材料化，
+    /// 不在列表内——需要枚举包装订阅时在 SubscribeAdvanced 侧自行记账。
+    public THandler[] GetInvocationList() {
+        int n = 0;
+        int i = 0;
+        while (i < this.strongCount) { if (this.strongAlive[i]) { n = n + 1; } i = i + 1; }
+        THandler[] outA = new THandler[n];
+        int k = 0;
+        i = 0;
+        while (i < this.strongCount) {
+            if (this.strongAlive[i]) { outA[k] = this.strong[i]; k = k + 1; }
+            i = i + 1;
+        }
+        return outA;
+    }
+
+    /// 按 handler 取消订阅（仅扫 strong 通道；advanced 通道用 token-based dispose）。
+    ///
+    /// 线性扫描，每个 alive 槽与 handler 比委托引用相等，命中置 alive=false；不 break ——
+    /// 同 handler 多次 Subscribe 一次 Unsubscribe 全清。未订阅 handler 是 no-op。
+    public void Unsubscribe(THandler handler) {
+        int i = 0;
+        while (i < this.strongCount) {
+            if (this.strongAlive[i]) {
+                if (Delegate.ReferenceEquals(this.strong[i], handler)) {
+                    this.strongAlive[i] = false;
+                }
+            }
+            i = i + 1;
+        }
+    }
+
+    /// 内部：dispose token 入口，把对应通道的 alive[idx] 置 false。
+    public void RemoveAt(int idx, bool isAdvanced) {
+        if (isAdvanced) {
+            if (idx >= 0 && idx < this.advancedCount) {
+                this.advancedAlive[idx] = false;
+            }
+        } else {
+            if (idx >= 0 && idx < this.strongCount) {
+                this.strongAlive[idx] = false;
+            }
+        }
+    }
+
+    // ── 遍历快照（Invoke 的公共前置）─────────────────────────────────────────
+    // 各族 Invoke 的循环体（fail-fast / 聚合 / 结果收集 / All/Any 短路）语义逐族不同，
+    // 留在具体类；这里只提供 COW 快照的统一取法。四个数组在 Invoke 开始时连续取，
+    // 与原内联双循环同一时点 ⇒ 单线程下逐位一致。
+
+    /// strong 通道 handler 快照。
+    public THandler[] StrongSnapshot() {
+        int sn = this.strongCount;
+        THandler[] snap = new THandler[sn];
+        int i = 0;
+        while (i < sn) { snap[i] = this.strong[i]; i = i + 1; }
+        return snap;
+    }
+
+    /// strong 通道 alive 位图快照（与 StrongSnapshot 同长同时点）。
+    public bool[] StrongAliveSnapshot() {
+        int sn = this.strongCount;
+        bool[] snap = new bool[sn];
+        int i = 0;
+        while (i < sn) { snap[i] = this.strongAlive[i]; i = i + 1; }
+        return snap;
+    }
+
+    /// advanced 通道包装器快照。
+    public ISubscription<THandler>[] AdvancedSnapshot() {
+        int an = this.advancedCount;
+        ISubscription<THandler>[] snap = new ISubscription<THandler>[an];
+        int i = 0;
+        while (i < an) { snap[i] = this.advanced[i]; i = i + 1; }
+        return snap;
+    }
+
+    /// advanced 通道 alive 位图快照（与 AdvancedSnapshot 同长同时点）。
+    public bool[] AdvancedAliveSnapshot() {
+        int an = this.advancedCount;
+        bool[] snap = new bool[an];
+        int i = 0;
+        while (i < an) { snap[i] = this.advancedAlive[i]; i = i + 1; }
+        return snap;
+    }
+
+    /// 退订凭据构造点——各族覆写为自己的 Subscription token 类型（保持既有公开类型不变）。
+    protected virtual IDisposable NewSubscription(int idx, bool isAdvanced) {
+        return new MulticastDelegateSubscription<THandler>(this, idx, isAdvanced);
+    }
+
+    void GrowStrong() {
+        int newCap = this.strongCapacity * 2;
+        THandler[] biggerH = new THandler[newCap];
+        bool[] biggerA = new bool[newCap];
+        int i = 0;
+        while (i < this.strongCount) {
+            biggerH[i] = this.strong[i];
+            biggerA[i] = this.strongAlive[i];
+            i = i + 1;
+        }
+        this.strong = biggerH;
+        this.strongAlive = biggerA;
+        this.strongCapacity = newCap;
+    }
+
+    void GrowAdvanced() {
+        int newCap = this.advancedCapacity * 2;
+        ISubscription<THandler>[] biggerH = new ISubscription<THandler>[newCap];
+        bool[] biggerA = new bool[newCap];
+        int i = 0;
+        while (i < this.advancedCount) {
+            biggerH[i] = this.advanced[i];
+            biggerA[i] = this.advancedAlive[i];
+            i = i + 1;
+        }
+        this.advanced = biggerH;
+        this.advancedAlive = biggerA;
+        this.advancedCapacity = newCap;
+    }
+}
+
+/// 基类默认退订凭据：各族覆写 `NewSubscription` 后通常不可达，留作兜底。
+public sealed class MulticastDelegateSubscription<THandler> : IDisposable {
+    MulticastDelegate<THandler> bus;
+    int idx;
+    bool isAdvanced;
+
+    /// 构造退订凭据。
+    public MulticastDelegateSubscription(MulticastDelegate<THandler> bus, int idx, bool isAdvanced) {
+        this.bus = bus;
+        this.idx = idx;
+        this.isAdvanced = isAdvanced;
+    }
+
+    /// 置对应通道 alive[idx] = false。
+    public void Dispose() {
+        if (this.bus != null) {
+            this.bus.RemoveAt(this.idx, this.isAdvanced);
+            this.bus = null;
+        }
+    }
+}

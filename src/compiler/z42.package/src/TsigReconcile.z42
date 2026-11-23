@@ -549,6 +549,7 @@ public static class TsigReconcile {
     //    保留祖先位）+ 本类 static ─────────────────────────────────────────────────────
     // pass 1 oracle 语义：override 条目 IsVirtual=false（TSIG virtual=仅显式 virtual 关键字），abstract 同。
     // pass 2 oracle：own-class only、声明序 append、不与实例 seen 合并。
+    [Suppress("style.fnLinesHard", "展平合并 + 每跳改名表（feat/multicast-base-class 跨包段）；拆分见 code-organization.md")]
     private static ExportedMethodZ[] _reconMethods(IrClassDesc cd, IrClassDesc[] chain, int[] chainPkg, int[] chainMod,
                                                    int chainLen, LazyReconWorld world, bool isStruct) {
         ExportedMethodZ[] methods = new ExportedMethodZ[16];
@@ -561,20 +562,66 @@ public static class TsigReconcile {
             seenAt[0] = 0; seenAt[1] = 1; seenAt[2] = 2; seenAt[3] = 3;
             mc = 4; seenc = 4;
         }
+        // feat/multicast-base-class（跨包段）：每跳祖先的型参改名表（祖先型参名 → 子类 $BaseRef
+        // 声明的实参拼写），沿链**复合**（上溯先建表、展平时套用）。此前祖先方法按基类自己的
+        // 型参拼写（`THandler`）混入派生导出——加载侧解析不出（松签名）且与 #1923 链上代换版
+        // 并存成伪重载（E0437/E0401）。闭合基无 $BaseRef（不改名，保持既有行为）。
+        // 平面表（无锯齿数组）：全局 names/args + 每跳 [start, start+count) 区间；复合改名为线性拼接
+        int capNames = 0;
+        int hc = 0;
+        while (hc < chainLen) { capNames = capNames + chain[hc].TypeParamCount + 1; hc = hc + 1; }
+        string[] allNames = new string[capNames];
+        string[] allArgs = new string[capNames];
+        int[] hopStart = new int[chainLen];
+        int[] hopCount = new int[chainLen];
+        int tot = 0;
+        int hi = 1;
+        while (hi < chainLen) {
+            hopStart[hi] = tot;
+            hopCount[hi] = 0;
+            string spell = IrBaseRef.Spelling(chain[hi - 1].Attrs, chain[hi - 1].AttrCount);
+            if (spell != "" && chain[hi].TypeParamCount > 0) {
+                string[] anames = chain[hi].TypeParams;
+                string[] aargs = TsigReconcile._topLevelArgs(spell);
+                int cnt = anames.Length < aargs.Length ? anames.Length : aargs.Length;
+                int ai = 0;
+                while (ai < cnt) {
+                    string composed = aargs[ai];
+                    if (hi >= 2 && hopCount[hi - 1] > 0) {
+                        composed = TsigReconcile._renameSpellRange(composed, allNames, allArgs, hopStart[hi - 1], hopCount[hi - 1]);
+                    }
+                    allNames[tot] = anames[ai];
+                    allArgs[tot] = composed;
+                    tot = tot + 1;
+                    hopCount[hi] = hopCount[hi] + 1;
+                    ai = ai + 1;
+                }
+            }
+            hi = hi + 1;
+        }
         int ci = chainLen - 1;
         while (ci >= 0) {
             IrClassDesc anc = chain[ci];
             ZpkgModuleSigs ancSigs = null;
             if (chainPkg[ci] >= 0 && chainMod[ci] >= 0) { ancSigs = world.Wp[chainPkg[ci]].Sigs[chainMod[ci]]; }
             if (ancSigs != null) {
-                string prefix = anc.Name + ".";
-                int si = SigsClassIndex.First(ancSigs, anc.Name);   // perf-tsig-reconcile-index：只遍历本类的桶
+                // feat/multicast-base-class（跨包段）：闭合实例化基的祖先描述符名带 `<...>`，
+                // 而 SIGS 函数按**定义名**发射（Std.MulticastDelegate.Subscribe$…）——查桶/前缀
+                // 一律用剥掉实参的裸名；签名里的型参由上面的每跳改名表换成实参拼写。
+                string ancBare = anc.Name;
+                int alt = ancBare.IndexOf('<');
+                if (alt >= 0) { ancBare = ancBare.Substring(0, alt); }
+                string prefix = ancBare + ".";
+                int si = SigsClassIndex.First(ancSigs, ancBare);   // perf-tsig-reconcile-index：只遍历本类的桶
                 while (si >= 0) {
                     IrFunction f = ancSigs.Functions[si];
                     if (!f.IsStatic) {
                         string mkey = f.Name.Substring(prefix.Length);
                         if (mkey != "__static_init__" && mkey.IndexOf("__lambda") < 0 && mkey.IndexOf("__local_") < 0) {
                             ExportedMethodZ em = TsigReconcile._methodFromSig(f, mkey);
+                            if (ci >= 1 && hopCount[ci] > 0) {
+                                TsigReconcile._renameMethodSpell(em, allNames, allArgs, hopStart[ci], hopCount[ci]);
+                            }
                             if (em.IsAbstract) { em.IsVirtual = false; }   // TSIG：abstract 不置 virtual
                             int at = TsigReconcile._indexOf(seenName, seenc, mkey);
                             if (at >= 0) {
@@ -598,6 +645,93 @@ public static class TsigReconcile {
         if (chainPkg[0] >= 0 && chainMod[0] >= 0) { selfSigs = world.Wp[chainPkg[0]].Sigs[chainMod[0]]; }
         if (selfSigs != null) { TsigReconcile._appendStaticSigs(ref methods, ref mc, cd, selfSigs); }
         return TsigReconcile._trimM(methods, mc);
+    }
+
+    // feat/multicast-base-class（跨包段）：取拼写最外层 `<...>` 的顶层逗号分割实参表。
+    private static string[] _topLevelArgs(string spell) {
+        int lt = spell.IndexOf('<');
+        if (lt < 0 || !spell.EndsWith(">")) { return new string[0]; }
+        string inner = spell.Substring(lt + 1, spell.Length - lt - 2);
+        string[] buf = new string[8];
+        int n = 0; int depth = 0; int start = 0; int k = 0;
+        while (k <= inner.Length) {
+            bool end = k == inner.Length;
+            char ch = end ? ',' : inner[k];
+            if (ch == '<') { depth = depth + 1; }
+            else if (ch == '>') { depth = depth - 1; }
+            else if (ch == ',' && depth == 0) {
+                if (n == buf.Length) { string[] b = new string[buf.Length * 2]; int q = 0; while (q < n) { b[q] = buf[q]; q = q + 1; } buf = b; }
+                buf[n] = inner.Substring(start, k - start).Trim(); n = n + 1;
+                start = k + 1;
+            }
+            k = k + 1;
+        }
+        if (n == 0) { return new string[0]; }
+        string[] outA = new string[n];
+        int q2 = 0; while (q2 < n) { outA[q2] = buf[q2]; q2 = q2 + 1; }
+        return outA;
+    }
+
+    // 词级改名：把拼写里**裸标识符**命中表的词换掉（边界 = 前后都不是标识符字符，防 THandler 误中 XHandler）。
+    private static string _renameSpell(string s, string[] names, string[] args) {
+        if (s == null || s == "" || names == null || names.Length == 0) { return s; }
+        return TsigReconcile._renameSpellRange(s, names, args, 0, names.Length);
+    }
+
+    // 词级 prim 归一（内联表 = PrimModel.Canon 的基元子集；z42.package 不能依赖 z42c.symbols）。
+    private static string _canonPrim(string w) {
+        if (w == "Boolean") { return "bool"; }
+        if (w == "Int32") { return "int"; }
+        if (w == "Int64") { return "long"; }
+        if (w == "String") { return "string"; }
+        if (w == "Double") { return "double"; }
+        if (w == "Single") { return "float"; }
+        if (w == "Char") { return "char"; }
+        if (w == "Byte") { return "byte"; }
+        if (w == "SByte") { return "sbyte"; }
+        if (w == "Int16") { return "short"; }
+        if (w == "UInt16") { return "ushort"; }
+        if (w == "UInt32") { return "uint"; }
+        if (w == "UInt64") { return "ulong"; }
+        return w;
+    }
+
+    // _renameSpell 的区间版（平面表按 [start, start+count) 取本跳的映射对）。
+    private static string _renameSpellRange(string s, string[] names, string[] args, int start, int count) {
+        if (s == null || s == "" || count == 0) { return s; }
+        string outS = "";
+        int i = 0;
+        while (i < s.Length) {
+            char c = s[i];
+            bool isId = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '$';
+            if (isId) {
+                int j = i;
+                while (j < s.Length) {
+                    char d = s[j];
+                    bool id2 = (d >= 'a' && d <= 'z') || (d >= 'A' && d <= 'Z') || (d >= '0' && d <= '9') || d == '_' || d == '$';
+                    if (!id2) { break; }
+                    j = j + 1;
+                }
+                string word = s.Substring(i, j - i);
+                int wi = start;
+                string rep = null;
+                while (wi < start + count) { if (names[wi] == word) { rep = args[wi]; break; } wi = wi + 1; }
+                if (rep != null) { rep = TsigReconcile._renameSpellRange(rep, names, args, -1, 0); }   // 替换串同样过一遍词级 prim 归一（Boolean→bool）
+                outS = outS + (rep != null ? rep : TsigReconcile._canonPrim(word));
+                i = j;
+            } else {
+                outS = outS + c.ToString();
+                i = i + 1;
+            }
+        }
+        return outS;
+    }
+
+    // 对展平来的祖先方法做形参/返回类型拼写的词级改名（区间版）。
+    private static void _renameMethodSpell(ExportedMethodZ em, string[] names, string[] args, int start, int count) {
+        int pi = 0;
+        while (pi < em.ParamCount) { em.Params[pi].TypeName = TsigReconcile._renameSpellRange(em.Params[pi].TypeName, names, args, start, count); pi = pi + 1; }
+        em.ReturnType = TsigReconcile._renameSpellRange(em.ReturnType, names, args, start, count);
     }
 
     // pass 2：本类 static 方法（oracle：own-class only、声明序 append、不与实例 seen 合并）。
@@ -643,6 +777,8 @@ public static class TsigReconcile {
         }
         // enforce-fqn-name-identity：FQ 基类名原样搬运（与上面的 Interfaces 同款；`BaseName` 仍是短名，见 `BaseFqn` 抬头）。
         if (!isStruct && cd.HasBase && cd.BaseName != "" && cd.BaseName != "Std.Object") { ecz.BaseFqn = cd.BaseName; }
+        // feat/multicast-base-class（跨包段）：开放泛型基声明全拼写随 $BaseRef 哨兵搬运。
+        ecz.BaseRefSpelling = IrBaseRef.Spelling(cd.Attrs, cd.AttrCount);
         ecz.IsSealed = (cd.Flags & 2) != 0;   // impl-sealed-semantics-devirt：CLASS_FLAG_SEALED（TYPE Flags bit1）
         ecz.IsRecord = (cd.Flags & 8) != 0;   // complete-generic-instantiation：CLASS_FLAG_RECORD（TYPE Flags bit3）
         ecz.IsDeprecated = IrDeprecation.Has(cd.Attrs, cd.AttrCount); ecz.DeprecationMsg = IrDeprecation.Msg(cd.Attrs, cd.AttrCount);   // add-deprecated-directive（attr-ref 哨兵）

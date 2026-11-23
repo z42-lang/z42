@@ -204,6 +204,7 @@ public sealed partial class ClassDescBuilder {
         bool hasBase = !(isStruct || isRoot);
         string baseName = hasBase ? "Std.Object" : "";
         string reflectionBase = "";
+        string baseRefSpell = "";   // feat/multicast-base-class（跨包段）：开放泛型基声明全拼写
         int bi2 = 0;
         while (bi2 < c.BaseCount) {       // 基表判别（port-z42c-interface）：跳过接口，取首个类
             string bn = c.Bases[bi2].Dump();
@@ -233,11 +234,18 @@ public sealed partial class ClassDescBuilder {
                     string cn = this._substTypeName(c.Bases[bi2], new StrMap());
                     baseName = this._qInst(cn);
                     this._g.NoteInstName(cn);   // 基也要有描述符，否则运行期基链断在这里
+                    baseRefSpell = baseName;   // feat/multicast-base-class（跨包段）：闭合实例化基同理带 $BaseRef——展平改名/导入重建两条消费路同型
                 } else {
                     baseName = barebn;
                     baseName = this._qDecl(baseName);
-                    if (declarationAttrs != null && ltIdx >= 0 && c.TypeParams.Count > 0) {
-                        reflectionBase = this._qInst(this._reflectionTypeName(c.Bases[bi2], c));
+                    if (ltIdx >= 0 && c.TypeParams.Count > 0) {
+                        // feat/multicast-base-class（跨包段）：开放泛型基的声明全拼写（FQ + 源实参拼写）
+                        // 进 $BaseRef 哨兵——导入侧据此重建 BaseRef，#1923 的 _substBaseHop 才能在
+                        // 跨包消费时按派生类基类实参代换基类成员签名。实参引用本类型参（源拼写即键）。
+                        baseRefSpell = baseName + c.Bases[bi2].Dump().Substring(ltIdx);
+                        if (declarationAttrs != null) {
+                            reflectionBase = this._qInst(this._reflectionTypeName(c.Bases[bi2], c));
+                        }
                     }
                 }
                 hasBase = true;
@@ -338,6 +346,11 @@ public sealed partial class ClassDescBuilder {
         if (declarationAttrs != null) {
             cd2.Attrs = reflectionBase == "" ? declarationAttrs :
                 ClassDescBuilder._appendAttrRef(declarationAttrs, "$ReflectionBase", reflectionBase);
+            cd2.AttrCount = cd2.Attrs.Length;
+        }
+        if (baseRefSpell != "") {
+            IrAttrRef[] cur = cd2.Attrs == null ? new IrAttrRef[0] : cd2.Attrs;
+            cd2.Attrs = ClassDescBuilder._appendAttrRef(cur, IrBaseRef.Sentinel, baseRefSpell);
             cd2.AttrCount = cd2.Attrs.Length;
         }
         cd2.StaticFields = sfields; cd2.StaticFieldCount = sfcount;
