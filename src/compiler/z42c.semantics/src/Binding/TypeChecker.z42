@@ -333,6 +333,33 @@ public sealed class TypeChecker {
     // 变化（int↔float、char→数值）时包 BoundConvert → codegen `_emitConvert` 发 ConvertInstr。等宽整数
     // 拓宽（byte→int→long，运行期同 I64）与 f32→f64（运行期同 F64）是 no-op → 不插，最小化字节扰动。
     // 到达这里的值已过 CheckImplicitConvert（Identity/ImplicitNumeric/常量例外窄化），不会误插被拒转换。
+    // Only binding sites that can lower a projection call this before checking
+    // the resulting expression. Nominal identity and type-only queries stay separate.
+    internal BoundExpr ConvertInterfaceVariance(BoundExpr value, Z42Type target, SymbolTable syms) {
+        if (value == null || !(value.Type() is Z42InstantiatedInterfaceType)
+            || !(target is Z42InstantiatedInterfaceType) || value is BoundRefArg) { return value; }
+        var from = value.Type() as Z42InstantiatedInterfaceType;
+        var to = target as Z42InstantiatedInterfaceType;
+        if (from.ArgCount != 1 || to.ArgCount != 1 || from.Def.Fqn() != to.Def.Fqn()
+            || Z42InterfaceType.SameInterface(from, to)) { return value; }
+
+        Z42ClassType a = from.TypeArgs[0] as Z42ClassType;
+        Z42ClassType b = to.TypeArgs[0] as Z42ClassType;
+        if (a == null || b == null || a.IsStruct || b.IsStruct || a.IsEnum || b.IsEnum
+            || a.IsScalarType() || b.IsScalarType()) { return value; }
+
+        InterfaceVariance direction = from.Def.ParameterVariance(0);
+        if (direction == InterfaceVariance.Invariant) { return value; }
+        Z42ClassType derived = direction == InterfaceVariance.Covariant ? a : b;
+        Z42ClassType baseType = direction == InterfaceVariance.Covariant ? b : a;
+        if (baseType.Fqn() != "Std.Object" && baseType.Fqn() != "object"
+            && !syms.IsSubclassOfType(derived, baseType)) { return value; }
+
+        var conversion = new BoundConvert(value, target, value.Span);
+        conversion.InterfaceProjection = true;
+        return conversion;
+    }
+
     public BoundExpr ConvertIfNeeded(BoundExpr value, Z42Type target, SymbolTable syms) {
         if (value == null || target == null) { return value; }
         // add-user-conversions：用户 implicit 转换 lower 成静态 op_Implicit 调用（先于 prim 守卫——用户类型非 prim）。

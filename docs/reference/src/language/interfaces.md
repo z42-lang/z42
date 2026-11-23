@@ -381,6 +381,26 @@ IDerived d2 = b;        // ✗ E0402 —— 下转，隐式不成立
 IDerived d3 = (IDerived)b;   // ✓
 ```
 
+### 泛型接口的方差
+
+编译器根据成员签名推断接口形参的方向。仅作返回值时支持协变，仅作按值参数时支持逆变。
+具有一个形参的接口可以在闭合实例间转换，改变的实参须为具名引用类型。
+
+```z42
+class Animal {}
+class Dog : Animal {}
+interface ISource<T> { T Read(); }
+interface ISink<T> { void Write(T value); }
+
+void Use(ISource<Dog> dogs, ISink<Animal> animals) {
+    ISource<Animal> source = dogs;  // 协变
+    ISink<Dog> sink = animals;      // 逆变
+}
+```
+
+声明初始化、赋值、返回和目标签名已确定的按值传参可以使用这类转换。调用通过转换得到的接口时，
+仍使用源接口选中的实现。同一规则适用于从依赖包导入的接口。值类型实参保持不变，重载选择沿用原规则。
+
 ## 已知缺口：没有默认实现
 
 接口方法写了函数体也**不构成默认实现**——实现类仍必须自己定义该成员：

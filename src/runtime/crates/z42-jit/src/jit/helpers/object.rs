@@ -284,6 +284,17 @@ pub unsafe extern "C" fn jit_is_instance(
     let (class_name, key) = match &dynamic { Some(t) => (t.as_str(), &fresh), None => (class_name, key) };
     let module = super::jit_module(ctx);
     let v = &(*frame).regs[obj as usize];
+    let original;
+    let v = if let Value::InterfaceRef(view) = v {
+        if view.matches_target(class_name) {
+            (*frame).regs[dst as usize] = Value::Bool(true);
+            return;
+        }
+        original = view.receiver();
+        &original
+    } else {
+        v
+    };
     if dynamic.is_some() && crate::exec::ops::cast::bound_param_extra_isa(vm_ctx_ref(ctx), &module.type_registry, v, class_name) {
         (*frame).regs[dst as usize] = Value::Bool(true);
         return;
@@ -318,6 +329,15 @@ pub unsafe extern "C" fn jit_as_cast(
     let (class_name, key) = match &dynamic { Some(t) => (t.as_str(), &fresh), None => (class_name, key) };
     let module = super::jit_module(ctx);
     let val    = (*frame).regs[obj as usize].clone();
+    let val = if let Value::InterfaceRef(view) = val {
+        if class_name == "Std.Object" || class_name == "Object" || view.matches_target(class_name) {
+            (*frame).regs[dst as usize] = val;
+            return;
+        }
+        view.receiver()
+    } else {
+        val
+    };
     if dynamic.is_some() && crate::exec::ops::cast::bound_param_extra_isa(vm_ctx_ref(ctx), &module.type_registry, &val, class_name) {
         (*frame).regs[dst as usize] = val;
         return;

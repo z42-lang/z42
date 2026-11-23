@@ -147,6 +147,7 @@ public sealed partial class OverloadBinder {
         // span 指到**实参本身**（而非调用点），定位更准。
         Span sp = args[i].Span;
         if (rawArgs != null && i < rawArgs.Length && rawArgs[i] != null) { sp = rawArgs[i].Span; }
+        args[i] = this._tc.ConvertInterfaceVariance(args[i], pt, env.Symbols);
         this._tc.CheckImplicitConvert(args[i], pt, env.Symbols, sp, "argument");
     }
 

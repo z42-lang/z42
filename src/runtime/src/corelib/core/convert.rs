@@ -411,6 +411,28 @@ pub mod typed {
     #[builtin(name = "__double_from_bits", pure)]
     pub fn double_from_bits(bits: i64) -> f64 { f64::from_bits(bits as u64) }
 
+    /// Construct the runtime reference for a compiler-checked variance conversion.
+    #[builtin(name = "__project_interface")]
+    pub fn project_interface(
+        ctx: &VmContext, value: &Value, source: &Value, legacy: &Value, target: &Value,
+    ) -> Result<Value, BuiltinError> {
+        match value {
+            Value::Null => return Ok(Value::Null),
+            Value::StackObject { .. } | Value::StackArray { .. } | Value::StructRef { .. }
+            | Value::StructRefHeap { .. } | Value::PinnedView { .. } | Value::Ref { .. } => {
+                return Err(BuiltinError::Internal("interface projection requires an owned receiver".into()));
+            }
+            _ => {}
+        }
+        let (Value::Str(source), Value::Str(legacy), Value::Str(target)) = (source, legacy, target)
+        else {
+            return Err(BuiltinError::Internal("interface projection requires closed interface keys".into()));
+        };
+        crate::object::InterfaceRef::project(ctx.heap(), *value, *source, *legacy, *target)
+            .map(Value::InterfaceRef)
+            .ok_or_else(|| crate::exec::ops::object::OpError::oom("projected interface reference".into()).into())
+    }
+
     /// Box an integer primitive into a heap `ScriptObject` with reference identity (C#
     /// semantics: `object o = 5; object p = 5; ReferenceEquals(o, p) == false`). The
     /// compiler emits `__box_prim(%value, "<FQ wrapper>")` at prim → object / interface

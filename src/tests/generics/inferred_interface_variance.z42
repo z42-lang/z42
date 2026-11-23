@@ -1,0 +1,89 @@
+namespace InferredVariance;
+
+using Std;
+
+class Animal {}
+class Cat : Animal {}
+class Kitten : Cat {}
+
+interface IProducer<T> { T Get(); }
+interface ISink<T> { string Put(T value); }
+
+class CatSource : IProducer<Cat> {
+    public Cat Get() { return new Cat(); }
+}
+
+class DualSink : ISink<Animal>, ISink<Cat> {
+    public int Marker = 9;
+    public string Put(Animal value) { return "animal"; }
+    public string Put(Cat value) { return "cat"; }
+}
+
+class GenericSink<T> : ISink<T> {
+    public string Put(T value) { return "generic"; }
+}
+
+struct StructSink : ISink<Animal> {
+    public int Marker;
+    public string Put(Animal value) { return "struct"; }
+}
+
+class Holder {
+    public ISink<Cat> Sink;
+}
+
+IProducer<Animal> Widen(IProducer<Cat> cats) {
+    return cats;
+}
+
+string SendKitten(ISink<Kitten> sink) {
+    return sink.Put(new Kitten());
+}
+
+void Main() {
+    IProducer<Cat> cats = new CatSource();
+    IProducer<Animal> animals = Widen(cats);
+    Assert.Equal(true, animals.Get() is Cat);
+    Assert.Equal(true, Object.ReferenceEquals(cats, animals));
+    object widened = animals;
+    Assert.Equal(true, widened is IProducer<Animal>);
+    Assert.Equal(true, (widened as IProducer<Animal>).Get() is Cat);
+
+    DualSink dual = new DualSink();
+    ISink<Animal> source = dual;
+    ISink<Cat> exactTarget = dual;
+    Assert.Equal("cat", exactTarget.Put(new Cat()));
+
+    Holder holder = new Holder();
+    holder.Sink = source;
+    Assert.Equal("animal", holder.Sink.Put(new Cat()));
+
+    ISink<Cat> converted = source;
+    Assert.Equal("animal", converted.Put(new Cat()));
+    Assert.Equal("animal", SendKitten(converted));
+    Assert.Equal("animal", SendKitten(source));
+    ISink<Kitten> twice = converted;
+    object chained = twice;
+    Assert.Equal("animal", (chained as ISink<Cat>).Put(new Cat()));
+    Assert.Equal(true, Object.ReferenceEquals(exactTarget, converted));
+
+    object boxedView = converted;
+    Assert.Equal(true, boxedView is ISink<Cat>);
+    Assert.Equal("animal", (boxedView as ISink<Cat>).Put(new Cat()));
+    Assert.Equal(true, boxedView is DualSink);
+    DualSink original = (DualSink)boxedView;
+    Assert.Equal("cat", original.Put(new Cat()));
+    Assert.Equal(9, original.Marker);
+
+    ISink<Animal> boxedStruct = new StructSink();
+    ISink<Cat> narrowedStruct = boxedStruct;
+    Assert.Equal("struct", narrowedStruct.Put(new Cat()));
+
+    ISink<Animal> generic = new GenericSink<Animal>();
+    ISink<Cat> genericNarrowed = generic;
+    Assert.Equal("generic", genericNarrowed.Put(new Cat()));
+
+    IProducer<Cat> absent = null;
+    IProducer<Animal> widenedNull = absent;
+    Assert.Equal(true, Object.ReferenceEquals(null, widenedNull));
+}

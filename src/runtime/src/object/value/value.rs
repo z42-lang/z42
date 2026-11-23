@@ -328,8 +328,8 @@ impl Value {
 impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (Value::InterfaceRef(view), value) => Value::Object(view.receiver()).eq(value),
-            (value, Value::InterfaceRef(view)) => value.eq(&Value::Object(view.receiver())),
+            (Value::InterfaceRef(view), value) => view.receiver().eq(value),
+            (value, Value::InterfaceRef(view)) => value.eq(&view.receiver()),
             (Value::I64(a),  Value::I64(b))  => a == b,
             (Value::F64(a),  Value::F64(b))  => a == b,
             (Value::Bool(a), Value::Bool(b)) => a == b,

@@ -379,8 +379,30 @@ public sealed class TypeOpEmitter {
         return ud;
     }
 
+    private TypedReg _emitInterfaceProjection(BoundConvert c, TypedReg src) {
+        var from = c.E.Type() as Z42InstantiatedInterfaceType;
+        string qualified = IfaceSlotKeys.QualifiedExact(from, "");
+        string legacy = IfaceSlotKeys.Exact(from, "");
+        string target = this._ee._typeTestName(c.Type(), c.Type().Name());
+        string[] keys = new string[]{qualified.Substring(0, qualified.Length - 1),
+                                     legacy.Substring(0, legacy.Length - 1), target};
+        TypedReg[] args = new TypedReg[4];
+        args[0] = src;
+        int i = 0;
+        while (i < 3) {
+            TypedReg key = this._ctx.Alloc(IrType.Str);
+            this._ctx.Emit(new ConstStrInstr(key, this._ctx.Gen.Intern(keys[i])));
+            args[i + 1] = key;
+            i = i + 1;
+        }
+        TypedReg dst = this._ctx.Alloc(IrType.Ref);
+        this._ctx.Emit(new BuiltinInstr(dst, "__project_interface", args, 4));
+        return dst;
+    }
+
     internal TypedReg _emitConvert(BoundConvert c) {
         TypedReg src = this._ee.Emit(c.E);
+        if (c.InterfaceProjection) { return this._emitInterfaceProjection(c, src); }
         // add-struct-object-boxing (PR2a)：`(P)o`（object/接口 → blob 值 struct 的 C 风格强转）= **拆箱**。
         // 源不是值 struct（是 object/boxed）、目标是 blob 值 struct → 发 AsCast（VM 对 BoxedStruct 精确
         // 匹配 → 拷回当前帧 arena StructRef）。类名用 QualifyClass 与 StructAlloc 的 arena type_name 对齐。
@@ -400,12 +422,20 @@ public sealed class TypeOpEmitter {
         // 所以必须先把 null 分出去，否则合法代码会被这道检查打死。
         if (c.CheckedRefCast) {
             string ckTarget = this._ee._typeTestName(c.Type(), c.Type().Name());
-            TypedReg okR = this._ctx.Alloc(IrType.Bool);
-            this._ctx.Emit(new IsInstanceInstr(okR, src, ckTarget));
             string okL = this._ctx.Fresh("cast_ok");
             string nullL = this._ctx.Fresh("cast_null");
             string badL = this._ctx.Fresh("cast_bad");
-            this._ctx.EndBlock(new BrCondTerm(okR, okL, nullL));
+            TypedReg castResult = src;
+            if (c.Type() is Z42ClassType || c.Type() is Z42InstantiatedType) {
+                // A class cast can unwrap a projected interface reference.
+                castResult = this._ctx.Alloc(IrType.Ref);
+                this._ctx.Emit(new AsCastInstr(castResult, src, ckTarget));
+                this._ctx.EndBlock(new BrCondTerm(this._isNullReg(castResult), nullL, okL));
+            } else {
+                TypedReg okR = this._ctx.Alloc(IrType.Bool);
+                this._ctx.Emit(new IsInstanceInstr(okR, src, ckTarget));
+                this._ctx.EndBlock(new BrCondTerm(okR, okL, nullL));
+            }
             // null？→ 放行
             this._ctx.StartBlock(nullL);
             this._ctx.EndBlock(new BrCondTerm(this._isNullReg(src), okL, badL));
@@ -416,7 +446,7 @@ public sealed class TypeOpEmitter {
             this._endWithThrow(TypeOpEmitter.ICAST_EXC, "InvalidCastException",
                 "cannot cast to `" + ckShown + "`: the object is of a different type");
             this._ctx.StartBlock(okL);
-            return src;
+            return castResult;
         }
         int toIr = this._ctx.ToIrType(c.Type());
         int fromIr = this._ctx.ToIrType(c.E.Type());

@@ -18,7 +18,7 @@ pub fn obj_get_type(ctx: &VmContext, this: &Value) -> Result<Value, BuiltinError
 fn obj_get_type_impl(ctx: &VmContext, this: &Value) -> Result<Value> {
     use crate::corelib::core::reflection::make_type_from_name;
     match this {
-        Value::InterfaceRef(view) => obj_get_type_impl(ctx, &Value::Object(view.receiver())),
+        Value::InterfaceRef(view) => obj_get_type_impl(ctx, &view.receiver()),
         // A generic instance is either an instantiation descriptor (`Demo.Box<int>`: a generic
         // instantiated in its own package — the name carries the arguments) or an erased
         // definition descriptor plus per-instance arguments (an imported generic: `Std.Collections.List`
@@ -70,8 +70,8 @@ fn instance_type(ctx: &VmContext, td: std::sync::Arc<crate::object::TypeDesc>, a
 /// or both are null.
 pub fn obj_ref_eq(a: &Value, b: &Value) -> bool {
     match (a, b) {
-        (Value::InterfaceRef(view), value) => obj_ref_eq(&Value::Object(view.receiver()), value),
-        (value, Value::InterfaceRef(view)) => obj_ref_eq(value, &Value::Object(view.receiver())),
+        (Value::InterfaceRef(view), value) => obj_ref_eq(&view.receiver(), value),
+        (value, Value::InterfaceRef(view)) => obj_ref_eq(value, &view.receiver()),
         (Value::Object(a), Value::Object(b)) => crate::object::ObjRef::ptr_eq(a, b),
         (Value::Array(a),  Value::Array(b))  => crate::object::ArrRef::ptr_eq(a, b),
         (Value::Str(a),    Value::Str(b))    => std::ptr::eq(a.as_ptr(), b.as_ptr()),
@@ -279,7 +279,7 @@ pub fn obj_hash_code(this: &Value) -> Result<i64, BuiltinError> {
 
 fn obj_hash_code_impl(this: &Value) -> Result<i64, BuiltinError> {
     match this {
-        Value::InterfaceRef(view) => obj_hash_code_impl(&Value::Object(view.receiver())),
+        Value::InterfaceRef(view) => obj_hash_code_impl(&view.receiver()),
         Value::Object(gc) => Ok(identity_hash(crate::object::ObjRef::as_ptr(gc) as *const _ as *const u8 as usize)),
         // add-array-base-class: identity hash for Value::Array
         Value::Array(gc) => Ok(identity_hash(crate::object::ArrRef::as_ptr(gc) as *const _ as *const u8 as usize)),
@@ -308,7 +308,7 @@ pub fn obj_equals(this: &Value, other: &Value) -> bool {
 /// args: [this]
 pub fn obj_to_str(this: &Value) -> Result<String, BuiltinError> {
     match this {
-        Value::InterfaceRef(view) => obj_to_str(&Value::Object(view.receiver())),
+        Value::InterfaceRef(view) => obj_to_str(&view.receiver()),
         Value::Object(rc) => {
             let td_name = &rc.type_desc().name;
             Ok(crate::zpkg::index::type_names::unqualified(td_name).to_string())
