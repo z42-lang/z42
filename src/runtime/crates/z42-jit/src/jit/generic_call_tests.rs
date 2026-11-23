@@ -341,7 +341,7 @@ fn method_struct_module() -> Module {
 
 fn install_method_struct_types(vm: &VmContext) {
     use crate::metadata::ids::tokens::TypeId;
-    use crate::object::{StructTypeLayout, TypeDesc, TypeDescCold};
+    use crate::object::{StructFieldLayout, StructTypeLayout, TypeDesc, TypeDescCold};
     use crate::zpkg::index::name::NameIndex;
     use std::sync::Arc;
     vm.loader().install_lazy_loader(None, 0);
@@ -359,7 +359,8 @@ fn install_method_struct_types(vm: &VmContext) {
             visibility: 0,
             cold: size.map(|size| Box::new(TypeDescCold {
                 struct_layout: Some(Arc::new(StructTypeLayout {
-                    size, ref_offsets: Box::new([]), ref_kinds: Box::new([]), fields: Box::new([]),
+                    size, ref_offsets: Box::new([]), ref_kinds: Box::new([]),
+                    fields: Box::new([StructFieldLayout { offset: size as u32 - 4, size: 4, kind: 0 }]),
                 })),
                 ..Default::default()
             })),
@@ -416,4 +417,68 @@ fn method_struct_alloc_rejects_missing_or_unusable_type_arguments_in_both_engine
         assert!(matches!(outcome, NativeOutcome::Threw), "expected {name} to throw");
         assert_eq!(vm.exec().take_exception(), Some(Value::Str(expected.into())));
     }
+}
+
+fn dynamic_struct_copy_module() -> Module {
+    use crate::object::TAG_I32;
+    use crate::zpkg::ir::{StructAllocInsn, StructFieldGetInsn, StructFieldSetInsn};
+    let caller = |name: &str, ty: &str, size: u32, value: i32, result_type: &str, result_size: u32| {
+        let alloc = |dst, type_name: &str, size| Instruction::StructAlloc(Box::new(StructAllocInsn {
+            dst, type_name: type_name.into(), size,
+        }));
+        func(name, 0, true, vec![
+            alloc(0, ty, size),
+            alloc(1, result_type, result_size),
+            Instruction::ConstI32 { dst: 2, val: value },
+            Instruction::StructFieldSetPrim(Box::new(StructFieldSetInsn {
+                base: 0, root_type: ty.into(), path: Box::new([0]), kind: TAG_I32, val: 2,
+            })),
+            call(3, "T.CopyStruct", &[0, 1], &[ty]),
+            Instruction::StructFieldGetPrim(Box::new(StructFieldGetInsn {
+                dst: 4, base: 1, root_type: result_type.into(), path: Box::new([0]), kind: TAG_I32,
+            })),
+        ], Some(4))
+    };
+    module_of(vec![
+        func("T.CopyStruct", 2, true, vec![
+            Instruction::MethodStructAlloc { dst: 2, param_index: 0 },
+            Instruction::StructCopyDynamic { dst: 2, src: 0 },
+            Instruction::StructCopyDynamic { dst: 1, src: 2 },
+        ], None),
+        caller("T.CopySmall", "Demo.SmallBlob", 8, 17, "Demo.SmallBlob", 8),
+        caller("T.CopyLarge", "Demo.LargeBlob", 24, 31, "Demo.LargeBlob", 24),
+        caller("T.CopyMismatch", "Demo.SmallBlob", 8, 42, "Demo.LargeBlob", 24),
+    ])
+}
+
+#[test]
+fn interpreter_executes_dynamic_struct_copy_across_frames() {
+    let module = dynamic_struct_copy_module();
+    let vm = VmContext::new();
+    install_method_struct_types(&vm);
+    assert_eq!(interp(&vm, &module, "T.CopySmall"), Value::I64(17));
+    assert_eq!(interp(&vm, &module, "T.CopyLarge"), Value::I64(31));
+    let function = &module.functions[idx(&module, "T.CopyMismatch")];
+    let outcome = crate::interp::run_outcome(&vm, &module, function, &[]).unwrap();
+    assert!(matches!(outcome, ExecOutcome::Thrown(Value::Str(s)) if s.starts_with("StructCopyDynamic: incompatible layouts")));
+}
+
+#[cfg(feature = "jit")]
+#[test]
+fn jit_executes_dynamic_struct_copy_across_frames() {
+    use crate::jit::runtime::{frame::JitFrame, invoke::{call_entry, NativeOutcome}};
+    let module = dynamic_struct_copy_module();
+    let vm = VmContext::new();
+    install_method_struct_types(&vm);
+    let rt = crate::jit::test_support::install(&vm, &module, z42::config::runtime_config().jit_config()).unwrap();
+    rt.resolve_fn_by_id(&vm, idx(&module, "T.CopyStruct")).expect("shared copy compiles");
+    for (name, expected) in [("T.CopySmall", 17), ("T.CopyLarge", 31)] {
+        let entry = rt.resolve_fn_by_id(&vm, idx(&module, name)).expect("caller compiles");
+        let outcome = unsafe { call_entry(&vm, entry, JitFrame::new(&vm, entry.max_reg, &[])) };
+        assert!(matches!(outcome, NativeOutcome::Returned(Some(Value::I64(actual))) if actual == expected));
+    }
+    let entry = rt.resolve_fn_by_id(&vm, idx(&module, "T.CopyMismatch")).expect("caller compiles");
+    let outcome = unsafe { call_entry(&vm, entry, JitFrame::new(&vm, entry.max_reg, &[])) };
+    assert!(matches!(outcome, NativeOutcome::Threw));
+    assert!(matches!(vm.exec().take_exception(), Some(Value::Str(s)) if s.starts_with("StructCopyDynamic: incompatible layouts")));
 }

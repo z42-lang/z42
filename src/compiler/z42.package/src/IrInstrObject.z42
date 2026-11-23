@@ -351,6 +351,20 @@ public sealed class StructCopyInstr : IrInstr {
     }
 }
 
+// Both registers hold existing slots. Copying writes the destination slot, not its register.
+public sealed class StructCopyDynamicInstr : IrInstr {
+    public TypedReg Dst;
+    public TypedReg Src;
+    public StructCopyDynamicInstr(TypedReg dst, TypedReg src) { this.Dst = dst; this.Src = src; }
+    public override string Dump() { return this.Dst.Dump() + " = struct_copy_dynamic " + this.Src.Dump(); }
+    public override int ReadCount() { return 2; }
+    public override TypedReg ReadAt(int i) { if (i == 0) { return this.Dst; } if (i == 1) { return this.Src; } return null; }
+    public override void SetReadAt(int i, TypedReg r) { if (i == 0) { this.Dst = r; } else if (i == 1) { this.Src = r; } }
+    public override IrInstr Clone() { return new StructCopyDynamicInstr(this.Dst, this.Src); }
+    public override TypedReg TagReg() { return this.Dst; }
+    public override void Write(ZbcEncoder e) { e.Head(Op.StructCopyDynamic, this.Dst); e.Reg(this.Src); }
+}
+
 // symbolic-struct-field-access P2（zbc 1.46，方案 A）：烘焙字节偏移 → `(RootType, Path)`。
 //
 // ⚠️ **RootType 不只是「所属类型」，它同时是编号空间的判别器。**

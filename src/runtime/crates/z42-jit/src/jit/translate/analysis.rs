@@ -193,7 +193,7 @@ pub(super) fn compute_promotable_regs(func: &Function, enable: bool) -> Vec<bool
                 | I::LoadMethodWitness { dst, .. } | I::MethodStructAlloc { dst, .. } => disq.push(*dst),
                 I::Typeof(bx) => disq.push(bx.dst),
                 I::Copy { dst, src } | I::Not { dst, src } | I::ToStr { dst, src }
-                | I::PinPtr { dst, src } | I::StructCopy { dst, src, .. }
+                | I::PinPtr { dst, src } | I::StructCopy { dst, src, .. } | I::StructCopyDynamic { dst, src }
                 | I::LoadLocalAddr { dst, slot: src } => { disq.push(*dst); disq.push(*src); }
                 // Rem is helper-only (int /0 exception); integer And/Or (logical
                 // short-circuit forms) and StrConcat are memory-backed helpers.

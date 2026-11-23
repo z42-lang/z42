@@ -229,3 +229,45 @@ fn copy_into_rejects_a_compiler_size_that_disagrees_with_the_layout() {
     assert!(e2.contains("size skew"), "self-copy must not bypass the guard: {e2}");
     assert!(a.copy_into(src, 1, src, 1, 8).is_ok(), "a matching self-copy is still a no-op");
 }
+
+#[test]
+fn dynamic_copy_keeps_reference_leaves_after_the_callee_frame_exits() {
+    let mut arena = StructArena::default();
+    let layout = || Arc::new(StructTypeLayout {
+        size: 16,
+        ref_offsets: Box::new([8]),
+        ref_kinds: Box::new([STRUCT_REF_ARC_STRING]),
+        fields: Box::new([]),
+    });
+    let caller_slot = arena.alloc(1, Arc::from("Record"), layout());
+    let callee_base = arena.base();
+    let callee_slot = arena.alloc(2, Arc::from("Record"), layout());
+    let reference = Value::Str("kept".into());
+    arena.set_ref(callee_slot, 2, 8, reference).unwrap();
+    arena.with_mut(callee_slot, 2, |slot| slot.bytes[0] = 42).unwrap();
+    arena.copy_dynamic(caller_slot, 1, callee_slot, 2).unwrap();
+    arena.truncate(callee_base);
+
+    assert!(arena.copy_dynamic(caller_slot, 1, callee_slot, 2).is_err());
+    assert_eq!(arena.with(caller_slot, 1, |slot| slot.bytes[0]).unwrap(), 42);
+    let mut roots = Vec::new();
+    arena.scan_roots(&mut |value| roots.push(*value));
+    assert_eq!(roots, vec![reference]);
+}
+
+#[test]
+fn dynamic_copy_rejects_same_size_slots_of_different_types_or_layouts() {
+    let mut arena = StructArena::default();
+    let destination = arena.alloc(1, Arc::from("Record"), prim_layout(16));
+    let other_type = arena.alloc(1, Arc::from("Other"), prim_layout(16));
+    let other_layout = arena.alloc(1, Arc::from("Record"), Arc::new(StructTypeLayout {
+        size: 16,
+        fields: Box::new([crate::object::StructFieldLayout { offset: 0, size: 8, kind: 0 }]),
+        ..Default::default()
+    }));
+    for source in [other_type, other_layout] {
+        arena.with_mut(source, 1, |slot| slot.bytes[0] = 99).unwrap();
+        assert!(arena.copy_dynamic(destination, 1, source, 1).is_err());
+        assert_eq!(arena.with(destination, 1, |slot| slot.bytes[0]).unwrap(), 0);
+    }
+}

@@ -90,6 +90,7 @@ public static class Op {
     public static int StructAlloc        = 0xC0;  // dst = 在字节 arena 分配 size 字节 blob（零初始化），dst=StructRef 句柄
     public static int StructCopy         = 0xC1;  // dst = src 的 blob 副本（size 字节；纯基元 memcpy / 含引用叶子按位图分流）
     public static int StructFieldGetPrim = 0xC2;  // dst_reg = base blob 在 byte_off 处的基元叶子（kind 定字节宽/解码）
+    public static int StructCopyDynamic  = 0xC4;  // dst | src(u16), size from the arena slots
     public static int StructFieldSetPrim = 0xC3;  // base blob 在 byte_off 处原地写基元叶子 = val（lvalue）
 }
 

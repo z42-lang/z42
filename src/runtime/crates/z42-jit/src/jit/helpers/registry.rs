@@ -105,6 +105,7 @@ pub struct HelperIds {
     // add-struct-jit-value-path (P5): blob value-type instruction helpers.
     pub struct_alloc:          FuncId,
     pub struct_copy:           FuncId,
+    pub struct_copy_dynamic:   FuncId,
     pub struct_field_get_prim: FuncId,
     pub struct_field_set_prim: FuncId,
 }
@@ -179,6 +180,7 @@ pub fn register_symbols(builder: &mut JITBuilder) {
     // add-struct-jit-value-path (P5): struct value-type instruction helpers
     reg!("jit_struct_alloc",          struct_ops::jit_struct_alloc);
     reg!("jit_struct_copy",           struct_ops::jit_struct_copy);
+    reg!("jit_struct_copy_dynamic",   struct_ops::jit_struct_copy_dynamic);
     reg!("jit_struct_field_get_prim", struct_ops::jit_struct_field_get_prim);
     reg!("jit_struct_field_set_prim", struct_ops::jit_struct_field_set_prim);
 }
@@ -302,6 +304,7 @@ pub fn declare_imports(jit: &mut JITModule) -> Result<HelperIds> {
         // jit_struct_copy(frame, ctx, dst, src, size) -> u8
         struct_copy:           decl!("jit_struct_copy",           [ptr, ptr, i32t, i32t, i32t],      [i8t]),
         // symbolic-struct-field-access P2（zbc 1.46）：烘焙偏移 → (root 类型名, 字段序号路径)。
+        struct_copy_dynamic:   decl!("jit_struct_copy_dynamic",   [ptr, ptr, i32t, i32t],            [i8t]),
         // jit_struct_field_get_prim(frame, ctx, dst, base, root_ptr, root_len, path_ptr, path_len, kind) -> u8
         struct_field_get_prim: decl!("jit_struct_field_get_prim", [ptr, ptr, i32t, i32t, ptr, i64t, ptr, i64t, i8t], [i8t]),
         // jit_struct_field_set_prim(frame, ctx, base, root_ptr, root_len, path_ptr, path_len, kind, val) -> u8

@@ -98,6 +98,7 @@ pub(super) const OP_METHOD_STRUCT_ALLOC: u8 = 0xB7;
 // add-struct-value-semantics Phase A: blob value type instructions (byte-region ops).
 pub(super) const OP_STRUCT_ALLOC: u8          = 0xC0;
 pub(super) const OP_STRUCT_COPY: u8           = 0xC1;
+pub(super) const OP_STRUCT_COPY_DYNAMIC: u8   = 0xC4;
 pub(super) const OP_STRUCT_FIELD_GET_PRIM: u8 = 0xC2;
 pub(super) const OP_STRUCT_FIELD_SET_PRIM: u8 = 0xC3;
 

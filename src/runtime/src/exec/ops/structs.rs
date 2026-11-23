@@ -94,6 +94,22 @@ pub fn struct_copy_val(
 }
 
 
+/// Copy a generic value between existing slots, including an ancestor frame's return slot.
+pub fn struct_copy_dynamic(
+    ctx: &VmContext, module: &Module, dst: &Value, src: &Value,
+) -> Result<(), Value> {
+    let copy = || -> Result<()> {
+        let (dst_index, dst_frame) = as_struct_ref(dst, "StructCopyDynamic dst")?;
+        let (src_index, src_frame) = as_struct_ref(src, "StructCopyDynamic src")?;
+        ctx.exec.struct_arena.lock().copy_dynamic(dst_index, dst_frame, src_index, src_frame)
+    };
+    copy().map_err(|err| {
+        let message = err.to_string();
+        crate::exec::exception::make_stdlib_exception(ctx, module, "Std.InvalidOperationException", message.clone())
+            .unwrap_or_else(|_| Value::Str(message.into()))
+    })
+}
+
 /// Resolve a declared field spelling as-is, then under the owner namespace.
 fn qualify_field_type(ctx: &VmContext, tag: &str, owner_fq: &str) -> Option<std::sync::Arc<str>> {
     // 已经能直接查到（本来就是 FQ、或是基元）⇒ 原样。

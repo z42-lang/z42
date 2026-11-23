@@ -412,6 +412,11 @@ pub fn exec_instr(
             exec_struct::struct_alloc(ctx, frame, insn.dst, &insn.type_name, insn.size)?,
         Instruction::StructCopy { dst, src, size } =>
             exec_struct::struct_copy(ctx, frame, *dst, *src, *size)?,
+        Instruction::StructCopyDynamic { dst, src } => {
+            if let Err(thrown) = crate::exec::ops::structs::struct_copy_dynamic(ctx, module, frame.get(*dst)?, frame.get(*src)?) {
+                return Ok(Some(thrown));
+            }
+        }
         Instruction::StructFieldGetPrim(insn) =>
             exec_struct::struct_field_get_prim(ctx, frame, insn)?,
         Instruction::StructFieldSetPrim(insn) =>

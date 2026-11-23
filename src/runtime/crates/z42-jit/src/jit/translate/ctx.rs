@@ -105,6 +105,7 @@ pub(super) struct TxCtx<'a, 'b> {
     pub(super) hr_static_set: FuncRef,
     pub(super) hr_struct_alloc: FuncRef,
     pub(super) hr_struct_copy: FuncRef,
+    pub(super) hr_struct_copy_dynamic: FuncRef,
     pub(super) hr_struct_field_get_prim: FuncRef,
     pub(super) hr_struct_field_set_prim: FuncRef,
     pub(super) hr_get_bool: FuncRef,
