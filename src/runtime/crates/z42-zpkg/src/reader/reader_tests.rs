@@ -387,3 +387,13 @@ fn decode_load_method_witness_uses_a_u16_slot() {
     let (instructions, _) = decode_block(&bytes, &pool, &map).unwrap();
     assert!(matches!(&instructions[..], [Instruction::LoadMethodWitness { dst: 3, slot: 513 }]));
 }
+
+#[test]
+fn decode_method_struct_alloc_uses_a_u16_type_parameter_index() {
+    let pool = [];
+    let map = IdMap::for_v1(&pool, vec![], vec![]);
+    let bytes = [OP_METHOD_STRUCT_ALLOC, 0x20, 3, 0, 1, 2, OP_RET, 0, 0, 0];
+    let (instructions, _) = decode_block(&bytes, &pool, &map).unwrap();
+    assert!(matches!(&instructions[..], [Instruction::MethodStructAlloc { dst: 3, param_index: 513 }]));
+    assert!(decode_block(&bytes[..5], &pool, &map).is_err());
+}

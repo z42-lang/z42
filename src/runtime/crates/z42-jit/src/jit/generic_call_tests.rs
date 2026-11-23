@@ -321,3 +321,99 @@ fn malformed_or_missing_witnesses_throw_in_both_engines() {
         assert_eq!(vm.exec().take_exception(), Some(Value::Str(expected.into())));
     }
 }
+
+fn method_struct_module() -> Module {
+    let invoke = |name, ty: &[&str]| func(name, 0, true, vec![call(0, "T.MethodStruct", &[], ty)], Some(0));
+    module_of(vec![
+        func("T.MethodStruct", 0, true, vec![
+            Instruction::MethodStructAlloc { dst: 0, param_index: 0 },
+            Instruction::IsInstance(Box::new(crate::zpkg::ir::IsInstanceInsn {
+                dst: 1, obj: 0, class_name: "Demo.SmallBlob".into(),
+            })),
+        ], Some(1)),
+        invoke("T.SmallBlob", &["Demo.SmallBlob"]),
+        invoke("T.LargeBlob", &["Demo.LargeBlob"]),
+        invoke("T.MissingStructArg", &[]),
+        invoke("T.UnknownStructArg", &["Demo.NotLoaded"]),
+        invoke("T.ClassStructArg", &["Demo.PlainClass"]),
+    ])
+}
+
+fn install_method_struct_types(vm: &VmContext) {
+    use crate::metadata::ids::tokens::TypeId;
+    use crate::object::{StructTypeLayout, TypeDesc, TypeDescCold};
+    use crate::zpkg::index::name::NameIndex;
+    use std::sync::Arc;
+    vm.loader().install_lazy_loader(None, 0);
+    let mut loader = vm.core().loader().lazy_loader.write();
+    let loader = loader.as_mut().unwrap();
+    for (name, size) in [("Demo.SmallBlob", Some(8)), ("Demo.LargeBlob", Some(24)), ("Demo.PlainClass", None)] {
+        let td = TypeDesc {
+            name: name.into(),
+            class_flags: if size.is_some() { crate::zpkg::ir::CLASS_FLAG_STRUCT } else { 0 },
+            fields: Vec::new(),
+            field_index: NameIndex::new(),
+            vtable: Vec::new(),
+            vtable_index: NameIndex::new(),
+            base_name: None,
+            visibility: 0,
+            cold: size.map(|size| Box::new(TypeDescCold {
+                struct_layout: Some(Arc::new(StructTypeLayout {
+                    size, ref_offsets: Box::new([]), ref_kinds: Box::new([]), fields: Box::new([]),
+                })),
+                ..Default::default()
+            })),
+            id: TypeId::UNRESOLVED,
+        };
+        loader.insert_type(name.into(), Arc::new(td));
+    }
+}
+
+#[test]
+fn interpreter_allocates_the_current_method_struct_type() {
+    let vm = VmContext::new();
+    install_method_struct_types(&vm);
+    let module = method_struct_module();
+    assert_eq!(interp(&vm, &module, "T.SmallBlob"), Value::Bool(true));
+    assert_eq!(interp(&vm, &module, "T.LargeBlob"), Value::Bool(false));
+}
+
+#[cfg(feature = "jit")]
+#[test]
+fn jit_allocates_the_current_method_struct_type() {
+    let module = method_struct_module();
+    for (name, expected) in [("T.SmallBlob", true), ("T.LargeBlob", false)] {
+        let vm = VmContext::new();
+        install_method_struct_types(&vm);
+        assert_eq!(jit(&vm, &module, name), Value::Bool(expected));
+        assert!(crate::jit::compile::state::runtime(&vm).unwrap()
+            .resolve_fn_by_id(&vm, idx(&module, "T.MethodStruct")).is_some());
+    }
+}
+
+#[cfg(feature = "jit")]
+#[test]
+fn method_struct_alloc_rejects_missing_or_unusable_type_arguments_in_both_engines() {
+    use crate::jit::runtime::{frame::JitFrame, invoke::{call_entry, NativeOutcome}};
+    let module = method_struct_module();
+    let cases = [
+        ("T.MissingStructArg", "missing method type argument in slot 0"),
+        ("T.UnknownStructArg", "unknown struct type `Demo.NotLoaded` for method type argument 0"),
+        ("T.ClassStructArg", "method type argument `Demo.PlainClass` has no struct layout"),
+    ];
+    for (name, expected) in cases {
+        let vm = VmContext::new();
+        install_method_struct_types(&vm);
+        let outcome = crate::interp::run_outcome(&vm, &module, &module.functions[idx(&module, name)], &[]).unwrap();
+        assert!(matches!(outcome, ExecOutcome::Thrown(exc) if exc == Value::Str(expected.into())));
+
+        let vm = VmContext::new();
+        install_method_struct_types(&vm);
+        let rt = crate::jit::test_support::install(&vm, &module, z42::config::runtime_config().jit_config()).unwrap();
+        rt.resolve_fn_by_id(&vm, idx(&module, "T.MethodStruct")).expect("struct allocation compiles");
+        let entry = rt.resolve_fn_by_id(&vm, idx(&module, name)).expect("caller compiles");
+        let outcome = unsafe { call_entry(&vm, entry, JitFrame::new(&vm, entry.max_reg, &[])) };
+        assert!(matches!(outcome, NativeOutcome::Threw), "expected {name} to throw");
+        assert_eq!(vm.exec().take_exception(), Some(Value::Str(expected.into())));
+    }
+}

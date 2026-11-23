@@ -66,6 +66,13 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     let status = self.builder.inst_results(call)[0];
                     self.check(status);
                 }
+                Instruction::MethodStructAlloc { dst, param_index } => {
+                    let dst = self.ri(*dst);
+                    let index = self.builder.ins().iconst(types::I32, i64::from(*param_index));
+                    let call = self.builder.ins().call(self.hr_method_struct_alloc, &[self.frame_val, self.ctx_val, dst, index]);
+                    let status = self.builder.inst_results(call)[0];
+                    self.check(status);
+                }
                 Instruction::MethodDefault { dst, param_index } => {
                     let dst = self.ri(*dst);
                     let index = self.builder.ins().iconst(types::I32, i64::from(*param_index));
