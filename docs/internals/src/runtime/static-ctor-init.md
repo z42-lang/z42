@@ -343,7 +343,7 @@ C# 不会这样：它只在 `Main` 体**直接**引用依赖模块的类型时�
 
 | 函数 | 做什么 | 谁调 |
 |---|---|---|
-| `build` | `available!` 折叠 → Core 构造 → 登记静态构造器 → loader 播种 → token 解析 → 组件连接 → 事件重放 → 程序发布 | `host/load.rs::prepare` |
+| `build` | `available!` 折叠 → Core 构造 → 登记静态构造器 → loader 播种 → token 解析 → 组件连接 → 事件重放 → 程序发布 | `vm/assembly.rs::build` |
 | `resolve_tokens` | `resolve_module`（各站点 token 预填）| `program_builder::build` |
 
 文件应用和嵌入端共用首次调用准备：

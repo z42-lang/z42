@@ -10,6 +10,8 @@
 |---|---|
 | `mod.rs` | VmCore/VmContext、布局常量、线程注册与销毁、最小状态借用入口 |
 | `wiring.rs` | Core 构造后连接 GC、根扫描、回收与观察回调 |
+| `program.rs` | 程序会话、入口选择与首次调用准备 |
+| `app_state.rs` | 每 VM 应用参数及其快照 |
 | `assembly.rs` | 已加载程序的统一准备顺序、内部组件输入和失败发布边界 |
 | `defaults.rs` | 捕获默认配置、准备 Core 与上下文输入 |
 | `extensions.rs` | 创建前登记并冻结的扩展状态及逆序释放 |

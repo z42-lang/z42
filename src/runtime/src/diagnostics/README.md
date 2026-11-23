@@ -12,6 +12,8 @@
 | `counters.rs` | 每线程原子计数、聚合快照与格式化 |
 | `sampling.rs` | 门面注入的采样接口、关闭快路与输出委托 |
 | `observer.rs` | 运行时事件、观察者注册及回调快照 |
+| `exit_report.rs` | 普通返回和托管退出共享的进程级统计输出与采样刷盘 |
+| `crash_report.rs` | 通过 PAL 安装致命信号处理并报告 VM 栈 |
 | `mod.rs` 的 `DiagnosticsState` | 六个共享诊断字段与其生命周期 |
 | `VmContext::counters_snapshot` | 在同一线程注册表锁下汇总存活与已退出线程计数 |
 | `VmContext::add_runtime_observer` / `fire_runtime_event` | 观察者注册与事件发布 |

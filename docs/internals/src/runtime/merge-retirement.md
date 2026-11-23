@@ -6,7 +6,7 @@
 
 ## 1. 问题
 
-`host::load::prepare` 把入口产物与全部依赖（标准库居首）`merge_modules` 成**一个扁平 Module**：
+M0 时的 `host::load::prepare` 把入口产物与全部依赖（标准库居首）`merge_modules` 成**一个扁平 Module**：
 
 - 字符串池拼接 + ConstStr 重映射（merge 自述的唯一复杂点）；
 - 类/函数按名幂等合并（last wins）；

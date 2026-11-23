@@ -21,7 +21,7 @@ pub(crate) fn freeze(extensions: VmExtensions) -> ExtensionState {
     add(&mut defaults, crate::loader::native::SearchPaths(native_candidates));
     add(&mut defaults, crate::host::services::services());
     // The service owns only Rust arguments, never the core, so this sharing cannot form a cycle.
-    let application = crate::host::app_state::state_for_vm();
+    let application = crate::vm::app_state::state_for_vm();
     add(&mut defaults, application.clone());
     add(&mut defaults, corelib::os::process::State::default());
     add(&mut defaults, corelib::core::threading::State::default());
@@ -34,6 +34,13 @@ pub(crate) fn freeze(extensions: VmExtensions) -> ExtensionState {
     #[cfg(feature = "tls")]
     add(&mut defaults, corelib::net::tls::State::default());
     extensions.with_defaults(defaults).freeze()
+}
+
+pub(crate) fn report_on_exit(ctx: &VmContext) {
+    crate::diagnostics::report_on_exit(ctx, || {
+        let config = crate::config::runtime_config();
+        (&config.sample_out, config.trace_out.as_deref())
+    });
 }
 
 fn add<T: std::any::Any + Send + Sync>(extensions: &mut VmExtensions, state: T) {

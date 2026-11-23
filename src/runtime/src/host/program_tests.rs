@@ -186,9 +186,11 @@ fn malformed_selected_eager_dependency_fails_during_load() {
     artifact.dependencies.push(zpkg::format::ZpkgDep {
         file: "broken.zpkg".into(), namespaces: Vec::new(), symbols: Vec::new(),
     });
-    let options = LoadOptions { mode: ExecMode::Interp, vfs: fs,
-        search_dirs: vec!["/libs".into()], eager_dependencies: true, resolver: None, native: Default::default(), allow_profiling: true };
-    let error = super::load::prepare(artifact, None, &options, &Default::default(), None).err().expect("must reject a corrupt dependency");
+    let error = crate::loader::prepare_startup(
+        artifact, None, &*fs, vec!["/libs".into()], None, true, None,
+    )
+    .err()
+    .expect("must reject a corrupt dependency");
     assert!(format!("{error:#}").contains("broken.zpkg"));
 }
 
@@ -263,21 +265,15 @@ fn session_cache_shares_definitions_between_programs() {
 #[test]
 #[cfg(z42_have_embedding_hello)]
 fn no_eager_merge_track_registers_packages_and_runs() {
-    use std::sync::Arc;
     let bytes: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/embedding_hello.zbc"));
     let libs = std::path::PathBuf::from(env!("Z42_EMBEDDING_TEST_LIBS"));
-    let artifact = crate::loader::load_artifact_from_bytes(bytes).expect("fixture decodes");
     let options = crate::host::LoadOptions {
         mode: crate::host::ExecMode::Interp,
         search_dirs: vec![libs],
         ..Default::default()
     };
-    let program = super::load::prepare(
-        artifact, None, &options,
-        &crate::vm::assembly::ComponentInputs::for_request(&options),
-        None,
-    )
-    .expect("no-eager-merge track loads");
+    let program = super::LoadedProgram::load_bytes(bytes, options)
+        .expect("no-eager-merge track loads");
     // The stdlib must NOT be merged into the entry module on this track: the
     // entry's own functions stay, cross-package calls resolve through the
     // global FuncTable on first dispatch.
@@ -337,26 +333,7 @@ fn no_eager_merge_unit_registration_lands_in_func_table() {
         mode: crate::host::ExecMode::Interp,
         ..Default::default()
     };
-    let entry = crate::loader::LoadedArtifact {
-        module: crate::metadata::Module::from_ir(ir::Module {
-            name: "Entry".into(),
-            string_pool: Vec::new(),
-            classes: Vec::new(),
-            functions: Vec::new(),
-            func_index: Default::default(),
-        }),
-        entry_hint: None,
-        dependencies: Vec::new(),
-        import_namespaces: Vec::new(),
-        impl_pairs: Vec::new(),
-        package_name: None,
-    };
-    let program = super::load::prepare(
-        entry, None, &options,
-        &crate::vm::assembly::ComponentInputs::for_request(&options),
-        None,
-    )
-    .expect("loads");
+    let program = super::LoadedProgram::load_bytes(&empty_zbc(), options).expect("loads");
     let ctx = program.context();
     ctx.loader().register_eager_artifact(dep).expect("registration runs");
     assert!(

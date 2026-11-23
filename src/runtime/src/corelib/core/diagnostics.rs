@@ -105,7 +105,7 @@ pub fn heap_retaining_roots(ctx: &VmContext, target: &Value) -> Result<Value, Bu
 ///
 /// expose-diagnostics-counters (script-profiling P1c): surfaces the
 /// runtime counter snapshot + heap-derived numbers to z42 scripts. Same two
-/// sources `app.rs` merges into its `ProfileSnapshot` for `--print-stats-on-exit`
+/// sources `diagnostics/exit_report.rs` merges into its `ProfileSnapshot` for `--print-stats-on-exit`
 /// (`RuntimeCounters::snapshot` + `HeapStats`), so a script reading these fields
 /// sees values consistent with the exit JSON (modulo the natural sampling-instant
 /// skew). `allocations` reuses `HeapStats.allocations` (the SoT) — never

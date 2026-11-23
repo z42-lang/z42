@@ -19,15 +19,7 @@ use std::sync::Arc;
 
 use super::config::Z42ZpkgResolverFn;
 
-/// Resolve a namespace name (as written in z42 source, e.g. `"Std.IO"`
-/// or `"z42.core"`) to its zpkg bytes.
-///
-/// Return `None` to signal "this resolver doesn't know about that
-/// namespace"; the runtime continues with the next fallback (typically
-/// `search_paths`).
-pub trait ZpkgResolver: Send + Sync {
-    fn resolve(&self, namespace: &str) -> Option<Vec<u8>>;
-}
+pub use crate::loader::program::ZpkgResolver;
 
 /// Read a package's resolver keys: its nonempty package name, then NSPC namespaces.
 pub fn read_zpkg_namespaces(bytes: &[u8]) -> anyhow::Result<Vec<String>> {

@@ -35,18 +35,20 @@ native 安装器将其聚合成既有统一头，workload 不增加逐模块 inc
 | `loader/state.rs` | `LoaderState` 组合每 VM 加载上下文、初始化队列与 VFS |
 | `metadata/statics/` / `exec/init.rs` | 静态存储/初始化事实与执行/等待的职责边界 |
 | `host/services.rs` | 门面适配隔离应用执行与退出报告，经冻结扩展服务注入 corelib |
-| `host/app_state.rs` | 门面拥有的应用参数，经核心库服务接口提供快照 |
+| `vm/app_state.rs` | 每 VM 的应用参数，经核心库服务接口提供快照 |
 | `exec/thread_state.rs` | `ThreadExecState` 组合每线程帧、arena、异常槽和中立 JIT 头 |
 | `exec/state.rs` | `ExecState` 组合每 VM 的引擎注册与代码寿命 |
 | `config/vm_config.rs` | `VmConfig`：门面捕获的构造输入，包含 heap 与采样设置；LOH 覆盖仍应用到进程策略 |
 | `vm/extensions.rs` | `VmExtensions` 创建前登记与冻结的每 VM Rust 扩展状态，`VmContext::ext` 借用查询 |
-| `host/app.rs` | `host::run_app`：加载 `.zbc`/`.zpkg` + 合并依赖 + 执行入口（z42vm / `z42_run_app` / wasm `runTestApp` 共用）|
-| `vm/assembly.rs` | 合并后的启动步骤（`build`），`host::run_app` 与宿主 API（`host/ops.rs`）共用，防两条路径分叉 |
+| `host/app.rs` | `host::run_app` 编排一次性装载、入口调用和退出（z42vm / `z42_host_run_app` / wasm `runTestApp` 共用）|
+| `vm/program.rs` / `vm/assembly.rs` | 共享程序会话、首次调用准备与 VM 装配 |
+| `loader/program.rs` | resolver、prelude 与依赖包准备 |
+| `exec/call/entry.rs` | 入口参数与根保护、引擎调用、错误映射 |
 | `lib.rs` | 库入口，re-export 公开 API |
 | `config/mod.rs` + `config/` | `RuntimeConfig`（每个 `Z42_*` 旋钮的单一登记处）：`config/mod.rs` 为 hub（Default / from_env / toml 加载 / 全局单例）；`config/knob_table.rs` 的 `KNOWN_KNOBS` 旋钮表、`knobs.rs`、`parse.rs`（各 `parse_*`）、`resolve.rs`（四层输入 + 默认的分层解析与 provenance）、`subsystem_inputs.rs`（转换为子系统拥有的 `GcConfig` / `JitConfig` / `VmConfig`）、`source.rs`（`Z42_CONFIG` / `Z42_APP_CONFIG` 文件层）、`cli.rs`（`--set key=value`）、`availability.rs`（旋钮可用性）、`render.rs`（`--info` / `--list-knobs` / `--show-config` 渲染）；单测在 `config/config_tests.rs` |
 | `diagnostics/counters.rs` | `RuntimeCounters`：VM 可观测性原子计数器 |
 | `diagnostics/observer.rs` | `RuntimeObserver`：非 GC 运行时事件的 push 流（与 `gc::GcObserver` 对称） |
-| `host/signal.rs` | 硬崩溃时捕获 z42 调用栈的 OS 信号 handler（调 `pal::signal`） |
+| `diagnostics/crash_report.rs` / `diagnostics/exit_report.rs` | 致命信号栈报告、退出统计与采样刷盘 |
 
 ### 子模块
 | 目录 | 职责 |

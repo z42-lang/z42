@@ -47,19 +47,13 @@ pub mod resolver;
 pub(crate) mod program;
 pub mod signal;
 pub mod error;
-/// C embedding adapter (`z42_host` ABI): config, session, marshaling and the
-/// `extern "C"` entry points. Reached only through this module's re-exports.
-/// C embedding adapter files (`z42_host` ABI): config validation, the
-/// process session, marshaling and the `extern "C"` entry points live flat
-/// here; the Rust embedding surface shares the root.
+// C ABI configuration, session, marshaling and entry points.
 pub(crate) mod config;
 pub(crate) mod ffi;
 pub(crate) mod marshal;
 pub(crate) mod ops;
 pub(crate) mod state;
 mod app;
-mod load;
-pub(crate) mod app_state;
 pub(crate) mod services;
 pub use z42_zpkg::{ExecMode, image::PackageImage};
 pub use config::{Z42ExecMode, Z42_HOST_ABI_VERSION, Z42HostConfig};
@@ -72,8 +66,7 @@ pub use ffi::{
 pub use resolver::{read_zpkg_namespaces, ZpkgResolver};
 pub use program::{LoadOptions, LoadedProgram};
 pub use app::{default_mode, execution_available, run_app, RunOpts};
-pub use app_state::{program_args, set_program_args};
-pub(crate) use app::report_on_exit;
+pub use crate::vm::app_state::{program_args, set_program_args};
 #[cfg(test)] mod host_tests;
 #[cfg(test)] mod app_tests;
 #[cfg(test)] pub(crate) mod program_tests;
@@ -90,12 +83,17 @@ pub mod rust;
 pub use crate::config::{RuntimeConfig, VmConfig};
 
 
-/// Optional analysis services exposed through the embedding facade.
-pub fn profiler_loaded(ctx: &VmContext) -> bool { ctx.core().diagnostics().sampler.is_loaded() }
+/// Whether this VM already has a profiler provider installed.
+pub fn profiler_loaded(ctx: &VmContext) -> bool {
+    crate::diagnostics::profiler_loaded(ctx)
+}
+
 /// Resolve the configured profiler, validating its build/core identity first.
 pub fn prepare_profiler(ctx: &VmContext) -> anyhow::Result<()> {
-    crate::components::api::profiler_service(ctx).map(|_| ())
+    crate::diagnostics::prepare_profiler(ctx)
 }
+
+/// Write a heap snapshot using the configured profiler.
 pub fn write_heap_snapshot(ctx: &VmContext, path: &str) -> anyhow::Result<i64> {
-    crate::components::api::profiler_service(ctx)?.write_heap_snapshot(ctx, path)
+    crate::diagnostics::write_heap_snapshot(ctx, path)
 }

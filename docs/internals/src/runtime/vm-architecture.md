@@ -94,13 +94,13 @@ VM 装配注入 Core；worker 共享所属 Core 的不可变表，不存入 Exec
 
 | 阶段 | 所有者 | 完成条件 |
 |---|---|---|
-| 产物准备 | `host/load.rs`、`loader/program.rs` | 宿主解析请求并提供 VFS 和 resolver，Loader 准备入口模块与依赖 |
+| 产物准备 | `loader/program.rs` | 宿主解析请求并提供 VFS 和 resolver，Loader 准备入口模块与依赖 |
 | 可用性裁剪 | `loader/program.rs` | 由 VM 装配发起，在模块进入 Core 和 token 解析前裁剪并重建受影响索引 |
 | Core 构造 | `vm/mod.rs` | 创建堆和各子系统状态，由 `vm/wiring.rs` 连接根扫描、暂停请求与加载上下文回收服务 |
 | 主线程注册 | `vm/mod.rs` | 上下文地址固定、登记根扫描地址、启用 TLAB 并绑定 SATB |
 | 加载与执行准备 | `vm/assembly.rs`、`RuntimeLoader`、`metadata/resolve` | 登记 cctor、安装并播种惰性加载器、准备 token |
 | 组件装配 | `components`、`vm/assembly.rs` | 创建组件、连接执行后端，之后发布 LoadedProgram |
-| 调用准备 | `host/program.rs` | 参数钉根，首次调用清理静态存储并排空待加载类型队列 |
+| 调用准备 | `vm/program.rs`、`exec/call/entry.rs` | 参数钉根，首次调用清理静态存储并排空待加载类型队列 |
 | 托管初始化 | `exec/init.rs` | 执行访问屏障保证包和类型初始化的执行、等待与失败传播 |
 
 `drain_pending_type_loads` 和 `enqueue_type_load` 处理的是静态字段属主的类型加载队列，
@@ -282,7 +282,7 @@ regs，interp `RefKind::Stack` 跨帧 deref 通过 `frame.regs`。
 - **`func` 的寿命**：interp 帧指向调用方借给 `exec_function` 的 `&Function`；原生帧指向 `FnEntry.func`——
   合并模块里的函数归模块所有，惰性加载的函数由它的 `LazySlot` 持 `Arc<Function>` 保活，与 `FnEntry` 同寿。
 - **读帧的地方**：异常 `StackTrace`、栈溢出致命报告（`stack_guard`）、采样器（只取名字）、
-  崩溃信号转储（`host::signal::write_frame`：直接写 `frame_meta` 的字节，没有时用
+  崩溃信号转储（`diagnostics/crash_report.rs` 的 `write_frame`：直接写 `frame_meta` 的字节，没有时用
   `for_each_frame_name_piece` 分段写，行列号是一次二分——全程不分配）。前三者都在所属线程上；
   跨线程的读者只有 GC root scanner，见下一节。
 
@@ -469,7 +469,7 @@ sequenceDiagram
 `main_startup::resolve_libs_dir` 使用显式配置或可执行文件旁的 `../libs`，不搜索仓库 artifacts；
 开发产物路径由 xtask 通过环境传入。CLI 将搜索目录交给 host，普通 host 不替 CLI 推断路径。
 
-`host/load.rs` 负责组织入口、隐式 corelib 和依赖准备；loader 负责读取、合并与索引机制。
+`loader/program.rs` 组织入口、prelude 和依赖准备，使用 loader 的读取与索引机制。
 interp/JIT 的声明依赖保留为惰性候选，JIT 编译也按函数触发；显式 eager 策略会预加载依赖闭包。
 代码中的 AOT 模式分支不代表已有可执行 AOT 后端。sidecar 调试信息在产物加载时配对，见下文。
 
@@ -808,7 +808,7 @@ token = UNRESOLVED（bind_callee，冷路径）:
 都挂在 `Function.resolved: OnceLock<ResolvedTokens>`，由
 [`resolve::resolve_module`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/resolve.rs) 一次性填充。
 但 `resolve_module` **只经 `vm/assembly.rs::build` → `resolve_tokens` 对 entry module 跑一次**——而
-interp/JIT 模式下依赖是**纯惰性加载**（[load.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/host/load.rs)
+interp/JIT 模式下依赖是**纯惰性加载**（[loader/program.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/loader/program.rs)
 `is_eager = matches!(mode, Aot)`，非 AOT 全 false）：除用户 artifact 外，
 **所有依赖 zpkg**（自编译时即 z42c.core / z42c.syntax / z42c.semantics /
 z42c.emission / z42c.pipeline 全部）经 `LazyLoader::load_zpkg_file` 进函数注册表，其
@@ -1002,7 +1002,7 @@ needs_fixup = td.fields.len() != expected || td.vtable.len() != expected_v
 
 | 函数 | 签名 | 语义 | 调用方 |
 |------|------|------|--------|
-| `resolve_namespace(ns, libs_paths)` | `-> Result<Vec<PathBuf>>` | 返回**所有**声明该 namespace 的 zbc/zpkg 文件（不 bail on ambiguous）| 编译期诊断 / `host/load.rs` 启动反查 (.zbc → zpkg) |
+| `resolve_namespace(ns, libs_paths)` | `-> Result<Vec<PathBuf>>` | 返回**所有**声明该 namespace 的 zbc/zpkg 文件（不 bail on ambiguous）| 编译期诊断 / 启动依赖反查 (.zbc → zpkg) |
 | `resolve_dependency(zpkg_file, libs_paths)` | `-> Result<Option<PathBuf>>` | 按 zpkg 文件名直接查找 | LazyLoader 内部（按文件名精确定位）|
 
 **设计权衡**：`resolve_namespace` 保留（返回所有声明者而非 bail），而非彻底删除。
@@ -1301,7 +1301,7 @@ match callee_value {
 
 ## interp vs JIT 分发
 
-位置：`host/program.rs`、`exec/engine/` 与独立的 `z42-interp` / `z42-jit` 后端。
+位置：`exec/call/entry.rs`、`exec/engine/` 与独立的 `z42-interp` / `z42-jit` 后端。
 
 - **interp**：`exec_function` → `exec_instr` match 分发到近 70 个 IR 指令
   实现。`Value` 是 `Copy` 的 16B tagged enum（见 [object-abi.md](object-abi.md)）。

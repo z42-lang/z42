@@ -1,16 +1,16 @@
-//! Loaded programs shared by command-line and embedded hosts.
+//! Rust embedding requests and the callable program handle.
 use crate::{
-    zpkg::ExecMode,
+    metadata::Module,
     object::Value,
     pal::fs::Vfs,
-    vm::VmContext, exec::call::outcome::ExecOutcome, metadata::Module,
+    vm::{
+        program::{self, Program, ProgramRequest, ProgramSource},
+        VmContext,
+    },
+    zpkg::ExecMode,
 };
-use anyhow::{anyhow, bail, Result};
-use std::{
-    path::PathBuf,
-    pin::Pin,
-    sync::{Arc, OnceLock},
-};
+use anyhow::Result;
+use std::{path::PathBuf, sync::Arc};
 
 /// Host-provided inputs. A byte source has no implicit working-directory search.
 pub struct LoadOptions {
@@ -40,180 +40,97 @@ impl Default for LoadOptions {
     }
 }
 
-impl crate::vm::assembly::ComponentInputs {
-    pub(crate) fn for_request(options: &LoadOptions) -> Self {
-        Self { profiler: if options.allow_profiling { Default::default() }
-            else { crate::components::api::BackendSource::Disabled }, ..Default::default() }
+impl From<LoadOptions> for ProgramRequest {
+    fn from(options: LoadOptions) -> Self {
+        Self {
+            native: options.native,
+            allow_profiling: options.allow_profiling,
+            mode: options.mode,
+            vfs: options.vfs,
+            search_dirs: options.search_dirs,
+            resolver: options.resolver,
+            eager_dependencies: options.eager_dependencies,
+        }
     }
 }
 
 /// One loaded module and its VM. Initialization is shared by all entry invocations.
 /// Drive a context from one thread at a time; worker execution uses its own context.
-pub struct LoadedProgram {
-    pub(crate) ctx: Pin<Box<VmContext>>,
-    module: Arc<Module>,
-    mode: ExecMode,
-    entry_hint: Option<String>,
-    initialized: OnceLock<()>,
-}
+pub struct LoadedProgram(Program);
 
 impl LoadedProgram {
+    #[cfg(any(test, feature = "jit-test-support"))]
     pub(crate) fn new(
-        ctx: Pin<Box<VmContext>>,
+        ctx: std::pin::Pin<Box<VmContext>>,
         mode: ExecMode,
         entry_hint: Option<String>,
     ) -> Result<Self> {
-        let module = ctx
-            .core()
-            .runtime()
-            .module
-            .clone()
-            .ok_or_else(|| anyhow!("loaded program has no module"))?;
-        Ok(Self {
-            ctx,
-            module,
-            mode,
-            entry_hint,
-            initialized: OnceLock::new(),
-        })
+        Program::new(ctx, mode, entry_hint).map(Self)
     }
 
     pub fn load_file(path: &str, options: LoadOptions) -> Result<Self> {
-        let artifact = crate::loader::load_artifact(&*options.vfs, path)?;
-        super::load::prepare(artifact, Some(path), &options, &crate::vm::assembly::ComponentInputs::for_request(&options), None)
+        program::load_program(ProgramSource::File(path), options.into(), None).map(Self)
     }
 
     pub fn load_bytes(bytes: &[u8], options: LoadOptions) -> Result<Self> {
-        let artifact = crate::loader::load_artifact_from_bytes(bytes)?;
-        super::load::prepare(artifact, None, &options, &crate::vm::assembly::ComponentInputs::for_request(&options), None)
+        program::load_program(ProgramSource::Bytes(bytes), options.into(), None).map(Self)
     }
 
-    /// Session-flavoured [`load_bytes`](Self::load_bytes): every artifact of
-    /// the load (the entry bytes included) is resolved through `image_cache`,
-    /// so a zpkg already loaded by an earlier program of the same session is
-    /// shared by definition instead of decoded and retained again — the C#
-    /// ALC "already loaded ⇒ shared" rule. Per-VM linkage state stays per VM.
+    /// Decode package definitions through the session's shared cache. Linkage,
+    /// statics and initialization state remain per VM.
     pub fn load_bytes_with_cache(
         bytes: &[u8],
         options: LoadOptions,
         image_cache: &crate::loader::ImageCache,
     ) -> Result<Self> {
-        let artifact = crate::loader::load_artifact_from_bytes_cached(bytes, Some(image_cache))?;
-        super::load::prepare(artifact, None, &options, &crate::vm::assembly::ComponentInputs::for_request(&options), Some(image_cache))
+        program::load_program(
+            ProgramSource::Bytes(bytes),
+            options.into(),
+            Some(image_cache),
+        )
+        .map(Self)
     }
 
     #[cfg(test)]
-    pub(crate) fn load_bytes_with_components(bytes: &[u8], options: LoadOptions,
-        components: crate::vm::assembly::ComponentInputs) -> Result<Self> {
-        let artifact = crate::loader::load_artifact_from_bytes(bytes)?;
-        super::load::prepare(artifact, None, &options, &components, None)
+    pub(crate) fn load_bytes_with_components(
+        bytes: &[u8],
+        options: LoadOptions,
+        components: crate::vm::assembly::ComponentInputs,
+    ) -> Result<Self> {
+        program::load_program_with_components(
+            ProgramSource::Bytes(bytes),
+            options.into(),
+            None,
+            &components,
+        )
+        .map(Self)
     }
 
-    /// Undocumented low-level channel for first-party verification harnesses
-    /// (the packaging pipeline's engine_components / z42-jit's cross tests):
-    /// they link the packaged production core and assert on compiled-code
-    /// diagnostics. Not part of the embedding API; closure of ordinary-host
-    /// access is tracked in module-boundaries.
+    /// Low-level channel for the packaged engine verification and JIT harnesses.
     #[doc(hidden)]
     pub fn context(&self) -> &VmContext {
-        &self.ctx
+        self.0.context()
     }
+
     pub fn module(&self) -> &Module {
-        &self.module
+        self.0.module()
     }
 
     pub fn resolve_entry(&self, name: &str) -> Result<usize> {
-        resolve_fqn(self.module(), name)
+        self.0.resolve_entry(name)
     }
 
     /// Invoke an entry. Managed arguments are rooted across preparation and execution;
     /// callers retaining a managed return value must root it before subsequent VM calls.
     pub fn invoke(&self, name: &str, args: &[Value]) -> Result<Option<Value>> {
-        self.invoke_index(self.resolve_entry(name)?, args)
+        self.0.invoke(name, args)
     }
 
     pub fn run_entry(&self, entry: Option<&str>) -> Result<()> {
-        let entry = entry.or(self.entry_hint.as_deref()).ok_or_else(|| {
-            anyhow!("no entry point: pass the function name or rebuild with an entry in the zpkg")
-        })?;
-        self.invoke(entry, &[]).map(|_| ())
+        self.0.run_entry(entry)
     }
 
     pub(crate) fn invoke_index(&self, index: usize, args: &[Value]) -> Result<Option<Value>> {
-        let func = self
-            .module
-            .functions
-            .get(index)
-            .ok_or_else(|| anyhow!("entry function index out of bounds"))?;
-        if args.len() != func.param_count {
-            bail!(
-                "arg-count-mismatch: function `{}` expects {} arg(s), got {}",
-                func.name,
-                func.param_count,
-                args.len()
-            );
-        }
-        let ctx = self.context();
-        #[cfg(feature = "native-interop")]
-        let _vm_guard = crate::exec::active_vm::VmGuard::enter(ctx);
-        let _heap_guard = crate::gc::ambient::HeapGuard::enter(ctx.heap());
-        struct Roots<'a>(&'a crate::gc::Heap, Vec<crate::gc::RootHandle>);
-        impl Drop for Roots<'_> {
-            fn drop(&mut self) {
-                for root in self.1.drain(..) {
-                    self.0.unpin_root(root);
-                }
-            }
-        }
-        let _roots = Roots(
-            ctx.heap(),
-            args.iter().map(|v| ctx.heap().pin_root(*v)).collect(),
-        );
-        self.initialized.get_or_init(|| {
-            ctx.statics().clear_for_rerun();
-            ctx.loader().drain_pending_type_loads();
-        });
-        let outcome = ctx.core().exec().engines.invoke_mode(self.mode, ctx, self.module(), func, args);
-        if crate::exec::stack_guard::is_fatal(ctx) {
-            bail!(
-                "{}",
-                crate::exec::stack_guard::report().unwrap_or_else(|| format!(
-                    "{}stack overflow",
-                    crate::exec::stack_guard::FATAL_PREFIX
-                ))
-            );
-        }
-        let outcome = outcome?;
-        match outcome {
-            ExecOutcome::Returned(value) => Ok(value),
-            ExecOutcome::Thrown(value) => bail!(
-                "{}",
-                crate::exec::exception::format_uncaught(&value, ctx, self.module())
-            ),
-        }
+        self.0.invoke_index(index, args)
     }
-}
-
-/// Look up a fully-qualified function name in a host-module's function
-/// table. Accepts both the dot form `"namespace.Type.method"` and the
-/// `::` form `"namespace.Type::method"` (the spec uses the latter for
-/// readability; the bytecode currently records the former).
-fn resolve_fqn(module: &Module, fqn: &str) -> Result<usize> {
-    if fqn.is_empty() {
-        bail!("fqn is empty");
-    }
-    if let Some(&idx) = module.func_index.get(fqn) {
-        return Ok(idx);
-    }
-    // Tolerate the "ns.Type::method" form by normalising `::` → `.`.
-    if fqn.contains("::") {
-        let normalised = fqn.replace("::", ".");
-        if let Some(&idx) = module.func_index.get(&normalised) {
-            return Ok(idx);
-        }
-    }
-    Err(anyhow!(
-        "function `{fqn}` not found in module `{}`",
-        module.name
-    ))
 }

@@ -13,7 +13,7 @@
 | `artifact.rs` | 产物加载与可选会话缓存入口、LazyLoader 默认构造 |
 | `dependency_candidates.rs` | 按包声明与导入命名空间发现惰性加载候选 |
 | `eager.rs` | 沿包声明和命名空间读取传递依赖，复用启动期去重登记 |
-| `program.rs` | 准备程序模块与依赖包，在 availability 折叠后更新执行索引 |
+| `program.rs` | 使用 resolver 和搜索目录准备 prelude、启动依赖和惰性候选，在 availability 折叠后更新执行索引 |
 | `prelude.rs` | 按显式搜索路径读取首个可用的标准前奏包 |
 | `ffi.rs` | static/shared native 链接登记，不操作 host 会话或错误槽 |
 | `code.rs` | 通用原生映像装入、规范路径缓存、符号访问和进程代码保活；不解析消费者 ABI、不创建 VM 实例 |

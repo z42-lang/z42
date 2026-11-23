@@ -3,7 +3,7 @@ use std::{path::PathBuf, sync::Arc};
 use crate::{corelib::application::Services, pal::fs::Vfs};
 
 pub(crate) fn services() -> Services {
-    Services { run_isolated, report_on_exit: crate::host::report_on_exit }
+    Services { run_isolated, report_on_exit: crate::composition::report_on_exit }
 }
 
 /// Process-host convenience policy for C/Rust and isolated-run adapters.
