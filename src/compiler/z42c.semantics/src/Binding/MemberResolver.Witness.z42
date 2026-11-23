@@ -24,14 +24,14 @@ public sealed partial class MemberResolver {
         if (constraints == null) { return slots.ToArray(); }
         var structSlots = new List<StaticWitnessSlot>();
         var refSlots = new List<StaticWitnessSlot>();
+        var valueSelfSlots = new List<StaticWitnessSlot>();
         for (int pi = 0; pi < constraints.Count; pi = pi + 1) {
             ConstraintBundle bundle = constraints.Bundles[pi];
             var seen = new StrMap();
             var members = new StrMap();
-            // A class constraint guarantees that a bare Self uses the ordinary reference ABI.
             for (int i = 0; i < bundle.InterfaceCount; i = i + 1) {
                 this._collectWitnessMembers(symbols, symbols.GetInterface(bundle.InterfaceNames[i]),
-                                            bundle.RequiresClass, seen, members);
+                                            bundle.RequiresClass, bundle.RequiresStruct, seen, members);
             }
             string[] keys = members.Keys();
             for (int j = 1; j < keys.Length; j = j + 1) {
@@ -46,7 +46,9 @@ public sealed partial class MemberResolver {
             foreach (string key in keys) {
                 var member = members.Get(key) as IfaceMethodHit;
                 StaticWitnessSlot slot = new StaticWitnessSlot(pi, member.Owner.Fqn(), member.Sym);
-                if (MemberResolver._usesRefParameter(slot.Member.Signature)) { refSlots.Add(slot); }
+                if (bundle.RequiresStruct && MemberResolver._usesSelfParameter(slot.Member.Signature)) {
+                    valueSelfSlots.Add(slot);
+                } else if (MemberResolver._usesRefParameter(slot.Member.Signature)) { refSlots.Add(slot); }
                 else if (MemberResolver._usesDeclaredStruct(slot.Member.Signature)) { structSlots.Add(slot); }
                 else { slots.Add(slot); }
             }
@@ -54,31 +56,33 @@ public sealed partial class MemberResolver {
         // Append new signature families so existing packages retain their slot indices.
         slots.AddRange(structSlots.ToArray());
         slots.AddRange(refSlots.ToArray());
+        slots.AddRange(valueSelfSlots.ToArray());
         return slots.ToArray();
     }
 
-    private void _collectWitnessMembers(SymbolTable symbols, Z42InterfaceType iface, bool allowsSelf,
-                                        StrMap seen, StrMap members) {
+    private void _collectWitnessMembers(SymbolTable symbols, Z42InterfaceType iface, bool referenceSelf,
+                                        bool valueSelf, StrMap seen, StrMap members) {
         if (iface == null || iface.TypeParamCount != 0 || seen.ContainsKey(iface.Fqn())) { return; }
         seen.Put(iface.Fqn(), iface);
         foreach (string name in iface.Methods.Keys()) {
             MethodSymbol method = iface.Methods.Get(name) as MethodSymbol;
-            if (MemberResolver._hasWitnessSignature(method, allowsSelf)) {
+            if (MemberResolver._hasWitnessSignature(method, referenceSelf, valueSelf)) {
                 members.Put(iface.Fqn() + "#" + method.Name, new IfaceMethodHit(method, iface));
             }
         }
         for (int i = 0; i < iface.BaseCount; i = i + 1) {
-            this._collectWitnessMembers(symbols, InterfaceClosure.BaseAt(symbols, iface, i), allowsSelf, seen, members);
+            this._collectWitnessMembers(symbols, InterfaceClosure.BaseAt(symbols, iface, i), referenceSelf, valueSelf, seen, members);
         }
     }
 
-    private static bool _hasWitnessSignature(MethodSymbol method, bool allowsSelf) {
+    private static bool _hasWitnessSignature(MethodSymbol method, bool referenceSelf, bool valueSelf) {
         if (method == null || !method.IsStatic || method.TypeParamCount != 0
             || method.Signature == null) { return false; }
         Z42FuncType signature = method.Signature;
-        if (!(signature.Ret is Z42VoidType) && !MemberResolver._isWitnessType(signature.Ret, allowsSelf)) { return false; }
+        if (!(signature.Ret is Z42VoidType) && !MemberResolver._isWitnessType(signature.Ret, referenceSelf)) { return false; }
         for (int i = 0; i < signature.ParamCount; i = i + 1) {
             Z42Type parameter = signature.ParamTypes[i];
+            bool allowsSelf = referenceSelf || (valueSelf && !signature.IsRefParam(i));
             if (!MemberResolver._isWitnessType(parameter, allowsSelf)) { return false; }
             // Whole-value struct assignment requires a blob destination, even in a callee.
             if (signature.IsRefParam(i) && MemberResolver._isDeclaredWitnessStruct(parameter)) { return false; }
@@ -88,7 +92,18 @@ public sealed partial class MemberResolver {
 
     private static bool _isWitnessType(Z42Type type, bool allowsSelf) {
         return type.IsScalarType() || MemberResolver._isDeclaredWitnessStruct(type)
-            || (allowsSelf && type is Z42GenericParamType && type.Name() == "Self");
+            || (allowsSelf && MemberResolver._isWitnessSelf(type));
+    }
+
+    private static bool _isWitnessSelf(Z42Type type) {
+        return type is Z42GenericParamType && type.Name() == "Self";
+    }
+
+    private static bool _usesSelfParameter(Z42FuncType signature) {
+        for (int i = 0; i < signature.ParamCount; i = i + 1) {
+            if (MemberResolver._isWitnessSelf(signature.ParamTypes[i])) { return true; }
+        }
+        return false;
     }
 
     private static bool _isDeclaredWitnessStruct(Z42Type type) {

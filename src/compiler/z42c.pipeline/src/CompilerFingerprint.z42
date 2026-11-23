@@ -199,6 +199,7 @@ public static class CompilerFingerprint {
         "preserve-imported-interface-variance",
         "bind-generic-interface-slots",
         "dispatch-ref-static-witness",
+        "bind-value-self-witness-parameters",
         "enable-interface-variance-conversions",
         "guard-closed-interface-ref-arguments"
     };

@@ -159,8 +159,9 @@ pub unsafe extern "C" fn jit_call_indirect(
             values.extend(env_val_opt);
             values.extend(user_regs.iter().map(|&register| frame_ref.regs[register as usize].clone()));
             vm_ctx.exec().set_top_frame_pc(caller_offset);
+            let frame_id = super::struct_ops::frame_id_of(frame_ref, ctx);
             return match crate::exec::indirect_return::invoke(
-                vm_ctx, super::jit_module(ctx), function, id.0 as usize, frame_ref.frame_id, values,
+                vm_ctx, super::jit_module(ctx), function, id.0 as usize, frame_id, values,
             ) {
                 Ok(crate::exec::outcome::ExecOutcome::Returned(value)) => {
                     frame_ref.regs[dst as usize] = value.unwrap_or(Value::Null); 0
