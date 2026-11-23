@@ -159,6 +159,7 @@ public static partial class ImportedSymbolLoader {
                 nift.Visibility = iz.Visibility;        // complete-class-access-control ④：跨包接口声明可见性
                 // add-associated-types PR-3：导入接口的型参名进符号表（与本包 StubCollector 对称）。
                 nift.TypeParamNames = iz.TypeParams; nift.TypeParamCount = iz.TpCount;
+                nift.RestoreVariance(iz.VarianceDirections);
                 // 关联类型名单（zbc 1.42，assoc-type-crosspkg）：接口声明的 `type Item;` 经 TYPE assoc 块恢复
                 // → Z42InterfaceType.AssocTypeNames，供 ConstraintChecker 声明点 + InheritanceResolver 补齐强制
                 //（删 IsImported 守卫后跨包生效）。

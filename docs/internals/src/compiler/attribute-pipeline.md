@@ -101,6 +101,7 @@ attr-ref 块存的是两个字符串引用，所以**任何**「每个成员一�
 | `$Nullable` / `$RetNullable` | 形参级 / 方法级 / 字段级 | `?` 标记（形参、返回位、字段与属性）|
 | `$IfaceNull` | **类级**（接口的 TYPE 记录）| 接口成员的 `?` 标记 |
 | `$IfaceByRef` / `$IfaceRefSig` | **类级**（接口的 TYPE 记录） | 接口方法的 `ref` 参数和签名完备性 |
+| `$IfaceVariance` | **类级**（接口的 TYPE 记录） | 按类型形参顺序记录方差，`o` 协变、`i` 逆变、`-` 不变 |
 
 接口方法的标记使用类级属性。接口成员的签名既不在 SIGS（接口方法没有函数体 ⇒ 没有
 `IrFunction`），也不在字段表里，而在 TYPE 记录的**接口方法块**（`name / ret / pcount /

@@ -553,6 +553,7 @@ public sealed class Z42ClassType : Z42Type {
 public class Z42InterfaceType : Z42Type {
     protected string _name;
     private int[] _varianceUses;
+    private string _importedVariance = "";
     public StrMap Methods;    // name → MethodSymbol
     public bool   IsPartial;       // add-partial-types：由多个 partial 接口碎片合并而成
     public string PartialMainFile; // 主碎片文件（min-path）；仅主碎片 emit 合并接口 TYPE record
@@ -621,12 +622,22 @@ public class Z42InterfaceType : Z42Type {
         this.Methods.Put(key, method);
     }
 
-    /// Inferred direction for a parameter of a collected interface definition.
+    internal void RestoreVariance(string directions) {
+        this._importedVariance = directions;
+    }
+
+    /// Inferred direction for a parameter of an interface definition.
     public InterfaceVariance ParameterVariance(int index) {
-        if (this.IsImported || this.BaseCount > 0 || this.AssocTypeCount > 0
-            || this._varianceUses == null || index < 0 || index >= this.TypeParamCount) {
+        if (this.BaseCount > 0 || this.AssocTypeCount > 0 || index < 0 || index >= this.TypeParamCount) {
             return InterfaceVariance.Invariant;
         }
+        if (this._importedVariance.Length == this.TypeParamCount) {
+            char direction = this._importedVariance[index];
+            if (direction == IrIfaceVariance.Covariant) { return InterfaceVariance.Covariant; }
+            if (direction == IrIfaceVariance.Contravariant) { return InterfaceVariance.Contravariant; }
+            return InterfaceVariance.Invariant;
+        }
+        if (this._varianceUses == null) { return InterfaceVariance.Invariant; }
         int uses = this._varianceUses[index];
         if (uses == InterfaceVarianceInference.Input) { return InterfaceVariance.Contravariant; }
         if (uses == InterfaceVarianceInference.Output) { return InterfaceVariance.Covariant; }
