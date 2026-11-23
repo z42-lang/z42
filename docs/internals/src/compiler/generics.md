@@ -942,8 +942,8 @@ GenericType("Foo", [T..])   → _classes["Foo$N"] first, fallback _classes["Foo"
 `TypeChecker.ConvertInterfaceVariance` 在初始化、赋值、return 和目标形参已选定的实参检查中插入
 带投影标记的 `BoundConvert`。类型身份仍由名义类型关系决定。
 
-发射端用 `__project_interface` 保存转换的源槽。多形参实例的限定别名使用所有实参的规范布局键。
-若接收类型只有普通的源槽，运行时沿用从源接口直接调用时
+发射端用 `__project_interface` 保存转换的源槽。多形参实例复用普通的精确源槽。
+当限定源槽不可用时，运行时沿用从源接口直接调用时
 的查找结果。连续的转换沿用最初的源槽，并保留先前已经成立的投影目标。重载排序和开放类型仍沿用既有规则。
 
 委托的用户可见转换仍见 [委托机制](../runtime/delegates-events.md)。

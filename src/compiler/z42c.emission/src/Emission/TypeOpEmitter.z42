@@ -381,8 +381,9 @@ public sealed class TypeOpEmitter {
 
     private TypedReg _emitInterfaceProjection(BoundConvert c, TypedReg src) {
         var from = c.E.Type() as Z42InstantiatedInterfaceType;
-        string qualified = IfaceSlotKeys.QualifiedExact(from, "");
         string legacy = IfaceSlotKeys.Exact(from, "");
+        string qualified = IfaceSlotKeys.QualifiedExact(from, "");
+        if (qualified == "") { qualified = legacy; }
         string target = this._ee._typeTestName(c.Type(), c.Type().Name());
         string[] keys = new string[]{qualified.Substring(0, qualified.Length - 1),
                                      legacy.Substring(0, legacy.Length - 1), target};
