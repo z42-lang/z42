@@ -191,6 +191,13 @@ pub fn exec_instr(
                 Err(thrown) => return Ok(Some(thrown)),
             }
         }
+        Instruction::MethodStructAlloc { dst, param_index } => {
+            let frame_id = frame.frame_id(ctx);
+            match crate::exec::ops::structs::method_struct_alloc(ctx, module, frame_id, frame.method_type_args, usize::from(*param_index)) {
+                Ok(value) => frame.set(*dst, value),
+                Err(thrown) => return Ok(Some(thrown)),
+            }
+        }
         Instruction::MethodDefault { dst, param_index } => exec_address::method_default(frame, *dst, *param_index),
 
         // ── Numeric cast (fix-numeric-cast-lowering) ────────────

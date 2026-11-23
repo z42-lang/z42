@@ -58,6 +58,20 @@ pub unsafe extern "C" fn jit_struct_alloc(
     (*frame).regs[dst as usize] = v;
 }
 
+/// Allocate a blob for a method type argument, sharing the interpreter's layout lookup.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn jit_method_struct_alloc(
+    frame: *mut JitFrame, ctx: *const VmContext, dst: u32, param_index: u32,
+) -> u8 {
+    let frame_id = frame_id_of(frame, ctx);
+    let frame = &mut *frame;
+    let vm = vm_ctx_ref(ctx);
+    match structs::method_struct_alloc(vm, super::jit_module(ctx), frame_id, frame.method_type_args, param_index as usize) {
+        Ok(value) => { frame.regs[dst as usize] = value; 0 }
+        Err(thrown) => { set_exception(vm, thrown); 1 }
+    }
+}
+
 /// `StructCopy dst, src, size` — value-semantics blob copy (assign/param/return).
 /// Returns 0 on success, 1 (+ pending exception) on a stale/mismatched handle.
 #[unsafe(no_mangle)]
