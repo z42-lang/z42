@@ -731,7 +731,7 @@ pub unsafe extern "C" fn z42_host_run_app(
             let vfs = crate::pal::fs::default_vfs();
             let opts = crate::host::RunOpts {
                 mode: crate::host::default_mode(),
-                search_dirs: crate::host::services::process_search_dirs(&app, libs.as_deref(), &*vfs),
+                search_dirs: crate::composition::resolve_search_dirs(&app, libs.as_deref(), &*vfs, crate::config::runtime_config()),
                 vfs,
                 resolver: None,
                 program_args: prog_args,

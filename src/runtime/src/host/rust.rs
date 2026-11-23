@@ -31,11 +31,8 @@
 //! concurrently returns `HostError::AlreadyInit`. Multi-instance lands
 //! in a future iteration (see embedding.md §12 Deferred).
 
-#[path = "rust_config.rs"]
-mod app_config;
 #[path = "rust_resolvers.rs"]
 mod resolvers;
-use app_config::install_app_config;
 pub use resolvers::{MapResolver, SearchPathsResolver};
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_void};
@@ -145,11 +142,11 @@ pub fn run_app(
     mode: Option<z42::host::ExecMode>,
     args: Vec<String>,
 ) -> Result<(), HostError> {
-    install_app_config(file);
+    crate::composition::install_app_config(file);
     let vfs = z42::pal::fs::default_vfs();
     let opts = z42::host::RunOpts {
         mode: mode.unwrap_or_else(z42::host::default_mode),
-        search_dirs: super::services::process_search_dirs(file, libs_dir.as_deref(), &*vfs),
+        search_dirs: crate::composition::resolve_search_dirs(file, libs_dir.as_deref(), &*vfs, crate::config::runtime_config()),
         vfs,
         resolver: None,
         program_args: args,

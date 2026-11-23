@@ -2,17 +2,6 @@
 use std::path::{Path, PathBuf};
 use z42::config::KNOWN_KNOBS;
 
-pub fn resolve_search_dirs(
-    file: &str, libs: Option<&std::path::Path>, vfs: &dyn z42::pal::fs::Vfs,
-    config: &z42::config::RuntimeConfig,
-) -> Vec<PathBuf> {
-    use z42::loader::locate::{probing, search_paths};
-    let entry = search_paths::entry_directory(file);
-    let extra = probing::expand_probing_paths(entry, &config.probing_paths);
-    probing::set_unresolved_sdk_patterns(probing::unresolved_z42_home_patterns(entry, &config.probing_paths));
-    search_paths::program_search_dirs(vfs, file, &extra, libs)
-}
-
 /// Resolve explicit settings or the deployed SDK layout. Development paths
 /// are supplied by the build tool through the same configuration interface.
 pub fn resolve_libs_dir() -> Option<PathBuf> {

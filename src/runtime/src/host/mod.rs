@@ -68,7 +68,6 @@ pub(crate) mod ffi;
 pub(crate) mod marshal;
 pub(crate) mod state;
 mod app;
-pub(crate) mod services;
 pub use z42_zpkg::{ExecMode, image::PackageImage};
 pub use config::{Z42ExecMode, Z42_HOST_ABI_VERSION, Z42HostConfig};
 pub use ffi::{

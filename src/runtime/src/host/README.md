@@ -28,7 +28,7 @@ VM 内部组件门面、跨库协议与普通宿主契约的区别及当前缺�
 | `ExecMode` / `PackageImage` | 由 z42-zpkg 拥有、通过宿主门面提供的执行模式和不可变包定义类型 |
 | `host::signal` | 致命信号安装入口，VM 栈捕获与崩溃报告归 diagnostics |
 | `host::resolver` | 导出 loader 的包解析接口和 `read_zpkg_namespaces` 包解析键查询，C 回调适配归 `config.rs` |
-| `services.rs` | 嵌入端搜索路径与核心库隔离运行适配 |
+| `composition.rs`（运行时根） | 共用启动搜索路径、Rust 应用侧车装配与核心库隔离运行服务 |
 
 ## 基础用法
 
