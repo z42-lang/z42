@@ -9,14 +9,15 @@ public sealed partial class ClassDescBuilder {
     // Use the existing private TYPE attribute channel so old packages and readers
     // can keep their legacy interface table. A partial closure cannot replace that table.
     private void _addClosedInterfaceIdentities(IrClassDesc cd, ClassDecl declaration, Z42ClassType owner) {
-        if (owner == null || owner.InterfaceCount == 0 || owner.IsPartial || declaration.TypeParams.Count > 0) {
+        if (owner == null || owner.InterfaceCount == 0 || (owner.IsPartial && declaration.TypeParams.Count == 0)) {
             return;
         }
         SymbolTable symbols = this._scope();
         var pending = new List<Z42InterfaceType>();
         int i = 0;
         while (i < declaration.BaseCount) {
-            var parent = symbols.ResolveType(declaration.Bases[i]) as Z42InterfaceType;
+            var parent = symbols.ResolveTypeP(declaration.Bases[i],
+                declaration.TypeParams.Names, declaration.TypeParams.Count) as Z42InterfaceType;
             if (parent != null) { pending.Add(parent); }
             i = i + 1;
         }
@@ -24,6 +25,8 @@ public sealed partial class ClassDescBuilder {
         if (pending.Count != owner.InterfaceCount) { return; }
 
         var names = new List<string>();
+        var parameters = this._interfaceParameterMarkers(declaration.TypeParams.Names,
+            declaration.TypeParams.Count, owner.Fqn());
         var seen = new StrMap();
         bool hasConstructed = false;
         i = 0;
@@ -32,8 +35,9 @@ public sealed partial class ClassDescBuilder {
             i = i + 1;
             var instance = iface as Z42InstantiatedInterfaceType;
             if (instance == null && iface.TypeParamCount > 0) { return; }
-            if (!IfaceSlotKeys.IsClosed(iface)) { return; }
-            string name = LayoutKey.Of(iface);
+            Z42Type template = parameters == null ? iface : TypeSubst.Apply(iface, parameters);
+            if (!IfaceSlotKeys.IsClosed(template)) { return; }
+            string name = LayoutKey.Of(template);
             if (name == "") { return; }
             if (seen.ContainsKey(name)) { continue; }
             seen.Put(name, "1");
@@ -42,7 +46,8 @@ public sealed partial class ClassDescBuilder {
             if (!this._appendClosedInterfaceParents(symbols, iface, pending)) { return; }
         }
         if (!hasConstructed) { return; }
-        this._emitClosedInterfaceNames(cd, names);
+        string tag = parameters == null ? "$ClosedInterface" : "$InterfaceTemplate";
+        this._emitInterfaceNames(cd, names, tag);
     }
 
     private bool _appendClosedInterfaceParents(SymbolTable symbols, Z42InterfaceType iface, List<Z42InterfaceType> pending) {
@@ -60,13 +65,24 @@ public sealed partial class ClassDescBuilder {
         return true;
     }
 
-    private void _emitClosedInterfaceNames(IrClassDesc cd, List<string> names) {
+    private NameListMap _interfaceParameterMarkers(string[] names, int count, string owner) {
+        if (count == 0) { return null; }
+        var markers = new Z42Type[count];
+        int i = 0;
+        while (i < count) {
+            markers[i] = new Z42ClassType("$cta:" + i.ToString() + "@" + owner, false, "");
+            i = i + 1;
+        }
+        return new NameListMap(names, count, markers);
+    }
+
+    private void _emitInterfaceNames(IrClassDesc cd, List<string> names, string tag) {
         var attrs = new IrAttrRef[cd.AttrCount + names.Count];
         int i = 0;
         while (i < cd.AttrCount) { attrs[i] = cd.Attrs[i]; i = i + 1; }
         int j = 0;
         while (j < names.Count) {
-            attrs[i + j] = new IrAttrRef("$ClosedInterface", names[j]);
+            attrs[i + j] = new IrAttrRef(tag, names[j]);
             j = j + 1;
         }
         cd.Attrs = attrs;

@@ -261,13 +261,31 @@ impl TypeDesc {
     #[inline] pub fn field_attributes(&self)       -> &[(Box<str>, Box<[crate::zpkg::ir::AttributeRef]>)] { self.cold_slice(|c| &c.field_attributes) }
     /// add-reflection-get-interfaces: the class's directly-declared interfaces.
     #[inline] pub fn interfaces(&self)             -> &[Box<str>]                               { self.cold_slice(|c| &c.interfaces) }
-    /// Complete, canonical interface closure for this declaration when emitted.
-    /// Older packages carry only the legacy interface names.
-    pub(crate) fn closed_interfaces(&self) -> Option<impl Iterator<Item = &str>> {
-        let mut names = self.custom_attributes().iter()
-            .filter(|attr| attr.type_name == "$ClosedInterface")
-            .map(|attr| attr.factory_func.as_str())
-            .peekable();
+    pub(crate) fn has_interface_templates(&self) -> bool {
+        self.custom_attributes().iter().any(|attr| attr.type_name == "$InterfaceTemplate")
+    }
+
+    /// Complete interface closure when the descriptor carries sufficient information.
+    pub(crate) fn bound_interfaces<'a>(
+        &'a self, arguments: &'a [String],
+    ) -> Option<impl Iterator<Item = std::borrow::Cow<'a, str>>> {
+        use crate::zpkg::index::type_param_markers::{Marker, has_markers, substitute};
+        let bound = !arguments.is_empty() && arguments.len() == self.type_params().len()
+            && !arguments.iter().any(|arg| has_markers(arg));
+        let mut names = self.custom_attributes().iter().filter_map(move |attr| {
+            let name = attr.factory_func.as_str();
+            match attr.type_name.as_str() {
+                "$ClosedInterface" => Some(std::borrow::Cow::Borrowed(name)),
+                "$InterfaceTemplate" if bound => Some(std::borrow::Cow::Owned(substitute(name, |marker| {
+                    match marker {
+                        Marker::Class { index, owner } if owner == crate::zpkg::index::type_names::erased(&self.name) =>
+                            arguments.get(index).cloned(),
+                        _ => None,
+                    }
+                }))),
+                _ => None,
+            }
+        }).peekable();
         names.peek()?;
         Some(names)
     }

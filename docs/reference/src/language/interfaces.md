@@ -239,6 +239,8 @@ IMid<string> bad = r;      // ✗ E0402
 当类型描述保留完整的闭合接口身份时，`is`、`as`、显式转换和反射会检查具体实参。
 例如，`class C : IRepo<int>` 的对象可以通过 `is IRepo<int>`，而 `is IRepo<string>` 返回假。
 `GetInterfaces()` 会返回 `IRepo<int>`。数组的 `SetValue` 与 `CopyRange` 使用同一判定。
+泛型类的类型描述也可保留带形参的接口声明。运行时按实例实参绑定，例如从标准库导入的
+`List<string>` 实现 `IEnumerable<string>`。
 只有擦除接口名的旧包仍按原有规则运行。
 
 接口作为**泛型约束**（`where T : IShape`）的规则见[泛型约束](generic-constraints.md)。

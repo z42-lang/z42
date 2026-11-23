@@ -145,11 +145,18 @@ pub fn type_interfaces(ctx: &VmContext, ty: &Value) -> Value {
     // (most-derived first), then BFS-expand each interface's own base interfaces
     // (add-reflection-transitive-interfaces) so the result is the transitive
     // closure. Dedup by FQ name.
+    let reflected_args = if td.has_interface_templates() && td.type_args().is_empty() {
+        type_value_name(ty).map(|name| crate::object::type_args_from_name(&name))
+    } else {
+        None
+    };
     let mut queue = VecDeque::new();
     let mut cur = Some(td);
+    let mut instance_args = reflected_args.as_deref();
     while let Some(c) = cur {
-        if let Some(names) = c.closed_interfaces() {
-            queue.extend(names.map(|name| (name.to_string(), false)));
+        let args = instance_args.take().unwrap_or_else(|| c.type_args());
+        if let Some(names) = c.bound_interfaces(args) {
+            queue.extend(names.map(|name| (name.into_owned(), false)));
         } else {
             queue.extend(c.interfaces().iter().map(|name| (name.to_string(), true)));
         }

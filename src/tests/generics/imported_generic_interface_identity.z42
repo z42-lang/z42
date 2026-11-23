@@ -1,0 +1,37 @@
+using Std;
+using Std.Collections;
+
+bool HasIntElements(object value) { return value is IEnumerable<int>; }
+
+void Main() {
+    var names = new List<string>();
+    names.Add("name");
+    var counts = new List<int>();
+    counts.Add(42);
+
+    // Both instances share the imported List descriptor.
+    Assert.False(HasIntElements(names));
+    Assert.True(HasIntElements(counts));
+    Assert.False(HasIntElements(names));
+    Assert.True(HasIntElements(counts));
+
+    object strings = names;
+    Assert.True(strings is IEnumerable<string>);
+    Assert.True(strings is IEnumerable);
+    Assert.True((strings as IEnumerable<int>) == null);
+    Assert.Throws("InvalidCastException", () => { var wrong = (IEnumerable<int>)strings; });
+    Assert.True(typeof(IEnumerable<string>).IsAssignableFrom(strings.GetType()));
+    Assert.False(typeof(IEnumerable<int>).IsAssignableFrom(strings.GetType()));
+
+    var interfaces = strings.GetType().GetInterfaces();
+    Assert.Equal(1, interfaces.Length);
+    Assert.Equal(typeof(IEnumerable<string>), interfaces[0]);
+
+    var targets = new IEnumerable<int>[1];
+    targets.SetValue(counts, 0);
+    Assert.Throws("InvalidCastException", () => targets.SetValue(strings, 0));
+    Assert.True(Object.ReferenceEquals(counts, targets[0]));
+    var wrongValues = new List<string>[] { names };
+    Assert.Throws("InvalidCastException", () => Array.CopyRange(wrongValues, 0, targets, 0, 1));
+    Assert.True(Object.ReferenceEquals(counts, targets[0]));
+}
