@@ -94,11 +94,11 @@ VM 装配注入 Core；worker 共享所属 Core 的不可变表，不存入 Exec
 
 | 阶段 | 所有者 | 完成条件 |
 |---|---|---|
-| 产物准备 | `host/load.rs`、`loader/package` | 依赖合并、类型和索引准备完成 |
-| 可用性裁剪 | `vm/assembly.rs` | 在模块进入 Core 和 token 解析前完成裁剪并重建受影响索引 |
-| Core 构造 | `vm/mod.rs` | 创建堆和各子系统状态，连接根扫描、暂停请求与加载上下文回收服务 |
+| 产物准备 | `host/load.rs`、`loader/program.rs` | 宿主解析请求并提供 VFS 和 resolver，Loader 准备入口模块与依赖 |
+| 可用性裁剪 | `loader/program.rs` | 由 VM 装配发起，在模块进入 Core 和 token 解析前裁剪并重建受影响索引 |
+| Core 构造 | `vm/mod.rs` | 创建堆和各子系统状态，由 `vm/wiring.rs` 连接根扫描、暂停请求与加载上下文回收服务 |
 | 主线程注册 | `vm/mod.rs` | 上下文地址固定、登记根扫描地址、启用 TLAB 并绑定 SATB |
-| 加载与执行准备 | `vm/assembly.rs`、`metadata/resolve` | 登记 cctor、安装并播种惰性加载器、准备 token |
+| 加载与执行准备 | `vm/assembly.rs`、`RuntimeLoader`、`metadata/resolve` | 登记 cctor、安装并播种惰性加载器、准备 token |
 | 组件装配 | `components`、`vm/assembly.rs` | 创建组件、连接执行后端，之后发布 LoadedProgram |
 | 调用准备 | `host/program.rs` | 参数钉根，首次调用清理静态存储并排空待加载类型队列 |
 | 托管初始化 | `exec/init.rs` | 执行访问屏障保证包和类型初始化的执行、等待与失败传播 |
@@ -108,6 +108,18 @@ VM 装配注入 Core；worker 共享所属 Core 的不可变表，不存入 Exec
 主线程和 worker 均通过 `vm/mod.rs` 的 `new_with_core` 注册线程上下文。
 主线程在 Core 服务连接完成后加入；worker 加入已有 Core，不重建堆、服务或组件；
 加入时按 `gc_phase → vm_contexts` 的锁顺序等待 Marking 结束后登记。
+
+宿主拥有公开的 `LoadOptions` 和 `LoadedProgram`。它将输入转换为内部 `ProgramInputs` 与
+`AssemblyOptions`，接收装配完成的固定地址 Context，再包装成可调用程序。VFS、包输入、原生加载许可、
+JIT 配置和扩展接线由装配输入传递。程序经过 token 准备与组件附着后才向宿主发布。
+
+### 注册与销毁的约束
+
+- Core 接线只借用弱引用接入根扫描、暂停请求和上下文回收。固定 Context 地址后才登记可借用的线程根。
+- Context 销毁先归还活跃和已暂停的 TLAB，再解除 SATB 绑定并注销线程根。注册表同步保证扫描窗口内上下文地址有效。
+- 组件实例在堆和执行引擎释放前销毁。代码租约覆盖组件回调的生命周期，扩展资源在堆和引擎之后释放。
+- JIT 的 `VM_CONTEXT_*_OFFSET` 按实际 Rust 布局计算。同一构建的后端与 Core 共用该契约，
+  并经组件桥校验身份和布局。GC 暂停、写屏障和对象表示由各领域机制维护。
 
 ## 每 VM 扩展状态
 
@@ -1720,6 +1732,14 @@ allocator、分代 GC、记忆集、finalizer 契约、迭代规划等）已抽�
 剩余 backlog 见
 [gc.md "GC 后续迭代规划"](gc.md#gc-后续迭代规划)。
 
+
+## Deferred
+
+### runtime-package-miss-io: 惰性加载的读包与发布
+
+`RuntimeLoader` 在读锁下回答已登记符号及已知未命中项。需要解析的新缺失符号在写锁内走包读取和解码，
+发布后释放锁，随后排空待加载类型并发送加载事件。将读包和解码移到锁外需要保留并发请求去重、
+类型继承补全与符号可见顺序。出现可复现的冷加载锁争用时可单独评估。现有会话映像缓存可复用不可变定义。
 
 ## 延伸阅读
 
