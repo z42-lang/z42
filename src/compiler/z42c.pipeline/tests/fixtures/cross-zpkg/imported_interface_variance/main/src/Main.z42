@@ -8,4 +8,11 @@ void Main() {
     ISink<Animal> source = dual;
     ISink<Cat> converted = source;
     Console.WriteLine(converted.Put(new Cat()));
+
+    DualMap dualMap = new DualMap();
+    IMap<Animal,Cat> map = dualMap;
+    IMap<Cat,Animal> exact = dualMap;
+    IMap<Cat,Animal> projected = map;
+    Console.WriteLine(exact.Apply(new Cat()) is Cat ? "cat" : "animal");
+    Console.WriteLine(projected.Apply(new Cat()) is Cat ? "cat" : "animal");
 }

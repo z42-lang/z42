@@ -28,6 +28,17 @@ struct StructSink : ISink<Animal> {
     public string Put(Animal value) { return "struct"; }
 }
 
+interface IMap<TIn,TOut,TState> {
+    TOut Apply(TIn value, TState state);
+    TState State();
+}
+
+class DualMap : IMap<Animal,Cat,int>, IMap<Cat,Animal,int> {
+    public Cat Apply(Animal value, int state) { return new Cat(); }
+    public Animal Apply(Cat value, int state) { return new Animal(); }
+    public int State() { return 42; }
+}
+
 class Holder {
     public ISink<Cat> Sink;
 }
@@ -82,6 +93,15 @@ void Main() {
     ISink<Animal> generic = new GenericSink<Animal>();
     ISink<Cat> genericNarrowed = generic;
     Assert.Equal("generic", genericNarrowed.Put(new Cat()));
+
+    DualMap dualMap = new DualMap();
+    IMap<Animal,Cat,int> map = dualMap;
+    IMap<Cat,Animal,int> exactMap = dualMap;
+    Assert.Equal(false, exactMap.Apply(new Cat(), 1) is Cat);
+    IMap<Cat,Animal,int> projectedMap = map;
+    Assert.Equal(true, projectedMap.Apply(new Cat(), 1) is Cat);
+    Assert.Equal(42, projectedMap.State());
+    Assert.Equal(true, Object.ReferenceEquals(exactMap, projectedMap));
 
     IProducer<Cat> absent = null;
     IProducer<Animal> widenedNull = absent;

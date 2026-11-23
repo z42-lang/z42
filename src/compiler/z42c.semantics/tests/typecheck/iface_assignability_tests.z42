@@ -186,3 +186,24 @@ void test_closed_interface_ref_arguments_require_the_same_type() {
     Assert.Equal("E0402", SemanticDump.FirstErrorCode(narrow));
     Assert.Equal(0, SemanticDump.ErrorCount(context + takeAnimal + callWithAnimal));
 }
+
+[Test]
+void test_multi_parameter_variance_checks_each_argument() {
+    string context = "namespace D; class Animal {} class Cat : Animal {}"
+        + " interface IMap<TIn,TOut,TState> { TOut Apply(TIn x, TState state); TState State(); }";
+    Assert.Equal(0, SemanticDump.ErrorCount(context
+        + " void F(IMap<Animal,Cat,int> x) { IMap<Cat,Animal,int> y = x; }"));
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(context
+        + " void F(IMap<Cat,Cat,int> x) { IMap<Animal,Animal,int> y = x; }"));
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(context
+        + " void F(IMap<Animal,Animal,int> x) { IMap<Cat,Cat,int> y = x; }"));
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(context
+        + " void F(IMap<Animal,Cat,Cat> x) { IMap<Cat,Animal,Animal> y = x; }"));
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(context
+        + " void F(IMap<Animal,int,int> x) { IMap<Cat,object,int> y = x; }"));
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(context
+        + " class C<T> { void F(IMap<Animal,Cat,T> x) { IMap<Cat,Animal,T> y = x; } }"));
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(context
+        + " void Take(ref IMap<Cat,Animal,int> x) {}"
+        + " void F(IMap<Animal,Cat,int> x) { Take(ref x); }"));
+}

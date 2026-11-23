@@ -51,10 +51,23 @@ public static class IfaceSlotKeys {
     public static string QualifiedExact(Z42InterfaceType it, string method) {
         if (!(it is Z42InstantiatedInterfaceType)) { return ""; }
         var inst = it as Z42InstantiatedInterfaceType;
-        if (inst.ArgCount != 1 || !(inst.TypeArgs[0] is Z42ClassType)) { return ""; }
-        var arg = inst.TypeArgs[0] as Z42ClassType;
-        string name = arg.PrimCode() >= 0 ? arg.CanonName() : arg.Fqn();
-        return IfaceSlotKeys._defFqn(it) + "<@" + name + ">#" + method;
+        if (inst.ArgCount == 0 || !IfaceSlotKeys.IsClosed(inst)) { return ""; }
+        if (inst.ArgCount == 1) {
+            if (!(inst.TypeArgs[0] is Z42ClassType)) { return ""; }
+            var arg = inst.TypeArgs[0] as Z42ClassType;
+            string name = arg.PrimCode() >= 0 ? arg.CanonName() : arg.Fqn();
+            return IfaceSlotKeys._defFqn(it) + "<@" + name + ">#" + method;
+        }
+        string args = "";
+        int i = 0;
+        while (i < inst.ArgCount) {
+            string name = LayoutKey.Of(inst.TypeArgs[i]);
+            if (name == "") { return ""; }
+            if (i > 0) { args = args + ","; }
+            args = args + name;
+            i = i + 1;
+        }
+        return IfaceSlotKeys._defFqn(it) + "<@" + args + ">#" + method;
     }
 
     // 调用点用的键：有精确键用精确键，否则擦除键。

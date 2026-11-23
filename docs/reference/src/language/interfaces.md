@@ -384,22 +384,25 @@ IDerived d3 = (IDerived)b;   // ✓
 ### 泛型接口的方差
 
 编译器根据成员签名推断接口形参的方向。仅作返回值时支持协变，仅作按值参数时支持逆变。
-具有一个形参的接口可以在闭合实例间转换，改变的实参须为具名引用类型。
+同一泛型接口的闭合实例可以逐位转换。相同实参保持原类型，不变形参要求实参相同。
+改变的实参须为具名引用类型，并满足该形参的方向。
 
 ```z42
 class Animal {}
 class Dog : Animal {}
 interface ISource<T> { T Read(); }
 interface ISink<T> { void Write(T value); }
+interface IMap<TIn,TOut> { TOut Apply(TIn value); }
 
-void Use(ISource<Dog> dogs, ISink<Animal> animals) {
+void Use(ISource<Dog> dogs, ISink<Animal> animals, IMap<Animal,Dog> map) {
     ISource<Animal> source = dogs;  // 协变
     ISink<Dog> sink = animals;      // 逆变
+    IMap<Dog,Animal> both = map;     // 在两位上分别应用逆变与协变
 }
 ```
 
 声明初始化、赋值、返回和目标签名已确定的按值传参可以使用这类转换。调用通过转换得到的接口时，
-仍使用源接口选中的实现。同一规则适用于从依赖包导入的接口。值类型实参保持不变，重载选择沿用原规则。
+仍使用源接口选中的实现。同一规则适用于从依赖包导入的接口。值类型实参只能原样保留，重载选择沿用原规则。
 两侧都是闭合泛型接口的 `ref` 传参要求类型相同，因为被调用方可以写回调用方的变量。
 
 ## 已知缺口：没有默认实现
