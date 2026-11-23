@@ -174,7 +174,7 @@ fn accepts_any(ctx: &VmContext, name: &str) -> bool {
 
 fn has_open_arguments(ctx: &VmContext, name: &str) -> bool {
     crate::zpkg::index::type_param_markers::has_markers(name)
-        || has_erased_array_type_argument(name, &|arg| array_type_is_registered(ctx, ctx.module(), arg))
+        || has_erased_array_type_argument(name, &|arg| array_type_is_registered(ctx, ctx.module().map(|module| module.as_ref()), arg))
 }
 
 fn known_class(ctx: &VmContext, name: &str) -> bool {
@@ -200,7 +200,7 @@ fn assignable_name(ctx: &VmContext, src: &str, dst: &str) -> bool {
         return false;
     }
     if let Some(elem) = src.strip_suffix("[]") {
-        return array_isa_in_registry(ctx, ctx.module(), elem, dst);
+        return array_isa_in_registry(ctx, ctx.module().map(|module| module.as_ref()), elem, dst);
     }
     ctx.module().is_some_and(|m| is_subclass_or_eq_td(ctx, &m.type_registry, src, dst))
 }
@@ -208,7 +208,7 @@ fn assignable_name(ctx: &VmContext, src: &str, dst: &str) -> bool {
 fn check_reference(ctx: &VmContext, target: &str, value: &Value, key: &TypeKeyCell) -> OpResult<()> {
     let matches = match value {
         Value::Null => true,
-        Value::Array(a) => array_isa_in_registry(ctx, ctx.module(), &a.borrow().element_type(), target),
+        Value::Array(a) => array_isa_in_registry(ctx, ctx.module().map(|module| module.as_ref()), &a.borrow().element_type(), target),
         _ if prim_isa(value, target) => true,
         _ => ctx.module().is_some_and(|m| {
             let registry = &m.type_registry;

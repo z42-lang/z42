@@ -78,9 +78,7 @@ pub(crate) fn has_erased_array_type_argument(name: &str, is_nominal: &impl Fn(&s
     if let Some(elem) = name.strip_suffix("[]") {
         return has_erased_array_type_argument(elem, is_nominal);
     }
-    if let Some((_, args)) = name.split_once('<')
-        && let Some(args) = args.strip_suffix('>')
-    {
+    if let Some(args) = name.split_once('<').and_then(|(_, args)| args.strip_suffix('>')) {
         return split_top_level_args(args).iter()
             .any(|arg| has_erased_array_type_argument(arg, is_nominal));
     }
