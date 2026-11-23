@@ -439,6 +439,7 @@ blob struct 走 **sret**（调用方传一个隐藏返回槽），而泛型体�
 
 泛型自由函数可以用 `where T : struct + IWriter` 调用接口中声明为 `static void Write(Self value);` 的方法。
 `T.Write(value)` 按值传递 `value`，实现修改形参时调用者的值保持原样。
+同一约束下，声明为 `static Self Create();` 的工厂调用 `T.Create()` 返回 `T`。共享泛型函数可将结果传给 `T.Write` 或返回给调用者。
 
 ### 实现接口静态成员：四项校验（含跨包）
 
