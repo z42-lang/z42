@@ -931,9 +931,12 @@ GenericType("Foo", [T..])   → _classes["Foo$N"] first, fallback _classes["Foo"
 
 ### D-4: 协变 / 逆变（`<in T, out R>` 等）
 
-- **关联设计文档**：[`delegates-events.md`](../runtime/delegates-events.md) §12 明确"推迟到 L3 后期"
-- **触发原因**：协变 / 逆变涉及泛型 type-arg 关系约束，z42 当前 generic 系统未做这类规则，加进来牵扯 ImportedSymbols / RebuildFuncType / 子类型规则全链路。
-- **前置依赖**：L3 后期完整 type-system 规划；与 `generics.md` / `static-abstract-interface.md` 协同。
-- **触发条件**：用户大量遇到 `Func<Animal>` ↔ `Func<Dog>` 子类型替换问题。
-- **当前 workaround**：依赖具体类型，或手动 wrapper 转换。
+编译器在接口成员收集时记录本包接口形参的使用方向。按值形参贡献输入方向，返回值贡献输出方向。
+属性与索引器的 getter 和 setter 使用同一套签名规则。只有输入或只有输出时分别记为逆变或协变。
+无使用、双向使用、`ref` 和嵌套类型中的使用记为不变。父接口、关联类型、泛型方法和导入接口暂保持不变。
+这一结果存于接口符号，当前赋值检查、跨包格式和运行时派发仍沿用既有规则。
+
+接入转换需要把相同声明的不同实例之间的赋值关系与名义类型身份分开。需要验证引用实参的方向、
+值类型实参的不变性、跨包签名还原，以及转换后按接口调用时的派发和调用约定。
+委托的用户可见转换仍见 [委托机制](../runtime/delegates-events.md)。
 

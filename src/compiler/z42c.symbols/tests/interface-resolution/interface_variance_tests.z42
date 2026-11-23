@@ -1,0 +1,85 @@
+namespace InterfaceVarianceTests;
+
+using Std.Harness;
+using Z42.Symbols;
+using Z42.Syntax;
+
+Z42InterfaceType collectVarianceInterface(string source, string name) {
+    var parser = new Parser(source, "variance.z42");
+    var unit = parser.ParseCompilationUnit();
+    Assert.Equal(0, parser.Diagnostics().ErrorCount());
+    var collector = new SymbolCollector();
+    var table = collector.Collect(unit).WithScopeOf(unit);
+    Assert.Equal(0, collector.Diags.ErrorCount());
+    var declaration = table.GetInterface(name);
+    Assert.Equal(true, declaration != null);
+    return declaration;
+}
+
+[Test]
+void test_variance_of_parameters_is_independent() {
+    var iface = collectVarianceInterface(
+        "interface IMap<K,V,Unused> { V Lookup(K key); }", "IMap");
+    Assert.Equal(true, iface.ParameterVariance(0) == InterfaceVariance.Contravariant);
+    Assert.Equal(true, iface.ParameterVariance(1) == InterfaceVariance.Covariant);
+    Assert.Equal(true, iface.ParameterVariance(2) == InterfaceVariance.Invariant);
+}
+
+[Test]
+void test_variance_of_ref_and_mixed_positions_is_invariant() {
+    var iface = collectVarianceInterface(
+        "interface IValue<T,U> { T Echo(T value); void Update(ref U value); }", "IValue");
+    Assert.Equal(true, iface.ParameterVariance(0) == InterfaceVariance.Invariant);
+    Assert.Equal(true, iface.ParameterVariance(1) == InterfaceVariance.Invariant);
+}
+
+[Test]
+void test_interface_variance_includes_getters_setters_and_indexers() {
+    var iface = collectVarianceInterface(
+        "interface IProps<R,W,K,E> { R Read { get; } W Write { get; set; } E this[K key] { get; } }",
+        "IProps");
+    Assert.Equal(true, iface.ParameterVariance(0) == InterfaceVariance.Covariant);
+    Assert.Equal(true, iface.ParameterVariance(1) == InterfaceVariance.Invariant);
+    Assert.Equal(true, iface.ParameterVariance(2) == InterfaceVariance.Contravariant);
+    Assert.Equal(true, iface.ParameterVariance(3) == InterfaceVariance.Covariant);
+}
+
+[Test]
+void test_nested_type_arguments_keep_only_their_own_slots_invariant() {
+    var iface = collectVarianceInterface(
+        "class Box<T> { } interface IProducer<T> { T Get(); } "
+        + "interface INested<A,B,C,D,E> { A[] ArrayValue(); Box<B> ClassValue(); "
+        + "IProducer<C> InterfaceValue(); Func<D,int> Callback(); E Plain(); }", "INested");
+    int i = 0;
+    while (i < 4) {
+        Assert.Equal(true, iface.ParameterVariance(i) == InterfaceVariance.Invariant);
+        i = i + 1;
+    }
+    Assert.Equal(true, iface.ParameterVariance(4) == InterfaceVariance.Covariant);
+}
+
+[Test]
+void test_variance_waits_for_complete_inherited_imported_and_generic_contracts() {
+    var derived = collectVarianceInterface(
+        "interface IBase<T> { void Set(T value); } interface IDerived<T> : IBase<T> { T Get(); }",
+        "IDerived");
+    Assert.Equal(true, derived.ParameterVariance(0) == InterfaceVariance.Invariant);
+    var generic = collectVarianceInterface(
+        "interface IGeneric<T> { T Get(); U Convert<U>(U value); }", "IGeneric");
+    Assert.Equal(true, generic.ParameterVariance(0) == InterfaceVariance.Invariant);
+    var associated = collectVarianceInterface(
+        "interface IAssociated<T> { type Item; T Get(); }", "IAssociated");
+    Assert.Equal(true, associated.ParameterVariance(0) == InterfaceVariance.Invariant);
+    var imported = collectVarianceInterface("interface IOut<T> { T Get(); }", "IOut");
+    Assert.Equal(true, imported.ParameterVariance(0) == InterfaceVariance.Covariant);
+    imported.IsImported = true;
+    Assert.Equal(true, imported.ParameterVariance(0) == InterfaceVariance.Invariant);
+}
+
+[Test]
+void test_partial_interface_variance_combines_all_fragments() {
+    var iface = collectVarianceInterface(
+        "partial interface IValue<T> { T Get(); } partial interface IValue<T> { void Put(T value); }",
+        "IValue");
+    Assert.Equal(true, iface.ParameterVariance(0) == InterfaceVariance.Invariant);
+}
