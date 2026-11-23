@@ -26,7 +26,10 @@ public static class DispatchKeys {
 
     public static string ClosedOverloadTypeKey(Z42Type t) {
         if (!(t is Z42InstantiatedInterfaceType) || !IfaceSlotKeys.IsClosed(t)) { return ""; }
-        return "@" + LayoutKey.Of(t);
+        // A packed function name splits its owner and mangle fields at '.' and '$'.
+        string nominal = LayoutKey.Of(t);
+        if (nominal == "") { return ""; }
+        return "@" + nominal.Replace("@", "@@").Replace(".", "@d").Replace("$", "@s");
     }
 
     private static string _methodKey(string name, Z42Type[] paramTypes, int paramCount, Z42FuncType signature,
