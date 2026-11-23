@@ -31,11 +31,21 @@ pub(crate) fn erased_instance_matches(def: &str, inst_args: &[String], target: &
 /// so the comparison is by name; [`type_name_matches`] adds the cases a name cannot decide.
 /// An element-less array (`""`: built by the runtime without an element type) matches any `X[]`.
 pub fn array_isa(elem: &str, target: &str) -> bool {
+    array_isa_with_nominal_types(elem, target, |_| false)
+}
+
+/// Check array identity with the caller's registered nominal types. Bare names
+/// can name global types as well as erased generic parameters.
+pub fn array_isa_with_nominal_types(
+    elem: &str,
+    target: &str,
+    is_nominal: impl Fn(&str) -> bool,
+) -> bool {
     if matches!(target, "Array" | "Object" | "Std.Array" | "Std.Object") {
         return true;
     }
     match target.strip_suffix("[]") {
-        Some(t) => elem.is_empty() || type_name_matches(elem, t),
+        Some(t) => elem.is_empty() || type_name_matches(elem, t, &is_nominal),
         None => false,
     }
 }
@@ -44,12 +54,12 @@ pub fn array_isa(elem: &str, target: &str) -> bool {
 /// an `actual` that is (or contains, at the same position) an unsubstituted type parameter
 /// (`new T[n]` / `new Box<T>[n]` in a generic body records `T`) — the erased answer
 /// [`erased_instance_matches`] gives for the same situation.
-pub(crate) fn type_name_matches(actual: &str, target: &str) -> bool {
-    if actual == target || is_open_type_arg_name(actual) {
+fn type_name_matches(actual: &str, target: &str, is_nominal: &impl Fn(&str) -> bool) -> bool {
+    if actual == target || is_open_type_arg_name(actual) && !is_nominal(actual) {
         return true;
     }
     if let (Some(a), Some(t)) = (actual.strip_suffix("[]"), target.strip_suffix("[]")) {
-        return type_name_matches(a, t);
+        return type_name_matches(a, t, is_nominal);
     }
     let (Some(al), Some(tl)) = (actual.find('<'), target.find('<')) else {
         return false;
@@ -59,7 +69,22 @@ pub(crate) fn type_name_matches(actual: &str, target: &str) -> bool {
     }
     let aargs = split_top_level_args(&actual[al + 1..actual.len() - 1]);
     let targs = split_top_level_args(&target[tl + 1..target.len() - 1]);
-    aargs.len() == targs.len() && aargs.iter().zip(targs.iter()).all(|(a, t)| type_name_matches(a, t))
+    aargs.len() == targs.len() && aargs.iter().zip(targs.iter()).all(|(a, t)| type_name_matches(a, t, is_nominal))
+}
+
+/// Detect erased leaves without treating a generic definition's own name as a
+/// type argument. Registered global names are concrete even without a dot.
+pub(crate) fn has_erased_array_type_argument(name: &str, is_nominal: &impl Fn(&str) -> bool) -> bool {
+    if let Some(elem) = name.strip_suffix("[]") {
+        return has_erased_array_type_argument(elem, is_nominal);
+    }
+    if let Some((_, args)) = name.split_once('<')
+        && let Some(args) = args.strip_suffix('>')
+    {
+        return split_top_level_args(args).iter()
+            .any(|arg| has_erased_array_type_argument(arg, is_nominal));
+    }
+    is_open_type_arg_name(name) && !is_nominal(name)
 }
 
 /// A whole name that is a bare type parameter (`T`): dot-free, not a keyword, no structure.

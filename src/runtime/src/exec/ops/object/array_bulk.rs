@@ -19,9 +19,11 @@
 use crate::gc::{Heap, RootHandle};
 use crate::zpkg::index::type_names::{builtin_fqn, erased};
 use crate::object::ArrRef;
-use crate::exec::ops::cast::{bound_param_extra_isa, isa_object, isa_td, is_subclass_or_eq_td};
+use crate::exec::ops::cast::{
+    array_isa_in_registry, array_type_is_registered, bound_param_extra_isa, isa_object, isa_td, is_subclass_or_eq_td,
+};
 use crate::metadata::dispatch::{
-    isa::{array_isa, is_open_type_arg, is_open_type_arg_name},
+    isa::has_erased_array_type_argument,
     receiver::{prim_isa, primitive_class_name},
 };
 use crate::metadata::ids::tokens::TypeKeyCell;
@@ -151,7 +153,7 @@ fn plan(ctx: &VmContext, s: &Shape, d: &Shape) -> OpResult<Plan> {
         (None, None) if d.prim.is_some() => Ok(if s.prim == d.prim { Plan::Direct } else { Plan::CheckedPrimitive }),
         (None, None) if s.elem == d.elem || accepts_any(ctx, &d.elem) => Ok(Plan::Direct),
         (None, None) if assignable_name(ctx, &s.elem, &d.elem) => Ok(Plan::Direct),
-        (None, None) if !has_open_arguments(&s.elem) && known_class(ctx, &s.elem)
+        (None, None) if !has_open_arguments(ctx, &s.elem) && known_class(ctx, &s.elem)
             && known_class(ctx, &d.elem) && !assignable_name(ctx, &d.elem, &s.elem) => Err(mismatch()),
         (None, None) => Ok(Plan::Checked),
     }
@@ -167,13 +169,12 @@ fn type_name(name: &str) -> &str {
 
 fn accepts_any(ctx: &VmContext, name: &str) -> bool {
     name.is_empty() || type_name(name) == "Std.Object"
-        || has_open_arguments(name)
-        || is_open_type_arg_name(name) && lookup_desc(ctx, name).is_none()
+        || has_open_arguments(ctx, name)
 }
 
-fn has_open_arguments(name: &str) -> bool {
+fn has_open_arguments(ctx: &VmContext, name: &str) -> bool {
     crate::zpkg::index::type_param_markers::has_markers(name)
-        || name.contains(['<', '[']) && is_open_type_arg(name)
+        || has_erased_array_type_argument(name, &|arg| array_type_is_registered(ctx, ctx.module(), arg))
 }
 
 fn known_class(ctx: &VmContext, name: &str) -> bool {
@@ -195,11 +196,11 @@ fn assignable_name(ctx: &VmContext, src: &str, dst: &str) -> bool {
         return true;
     }
     // The general type-test wildcard for erased arguments does not prove a bulk upcast safe.
-    if has_open_arguments(src) {
+    if has_open_arguments(ctx, src) {
         return false;
     }
     if let Some(elem) = src.strip_suffix("[]") {
-        return array_isa(elem, dst);
+        return array_isa_in_registry(ctx, ctx.module(), elem, dst);
     }
     ctx.module().is_some_and(|m| is_subclass_or_eq_td(ctx, &m.type_registry, src, dst))
 }
@@ -207,7 +208,7 @@ fn assignable_name(ctx: &VmContext, src: &str, dst: &str) -> bool {
 fn check_reference(ctx: &VmContext, target: &str, value: &Value, key: &TypeKeyCell) -> OpResult<()> {
     let matches = match value {
         Value::Null => true,
-        Value::Array(a) => array_isa(&a.borrow().element_type(), target),
+        Value::Array(a) => array_isa_in_registry(ctx, ctx.module(), &a.borrow().element_type(), target),
         _ if prim_isa(value, target) => true,
         _ => ctx.module().is_some_and(|m| {
             let registry = &m.type_registry;
