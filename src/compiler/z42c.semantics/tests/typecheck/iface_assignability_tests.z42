@@ -240,3 +240,16 @@ void test_adapted_closed_interface_ref_slots_require_identity() {
     Assert.Equal(0, SemanticDump.ErrorCount(context
         + " void F(ISource<Animal> animals) { Take(ref animals, marker: 7); }"));
 }
+
+[Test]
+void test_closed_interface_static_overloads_distinguish_instantiations() {
+    string context = "namespace D; class Animal {} class Cat : Animal {}"
+        + " interface ISource<T> { T Read(); }";
+    string overloads = " class Pick { public static void Use(ISource<Animal> x) {}"
+        + " public static void Use(ISource<Cat> x) {} }";
+    Assert.Equal(0, SemanticDump.ErrorCount(context + overloads
+        + " void F(ISource<Cat> cats) { Pick.Use(cats); }"));
+    Assert.Equal("E0408", SemanticDump.FirstErrorCode(context
+        + " class Pick { public static void Use(ISource<Cat> x) {}"
+        + " public static void Use(ISource<Cat> y) {} }"));
+}

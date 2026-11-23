@@ -205,7 +205,8 @@ public static class CompilerFingerprint {
         "guard-closed-interface-ref-arguments",
         "convert-multiparameter-variant-interfaces",
         "project-adapted-interface-arguments",
-        "guard-adapted-interface-ref-slots"
+        "guard-adapted-interface-ref-slots",
+        "distinguish-closed-interface-overloads"
     };
 
     // 指纹值：`Entries` 逐条以 `\n` 连接后取内容哈希（`mmh3:` 前缀，同 SourceHash）。

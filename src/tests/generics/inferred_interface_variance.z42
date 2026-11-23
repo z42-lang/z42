@@ -13,6 +13,17 @@ class CatSource : IProducer<Cat> {
     public Cat Get() { return new Cat(); }
 }
 
+class KittenSource : IProducer<Kitten> {
+    public Kitten Get() { return new Kitten(); }
+}
+
+class VarianceOverloads {
+    public static string Choose(IProducer<Animal> source) { return "animal"; }
+    public static string Choose(IProducer<Cat> source) {
+        return source.Get() is Kitten ? "cat from kitten" : "cat";
+    }
+}
+
 class DualSink : ISink<Animal>, ISink<Cat> {
     public int Marker = 9;
     public string Put(Animal value) { return "animal"; }
@@ -66,6 +77,10 @@ string SendKitten(ISink<Kitten> sink) {
 void Main() {
     IProducer<Cat> cats = new CatSource();
     IProducer<Animal> animals = Widen(cats);
+    IProducer<Kitten> kittens = new KittenSource();
+    Assert.Equal("animal", VarianceOverloads.Choose(animals));
+    Assert.Equal("cat", VarianceOverloads.Choose(cats));
+    Assert.Equal("cat from kitten", VarianceOverloads.Choose(source: kittens));
     Assert.Equal(true, animals.Get() is Cat);
     Assert.Equal(true, Object.ReferenceEquals(cats, animals));
     object widened = animals;

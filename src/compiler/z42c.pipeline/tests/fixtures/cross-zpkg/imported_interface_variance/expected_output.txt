@@ -1,4 +1,6 @@
 animal
 animal
+select animal
+select cat
 animal
 cat

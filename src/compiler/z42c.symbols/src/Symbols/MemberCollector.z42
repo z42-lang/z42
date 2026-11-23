@@ -383,7 +383,7 @@ public sealed class MemberCollector {
                     || MemberCollector._usesNumericDispatchKey(table, ct, msym));
                 string regName;
                 if (mst && !staticVirtual) {
-                    regName = DispatchKeys.MethodKey(md.Name, msym.Signature);
+                    regName = MemberCollector._staticMethodKey(ct, msym);
                     // add-user-conversions Decision 4（根因）：转换运算符按 (param,return) 唯一——静态 mangle 仅按
                     // 参数类型，`op_Implicit(Foo)->int` 与 `->string` 会撞键 → RegKey 附返回类型消歧。
                     if (SymbolCollector._isConvOp(md.Name)) {
@@ -461,6 +461,15 @@ public sealed class MemberCollector {
             }
             j = j + 1;
         }
+    }
+
+    private static string _staticMethodKey(Z42ClassType owner, MethodSymbol method) {
+        string legacy = DispatchKeys.MethodKey(method.Name, method.Signature);
+        if (SymbolCollector._isConvOp(method.Name) || !owner.Methods.ContainsKey(legacy)) { return legacy; }
+        MethodSymbol previous = owner.Methods.Get(legacy) as MethodSymbol;
+        if (previous == null || !previous.IsStatic || previous.Signature == null) { return legacy; }
+        string exact = DispatchKeys.ClosedOverloadKey(method.Name, method.Signature);
+        return exact == DispatchKeys.ClosedOverloadKey(method.Name, previous.Signature) ? legacy : exact;
     }
 
     // partial method 配对用 canonical 签名键（独立于重载 mangle）：Cls#Name(pTypeDump,…)。

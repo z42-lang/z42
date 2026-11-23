@@ -11,12 +11,26 @@ public static class DispatchKeys {
     }
 
     public static string MethodKey(string name, Z42Type[] paramTypes, int paramCount, Z42FuncType signature) {
+        return DispatchKeys._methodKey(name, paramTypes, paramCount, signature, false);
+    }
+
+    // Closed interface overloads use nominal arguments for identity. Their old
+    // registration key is still used unless another declaration already owns it.
+    public static string ClosedOverloadKey(string name, Z42FuncType signature) {
+        return DispatchKeys._methodKey(name, signature.ParamTypes, signature.ParamCount, signature, true);
+    }
+
+    private static string _methodKey(string name, Z42Type[] paramTypes, int paramCount, Z42FuncType signature,
+                                     bool qualifyInterfaces) {
         string s = name + "$" + paramCount.ToString();
         int i = 0;
         while (i < paramCount) {
             // ':' is reserved for generic instantiations in emitted function names.
             string mode = signature != null && signature.IsRefParam(i) ? "&" : "";
-            s = s + "$" + mode + DispatchKeys.TypeKey(paramTypes[i]);
+            Z42Type t = paramTypes[i];
+            string key = qualifyInterfaces && t is Z42InstantiatedInterfaceType && IfaceSlotKeys.IsClosed(t)
+                ? "@" + LayoutKey.Of(t) : DispatchKeys.TypeKey(t);
+            s = s + "$" + mode + key;
             i = i + 1;
         }
         return s;
