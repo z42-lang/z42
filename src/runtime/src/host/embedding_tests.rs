@@ -693,7 +693,7 @@ fn z42_throw_escapes_as_vm_exception_with_message() {
         let err = unsafe { z42_host_last_error(ptr::null_mut()) };
         let msg = unsafe { CStr::from_ptr(err.message) }.to_string_lossy();
         assert!(
-            msg.contains("intentional embedding-test failure"),
+            msg.contains("intentional embedding-test failure: arg-count-mismatch:"),
             "expected exception message to be propagated, got {msg}"
         );
     });

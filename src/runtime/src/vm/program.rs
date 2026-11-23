@@ -4,6 +4,7 @@ use super::{
     VmContext,
 };
 use crate::{
+    exec::EntryError,
     loader::{self, program::ZpkgResolver, ImageCache, NativeLoading},
     metadata::Module,
     object::Value,
@@ -205,6 +206,7 @@ impl LoadedProgram {
     /// callers retaining a managed return value must root it before subsequent VM calls.
     pub fn invoke(&self, name: &str, args: &[Value]) -> Result<Option<Value>> {
         self.invoke_index(self.resolve_entry(name)?, args)
+            .map_err(EntryError::into_diagnostic)
     }
 
     pub fn run_entry(&self, entry: Option<&str>) -> Result<()> {
@@ -214,7 +216,11 @@ impl LoadedProgram {
         self.invoke(entry, &[]).map(|_| ())
     }
 
-    pub(crate) fn invoke_index(&self, index: usize, args: &[Value]) -> Result<Option<Value>> {
+    pub(crate) fn invoke_index(
+        &self,
+        index: usize,
+        args: &[Value],
+    ) -> Result<Option<Value>, EntryError> {
         let ctx = self.context();
         crate::exec::invoke_entry(ctx, self.module(), self.mode, index, args, || {
             self.initialized.get_or_init(|| {

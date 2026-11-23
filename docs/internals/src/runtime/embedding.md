@@ -9,7 +9,7 @@
 > [嵌入 C ABI 契约](https://z42-lang.github.io/z42/reference/embedding/c-abi.html)，本页不复述。
 
 本页讲 VM **内部怎么实现**那套 ABI：三层怎么分、单例状态放在哪、句柄怎么编码、
-输出怎么从解释器路由到宿主回调、错误怎么从 `anyhow::Error` 归类成状态码、zpkg 依赖按什么顺序解析。
+输出怎么从解释器路由到宿主回调、执行错误类别怎样映射为状态码、zpkg 依赖按什么顺序解析。
 改 `z42_host.h` 或往 `src/runtime/src/host/` 加东西之前读这一页。
 
 反方向（native 代码把类型**注册进** z42）是另一套：见 [native-abi.md](native-abi.md)。
@@ -192,34 +192,18 @@ panic 兜底靠 `guard()`：整个函数体包在 `catch_unwind(AssertUnwindSafe
 Err 分支翻译成 `ERR_INTERNAL` 加一条稳定消息。`z42_host_run_app` 因为返回 `i32` 而不是状态码，
 自己单独 `catch_unwind`，panic 返回 70。
 
-### 为什么用字符串前缀分类
+### 入口执行错误
 
-解释器路径通篇是 `anyhow::Error`，没有结构化错误类型。`invoke` 的错误分流靠两个稳定 marker：
-
-```rust
-fn classify_invoke_error(msg: &str) -> Z42HostStatus {
-    if msg.contains("arg-count-mismatch:")        { ArgMismatch }
-    else if msg.contains("uncaught exception")
-         || msg.contains("undefined function")    { VmException }
-    else                                          { Internal }
-}
-```
-
-- `arg-count-mismatch:` 由 `LoadedProgram::invoke_index` 在执行之前抛出，所以它优先级最高。
-- `uncaught exception:` 由 `exec::exception::format_uncaught` 钉住（`src/runtime/src/exec/exception.rs`），
-  是 z42 异常输出的稳定契约。
-- `undefined function` 是解释器派发期找不到符号的错误（典型场景：corelib 没解析到，
-  用户代码碰 `Console.WriteLine`）。它是用户的 z42 程序可见的运行期失败，归 `VmException` 而不是 `Internal`。
-
-为单个分类引入领域错误类型的成本远大于一个稳定 marker——这是明知丑但划算的取舍。
-**代价**：改这几条消息文本等于改 ABI 行为，改之前先看 `embedding_tests.rs`。
+`exec::invoke_entry` 在参数检查、引擎调用和异常返回处产生类型化的 `EntryError`。
+`host::session` 将参数不符、未捕获的托管异常、fatal 和内部错误分别映射到
+`ERR_ARG_MISMATCH`、`ERR_VM_EXCEPTION`、`ERR_FATAL` 和 `ERR_INTERNAL`。
+缺失符号由执行层产生托管异常，因此随未捕获异常走同一条路径。
+错误消息和栈迹继续用于诊断，托管异常的消息可以包含任意文本。
 
 ### `ERR_VERIFICATION` 是个空枚举值
 
 `Z42HostStatus::Verification`(11) 在运行时**没有任何发射点**。
-`verify_constraints` 失败在 `SessionConfig::load_options` 里被 `.context()` 包成普通 `Err`，
-到 `z42_host_load_zbc` 统一映射成 `BadZbc`(10)。Tier 2 的 `translate_status` 里那个分支是死代码。
-要么给它接上发射点，要么从 ABI 里删——现状是两头不靠。
+`verify_constraints` 在加载阶段执行。会话将该阶段的失败统一映射成 `BadZbc`(10)，并保留详细诊断。
 
 ### 被接受但被忽略的配置字段
 

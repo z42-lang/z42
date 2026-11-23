@@ -32,7 +32,7 @@ pub mod active_vm;
 /// args / outcome / forwarding / builtin ABI and dispatch); `call` itself and
 /// its remaining implementation files (engine_guards) stay crate-internal.
 pub(crate) mod call;
-pub(crate) use call::invoke_entry;
+pub(crate) use call::{invoke_entry, EntryError};
 pub use call::{
     args, builtin_abi, builtins, forward, frame_stack, frames, indirect_return,
     outcome, reg_pool, stack_alloc, struct_arena, transient_arena, type_param_env,
