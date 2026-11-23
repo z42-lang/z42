@@ -1,0 +1,31 @@
+namespace ArrayInterfaceTypeArguments;
+
+using Std;
+
+class Dog {}
+class Cat {}
+interface ISource<T> { T Read(); }
+
+object Make<T>() where T : class {
+    return new ISource<T>[1];
+}
+
+object MakeNested<T>() where T : class {
+    return new ISource<ISource<T>>[1];
+}
+
+bool Matches<T>(object value) where T : class {
+    return value is ISource<T>[];
+}
+
+void Main() {
+    object dogs = Make<Dog>();
+    Assert.True(dogs is ISource<Dog>[]);
+    Assert.False(dogs is ISource<Cat>[]);
+    Assert.True(Matches<Dog>(dogs));
+    Assert.False(Matches<Cat>(dogs));
+
+    object nested = MakeNested<Dog>();
+    Assert.True(nested is ISource<ISource<Dog>>[]);
+    Assert.False(nested is ISource<ISource<Cat>>[]);
+}
