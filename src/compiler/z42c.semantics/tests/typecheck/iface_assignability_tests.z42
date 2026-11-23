@@ -255,6 +255,15 @@ void test_closed_interface_static_overloads_distinguish_instantiations() {
 }
 
 [Test]
+void test_ref_interface_parameters_do_not_introduce_static_overloads() {
+    string src = "namespace D; class Animal {} class Cat : Animal {}"
+        + " interface ISource<T> { T Read(); }"
+        + " class Pick { public static void Use(ref ISource<Animal> x) {}"
+        + " public static void Use(ref ISource<Cat> x) {} }";
+    Assert.Equal("E0408", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
 void test_closed_interface_free_overloads_distinguish_instantiations() {
     string context = "namespace D; class Animal {} class Cat : Animal {}"
         + " interface ISource<T> { T Read(); } void Take(int n) {}"
