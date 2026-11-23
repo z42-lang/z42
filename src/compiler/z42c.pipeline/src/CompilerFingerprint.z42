@@ -206,6 +206,8 @@ public static class CompilerFingerprint {
         "convert-multiparameter-variant-interfaces",
         "project-adapted-interface-arguments",
         "guard-adapted-interface-ref-slots",
+        "distinguish-closed-interface-overloads",
+        "distinguish-free-interface-overloads",
         "enforce-array-element-identity"
     };
 

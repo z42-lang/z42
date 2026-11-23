@@ -66,6 +66,10 @@ public sealed class DeclBinder {
         if (ct != null && md.RegKey != "") {
             MethodSymbol dms = ct.Methods.Get(md.RegKey) as MethodSymbol;
             if (dms != null && dms.Signature != null) {
+                if (dms.IsStatic && !Mod.Has(md.ModFlags, Mod.Abstract) && !Mod.Has(md.ModFlags, Mod.Override)
+                    && !SymbolCollector._isConvOp(md.Name)) {
+                    return DispatchKeys.ClosedOverloadKey(md.Name, dms.Signature);
+                }
                 return DispatchKeys.MethodKey(md.Name, dms.Signature);
             }
         }

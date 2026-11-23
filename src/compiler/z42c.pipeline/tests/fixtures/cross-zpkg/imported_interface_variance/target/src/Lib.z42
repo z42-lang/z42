@@ -21,3 +21,12 @@ public class Delivery {
         return marker == 7 ? sink.Put(new Cat()) : "wrong default";
     }
 }
+
+public class VarianceOverloads {
+    public static string Choose(ISink<Animal> wanted) { return "select animal"; }
+    public static string Choose(ISink<Cat> wanted) { return "select cat"; }
+}
+
+string ChooseFree(int marker) { return "free int"; }
+string ChooseFree(ISink<Animal> wanted) { return "free animal"; }
+string ChooseFree(ISink<Cat> wanted) { return "free cat"; }

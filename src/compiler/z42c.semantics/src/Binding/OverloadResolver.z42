@@ -159,7 +159,7 @@ public sealed class OverloadResolver {
         if (sig.ParamCount != argCount) { return false; }
         int i = 0;
         while (i < argCount) {
-            if (!OverloadResolver._assignable(argTypes[i], sig.ParamTypes[i], symbols)) { return false; }
+            if (!OverloadResolver._assignable(argTypes[i], sig.ParamTypes[i], symbols, !sig.IsRefParam(i))) { return false; }
             i = i + 1;
         }
         return true;
@@ -188,8 +188,8 @@ public sealed class OverloadResolver {
         if (exY && !exX) { return 0 - 1; }
         if (exX && exY)  { return 0; }
         // 都非精确：更"具体"的形参类型胜（px 可赋值到 py 而非反向 → px 更派生/更具体）。
-        bool xToY = OverloadResolver._assignable2(px, py, symbols);
-        bool yToX = OverloadResolver._assignable2(py, px, symbols);
+        bool xToY = OverloadResolver._assignable(px, py, symbols, true);
+        bool yToX = OverloadResolver._assignable(py, px, symbols, true);
         if (xToY && !yToX) { return 1; }
         if (yToX && !xToY) { return 0 - 1; }
         return 0;
@@ -219,16 +219,16 @@ public sealed class OverloadResolver {
             if (sig.HasRefInfo() && sig.IsRefParam(i) != a.PosByRef[i]) { return r; }
             if (i < fixedCount) {
                 Z42Type pt = sig.ParamTypes[i];
-                if (at != null && !OverloadResolver._assignable(at, pt, symbols)) { return r; }
+                if (at != null && !OverloadResolver._assignable(at, pt, symbols, !a.PosByRef[i])) { return r; }
                 r.PosParam[i] = pt; filled[i] = true;
             } else if (pf >= 0) {
                 Z42ArrayType arr = sig.ParamTypes[pf] as Z42ArrayType;
                 if (arr == null) { return r; }
-                bool normal = a.PosCount == pc && i == pf && (at == null || OverloadResolver._assignable(at, arr, symbols));
+                bool normal = a.PosCount == pc && i == pf && (at == null || OverloadResolver._assignable(at, arr, symbols, true));
                 if (normal) {
                     r.PosParam[i] = arr;
                 } else {
-                    if (at != null && !OverloadResolver._assignable(at, arr.Elem, symbols)) { return r; }
+                    if (at != null && !OverloadResolver._assignable(at, arr.Elem, symbols, !a.PosByRef[i])) { return r; }
                     r.PosParam[i] = arr.Elem; r.Expanded = true;
                 }
                 filled[pf] = true;
@@ -245,7 +245,7 @@ public sealed class OverloadResolver {
             if (sig.HasRefInfo() && sig.IsRefParam(idx)) { return r; }
             Z42Type npt = sig.ParamTypes[idx];
             Z42Type nat = a.NamedTypes[j];
-            if (nat != null && !OverloadResolver._assignable(nat, npt, symbols)) { return r; }
+            if (nat != null && !OverloadResolver._assignable(nat, npt, symbols, true)) { return r; }
             r.NamedParam[j] = npt; filled[idx] = true;
             j = j + 1;
         }
@@ -327,7 +327,13 @@ public sealed class OverloadResolver {
     // 类型相等（规范名比较，归一别名）。
     private static bool _sameType(Z42Type a, Z42Type b) {
         if (a == null || b == null) { return false; }
+        if (OverloadResolver._closedInterfacePair(a, b)) { return LayoutKey.Of(a) == LayoutKey.Of(b); }
         return a.CanonName() == b.CanonName();
+    }
+
+    private static bool _closedInterfacePair(Z42Type a, Z42Type b) {
+        return a is Z42InstantiatedInterfaceType && b is Z42InstantiatedInterfaceType
+            && IfaceSlotKeys.IsClosed(a) && IfaceSlotKeys.IsClosed(b);
     }
 
     // 实参类型可赋值到形参类型（复用 Z42Type.IsAssignableTo + 精确名等价兜底 + 类表引用上转）。
@@ -344,28 +350,22 @@ public sealed class OverloadResolver {
     // 窄口 = 只补需要类表的那几条，数值 / object / 装箱 / 泛型擦除的行为逐位不变。
     //
     // symbols 可为 null（判据层单测传 null）→ 退化为改动前行为。
-    internal static bool _assignable(Z42Type arg, Z42Type param, SymbolTable symbols) {
+    private static bool _assignable(Z42Type arg, Z42Type param, SymbolTable symbols, bool allowProjection) {
         if (OverloadResolver._sameType(arg, param)) { return true; }
+        if (OverloadResolver._closedInterfacePair(arg, param)) {
+            var from = arg as Z42InstantiatedInterfaceType;
+            var to = param as Z42InstantiatedInterfaceType;
+            if (from.Def.Fqn() == to.Def.Fqn()) {
+                return allowProjection && TypeChecker.CanProjectInterface(from, to, symbols);
+            }
+        }
         // 任意 → object 装箱/上转。阶段 3：object 形参现恒 Z42ClassType(Object)（Name()="Object"），
-        // 须按 PrimModel.Canon 归一（与 _assignable2 同款），否则 raw "object" 失配 → object 形参
+        // 须按 PrimModel.Canon 归一，否则 raw "object" 失配 → object 形参
         // 重载（如 StrMap.Put(string,object)）对任意实参判不适用。
         if (param != null && param.CanonName() == "object") { return true; }
         if (arg == null) { return false; }
         if (arg.IsAssignableTo(param)) { return true; }
         return OverloadResolver._refUpcast(arg, param, symbols);
-    }
-
-    // 🔴 _assignable2（择优用）必须与 _assignable **同一批**认类层次。
-    // C# 的「更派生的形参更优」在这套实现里是自动推出来的（_betterAtPos：px 可赋到 py 而非反向
-    // ⇒ px 更具体），前提是这里也认。只改 _assignable 不改这里，`F(A)`+`F(M)` 传 `D:M:A` 会从
-    // 「找不到」变成「歧义 E0425」—— 用户体验没变好，还多一种错法。
-    private static bool _assignable2(Z42Type a, Z42Type b, SymbolTable symbols) {
-        if (OverloadResolver._sameType(a, b)) { return true; }
-        // unify-value-types Phase 1：任意 → object（翻转后 object→Z42ClassType(Object)，Canon 归一）。
-        if (b != null && b.CanonName() == "object") { return true; }
-        if (a == null) { return false; }
-        if (a.IsAssignableTo(b)) { return true; }
-        return OverloadResolver._refUpcast(a, b, symbols);
     }
 
     // 引用上转（派生→基 / 类→接口 / inst→基·接口 / 数组→Array）——Conversion 里这条路本来就是齐的

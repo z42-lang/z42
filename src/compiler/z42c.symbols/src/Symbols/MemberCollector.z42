@@ -61,11 +61,17 @@ public sealed class MemberCollector {
                 // primary → 裸键（= 唯一函数今天的键，存量零漂移）；后续同名兄弟 → 全签名 MangleKey（加/删重载只动
                 // 自己、不碰 primary）。tracker 只统计本地（导入函数各自带包内定好的 RegKey）。
                 string baseFqn = SymbolTable.QualOf(table.ScopeNs, m.Name);
-                string sigFqn = SymbolTable.QualOf(table.ScopeNs,
-                    DispatchKeys.MangleKey(m.Name, msym.Signature.ParamTypes, msym.Signature.ParamCount));
+                string exact = DispatchKeys.ClosedFreeOverloadKey(m.Name, msym.Signature);
+                string sigFqn = SymbolTable.QualOf(table.ScopeNs, exact);
+                MethodDecl prevD = this._sc._freeFnSigSeen.Get(sigFqn) as MethodDecl;
                 string regName = m.Name;
                 if (this._sc._freeFnLocalSeen.ContainsKey(baseFqn)) {
                     regName = DispatchKeys.MangleKey(m.Name, msym.Signature.ParamTypes, msym.Signature.ParamCount);
+                    MethodSymbol previous = table.GetFuncIn(table.ScopeNs, regName);
+                    if (previous != null && previous.HasDecl) {
+                        if (regName != exact) { regName = exact; }
+                        else if (prevD == null) { prevD = previous.Decl; }
+                    }
                 } else {
                     this._sc._freeFnLocalSeen.Put(baseFqn, "1");
                 }
@@ -74,9 +80,8 @@ public sealed class MemberCollector {
                 // → E0408，指向另一处，且**不注册这份重复**（否则它会进候选集 → 调用点级联 E0425 歧义，
                 // 一处笔误报两条）。不同签名同名 = 合法重载，正常注册。此处是自由函数判重的唯一入口
                 // （DeclBinder 旧的按裸名去重已删——primary/非-primary 后裸名去重会误判合法重载）。
-                if (this._sc._freeFnSigSeen.ContainsKey(sigFqn)) {
-                    MethodDecl prevD = this._sc._freeFnSigSeen.Get(sigFqn) as MethodDecl;
-                    string at = prevD != null ? (prevD.Span.File + ":" + prevD.Span.Line.ToString()) : "?";
+                if (prevD != null) {
+                    string at = prevD.Span.File + ":" + prevD.Span.Line.ToString();
                     this._sc.Diags.Error(DiagnosticCodes.DuplicateDeclaration,
                         "duplicate top-level function `" + SymbolTable.QualOf(table.ScopeNs, m.Name) + "` — a function with the "
                         + "same signature is already declared at " + at + "; free functions may overload only by parameter types", m.Span);
@@ -383,7 +388,7 @@ public sealed class MemberCollector {
                     || MemberCollector._usesNumericDispatchKey(table, ct, msym));
                 string regName;
                 if (mst && !staticVirtual) {
-                    regName = DispatchKeys.MethodKey(md.Name, msym.Signature);
+                    regName = MemberCollector._staticMethodKey(ct, msym);
                     // add-user-conversions Decision 4（根因）：转换运算符按 (param,return) 唯一——静态 mangle 仅按
                     // 参数类型，`op_Implicit(Foo)->int` 与 `->string` 会撞键 → RegKey 附返回类型消歧。
                     if (SymbolCollector._isConvOp(md.Name)) {
@@ -461,6 +466,15 @@ public sealed class MemberCollector {
             }
             j = j + 1;
         }
+    }
+
+    private static string _staticMethodKey(Z42ClassType owner, MethodSymbol method) {
+        string legacy = DispatchKeys.MethodKey(method.Name, method.Signature);
+        if (SymbolCollector._isConvOp(method.Name) || !owner.Methods.ContainsKey(legacy)) { return legacy; }
+        MethodSymbol previous = owner.Methods.Get(legacy) as MethodSymbol;
+        if (previous == null || !previous.IsStatic || previous.Signature == null) { return legacy; }
+        string exact = DispatchKeys.ClosedOverloadKey(method.Name, method.Signature);
+        return exact == DispatchKeys.ClosedOverloadKey(method.Name, previous.Signature) ? legacy : exact;
     }
 
     // partial method 配对用 canonical 签名键（独立于重载 mangle）：Cls#Name(pTypeDump,…)。
