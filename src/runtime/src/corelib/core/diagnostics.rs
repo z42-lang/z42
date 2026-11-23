@@ -105,14 +105,13 @@ pub fn heap_retaining_roots(ctx: &VmContext, target: &Value) -> Result<Value, Bu
 ///
 /// expose-diagnostics-counters (script-profiling P1c): surfaces the
 /// runtime counter snapshot + heap-derived numbers to z42 scripts. Same two
-/// sources `diagnostics/exit_report.rs` merges into its `ProfileSnapshot` for `--print-stats-on-exit`
+/// sources `diagnostics/exit_report.rs` merges into its `ProfileSnapshot` for `--stats`
 /// (`RuntimeCounters::snapshot` + `HeapStats`), so a script reading these fields
 /// sees values consistent with the exit JSON (modulo the natural sampling-instant
 /// skew). `allocations` reuses `HeapStats.allocations` (the SoT) — never
 /// re-counted on the hot path.
 pub fn diag_counters(ctx: &VmContext) -> Result<Value, BuiltinError> {
-    let c = ctx.core().diagnostics().snapshot(ctx.core().threads());
-    let h = ctx.heap().stats();
+    let (c, h) = crate::diagnostics::capture_counters(ctx);
     alloc_named(
         ctx,
         STD_RUNTIME_COUNTERS,

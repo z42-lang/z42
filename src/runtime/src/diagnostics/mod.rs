@@ -55,6 +55,12 @@ impl DiagnosticsState {
     }
 }
 
+/// Sample the counters and heap statistics shared by CLI and managed diagnostics.
+pub(crate) fn capture_counters(ctx: &VmContext) -> (CounterSnapshot, crate::gc::HeapStats) {
+    let core = ctx.core();
+    (core.diagnostics().snapshot(core.threads()), ctx.heap().stats())
+}
+
 pub(crate) fn profiler_loaded(ctx: &VmContext) -> bool {
     ctx.core().diagnostics().sampler.is_loaded()
 }

@@ -40,8 +40,7 @@ pub(crate) fn report_on_exit(
     // GC minor/major/reclaimed) into one ProfileSnapshot so the profile picture
     // is complete in a single line/block.
     if let Some(report) = report.filter(|report| report.print_stats) {
-        let counters = diagnostics.snapshot(ctx.core().threads());
-        let h = ctx.heap().stats();
+        let (counters, h) = super::capture_counters(ctx);
         // add-concurrency-probes (P1b): safepoint-park distribution (always-on)
         // + user-lock contention counters (0 unless the `profile-contention`
         // feature is built in).
