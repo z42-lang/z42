@@ -26,7 +26,7 @@ VM 内部组件门面、跨库协议与普通宿主契约的区别及当前缺�
 | `ffi.rs` | C ABI、不透明句柄类型和参数边界校验；Rust 消费者从 host 根导入 Z42Host/Z42Module/Z42Entry |
 | `abi_config.rs` | C 配置布局、校验和回调适配 |
 | `session.rs` | Rust 和 C 共用的嵌入会话、句柄及加载/解析/调用事务 |
-| `rust.rs` / `rust/resolvers.rs` | 安全 Rust 接口及其内置包解析器 |
+| `rust.rs` | 安全 Rust 接口及其内置包解析器 |
 | `marshal.rs` | ABI 参数与返回值转换 |
 | `ExecMode` / `PackageImage` | 由 z42-zpkg 拥有、通过宿主门面提供的执行模式和不可变包定义类型 |
 | `host::signal` | 致命信号安装入口，VM 栈捕获与崩溃报告归 diagnostics |
