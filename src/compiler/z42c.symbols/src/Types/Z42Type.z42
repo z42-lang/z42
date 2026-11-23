@@ -868,13 +868,13 @@ public sealed class Z42FuncType : Z42Type {
         return false;
     }
 
-    // 逐位比较：任一侧 unknown/error 吸收（镜像 Z42ArrayType 的元素判定）；数组/func 递归；叶子按 Canon。
+    // 逐位比较：任一侧 unknown/error 吸收；数组按数组身份比较，函数递归，其他叶子按 Canon。
     private static bool _partEq(Z42Type a, Z42Type b) {
         if (a == null || b == null) { return a == b; }
         if ((a is Z42UnknownType) || (a is Z42ErrorType)) { return true; }
         if ((b is Z42UnknownType) || (b is Z42ErrorType)) { return true; }
         if ((a is Z42ArrayType) && (b is Z42ArrayType)) {
-            return Z42FuncType._partEq((a as Z42ArrayType).Elem, (b as Z42ArrayType).Elem);
+            return a.IsAssignableTo(b);
         }
         if ((a is Z42FuncType) && (b is Z42FuncType)) { return a.IsAssignableTo(b); }
         return a.CanonName() == b.CanonName();
@@ -894,6 +894,12 @@ public sealed class Z42ArrayType : Z42Type {
             // codegen 经 DepIndex 真实解析）。否则元素名规范等价（byte[]≡u8[] 等）。
             if ((this.Elem is Z42UnknownType) || (this.Elem is Z42ErrorType)) { return true; }
             if ((o.Elem is Z42UnknownType) || (o.Elem is Z42ErrorType)) { return true; }
+            if (this.Elem == o.Elem) { return true; }
+            // Array slots are writable. Compare nominal identity, including every
+            // generic argument and array rank, even when scalar values can convert.
+            string source = LayoutKey.Of(this.Elem);
+            string target = LayoutKey.Of(o.Elem);
+            if (source != "" && target != "") { return source == target; }
             return this.Elem.CanonName() == o.Elem.CanonName();
         }
         return false;
