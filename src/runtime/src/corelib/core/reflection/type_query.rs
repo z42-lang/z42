@@ -145,31 +145,31 @@ pub fn type_interfaces(ctx: &VmContext, ty: &Value) -> Value {
     // (most-derived first), then BFS-expand each interface's own base interfaces
     // (add-reflection-transitive-interfaces) so the result is the transitive
     // closure. Dedup by FQ name.
-    let mut queue: VecDeque<String> = VecDeque::new();
+    let mut queue = VecDeque::new();
     let mut cur = Some(td);
     while let Some(c) = cur {
-        for iface in c.interfaces() {
-            queue.push_back(iface.to_string());
+        if let Some(names) = c.closed_interfaces() {
+            queue.extend(names.map(|name| (name.to_string(), false)));
+        } else {
+            queue.extend(c.interfaces().iter().map(|name| (name.to_string(), true)));
         }
         // add-crosspkg-impl-reflection (unify P1-e): traits added to this class
         // via cross-package `impl Trait for Type` (IMPL section of loaded
         // packages). Same queue → transitive closure + dedup apply uniformly.
         for tr in ctx.loader().impl_traits_for(crate::zpkg::index::type_names::erased(&c.name)) {
-            queue.push_back(tr);
+            queue.push_back((tr, true));
         }
         cur = c.base_name.as_ref().and_then(|b| resolve(b));
     }
     let mut out = Vec::new();
     let mut seen = HashSet::new();
-    while let Some(name) = queue.pop_front() {
+    while let Some((name, expand)) = queue.pop_front() {
         if !seen.insert(name.clone()) {
             continue;
         }
         out.push(make_type_from_name(ctx, &name));
-        if let Some(itd) = resolve(&name) {
-            for bi in itd.interfaces() {
-                queue.push_back(bi.to_string());
-            }
+        if let Some(itd) = expand.then(|| resolve(&name)).flatten() {
+            queue.extend(itd.interfaces().iter().map(|name| (name.to_string(), true)));
         }
     }
     ctx.heap().alloc_array(out)

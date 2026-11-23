@@ -236,6 +236,11 @@ IMid<int>    ok  = r;      // ✓ 实参一致
 IMid<string> bad = r;      // ✗ E0402
 ```
 
+当类型描述保留完整的闭合接口身份时，`is`、`as`、显式转换和反射会检查具体实参。
+例如，`class C : IRepo<int>` 的对象可以通过 `is IRepo<int>`，而 `is IRepo<string>` 返回假。
+`GetInterfaces()` 会返回 `IRepo<int>`。数组的 `SetValue` 与 `CopyRange` 使用同一判定。
+只有擦除接口名的旧包仍按原有规则运行。
+
 接口作为**泛型约束**（`where T : IShape`）的规则见[泛型约束](generic-constraints.md)。
 
 ## `Self` 类型
