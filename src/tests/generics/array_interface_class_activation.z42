@@ -1,0 +1,27 @@
+namespace ArrayInterfaceClassActivation;
+
+using Std;
+
+class Dog {}
+class Cat {}
+interface ISource<T> { T Read(); }
+
+class Factory<T> where T : class {
+    public object Make() { return new ISource<T>[1]; }
+    public object MakeLiteral() { return new ISource<T>[] { null }; }
+    public bool Matches(object value) { return value is ISource<T>[]; }
+}
+
+void Main() {
+    var dogs = new Factory<Dog>();
+    var cats = new Factory<Cat>();
+    object value = dogs.Make();
+    Assert.True(dogs.Matches(value));
+    Assert.False(cats.Matches(value));
+    Assert.True(value is ISource<Dog>[]);
+    Assert.False(value is ISource<Cat>[]);
+
+    var literal = dogs.MakeLiteral();
+    Assert.True(dogs.Matches(literal));
+    Assert.False(cats.Matches(literal));
+}

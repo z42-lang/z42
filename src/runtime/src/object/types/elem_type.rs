@@ -29,6 +29,7 @@ use crate::object::{ArrayDesc, ArrayMode, ElemKind};
 pub struct ElemTypeInfo {
     name: Arc<str>,
     kind: ElemKind,
+    has_markers: bool,
     /// 各模式的数组描述符（[`ArrayDesc::slot`] 下标；空 = 还没建过）。
     descs: [AtomicPtr<ArrayDesc>; ArrayDesc::SLOTS],
 }
@@ -57,6 +58,7 @@ impl ElemType {
         let info: &'static ElemTypeInfo = Box::leak(Box::new(ElemTypeInfo {
             name: Arc::from(name),
             kind: ElemKind::of(name),
+            has_markers: crate::zpkg::index::type_param_markers::has_markers(name),
             descs: std::array::from_fn(|_| AtomicPtr::new(std::ptr::null_mut())),
         }));
         // SAFETY-free: `info` is leaked ⇒ its `name` buffer lives for the process, so a
@@ -94,6 +96,11 @@ impl ElemType {
     #[inline]
     pub fn kind(self) -> ElemKind {
         self.0.kind
+    }
+
+    #[inline]
+    pub fn has_type_param_markers(self) -> bool {
+        self.0.has_markers
     }
 
     /// 这个元素类型在模式 `mode`（MIXED 带零种类 `zero`，其余模式传 0）下的数组描述符——数组块头的
