@@ -240,3 +240,21 @@ void test_adapted_closed_interface_ref_slots_require_identity() {
     Assert.Equal(0, SemanticDump.ErrorCount(context
         + " void F(ISource<Animal> animals) { Take(ref animals, marker: 7); }"));
 }
+
+[Test]
+void test_array_identity_retains_closed_interface_arguments() {
+    string context = "namespace D; class Animal {} class Dog : Animal {}"
+        + " interface ISource<T> { T Read(); } class Box<T> {}";
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(context
+        + " void F(ISource<Dog>[] source) { ISource<Animal>[] target = source; }"));
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(context
+        + " void F(ISource<Dog>[][] source) { ISource<Animal>[][] target = source; }"));
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(context
+        + " void F(Box<ISource<Dog>>[] source) { Box<ISource<Animal>>[] target = source; }"));
+    Assert.Equal("E0424", SemanticDump.FirstErrorCode(context
+        + " void F(ISource<Dog>[] source) { var target = (ISource<Animal>[])source; }"));
+    Assert.Equal(0, SemanticDump.ErrorCount(context
+        + " void F(ISource<Dog> source, ISource<Dog>[][] nested, int[] values) {"
+        + " ISource<Animal> widened = source; ISource<Dog>[][] same = nested;"
+        + " Int32[] aliases = values; }"));
+}
