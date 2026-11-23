@@ -73,3 +73,16 @@ public T ReplaceSelf<T>(T seed) where T : class + IReferenceWriter {
     T.Replace(ref seed);
     return seed;
 }
+
+public interface ISelfWriter {
+    static void Write(Self value);
+}
+
+public void WriteValueSelf<T>(T value) where T : struct + ISelfWriter {
+    T.Write(value);
+    T.Write(value);
+}
+
+public void ForwardValueSelf<T>(T value) where T : struct + ISelfWriter {
+    WriteValueSelf(value);
+}

@@ -46,6 +46,10 @@ public static class TypeArgInference {
         while (i < fixedEnd) {
             if (args[i] != null) {
                 Z42Type at = args[i].Type();
+                // Boxing for a type parameter changes the ABI, not the source type being inferred.
+                if (at is Z42GenericParamType && args[i] is BoundBox) {
+                    at = (args[i] as BoundBox).E.Type();
+                }
                 // 边界 ③：Unknown / Error 不携带信息，跳过（不算冲突）。
                 if (at != null && !(at is Z42UnknownType) && !(at is Z42ErrorType)) {
                     if (!TypeArgInference._unify(symbols, sig.ParamTypes[i], at, names, nameCount, bound)) {
