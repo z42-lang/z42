@@ -333,15 +333,22 @@ public sealed class TypeChecker {
     // 变化（int↔float、char→数值）时包 BoundConvert → codegen `_emitConvert` 发 ConvertInstr。等宽整数
     // 拓宽（byte→int→long，运行期同 I64）与 f32→f64（运行期同 F64）是 no-op → 不插，最小化字节扰动。
     // 到达这里的值已过 CheckImplicitConvert（Identity/ImplicitNumeric/常量例外窄化），不会误插被拒转换。
-    // Only binding sites that can lower a projection call this before checking
-    // the resulting expression. Nominal identity and type-only queries stay separate.
     internal BoundExpr ConvertInterfaceVariance(BoundExpr value, Z42Type target, SymbolTable syms) {
-        if (value == null || !(value.Type() is Z42InstantiatedInterfaceType)
-            || !(target is Z42InstantiatedInterfaceType) || value is BoundRefArg) { return value; }
-        var from = value.Type() as Z42InstantiatedInterfaceType;
-        var to = target as Z42InstantiatedInterfaceType;
+        if (value == null || value is BoundRefArg || !(value.Type() is Z42InstantiatedInterfaceType)
+            || !(target is Z42InstantiatedInterfaceType)) { return value; }
+        if (!TypeChecker.CanProjectInterface(value.Type() as Z42InstantiatedInterfaceType,
+                                             target as Z42InstantiatedInterfaceType, syms)) { return value; }
+        var conversion = new BoundConvert(value, target, value.Span);
+        conversion.InterfaceProjection = true;
+        return conversion;
+    }
+
+    // Overload applicability and expression lowering must agree about projection.
+    internal static bool CanProjectInterface(Z42InstantiatedInterfaceType from, Z42InstantiatedInterfaceType to,
+                                             SymbolTable syms) {
+        if (syms == null) { return false; }
         if (from.ArgCount == 0 || from.ArgCount != to.ArgCount || from.Def.Fqn() != to.Def.Fqn()
-            || !IfaceSlotKeys.IsClosed(from) || !IfaceSlotKeys.IsClosed(to)) { return value; }
+            || !IfaceSlotKeys.IsClosed(from) || !IfaceSlotKeys.IsClosed(to)) { return false; }
 
         bool changed = false;
         int i = 0;
@@ -350,20 +357,16 @@ public sealed class TypeChecker {
             Z42Type targetArg = to.TypeArgs[i];
             string sourceKey = LayoutKey.Of(sourceArg);
             string targetKey = LayoutKey.Of(targetArg);
-            if (sourceKey == "" || targetKey == "") { return value; }
+            if (sourceKey == "" || targetKey == "") { return false; }
             if (sourceKey != targetKey) {
                 if (!TypeChecker._allowsVariantArgument(sourceArg, targetArg, from.Def.ParameterVariance(i), syms)) {
-                    return value;
+                    return false;
                 }
                 changed = true;
             }
             i = i + 1;
         }
-        if (!changed) { return value; }
-
-        var conversion = new BoundConvert(value, target, value.Span);
-        conversion.InterfaceProjection = true;
-        return conversion;
+        return changed;
     }
 
     private static bool _allowsVariantArgument(Z42Type source, Z42Type target, InterfaceVariance direction, SymbolTable syms) {

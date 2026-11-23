@@ -11,12 +11,38 @@ public static class DispatchKeys {
     }
 
     public static string MethodKey(string name, Z42Type[] paramTypes, int paramCount, Z42FuncType signature) {
+        return DispatchKeys._methodKey(name, paramTypes, paramCount, signature, false, true);
+    }
+
+    // Closed interface overloads use nominal arguments for identity. Their old
+    // registration key is still used unless another declaration already owns it.
+    public static string ClosedOverloadKey(string name, Z42FuncType signature) {
+        return DispatchKeys._methodKey(name, signature.ParamTypes, signature.ParamCount, signature, true, true);
+    }
+
+    internal static string ClosedFreeOverloadKey(string name, Z42FuncType signature) {
+        return DispatchKeys._methodKey(name, signature.ParamTypes, signature.ParamCount, signature, true, false);
+    }
+
+    public static string ClosedOverloadTypeKey(Z42Type t) {
+        if (!(t is Z42InstantiatedInterfaceType) || !IfaceSlotKeys.IsClosed(t)) { return ""; }
+        // A packed function name splits its owner and mangle fields at '.' and '$'.
+        string nominal = LayoutKey.Of(t);
+        if (nominal == "") { return ""; }
+        return "@" + nominal.Replace("@", "@@").Replace(".", "@d").Replace("$", "@s");
+    }
+
+    private static string _methodKey(string name, Z42Type[] paramTypes, int paramCount, Z42FuncType signature,
+                                     bool qualifyInterfaces, bool includeRefMode) {
         string s = name + "$" + paramCount.ToString();
         int i = 0;
         while (i < paramCount) {
             // ':' is reserved for generic instantiations in emitted function names.
-            string mode = signature != null && signature.IsRefParam(i) ? "&" : "";
-            s = s + "$" + mode + DispatchKeys.TypeKey(paramTypes[i]);
+            bool byRef = signature != null && signature.IsRefParam(i);
+            string mode = byRef && includeRefMode ? "&" : "";
+            Z42Type t = paramTypes[i];
+            string key = qualifyInterfaces && !byRef ? DispatchKeys.ClosedOverloadTypeKey(t) : "";
+            s = s + "$" + mode + (key == "" ? DispatchKeys.TypeKey(t) : key);
             i = i + 1;
         }
         return s;

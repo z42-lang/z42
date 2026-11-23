@@ -9,6 +9,10 @@ void Main() {
     ISink<Cat> converted = source;
     Console.WriteLine(converted.Put(new Cat()));
     Console.WriteLine(Delivery.Deliver(sink: source));
+    Console.WriteLine(VarianceOverloads.Choose(source));
+    Console.WriteLine(VarianceOverloads.Choose(wanted: converted));
+    Console.WriteLine(ChooseFree(source));
+    Console.WriteLine(ChooseFree(wanted: converted));
 
     DualMap dualMap = new DualMap();
     IMap<Animal,Cat> map = dualMap;

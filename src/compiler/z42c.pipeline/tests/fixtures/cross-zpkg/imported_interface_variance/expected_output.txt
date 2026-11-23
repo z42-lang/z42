@@ -1,4 +1,8 @@
 animal
 animal
+select animal
+select cat
+free animal
+free cat
 animal
 cat
