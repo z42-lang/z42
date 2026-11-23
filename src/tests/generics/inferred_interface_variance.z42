@@ -43,6 +43,18 @@ class Holder {
     public ISink<Cat> Sink;
 }
 
+class Delivery {
+    public string Result;
+
+    public Delivery(ISink<Cat> sink, int marker = 7) {
+        this.Result = marker == 7 ? sink.Put(new Cat()) : "wrong default";
+    }
+}
+
+string Deliver(ISink<Cat> sink, int marker = 7) {
+    return marker == 7 ? sink.Put(new Cat()) : "wrong default";
+}
+
 IProducer<Animal> Widen(IProducer<Cat> cats) {
     return cats;
 }
@@ -73,6 +85,10 @@ void Main() {
     Assert.Equal("animal", converted.Put(new Cat()));
     Assert.Equal("animal", SendKitten(converted));
     Assert.Equal("animal", SendKitten(source));
+    Assert.Equal("animal", Deliver(source));
+    Assert.Equal("animal", Deliver(sink: source));
+    Assert.Equal("animal", (new Delivery(source)).Result);
+    Assert.Equal("animal", (new Delivery(sink: source)).Result);
     ISink<Kitten> twice = converted;
     object chained = twice;
     Assert.Equal("animal", (chained as ISink<Cat>).Put(new Cat()));

@@ -207,3 +207,21 @@ void test_multi_parameter_variance_checks_each_argument() {
         + " void Take(ref IMap<Cat,Animal,int> x) {}"
         + " void F(IMap<Animal,Cat,int> x) { Take(ref x); }"));
 }
+
+[Test]
+void test_project_adapted_interface_arguments() {
+    string context = "namespace D; class Animal {} class Cat : Animal {}"
+        + " interface ISource<T> { T Read(); }"
+        + " void Take(ISource<Animal> input, int marker = 7) {}"
+        + " class Use { public Use(ISource<Animal> input, int marker = 7) {} }";
+    Assert.Equal(0, SemanticDump.ErrorCount(context
+        + " void F(ISource<Cat> cats) { Take(cats); Take(input: cats);"
+        + " var p = new Use(cats); var n = new Use(input: cats); }"));
+    string reverse = "namespace D; class Animal {} class Cat : Animal {}"
+        + " interface ISource<T> { T Read(); } void Take(ISource<Cat> input, int marker = 7) {}"
+        + " class Use { public Use(ISource<Cat> input, int marker = 7) {} }";
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(reverse
+        + " void F(ISource<Animal> animals) { Take(input: animals); }"));
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(reverse
+        + " void F(ISource<Animal> animals) { var n = new Use(input: animals); }"));
+}

@@ -203,7 +203,8 @@ public static class CompilerFingerprint {
         "bind-value-self-witness-returns",
         "enable-interface-variance-conversions",
         "guard-closed-interface-ref-arguments",
-        "convert-multiparameter-variant-interfaces"
+        "convert-multiparameter-variant-interfaces",
+        "project-adapted-interface-arguments"
     };
 
     // 指纹值：`Entries` 逐条以 `\n` 连接后取内容哈希（`mmh3:` 前缀，同 SourceHash）。
