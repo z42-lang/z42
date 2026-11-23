@@ -1,0 +1,32 @@
+// feat/generic-base-subst：泛型类体内经 this 调基类成员的型参代换单测。
+// 正向链路（返回位/实参位/数组元素位 + 运行时行为）由 e2e `classes/generic_base_subst` 覆盖；
+// 这里钉类型检查形态（SemanticDump 自定义类即可，无需 stdlib）。
+namespace Z42cSemanticsGenericBaseSubstTests;
+
+using Z42.Semantics;
+using Std.Harness;
+
+[Test]
+void test_open_base_return_substituted() {
+    // 返回位：this.Get() 的类型经 Box<T> 代换为 T，经 T M() 原样返回成立 ⇒ 零诊断；
+    // 补丁前拿到裸 X → E0402（X→T 不同名）。
+    string src = "class Box<X> { public X f; public X Get() { return this.f; } } class Kid<T> : Box<T> {"
+        + " T M() { return this.Get(); } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_open_base_param_substituted() {
+    // 实参位：Put 的形参经代换是 T —— 传 5 成立；补丁前 X 误拒。
+    string src = "class Box<X> { public void Put(X v) { } } class Kid<T> : Box<T> {"
+        + " void M(T t) { this.Put(t); } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_open_base_field_type_substituted() {
+    // 字段位：基类字段 Items 经代换是 T[]，元素读是 T ⇒ 零诊断。
+    string src = "class Box<X> { public X[] Items; } class Kid<T> : Box<T> {"
+        + " T M() { return this.Items[0]; } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
