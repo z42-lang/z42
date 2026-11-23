@@ -69,8 +69,11 @@ public sealed class Type : MemberInfo, IEquatable {
     /// 与运行时类型身份对应的哈希码。
     public override int GetHashCode() { return this.IdentityHash(); }
 
-    /// 直接基类。struct（含基元值类型）为 `Std.ValueType`，具体枚举为 `Std.Enum`。
-    /// 数组为 `Std.Array`，未声明基类的引用类为 `Std.Object`。根类型自身为 null。
+    /// 返回直接基类。
+    ///
+    /// struct（含基元值类型）的基类为 `Std.ValueType`，具体枚举的基类为 `Std.Enum`。
+    /// 数组的基类为 `Std.Array`，未声明基类的引用类的基类为 `Std.Object`。
+    /// 根类型的结果为 null。
     [Native("__type_base")]
     public extern Type BaseType { get; }
 
