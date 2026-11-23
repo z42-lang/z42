@@ -1,4 +1,4 @@
-//! Unit test for `host::signal` — install idempotency. The `sigsafe` write
+//! Unit test for the crash reporter — install idempotency. The `sigsafe` write
 //! primitives + signal-name table moved to `pal::signal` (Phase 3) and are
 //! tested in `pal/signal_tests.rs`; the actual signal-firing path is covered by
 //! the `tests/signal_handler_e2e.rs` integration tests.
@@ -11,8 +11,8 @@ fn install_is_idempotent() {
     // register handlers. signal-hook-registry queues all handlers and runs
     // them in order — duplicate registration just means our handler runs
     // twice, harmless but wasteful. Reaching the end = no panic = pass.
-    super::install();
-    super::install();
+    crate::host::signal::install();
+    crate::host::signal::install();
 }
 
 /// Capture what `f` writes to an fd (a temp file: a walk over every live

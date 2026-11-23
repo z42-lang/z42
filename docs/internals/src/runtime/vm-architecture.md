@@ -94,13 +94,13 @@ VM 装配注入 Core；worker 共享所属 Core 的不可变表，不存入 Exec
 
 | 阶段 | 所有者 | 完成条件 |
 |---|---|---|
-| 产物准备 | `host/load.rs`、`loader/program.rs` | 宿主解析请求并提供 VFS 和 resolver，Loader 准备入口模块与依赖 |
+| 产物准备 | `loader/program.rs` | 宿主解析请求并提供 VFS 和 resolver，Loader 准备入口模块与依赖 |
 | 可用性裁剪 | `loader/program.rs` | 由 VM 装配发起，在模块进入 Core 和 token 解析前裁剪并重建受影响索引 |
 | Core 构造 | `vm/mod.rs` | 创建堆和各子系统状态，由 `vm/wiring.rs` 连接根扫描、暂停请求与加载上下文回收服务 |
 | 主线程注册 | `vm/mod.rs` | 上下文地址固定、登记根扫描地址、启用 TLAB 并绑定 SATB |
 | 加载与执行准备 | `vm/assembly.rs`、`RuntimeLoader`、`metadata/resolve` | 登记 cctor、安装并播种惰性加载器、准备 token |
 | 组件装配 | `components`、`vm/assembly.rs` | 创建组件、连接执行后端，之后发布 LoadedProgram |
-| 调用准备 | `host/program.rs` | 参数钉根，首次调用清理静态存储并排空待加载类型队列 |
+| 调用准备 | `vm/program.rs`、`exec/call/entry.rs` | 参数钉根，首次调用清理静态存储并排空待加载类型队列 |
 | 托管初始化 | `exec/init.rs` | 执行访问屏障保证包和类型初始化的执行、等待与失败传播 |
 
 `drain_pending_type_loads` 和 `enqueue_type_load` 处理的是静态字段属主的类型加载队列，
@@ -186,7 +186,7 @@ let program = z42::host::LoadedProgram::load_file(path, options)?;
 program.run_entry(hint)?;
 ```
 
-上述装配（`available!` 折叠 → 显式构造 Core → cctor 登记 → `install_lazy_loader_with_deps` → 种入 lazy loader 的类型/impl）在 `src/runtime/src/vm/assembly.rs::build` 一处完成，`host::run_app` 与嵌入 host（`host/ops.rs`）共用。
+上述装配（`available!` 折叠 → 显式构造 Core → cctor 登记 → `install_lazy_loader_with_deps` → 种入 lazy loader 的类型/impl）在 `src/runtime/src/vm/assembly.rs::build` 一处完成，`host::run_app` 与嵌入 host（`host/ffi.rs`）共用。
 
 `Std.Runtime.ModuleSearch.Dirs` 通过 `RuntimeLoader` 在读锁下取得当前搜索目录的快照，释放锁后构造托管数组。
 CLI、Rust 和 C 宿主均查询实际加载器状态；worker 共享同一结果，不同 VM 相互隔离。
@@ -282,7 +282,7 @@ regs，interp `RefKind::Stack` 跨帧 deref 通过 `frame.regs`。
 - **`func` 的寿命**：interp 帧指向调用方借给 `exec_function` 的 `&Function`；原生帧指向 `FnEntry.func`——
   合并模块里的函数归模块所有，惰性加载的函数由它的 `LazySlot` 持 `Arc<Function>` 保活，与 `FnEntry` 同寿。
 - **读帧的地方**：异常 `StackTrace`、栈溢出致命报告（`stack_guard`）、采样器（只取名字）、
-  崩溃信号转储（`host::signal::write_frame`：直接写 `frame_meta` 的字节，没有时用
+  崩溃信号转储（`diagnostics/crash_report.rs` 的 `write_frame`：直接写 `frame_meta` 的字节，没有时用
   `for_each_frame_name_piece` 分段写，行列号是一次二分——全程不分配）。前三者都在所属线程上；
   跨线程的读者只有 GC root scanner，见下一节。
 
@@ -350,7 +350,7 @@ regs，interp `RefKind::Stack` 跨帧 deref 通过 `frame.regs`。
     都跑在栈底帧之上，沿用已装好的 guard。
   - VM 线程有自己的 ctx，worker 入口 push 的就是它的栈底帧。
   - 同一线程上**别的 VM 的代码**插进来的唯一途径是宿主重入（native 回调里 `z42_host_invoke`）：A → native →
-    B → native → A 时，A 的栈非空、thread-local 却指着 B。所以 `host::ops::invoke_impl` **无条件**安装两者；
+    B → native → A 时，A 的栈非空、thread-local 却指着 B。所以 `exec::invoke_entry` **无条件**安装两者；
     每个 guard 恢复它进来时看到的值（已是同一 VM 时为 no-op），嵌套按序退栈。
   - `jit::run_fn` 在入口 push 之前另装一个堆 guard，覆盖入口函数的惰性编译。
   - 栈底帧 push 时还把**驱动本 ctx 的线程**的栈下限（`exec::stack_guard::limit()`）写进 `jit_head.stack_limit`，
@@ -469,7 +469,7 @@ sequenceDiagram
 `main_startup::resolve_libs_dir` 使用显式配置或可执行文件旁的 `../libs`，不搜索仓库 artifacts；
 开发产物路径由 xtask 通过环境传入。CLI 将搜索目录交给 host，普通 host 不替 CLI 推断路径。
 
-`host/load.rs` 负责组织入口、隐式 corelib 和依赖准备；loader 负责读取、合并与索引机制。
+`loader/program.rs` 组织入口、prelude 和依赖准备，使用 loader 的读取与索引机制。
 interp/JIT 的声明依赖保留为惰性候选，JIT 编译也按函数触发；显式 eager 策略会预加载依赖闭包。
 代码中的 AOT 模式分支不代表已有可执行 AOT 后端。sidecar 调试信息在产物加载时配对，见下文。
 
@@ -629,7 +629,7 @@ host application (iOS / Android / IDE 插件 / 其他 native)
    │
    │ z42_host_initialize(&cfg, &handle)
    ▼
-host::state::HOST  (RwLock<Option<HostState>>，进程单实例)
+host::session（进程级嵌入会话）
    │
    │ z42_host_load_zbc(handle, bytes, len, &mod)
    │ z42_host_resolve_entry(handle, mod, fqn, &entry)
@@ -642,8 +642,8 @@ LoadedProgram::invoke_index → EngineRegistry::invoke_mode（按宿主选择的
 
 | 关系 | 说明 |
 |------|------|
-| host 模块 ↔ `VmContext` | `host::state::HOST` 持有宿主会话配置与句柄注册表；每个模块句柄拥有一个 `LoadedProgram` 及其独立 `VmContext`。`ops::build_host_module` 传入 VFS、resolver、预加载策略与执行模式，经 `LoadedProgram::load_bytes` → `load::prepare` → `program_builder::build` 完成装配。首次调用准备与执行访问屏障由程序调用入口统一负责，实际后端由 `EngineRegistry::invoke_mode` 按加载时选定的模式分发 |
-| stdout / stderr | `Z42WriteSink` 函数指针经 `corelib::io::install_host_stdout_sink`（stderr 同理）登记；`invoke` 期间 `HostSinkGuard` 置位 per-thread「host sink active」标志，`corelib/io` 据此把输出路由到宿主回调，结束时复原 |
+| host 模块 ↔ `VmContext` | `host::session` 持有宿主会话配置与句柄注册表；每个模块句柄拥有一个 `LoadedProgram` 及其独立 `VmContext`。`SessionConfig::load_options` 传入 VFS、resolver、预加载策略与执行模式，经 `LoadedProgram::load_bytes` → `load::prepare` → `program_builder::build` 完成装配。首次调用准备与执行访问屏障由程序调用入口统一负责，实际后端由 `EngineRegistry::invoke_mode` 按加载时选定的模式分发 |
+| stdout / stderr | C 函数指针或 Rust 闭包经会话登记到 `corelib::io`；`invoke` 期间 `HostSinkGuard` 置位 per-thread「host sink active」标志，`corelib/io` 据此把输出路由到宿主回调，结束时复原 |
 | panic 隔离 | 每个 `extern "C"` 入口经 `host::guard()` `catch_unwind` 兜底，panic → `Z42_HOST_ERR_INTERNAL` |
 | 错误诊断 | TLS `LAST_ERROR` 由 `host::error::set_error / clear_error` 管理；与 `interop::error::LAST_ERROR` 独立（两条 ABI 各自维护） |
 
@@ -808,7 +808,7 @@ token = UNRESOLVED（bind_callee，冷路径）:
 都挂在 `Function.resolved: OnceLock<ResolvedTokens>`，由
 [`resolve::resolve_module`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/resolve.rs) 一次性填充。
 但 `resolve_module` **只经 `vm/assembly.rs::build` → `resolve_tokens` 对 entry module 跑一次**——而
-interp/JIT 模式下依赖是**纯惰性加载**（[load.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/host/load.rs)
+interp/JIT 模式下依赖是**纯惰性加载**（[loader/program.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/loader/program.rs)
 `is_eager = matches!(mode, Aot)`，非 AOT 全 false）：除用户 artifact 外，
 **所有依赖 zpkg**（自编译时即 z42c.core / z42c.syntax / z42c.semantics /
 z42c.emission / z42c.pipeline 全部）经 `LazyLoader::load_zpkg_file` 进函数注册表，其
@@ -1002,7 +1002,7 @@ needs_fixup = td.fields.len() != expected || td.vtable.len() != expected_v
 
 | 函数 | 签名 | 语义 | 调用方 |
 |------|------|------|--------|
-| `resolve_namespace(ns, libs_paths)` | `-> Result<Vec<PathBuf>>` | 返回**所有**声明该 namespace 的 zbc/zpkg 文件（不 bail on ambiguous）| 编译期诊断 / `host/load.rs` 启动反查 (.zbc → zpkg) |
+| `resolve_namespace(ns, libs_paths)` | `-> Result<Vec<PathBuf>>` | 返回**所有**声明该 namespace 的 zbc/zpkg 文件（不 bail on ambiguous）| 编译期诊断 / 启动依赖反查 (.zbc → zpkg) |
 | `resolve_dependency(zpkg_file, libs_paths)` | `-> Result<Option<PathBuf>>` | 按 zpkg 文件名直接查找 | LazyLoader 内部（按文件名精确定位）|
 
 **设计权衡**：`resolve_namespace` 保留（返回所有声明者而非 bail），而非彻底删除。
@@ -1301,7 +1301,7 @@ match callee_value {
 
 ## interp vs JIT 分发
 
-位置：`host/program.rs`、`exec/engine/` 与独立的 `z42-interp` / `z42-jit` 后端。
+位置：`exec/call/entry.rs`、`exec/engine/` 与独立的 `z42-interp` / `z42-jit` 后端。
 
 - **interp**：`exec_function` → `exec_instr` match 分发到近 70 个 IR 指令
   实现。`Value` 是 `Copy` 的 16B tagged enum（见 [object-abi.md](object-abi.md)）。
@@ -1315,8 +1315,7 @@ match callee_value {
   加载程序的执行模式由 `LoadOptions.mode` 指定。
   **z42vm CLI 默认 = jit**（built `--features jit`
   时；jit-less 构建如 wasm 回落 interp）。`--mode interp|jit` 显式覆盖。
-  注意：嵌入式 FFI 的 `z42_host_invoke`（`host/ops.rs`）固定走 `interp::run_returning`，
-  **不受 CLI 默认影响**；`z42_run_app` 路径（`host::run_app`）的模式由 `RunOpts.mode` 决定，未指定时取 `host::default_mode()`（jit 编入则 jit，否则 interp）。
+  注意：嵌入式 C 入口 `z42_host_invoke` 按会话加载程序时选定的模式分发。一次性运行 `host::run_app` 使用调用方传入的 `RunOpts.mode`，C 一次性入口 `z42_host_run_app` 使用 `host::default_mode()`。
 - **AOT**：未实现（`host::LoadedProgram::run_entry` 对 `ExecMode::Aot` 直接报错；`host::run_app` 里已有 eager 预加载分支）
 
 两种后端共享：

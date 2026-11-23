@@ -4,7 +4,7 @@
 //!       (Requirement: 测试覆盖)
 //!
 //! All tests serialize on `HOST_TEST_LOCK` because the embedded VM is a
-//! process singleton — concurrent tests would race on `state::HOST`.
+//! process singleton — concurrent tests would race on `session::HOST`.
 //! The end-to-end `load_invoke_hello_world` test is gated on
 //! `cfg(z42_have_embedding_hello)` so the suite still builds when
 //! the z42c toolchain / stdlib isn't built yet (e.g. CI agents that
@@ -17,8 +17,8 @@ use std::os::raw::{c_char, c_void};
 use std::ptr;
 use std::sync::{Mutex, OnceLock};
 
-use super::config::{Z42HostConfig, Z42_HOST_ABI_VERSION};
-use super::{config, state};
+use super::abi_config::{Z42HostConfig, Z42_HOST_ABI_VERSION};
+use super::{abi_config, session};
 use super::error::Z42HostStatus;
 use super::*;
 use super::Z42Module;
@@ -39,20 +39,22 @@ fn test_lock() -> std::sync::MutexGuard<'static, ()> {
     }
 }
 
+fn current_host() -> *mut Z42Host {
+    session::current().unwrap_or(1) as *mut Z42Host
+}
+
 /// Force the singleton back to "uninitialized" so a test starts clean.
-/// Called at the top of every test; tolerates both "already off" and
-/// "leftover from previous test".
 fn reset_host() {
     // Repeated shutdowns are fine; second one returns NotInit which we
     // simply ignore.
-    let _ = unsafe { z42_host_shutdown(state::HOST_SENTINEL as *mut Z42Host) };
+    let _ = unsafe { z42_host_shutdown(current_host()) };
 }
 
 fn default_config() -> Z42HostConfig {
     Z42HostConfig {
         abi_version: Z42_HOST_ABI_VERSION,
-        struct_size: config::MIN_CONFIG_SIZE as u32,
-        exec_mode: config::Z42ExecMode::Interp as i32,
+        struct_size: abi_config::MIN_CONFIG_SIZE as u32,
+        exec_mode: abi_config::Z42ExecMode::Interp as i32,
         heap_initial_bytes: 0,
         heap_max_bytes: 0,
         stdout_sink: None,
@@ -105,7 +107,7 @@ fn initialize_twice_returns_already_init() {
 
 fn assert_host_sinks_receive_output(capture: &StdoutCapture) {
     let ctx = VmContext::new();
-    let _active = super::ops::HostSinkGuard::enter();
+    let _active = crate::corelib::io::HostSinkGuard::enter();
     let _ = crate::corelib::io::typed::println(&ctx, &Value::I64(17)).unwrap();
     let _ = crate::corelib::io::typed::eprintln(&ctx, &Value::I64(23)).unwrap();
     assert_eq!(&*capture.bytes.lock().unwrap(), b"17\n23\n");
@@ -195,7 +197,7 @@ fn shutdown_when_not_initialized_returns_not_init() {
     let _g = test_lock();
     reset_host();
 
-    let status = unsafe { z42_host_shutdown(state::HOST_SENTINEL as *mut Z42Host) };
+    let status = unsafe { z42_host_shutdown(current_host()) };
     assert_eq!(status, Z42HostStatus::NotInit);
 }
 
@@ -326,7 +328,7 @@ fn jit_mode_when_feature_off_returns_feature_off() {
     reset_host();
 
     let mut cfg = default_config();
-    cfg.exec_mode = config::Z42ExecMode::Jit as i32;
+    cfg.exec_mode = abi_config::Z42ExecMode::Jit as i32;
     let mut h: *mut Z42Host = ptr::null_mut();
     let status = unsafe { z42_host_initialize(&cfg, &mut h) };
 
@@ -353,7 +355,7 @@ fn load_zbc_before_init_returns_not_init() {
     let mut out: *mut Z42Module = ptr::null_mut();
     let status = unsafe {
         z42_host_load_zbc(
-            state::HOST_SENTINEL as *mut Z42Host,
+            current_host(),
             ptr::null(),
             0,
             &mut out,
@@ -444,8 +446,8 @@ fn load_invoke_hello_world() {
 
     let cfg = Z42HostConfig {
         abi_version: Z42_HOST_ABI_VERSION,
-        struct_size: config::MIN_CONFIG_SIZE as u32,
-        exec_mode: config::Z42ExecMode::Interp as i32,
+        struct_size: abi_config::MIN_CONFIG_SIZE as u32,
+        exec_mode: abi_config::Z42ExecMode::Interp as i32,
         heap_initial_bytes: 0,
         heap_max_bytes: 0,
         stdout_sink: Some(host_stdout_sink_callback),
@@ -527,12 +529,12 @@ fn with_hello_session<R>(
     capture: &Mutex<Vec<u8>>,
     body: impl FnOnce(*mut Z42Host, *mut Z42Module) -> R,
 ) -> R {
-    with_hello_session_mode(capture, config::Z42ExecMode::Interp, body)
+    with_hello_session_mode(capture, abi_config::Z42ExecMode::Interp, body)
 }
 
 #[cfg(z42_have_embedding_hello)]
 fn with_hello_session_mode<R>(
-    capture: &Mutex<Vec<u8>>, mode: config::Z42ExecMode,
+    capture: &Mutex<Vec<u8>>, mode: abi_config::Z42ExecMode,
     body: impl FnOnce(*mut Z42Host, *mut Z42Module) -> R,
 ) -> R {
     let user_data = capture as *const Mutex<Vec<u8>> as *mut c_void;
@@ -540,7 +542,7 @@ fn with_hello_session_mode<R>(
     let search_paths: [*const c_char; 2] = [libs_path.as_ptr(), ptr::null()];
     let cfg = Z42HostConfig {
         abi_version: Z42_HOST_ABI_VERSION,
-        struct_size: config::MIN_CONFIG_SIZE as u32,
+        struct_size: abi_config::MIN_CONFIG_SIZE as u32,
         exec_mode: mode as i32,
         heap_initial_bytes: 0,
         heap_max_bytes: 0,
@@ -897,8 +899,8 @@ fn resolver_via_map_resolver_loads_corelib_without_search_paths() {
     // No search_paths — relies entirely on the resolver.
     let cfg = Z42HostConfig {
         abi_version: Z42_HOST_ABI_VERSION,
-        struct_size: config::MIN_CONFIG_SIZE as u32,
-        exec_mode: config::Z42ExecMode::Interp as i32,
+        struct_size: abi_config::MIN_CONFIG_SIZE as u32,
+        exec_mode: abi_config::Z42ExecMode::Interp as i32,
         heap_initial_bytes: 0,
         heap_max_bytes: 0,
         stdout_sink: Some(host_simple_capture_sink),
@@ -1006,8 +1008,8 @@ fn resolver_via_c_hook_loads_corelib() {
 
     let cfg = Z42HostConfig {
         abi_version: Z42_HOST_ABI_VERSION,
-        struct_size: config::MIN_CONFIG_SIZE as u32,
-        exec_mode: config::Z42ExecMode::Interp as i32,
+        struct_size: abi_config::MIN_CONFIG_SIZE as u32,
+        exec_mode: abi_config::Z42ExecMode::Interp as i32,
         heap_initial_bytes: 0,
         heap_max_bytes: 0,
         stdout_sink: Some(host_simple_capture_sink),
@@ -1072,8 +1074,8 @@ fn resolver_miss_falls_back_to_search_paths() {
 
     let cfg = Z42HostConfig {
         abi_version: Z42_HOST_ABI_VERSION,
-        struct_size: config::MIN_CONFIG_SIZE as u32,
-        exec_mode: config::Z42ExecMode::Interp as i32,
+        struct_size: abi_config::MIN_CONFIG_SIZE as u32,
+        exec_mode: abi_config::Z42ExecMode::Interp as i32,
         heap_initial_bytes: 0,
         heap_max_bytes: 0,
         stdout_sink: Some(host_simple_capture_sink),
@@ -1139,8 +1141,8 @@ fn resolver_both_unset_load_zbc_succeeds_if_zbc_self_contained() {
     // when user code actually references a missing symbol at invoke.
     let cfg = Z42HostConfig {
         abi_version: Z42_HOST_ABI_VERSION,
-        struct_size: config::MIN_CONFIG_SIZE as u32,
-        exec_mode: config::Z42ExecMode::Interp as i32,
+        struct_size: abi_config::MIN_CONFIG_SIZE as u32,
+        exec_mode: abi_config::Z42ExecMode::Interp as i32,
         heap_initial_bytes: 0,
         heap_max_bytes: 0,
         stdout_sink: None,
@@ -1187,8 +1189,8 @@ fn resolver_corelib_miss_then_console_writeline_fails_at_invoke() {
 
     let cfg = Z42HostConfig {
         abi_version: Z42_HOST_ABI_VERSION,
-        struct_size: config::MIN_CONFIG_SIZE as u32,
-        exec_mode: config::Z42ExecMode::Interp as i32,
+        struct_size: abi_config::MIN_CONFIG_SIZE as u32,
+        exec_mode: abi_config::Z42ExecMode::Interp as i32,
         heap_initial_bytes: 0,
         heap_max_bytes: 0,
         stdout_sink: None,
@@ -1285,7 +1287,7 @@ fn invoke_sees_initialized_static_fields() {
 /// to program output by tearing the VM down.
 #[cfg(z42_have_embedding_hello)]
 unsafe extern "C" fn host_shutdown_sink(_bytes: *const c_char, _length: usize, _user_data: *mut c_void) {
-    let _ = unsafe { z42_host_shutdown(state::HOST_SENTINEL as *mut Z42Host) };
+    let _ = unsafe { z42_host_shutdown(current_host()) };
 }
 
 /// `z42_host_invoke` used to run user code under the `HOST` read lock and the
@@ -1326,7 +1328,7 @@ fn sink_callback_can_shut_down_the_host_mid_invoke() {
         .expect("invoke deadlocked: a sink callback re-entering the host API never returned");
     // The module stays alive for the rest of the call; the host is gone after it.
     assert_eq!(status, Z42HostStatus::Ok);
-    assert_eq!(unsafe { z42_host_shutdown(state::HOST_SENTINEL as *mut Z42Host) }, Z42HostStatus::NotInit);
+    assert_eq!(unsafe { z42_host_shutdown(current_host()) }, Z42HostStatus::NotInit);
 }
 
 /// runtime-audit P0-4: unbounded recursion is a fatal VM error. `z42_host_invoke`
@@ -1363,27 +1365,147 @@ fn invoke_deep_recursion_is_fatal() {
 }
 
 #[test]
-fn package_resolver_can_shutdown_the_host_during_load() {
+fn load_cannot_publish_after_resolver_replaces_the_session() {
     let _g = test_lock();
     reset_host();
     let cfg = default_config();
     let mut handle = ptr::null_mut();
     assert_eq!(unsafe { z42_host_initialize(&cfg, &mut handle) }, Z42HostStatus::Ok);
-    struct ShutdownResolver;
-    impl ZpkgResolver for ShutdownResolver {
+    struct RestartResolver;
+    impl ZpkgResolver for RestartResolver {
         fn resolve(&self, _namespace: &str) -> Option<Vec<u8>> {
-            assert_eq!(unsafe { z42_host_shutdown(state::HOST_SENTINEL as *mut Z42Host) }, Z42HostStatus::Ok);
+            assert_eq!(unsafe { z42_host_shutdown(current_host()) }, Z42HostStatus::Ok);
+            start_host(&default_config());
             None
         }
     }
-    assert_eq!(install_zpkg_resolver(Arc::new(ShutdownResolver)), Z42HostStatus::Ok);
-    let mut bytes = vec![0; 16];
-    use crate::zpkg::format::*;
-    bytes[..4].copy_from_slice(&ZBC_MAGIC);
-    bytes[4..6].copy_from_slice(&ZBC_VERSION_MAJOR.to_le_bytes());
-    bytes[6..8].copy_from_slice(&ZBC_VERSION_MINOR.to_le_bytes());
+    assert_eq!(install_zpkg_resolver(Arc::new(RestartResolver)), Z42HostStatus::Ok);
+    let bytes = crate::loader::test_support::empty_zbc();
     let mut module = ptr::null_mut();
     let status = unsafe { z42_host_load_zbc(handle, bytes.as_ptr(), bytes.len(), &mut module) };
     assert_eq!(status, Z42HostStatus::NotInit);
     assert!(module.is_null());
+    let new_host = current_host();
+    assert_ne!(handle, new_host);
+    assert_eq!(unsafe { z42_host_load_zbc(new_host, bytes.as_ptr(), bytes.len(), &mut module) }, Z42HostStatus::Ok);
+    assert_eq!(unsafe { z42_host_shutdown(new_host) }, Z42HostStatus::Ok);
+}
+
+fn start_host(cfg: &Z42HostConfig) -> *mut Z42Host {
+    let mut host = ptr::null_mut();
+    assert_eq!(unsafe { z42_host_initialize(cfg, &mut host) }, Z42HostStatus::Ok);
+    host
+}
+
+#[test]
+fn a_module_handle_does_not_alias_a_reinitialized_session() {
+    let _g = test_lock();
+    reset_host();
+    let cfg = default_config();
+    let old = start_host(&cfg);
+    let bytes = crate::loader::test_support::empty_zbc();
+    let mut module = ptr::null_mut();
+    assert_eq!(unsafe { z42_host_load_zbc(old, bytes.as_ptr(), bytes.len(), &mut module) }, Z42HostStatus::Ok);
+    assert_eq!(unsafe { z42_host_shutdown(old) }, Z42HostStatus::Ok);
+
+    let new = start_host(&cfg);
+    let mut new_module = ptr::null_mut();
+    assert_eq!(unsafe { z42_host_load_zbc(new, bytes.as_ptr(), bytes.len(), &mut new_module) }, Z42HostStatus::Ok);
+    assert_ne!(module, new_module);
+    let fqn = CString::new("Missing.Main").unwrap();
+    assert_eq!(unsafe { z42_host_resolve_entry(new, module, fqn.as_ptr(), ptr::null_mut()) }, Z42HostStatus::NotInit);
+    assert_eq!(unsafe { z42_host_shutdown(old) }, Z42HostStatus::NotInit);
+    assert_eq!(unsafe { z42_host_shutdown(new) }, Z42HostStatus::Ok);
+}
+
+#[test]
+#[cfg(z42_have_embedding_hello)]
+fn an_entry_handle_does_not_alias_a_reinitialized_session() {
+    let _g = test_lock();
+    reset_host();
+    let capture = Mutex::new(Vec::new());
+    let fqn = CString::new("Embedding.Hello.Main").unwrap();
+    let resolve = |host, module| {
+        let mut entry = ptr::null_mut();
+        assert_eq!(
+            unsafe { z42_host_resolve_entry(host, module, fqn.as_ptr(), &mut entry) },
+            Z42HostStatus::Ok
+        );
+        entry
+    };
+    let old_entry = with_hello_session(&capture, resolve);
+    with_hello_session(&capture, |host, module| {
+        let new_entry = resolve(host, module);
+        assert_ne!(old_entry, new_entry);
+        assert_eq!(
+            unsafe { z42_host_invoke(old_entry, ptr::null(), 0, ptr::null_mut()) },
+            Z42HostStatus::NotInit
+        );
+        assert_eq!(
+            unsafe { z42_host_invoke(new_entry, ptr::null(), 0, ptr::null_mut()) },
+            Z42HostStatus::Ok
+        );
+    });
+}
+
+#[test]
+fn vfs_validation_can_reenter_and_cannot_publish_into_the_replacement_session() {
+    use crate::pal::fs::Vfs;
+    use std::io::{ErrorKind, Result};
+
+    // Only existence is queried during the prelude probe.
+    struct RestartVfs;
+    impl Vfs for RestartVfs {
+        fn exists(&self, _: &str) -> bool {
+            assert_eq!(unsafe { z42_host_shutdown(current_host()) }, Z42HostStatus::Ok);
+            start_host(&default_config());
+            false
+        }
+        fn is_dir(&self, _: &str) -> bool { false }
+        fn read_to_string(&self, _: &str) -> Result<String> { Err(ErrorKind::Unsupported.into()) }
+        fn read(&self, _: &str) -> Result<Vec<u8>> { Err(ErrorKind::Unsupported.into()) }
+        fn write(&self, _: &str, _: &[u8]) -> Result<()> { Err(ErrorKind::Unsupported.into()) }
+        fn append(&self, _: &str, _: &[u8]) -> Result<()> { Err(ErrorKind::Unsupported.into()) }
+        fn remove_file(&self, _: &str) -> Result<()> { Err(ErrorKind::Unsupported.into()) }
+        fn remove_dir(&self, _: &str, _: bool) -> Result<()> { Err(ErrorKind::Unsupported.into()) }
+        fn copy(&self, _: &str, _: &str) -> Result<()> { Err(ErrorKind::Unsupported.into()) }
+        fn rename(&self, _: &str, _: &str) -> Result<()> { Err(ErrorKind::Unsupported.into()) }
+        fn create_dir_all(&self, _: &str) -> Result<()> { Err(ErrorKind::Unsupported.into()) }
+        fn modified_ms(&self, _: &str) -> Result<i64> { Err(ErrorKind::Unsupported.into()) }
+        fn file_len(&self, _: &str) -> Result<u64> { Err(ErrorKind::Unsupported.into()) }
+        fn read_dir(&self, _: &str) -> Result<Vec<String>> { Err(ErrorKind::Unsupported.into()) }
+        fn glob(&self, _: &str, _: &str) -> Result<Vec<String>> { Err(ErrorKind::Unsupported.into()) }
+        fn write_atomic(&self, _: &str, _: &[u8]) -> Result<()> { Err(ErrorKind::Unsupported.into()) }
+    }
+
+    let _g = test_lock();
+    reset_host();
+    let directory = CString::new("/virtual-host-vfs-test").unwrap();
+    let dirs = [directory.as_ptr(), ptr::null()];
+    let mut cfg = default_config();
+    cfg.search_paths = dirs.as_ptr();
+    let old = start_host(&cfg);
+    let (tx, rx) = std::sync::mpsc::channel();
+    let probe = std::thread::spawn(move || tx.send(install_vfs(Arc::new(RestartVfs))).unwrap());
+    assert_eq!(rx.recv_timeout(std::time::Duration::from_secs(10)).expect("VFS probe deadlocked"), Z42HostStatus::NotInit);
+    probe.join().unwrap();
+    assert_ne!(old, current_host());
+    assert_eq!(unsafe { z42_host_shutdown(current_host()) }, Z42HostStatus::Ok);
+}
+
+#[test]
+fn rust_host_uses_the_shared_session_and_its_own_error_channel() {
+    use super::rust::{ExecMode, Host, HostConfig, HostError};
+    let _g = test_lock();
+    reset_host();
+    let host = Host::new(HostConfig { exec_mode: ExecMode::Interp, ..Default::default() }).unwrap();
+    let mut c_host = ptr::null_mut();
+    assert_eq!(unsafe { z42_host_initialize(&default_config(), &mut c_host) }, Z42HostStatus::AlreadyInit);
+    let module = host.load_zbc(&crate::loader::test_support::empty_zbc()).unwrap();
+    assert!(matches!(host.resolve_entry(&module, "Missing.Main"), Err(HostError::EntryNotFound(_))));
+    let c_error = super::error::snapshot_last_error();
+    assert_eq!(c_error.code, Z42HostStatus::AlreadyInit.as_code());
+    drop(host);
+    let new = start_host(&default_config());
+    assert_eq!(unsafe { z42_host_shutdown(new) }, Z42HostStatus::Ok);
 }

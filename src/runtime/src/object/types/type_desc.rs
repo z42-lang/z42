@@ -261,6 +261,17 @@ impl TypeDesc {
     #[inline] pub fn field_attributes(&self)       -> &[(Box<str>, Box<[crate::zpkg::ir::AttributeRef]>)] { self.cold_slice(|c| &c.field_attributes) }
     /// add-reflection-get-interfaces: the class's directly-declared interfaces.
     #[inline] pub fn interfaces(&self)             -> &[Box<str>]                               { self.cold_slice(|c| &c.interfaces) }
+    /// Complete, canonical interface closure for this declaration when emitted.
+    /// Older packages carry only the legacy interface names.
+    pub(crate) fn closed_interfaces(&self) -> Option<impl Iterator<Item = &str>> {
+        let mut names = self.custom_attributes().iter()
+            .filter(|attr| attr.type_name == "$ClosedInterface")
+            .map(|attr| attr.factory_func.as_str())
+            .peekable();
+        names.peek()?;
+        Some(names)
+    }
+
     /// add-enum-type-metadata: enum member (name, value) pairs (reflection only).
     #[inline] pub fn enum_members(&self)           -> &[(String, i64)]                          { self.cold_slice(|c| &c.enum_members) }
     /// make-enum-distinct-type 1.5: the declared member name for `raw` — C#

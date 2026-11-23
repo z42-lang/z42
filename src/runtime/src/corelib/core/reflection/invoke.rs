@@ -350,9 +350,7 @@ pub(super) fn construction_target(
     ctx: &VmContext, name: &str,
 ) -> Option<(Arc<TypeDesc>, crate::object::TypeArgs)> {
     let lookup = |n: &str| {
-        ctx.module()
-            .and_then(|m| m.type_registry.get(n).cloned().map(|td| ctx.core().runtime().current_type_desc(td)))
-            .or_else(|| ctx.loader().try_lookup_type(n))
+        ctx.loader().resolve_type(n)
     };
     if let Some(td) = lookup(name) {
         let args = td.type_args_handle();

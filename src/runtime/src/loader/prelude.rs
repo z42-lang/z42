@@ -1,5 +1,6 @@
 //! Discover and read the standard prelude from the resolved search paths.
-use std::path::PathBuf;
+use anyhow::Context;
+use std::path::{Path, PathBuf};
 
 use super::{
     artifact::load_artifact_cached, dependency_candidates::version_mismatch_hint, ImageCache,
@@ -21,6 +22,22 @@ fn prelude_candidates(fs: &dyn Vfs, search_dirs: &[PathBuf]) -> Vec<PathBuf> {
         .map(|dir| dir.join(PRELUDE_FILE))
         .filter(|path| path.to_str().is_some_and(|path| fs.exists(path)))
         .collect()
+}
+
+/// Validate the first prelude file, if present, before opening an embedding session.
+pub(crate) fn probe_prelude(
+    fs: &dyn Vfs,
+    search_dirs: impl IntoIterator<Item = impl AsRef<Path>>,
+) -> anyhow::Result<()> {
+    for dir in search_dirs {
+        let candidate = dir.as_ref().join(PRELUDE_FILE);
+        let Some(path) = candidate.to_str() else { continue; };
+        if fs.exists(path) && !fs.is_dir(path) {
+            super::load_artifact(fs, path).with_context(|| format!("validating corelib at {path}"))?;
+            break;
+        }
+    }
+    Ok(())
 }
 
 /// Read the first usable prelude in search order. A version mismatch is fatal

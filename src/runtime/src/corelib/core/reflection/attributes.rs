@@ -63,9 +63,7 @@ pub fn field_custom_attributes(ctx: &VmContext, _this: &Value, qualified: &crate
     };
     let (class, field) = (&qualified[..dot], &qualified[dot + 1..]);
     let resolve = |name: &str| {
-        ctx.module()
-            .and_then(|m| m.type_registry.get(name).cloned().map(|td| ctx.core().runtime().current_type_desc(td)))
-            .or_else(|| ctx.loader().try_lookup_type(name))
+        ctx.loader().resolve_type(name)
     };
     let mut current = resolve(class);
     let mut seen = HashSet::new();
@@ -111,10 +109,7 @@ pub fn property_custom_attributes(ctx: &VmContext, _this: &Value, qualified: &cr
         .or_else(|| accessor.strip_prefix("set_"))
         .unwrap_or(accessor);
     let backing = format!("__prop_{prop}");
-    let td = ctx
-        .module()
-        .and_then(|m| m.type_registry.get(class).cloned().map(|td| ctx.core().runtime().current_type_desc(td)))
-        .or_else(|| ctx.loader().try_lookup_type(class));
+    let td = ctx.loader().resolve_type(class);
     let attrs: Vec<crate::zpkg::ir::AttributeRef> = td
         .as_ref()
         .map(|td| {

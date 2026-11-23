@@ -13,7 +13,7 @@
 | `artifact.rs` | 产物加载与可选会话缓存入口、LazyLoader 默认构造 |
 | `dependency_candidates.rs` | 按包声明与导入命名空间发现惰性加载候选 |
 | `eager.rs` | 沿包声明和命名空间读取传递依赖，复用启动期去重登记 |
-| `program.rs` | 准备程序模块与依赖包，在 availability 折叠后更新执行索引 |
+| `program.rs` | 使用 resolver 和搜索目录准备 prelude、启动依赖和惰性候选，在 availability 折叠后更新执行索引 |
 | `prelude.rs` | 按显式搜索路径读取首个可用的标准前奏包 |
 | `ffi.rs` | static/shared native 链接登记，不操作 host 会话或错误槽 |
 | `code.rs` | 通用原生映像装入、规范路径缓存、符号访问和进程代码保活；不解析消费者 ABI、不创建 VM 实例 |
@@ -32,6 +32,8 @@
 | `availability.rs` | 加载期可用性折叠 |
 
 ## 基础用法
+
+反射的精确类型名通过 `RuntimeLoader::resolve_type` 查询。入口模块优先，未命中时再解析包依赖。已载探测保留独立入口，适用于只读取现有注册的调用方。
 
 常用入口为 `load_artifact`、`load_artifact_from_bytes`、`merge_modules` 和 `LazyLoader`，从 `z42::loader` 导入。调用方仍提供 VFS 与搜索目录；`ModuleSearch.Dirs` 从所属 VM 的加载器查询当前目录快照，worker 共享、不跨 VM 复用；公开入口只汇总拥有者，不在 metadata 中保留加载别名。
 `locate::search_paths` 只组合显式入口、额外路径和 libs，并通过传入 VFS 检查目录；进程环境与默认路径由 main/C/Rust/浏览器等来源实现解析。

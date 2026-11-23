@@ -1,8 +1,7 @@
 //! `z42-host` — Tier 2 ergonomic Rust wrapper for the embedding API.
 //!
-//! Tier 1 (the C ABI in `z42::host`) stays the stable contract;
-//! Tier 2 trades a bit of overhead for `Result`-based error handling,
-//! `Drop`-based cleanup, and `Box<dyn Fn(...)>` sink callbacks.
+//! Rust and C use the same session operations. This adapter provides typed errors,
+//! `Drop`-based cleanup, and owned Rust output callbacks.
 //!
 //! Spec: docs/internals/src/runtime/embedding.md (§5 Tier 2 Rust API).
 //!
@@ -31,27 +30,17 @@
 //! concurrently returns `HostError::AlreadyInit`. Multi-instance lands
 //! in a future iteration (see embedding.md §12 Deferred).
 
-#[path = "rust_config.rs"]
-mod app_config;
-#[path = "rust_resolvers.rs"]
-mod resolvers;
-use app_config::install_app_config;
-pub use resolvers::{MapResolver, SearchPathsResolver};
-use std::ffi::{CStr, CString};
-use std::os::raw::{c_char, c_void};
+use std::cell::Cell;
+use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
-use std::ptr;
 use std::sync::Arc;
 
-use z42_abi::{Z42Value, Z42_VALUE_TAG_BOOL, Z42_VALUE_TAG_F64, Z42_VALUE_TAG_I64, Z42_VALUE_TAG_NULL};
-
-use z42::host::{Z42HostConfig, Z42_HOST_ABI_VERSION};
-use z42::host::error::Z42HostStatus;
-use z42::host::{
-    install_vfs, install_zpkg_resolver, z42_host_initialize, z42_host_invoke, z42_host_last_error,
-    z42_host_load_zbc, z42_host_resolve_entry, z42_host_set_stderr_sink, z42_host_shutdown,
-    Z42Host,
+use z42_abi::{
+    Z42_VALUE_TAG_BOOL, Z42_VALUE_TAG_F64, Z42_VALUE_TAG_I64, Z42_VALUE_TAG_NULL, Z42Value,
 };
+
+use super::{abi_config, error::Z42HostStatus, marshal, session};
+use crate::corelib::io::{HostSinks, OutputSink};
 
 pub use z42::host::resolver::ZpkgResolver;
 pub use z42::pal::fs::Vfs;
@@ -72,12 +61,12 @@ pub enum ExecMode {
 }
 
 impl ExecMode {
-    fn as_raw(self) -> i32 {
+    fn session_mode(self) -> abi_config::Z42ExecMode {
         match self {
-            ExecMode::Default => 0,
-            ExecMode::Interp => 1,
-            ExecMode::Jit => 2,
-            ExecMode::Aot => 3,
+            Self::Default => abi_config::Z42ExecMode::Default,
+            Self::Interp => abi_config::Z42ExecMode::Interp,
+            Self::Jit => abi_config::Z42ExecMode::Jit,
+            Self::Aot => abi_config::Z42ExecMode::Aot,
         }
     }
 }
@@ -117,6 +106,79 @@ impl Default for HostConfig {
     }
 }
 
+/// `HashMap`-backed eager resolver. The host pre-populates all known
+/// zpkgs at startup; `resolve` is a trivial map lookup. Ideal for
+/// mobile / WASM where stdlib bundles are loaded once and then served
+/// from memory.
+///
+/// ```no_run
+/// # use z42::host::rust::MapResolver;
+/// let r = MapResolver::new();
+/// r.insert("z42.core", std::fs::read("z42.core.zpkg").unwrap());
+/// ```
+pub struct MapResolver {
+    map: std::sync::RwLock<std::collections::HashMap<String, Vec<u8>>>,
+}
+
+impl MapResolver {
+    pub fn new() -> Self {
+        Self {
+            map: std::sync::RwLock::new(std::collections::HashMap::new()),
+        }
+    }
+
+    pub fn insert(&self, namespace: &str, bytes: Vec<u8>) {
+        if let Ok(mut g) = self.map.write() {
+            g.insert(namespace.to_string(), bytes);
+        }
+    }
+
+    pub fn with(namespace: &str, bytes: Vec<u8>) -> Arc<Self> {
+        let r = Self::new();
+        r.insert(namespace, bytes);
+        Arc::new(r)
+    }
+}
+
+impl Default for MapResolver {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ZpkgResolver for MapResolver {
+    fn resolve(&self, namespace: &str) -> Option<Vec<u8>> {
+        self.map.read().ok()?.get(namespace).cloned()
+    }
+}
+
+/// Filesystem-based resolver. Scans the configured directories for
+/// `.zpkg` files declaring the requested namespace (mirrors the legacy
+/// `search_paths` behaviour). Useful for desktop apps that ship the
+/// stdlib alongside the binary and want explicit resolver chaining.
+pub struct SearchPathsResolver {
+    paths: Vec<PathBuf>,
+}
+
+impl SearchPathsResolver {
+    pub fn new(paths: Vec<PathBuf>) -> Self {
+        Self { paths }
+    }
+}
+
+impl ZpkgResolver for SearchPathsResolver {
+    fn resolve(&self, namespace: &str) -> Option<Vec<u8>> {
+        // Disk directories by construction (bytes are read with `std::fs` below).
+        let zpkgs = z42::loader::resolve_namespace(&z42::pal::fs::LocalFs, namespace, &self.paths).ok()?;
+        for zpkg_path in zpkgs {
+            if let Ok(bytes) = std::fs::read(&zpkg_path) {
+                return Some(bytes);
+            }
+        }
+        None
+    }
+}
+
 /// Read the keys a zpkg can be resolved by — its package name (e.g.
 /// `"z42.core"`, by which the prelude is requested) plus every namespace
 /// it declares in `NSPC`. Tier 3 facades use this to build a resolution
@@ -145,11 +207,16 @@ pub fn run_app(
     mode: Option<z42::host::ExecMode>,
     args: Vec<String>,
 ) -> Result<(), HostError> {
-    install_app_config(file);
+    crate::composition::install_app_config(file);
     let vfs = z42::pal::fs::default_vfs();
     let opts = z42::host::RunOpts {
         mode: mode.unwrap_or_else(z42::host::default_mode),
-        search_dirs: super::services::process_search_dirs(file, libs_dir.as_deref(), &*vfs),
+        search_dirs: crate::composition::resolve_search_dirs(
+            file,
+            libs_dir.as_deref(),
+            &*vfs,
+            crate::config::runtime_config(),
+        ),
         vfs,
         resolver: None,
         program_args: args,
@@ -163,8 +230,7 @@ pub fn run_app(
     })
 }
 
-/// Errors surfaced by every `z42-host` API. `message` carries the
-/// runtime's diagnostic from `z42_host_last_error`.
+/// Errors surfaced by the Rust host API, with the runtime diagnostic.
 #[derive(Debug, Clone)]
 pub enum HostError {
     AlreadyInit(String),
@@ -209,32 +275,19 @@ pub struct Value(Z42Value);
 
 impl Value {
     pub fn null() -> Self {
-        Self(Z42Value {
-            tag: Z42_VALUE_TAG_NULL,
-            reserved: 0,
-            payload: 0,
-        })
+        Self(super::marshal::raw_value(Z42_VALUE_TAG_NULL, 0))
     }
     pub fn i64(v: i64) -> Self {
-        Self(Z42Value {
-            tag: Z42_VALUE_TAG_I64,
-            reserved: 0,
-            payload: v as u64,
-        })
+        Self(super::marshal::raw_value(Z42_VALUE_TAG_I64, v as u64))
     }
     pub fn f64(v: f64) -> Self {
-        Self(Z42Value {
-            tag: Z42_VALUE_TAG_F64,
-            reserved: 0,
-            payload: v.to_bits(),
-        })
+        Self(super::marshal::raw_value(Z42_VALUE_TAG_F64, v.to_bits()))
     }
     pub fn bool(v: bool) -> Self {
-        Self(Z42Value {
-            tag: Z42_VALUE_TAG_BOOL,
-            reserved: 0,
-            payload: if v { 1 } else { 0 },
-        })
+        Self(super::marshal::raw_value(
+            Z42_VALUE_TAG_BOOL,
+            if v { 1 } else { 0 },
+        ))
     }
 
     pub fn is_null(self) -> bool {
@@ -267,243 +320,122 @@ impl Value {
     }
 }
 
-// ── Sink trampoline ─────────────────────────────────────────────────────
-
-/// Wrapper kept alive by `Host` so the sink trampoline can dereference
-/// `user_data` safely. `Arc` because the same closure is held by both
-/// the trampoline (via raw pointer) and the `Host` (via this `Arc`).
-struct SinkBox(Arc<dyn Fn(&[u8]) + Send + Sync + 'static>);
-
-unsafe extern "C" fn sink_trampoline(
-    bytes: *const c_char,
-    length: usize,
-    user_data: *mut c_void,
-) {
-    if user_data.is_null() {
-        return;
-    }
-    let sb = unsafe { &*(user_data as *const SinkBox) };
-    let slice = if bytes.is_null() || length == 0 {
-        &[][..]
-    } else {
-        unsafe { std::slice::from_raw_parts(bytes as *const u8, length) }
-    };
-    (sb.0)(slice);
-}
-
-// ── Host / Module / Entry ───────────────────────────────────────────────
-
-/// Single-instance VM handle. Drops invoke `z42_host_shutdown`.
+/// Handle for the process-wide embedding session. Dropping it closes that session.
 pub struct Host {
-    handle: *mut Z42Host,
-    /// Heap-allocated sink wrappers retained for the lifetime of the
-    /// host so the trampoline's `user_data` pointer stays valid.
-    _stdout_sink: Option<Box<SinkBox>>,
-    _stderr_sink: Option<Box<SinkBox>>,
+    token: usize,
+    // A Host can move between threads; clients drive it from one thread at a time.
+    _not_sync: PhantomData<Cell<()>>,
 }
 
-// All real synchronization happens inside the runtime's RwLock; the
-// handle itself is just a sentinel pointer. Marking `Host` as Send
-// matches the "thread-serial host" contract in embedding.md §7.
-unsafe impl Send for Host {}
-
-/// Loaded `.zbc` (with merged dependencies). Cheap to clone via the
-/// underlying handle, but we keep it `!Clone` to make ownership obvious.
+/// Loaded program in the embedding session.
 pub struct Module {
-    handle: *mut z42::host::Z42Module,
+    token: usize,
+    _not_sync: PhantomData<Cell<()>>,
 }
 
-unsafe impl Send for Module {}
-
-/// Resolved entry (function / static method).
+/// Resolved entry (function or static method).
 pub struct Entry {
-    handle: *mut z42::host::Z42Entry,
+    token: usize,
+    _not_sync: PhantomData<Cell<()>>,
 }
-
-unsafe impl Send for Entry {}
 
 impl Host {
     pub fn new(cfg: HostConfig) -> Result<Self, HostError> {
-        // Hold paths + path-string vec alive across the FFI call so the
-        // search_paths array still points at valid memory.
-        let path_cstrings: Vec<CString> = cfg
+        let mode = cfg.exec_mode.session_mode();
+        abi_config::check_feature_available(mode).map_err(|_| {
+            HostError::FeatureOff(format!("z42_host_initialize: exec_mode {mode:?} requires a feature disabled at compile time"))
+        })?;
+        if cfg.search_paths.len() >= 4096 {
+            return Err(HostError::BadConfig(
+                "search_paths array exceeded 4096 entries".into(),
+            ));
+        }
+        let search_paths = cfg
             .search_paths
             .iter()
-            .map(|p| {
-                CString::new(p.to_string_lossy().as_bytes())
-                    .map_err(|_| HostError::BadConfig("search_path contains NUL".into()))
+            .map(|path| {
+                let path = path.to_string_lossy();
+                if path.as_bytes().contains(&0) {
+                    return Err(HostError::BadConfig("search_path contains NUL".into()));
+                }
+                Ok(path.into_owned())
             })
             .collect::<Result<_, _>>()?;
-        let mut path_ptrs: Vec<*const c_char> =
-            path_cstrings.iter().map(|cs| cs.as_ptr()).collect();
-        path_ptrs.push(ptr::null());
 
-        let stdout_box = cfg.stdout.map(|f| Box::new(SinkBox(Arc::from(f))));
-        let stderr_box = cfg.stderr.map(|f| Box::new(SinkBox(Arc::from(f))));
-
-        let stdout_sink = stdout_box.as_ref().map(|_| sink_trampoline as _);
-        let stderr_sink = stderr_box.as_ref().map(|_| sink_trampoline as _);
-        // Tier 1's HostConfig only exposes one user_data; pick stdout's
-        // when present, else stderr's. Each callback dereferences its
-        // own SinkBox by way of the install_*_sink calls below.
-        let stdout_user_data = stdout_box
-            .as_ref()
-            .map(|b| (&**b) as *const SinkBox as *mut c_void)
-            .unwrap_or(ptr::null_mut());
-
-        let raw_cfg = Z42HostConfig {
-            abi_version: Z42_HOST_ABI_VERSION,
-            struct_size: std::mem::size_of::<Z42HostConfig>() as u32,
-            exec_mode: cfg.exec_mode.as_raw(),
+        let config = session::SessionConfig {
+            exec_mode: mode,
             heap_initial_bytes: cfg.heap_initial.unwrap_or(0),
             heap_max_bytes: cfg.heap_max.unwrap_or(0),
-            stdout_sink,
-            stderr_sink,
-            sink_user_data: stdout_user_data,
-            search_paths: if cfg.search_paths.is_empty() {
-                ptr::null()
-            } else {
-                path_ptrs.as_ptr()
-            },
-            // Tier 2 doesn't round-trip Rust resolvers through C — we
-            // install the Arc directly post-init below.
-            zpkg_resolver: None,
-            zpkg_resolver_user_data: ptr::null_mut(),
+            search_paths,
+            zpkg_resolver: cfg.zpkg_resolver,
+            vfs: cfg.vfs.unwrap_or_else(crate::pal::fs::default_vfs),
         };
-
-        let mut handle: *mut Z42Host = ptr::null_mut();
-        let status = unsafe { z42_host_initialize(&raw_cfg, &mut handle) };
-        if status != Z42HostStatus::Ok {
-            return Err(translate_status(status, "z42_host_initialize"));
-        }
-
-        // After initialize succeeds, override the per-sink user_data so
-        // each trampoline gets its own SinkBox pointer (Tier 1 supports
-        // independent stdout / stderr user_data via the dedicated
-        // setters).
-        if let Some(b) = stderr_box.as_ref() {
-            let ud = (&**b) as *const SinkBox as *mut c_void;
-            let s = unsafe { z42_host_set_stderr_sink(handle, Some(sink_trampoline), ud) };
-            if s != Z42HostStatus::Ok {
-                let _ = unsafe { z42_host_shutdown(handle) };
-                return Err(translate_status(s, "z42_host_set_stderr_sink"));
-            }
-        }
-
-        // Plug in the Rust ZpkgResolver (if any) directly into runtime
-        // state, bypassing the C callback adapter for zero-overhead
-        // dispatch.
-        if let Some(resolver) = cfg.zpkg_resolver {
-            let s = install_zpkg_resolver(resolver);
-            if s != Z42HostStatus::Ok {
-                let _ = unsafe { z42_host_shutdown(handle) };
-                return Err(translate_status(s, "install_zpkg_resolver"));
-            }
-        }
-
-        if let Some(vfs) = cfg.vfs {
-            let s = install_vfs(vfs);
-            if s != Z42HostStatus::Ok {
-                let _ = unsafe { z42_host_shutdown(handle) };
-                return Err(translate_status(s, "install_vfs"));
-            }
-        }
-
+        let sinks = HostSinks {
+            stdout: cfg.stdout.map(|sink| OutputSink::Rust(Arc::from(sink))),
+            stderr: cfg.stderr.map(|sink| OutputSink::Rust(Arc::from(sink))),
+        };
+        let token = session_call("z42_host_initialize", || session::initialize(config, sinks))?;
         Ok(Self {
-            handle,
-            _stdout_sink: stdout_box,
-            _stderr_sink: stderr_box,
+            token,
+            _not_sync: PhantomData,
         })
     }
 
     pub fn load_zbc(&self, bytes: &[u8]) -> Result<Module, HostError> {
-        let mut out: *mut z42::host::Z42Module = ptr::null_mut();
-        let status = unsafe {
-            z42_host_load_zbc(self.handle, bytes.as_ptr(), bytes.len(), &mut out)
-        };
-        if status != Z42HostStatus::Ok {
-            return Err(translate_status(status, "z42_host_load_zbc"));
-        }
-        Ok(Module { handle: out })
+        session_call("z42_host_load_zbc", || session::load(self.token, bytes)).map(|token| Module {
+            token,
+            _not_sync: PhantomData,
+        })
     }
 
     pub fn load_zbc_path<P: AsRef<Path>>(&self, path: P) -> Result<Module, HostError> {
-        let bytes = std::fs::read(&path).map_err(|e| {
-            HostError::BadZbc(format!(
-                "read {}: {e}",
-                path.as_ref().display()
-            ))
-        })?;
+        let bytes = std::fs::read(&path)
+            .map_err(|e| HostError::BadZbc(format!("read {}: {e}", path.as_ref().display())))?;
         self.load_zbc(&bytes)
     }
 
-    pub fn resolve_entry(&self, m: &Module, fqn: &str) -> Result<Entry, HostError> {
-        let cstr = CString::new(fqn)
-            .map_err(|_| HostError::BadConfig("fqn contains NUL".into()))?;
-        let mut out: *mut z42::host::Z42Entry = ptr::null_mut();
-        let status = unsafe {
-            z42_host_resolve_entry(self.handle, m.handle, cstr.as_ptr(), &mut out)
-        };
-        if status != Z42HostStatus::Ok {
-            return Err(translate_status(status, "z42_host_resolve_entry"));
+    pub fn resolve_entry(&self, module: &Module, fqn: &str) -> Result<Entry, HostError> {
+        if fqn.as_bytes().contains(&0) {
+            return Err(HostError::BadConfig("fqn contains NUL".into()));
         }
-        Ok(Entry { handle: out })
+        session_call("z42_host_resolve_entry", || {
+            session::resolve(self.token, module.token, fqn)
+        })
+        .map(|token| Entry {
+            token,
+            _not_sync: PhantomData,
+        })
     }
 
     pub fn invoke(&self, entry: &Entry, args: &[Value]) -> Result<Value, HostError> {
-        let raw_args: Vec<Z42Value> = args.iter().map(|v| v.0).collect();
-        let args_ptr = if raw_args.is_empty() {
-            ptr::null()
-        } else {
-            raw_args.as_ptr()
-        };
-        let mut result = Z42Value {
-            tag: Z42_VALUE_TAG_NULL,
-            reserved: 0,
-            payload: 0,
-        };
-        let status = unsafe {
-            z42_host_invoke(entry.handle, args_ptr, raw_args.len(), &mut result)
-        };
-        if status != Z42HostStatus::Ok {
-            return Err(translate_status(status, "z42_host_invoke"));
-        }
-        Ok(Value(result))
+        session_call("z42_host_invoke", || {
+            marshal::invoke(self.token, entry.token, args.iter().map(|value| &value.0))
+        })
+        .map(Value)
     }
 }
 
 impl Drop for Host {
     fn drop(&mut self) {
-        // Best-effort shutdown; ignore status because there's nothing
-        // useful to do if the runtime is already torn down.
-        unsafe {
-            let _ = z42_host_shutdown(self.handle);
+        let _ = session_call("z42_host_shutdown", || session::shutdown(self.token));
+    }
+}
+
+fn session_call<T>(
+    operation: &'static str,
+    f: impl FnOnce() -> Result<T, session::Failure>,
+) -> Result<T, HostError> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(f))
+        .map_err(|_| HostError::Internal(format!("{operation}: internal panic")))?
+        .map_err(|error| translate_failure(error, operation))
+}
+
+fn translate_failure(failure: session::Failure, ctx: &'static str) -> HostError {
+    let detail = format!("{ctx}: {}", failure.message);
+    match failure.status {
+        Z42HostStatus::Ok => {
+            HostError::Internal(format!("{ctx} returned OK but caller raised it as error"))
         }
-    }
-}
-
-// ── Helpers ─────────────────────────────────────────────────────────────
-
-fn last_error_message() -> String {
-    let err = unsafe { z42_host_last_error(ptr::null_mut()) };
-    if err.message.is_null() {
-        String::new()
-    } else {
-        unsafe { CStr::from_ptr(err.message) }
-            .to_string_lossy()
-            .into_owned()
-    }
-}
-
-fn translate_status(status: Z42HostStatus, ctx: &'static str) -> HostError {
-    let msg = last_error_message();
-    let detail = if msg.is_empty() {
-        ctx.to_string()
-    } else {
-        msg
-    };
-    match status {
-        Z42HostStatus::Ok => HostError::Internal(format!("{ctx} returned OK but caller raised it as error")),
         Z42HostStatus::AlreadyInit => HostError::AlreadyInit(detail),
         Z42HostStatus::NotInit => HostError::NotInit(detail),
         Z42HostStatus::BadConfig => HostError::BadConfig(detail),

@@ -55,9 +55,7 @@ pub fn type_methods(ctx: &VmContext, ty: &Value) -> Result<Value, BuiltinError> 
     // qualifying each method by its *declaring* interface so dedup is per-source.
     if td.class_flags & crate::zpkg::ir::CLASS_FLAG_INTERFACE != 0 {
         let resolve = |name: &str| {
-            ctx.module()
-                .and_then(|m| m.type_registry.get(name).cloned().map(|td| ctx.core().runtime().current_type_desc(td)))
-                .or_else(|| ctx.loader().try_lookup_type(name))
+            ctx.loader().resolve_type(name)
         };
         let mut queue: VecDeque<String> =
             td.interfaces().iter().map(|s| s.to_string()).collect();

@@ -12,6 +12,8 @@
 | `counters.rs` | 每线程原子计数、聚合快照与格式化 |
 | `sampling.rs` | 门面注入的采样接口、关闭快路与输出委托 |
 | `observer.rs` | 运行时事件、观察者注册及回调快照 |
+| `exit_report.rs` | 普通返回和托管退出共享的进程级统计输出与采样刷盘 |
+| `crash_report.rs` | 通过 PAL 安装致命信号处理并报告 VM 栈 |
 | `mod.rs` 的 `DiagnosticsState` | 六个共享诊断字段与其生命周期 |
 | `VmContext::counters_snapshot` | 在同一线程注册表锁下汇总存活与已退出线程计数 |
 | `VmContext::add_runtime_observer` / `fire_runtime_event` | 观察者注册与事件发布 |
@@ -20,7 +22,7 @@
 
 计数与观察契约通过 `diagnostics::{RuntimeCounters, CounterSnapshot, ProfileSnapshot, RuntimeEvent, RuntimeObserver}` 消费；`counters.rs`、`observer.rs` 是私有实现。
 
-通过 `VmContext` 的观察 API 获取计数和注册观察者。线程销毁时先在注册表锁下转移计数，再移除注册，
+通过 `VmContext` 的观察 API 获取计数和注册观察者。退出报告与托管诊断共用 VM 计数和堆统计的采样入口。线程销毁时先在注册表锁下转移计数，再移除注册，
 快照不会重复或遗漏这份计数。采样接口由 `sampling.rs` 定义，门面在开启采样时或首次堆分析请求时装配独立组件；默认不创建分析实现，关闭时只检查不可变布尔值，不进入动态派发。具体分析状态随 VM 释放，组件代码保留到进程退出。输出路径与错误直接透传。实现位于独立 `z42-profiler`，GC 观察者仍由堆持有。
 
 ## 如何测试验证

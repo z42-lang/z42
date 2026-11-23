@@ -24,8 +24,12 @@ pub(crate) mod context_gc;
 pub use extensions::{ExtensionState, VmExtensions};
 
 
+pub(crate) mod app_state;
 pub(crate) mod assembly;
 pub(crate) mod defaults;
+pub(crate) mod program;
+#[cfg(test)]
+mod program_tests;
 
 /// State shared by all contexts of one VM, owned through `Arc<VmCore>`.
 /// Subsystems own their synchronization and teardown; contexts retain thread-local
@@ -103,10 +107,8 @@ impl VmCore {
 
 /// Process-wide registry of all live [`VmCore`] instances.
 ///
-/// **add-os-signal-handler **: the POSIX signal handler in
-/// [`crate::host::signal`] (Phase 2 of D4 panic-hook story) walks this
-/// list to capture z42 call stacks across all VMs in the process. Stored
-/// as `Weak` so a VmCore drop doesn't require explicit deregistration;
+/// The crash reporter walks this list to capture z42 call stacks across all
+/// VMs in the process. Weak references avoid explicit deregistration;
 /// the handler ignores entries whose `upgrade()` returns `None` and the
 /// next `VmCore::new` call lazy-prunes dead entries via `retain`.
 ///

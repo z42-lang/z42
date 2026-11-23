@@ -1,5 +1,6 @@
 namespace DemoVarianceApp;
 
+using Std;
 using Std.IO;
 using DemoVarianceTarget;
 
@@ -20,4 +21,13 @@ void Main() {
     IMap<Cat,Animal> projected = map;
     Console.WriteLine(exact.Apply(new Cat()) is Cat ? "cat" : "animal");
     Console.WriteLine(projected.Apply(new Cat()) is Cat ? "cat" : "animal");
+
+    object boxed = dual;
+    Assert.True(boxed is ISink<Animal>);
+    Assert.True(boxed is ISink<Cat>);
+    Assert.False(boxed is ISink<string>);
+    Assert.False(typeof(ISink<string>).IsAssignableFrom(boxed.GetType()));
+    Assert.Equal(2, boxed.GetType().GetInterfaces().Length);
+    var targets = new ISink<string>[1];
+    Assert.Throws("InvalidCastException", () => targets.SetValue(boxed, 0));
 }

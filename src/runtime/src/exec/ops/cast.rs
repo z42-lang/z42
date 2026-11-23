@@ -301,11 +301,11 @@ fn is_subclass_or_eq_td_walk(
         }
         // add-reflection-transitive-interfaces: a declared interface matches `target`
         // directly OR transitively (interface-extends-interface).
-        if cur_td
-            .interfaces()
-            .iter()
-            .any(|i| iface_reaches_td(ctx, registry, i, target))
-        {
+        let implements = match target.contains('<').then(|| cur_td.closed_interfaces()).flatten() {
+            Some(mut names) => names.any(|name| name == target),
+            None => cur_td.interfaces().iter().any(|i| iface_reaches_td(ctx, registry, i, target)),
+        };
+        if implements {
             return true;
         }
         let base = match cur_td.nominal_base_name() {

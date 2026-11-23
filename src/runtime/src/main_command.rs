@@ -347,7 +347,7 @@ belong to the app and come only from its <app>.runtimeconfig.toml sidecar.");
         cli.entry.as_deref(),
         z42::host::RunOpts {
             mode: effective_mode,
-            search_dirs: resolve_search_dirs(file, libs_dir.as_deref(), &*vfs, &cfg),
+            search_dirs: crate::composition::resolve_search_dirs(file, libs_dir.as_deref(), &*vfs, &cfg),
             vfs,
             resolver: None,
             program_args: cli.args.clone(),

@@ -254,8 +254,8 @@ Z42Error z42_host_last_error(Z42HostRef host);
 /*
  * Tear down the singleton VM. After this returns OK, all Z42ModuleRef /
  * Z42EntryRef issued by this VM are invalidated; calling host APIs with
- * stale handles returns ERR_NOT_INIT. A subsequent z42_host_initialize
- * is allowed.
+ * stale handles returns ERR_NOT_INIT, even after a subsequent
+ * z42_host_initialize creates a replacement session.
  */
 Z42HostStatus z42_host_shutdown(Z42HostRef host);
 

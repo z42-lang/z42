@@ -3,10 +3,11 @@
 //! Mirrors `Z42HostConfig` / `Z42WriteSink` / `Z42ExecMode` from
 //! `src/runtime/include/z42_host_api.h`. Spec: docs/internals/src/runtime/embedding.md §4.2.
 
+use std::ffi::CString;
 use std::os::raw::{c_char, c_void};
 use std::sync::Arc;
 
-use crate::host::resolver::ZpkgResolver;
+use super::{ZpkgResolver, session::SessionConfig};
 
 /// Wire-compatible version of `Z42_HOST_ABI_VERSION` from the C header.
 pub const Z42_HOST_ABI_VERSION: u32 = 2;
@@ -19,14 +20,49 @@ pub type Z42WriteSink =
 /// `Z42ZpkgResolverFn` C ABI signature: hit returns non-zero, miss returns 0.
 /// Bytes need only stay valid until the callback returns. Spec:
 /// `变更 add-zpkg-resolver-hook/`.
-pub type Z42ZpkgResolverFn = Option<
-    unsafe extern "C" fn(
-        namespace_name: *const c_char,
-        out_bytes: *mut *const u8,
-        out_length: *mut usize,
-        user_data: *mut c_void,
-    ) -> i32,
->;
+pub type Z42ZpkgResolverFn = Option<ZpkgResolverCallback>;
+
+type ZpkgResolverCallback = unsafe extern "C" fn(
+    namespace_name: *const c_char,
+    out_bytes: *mut *const u8,
+    out_length: *mut usize,
+    user_data: *mut c_void,
+) -> i32;
+
+/// Keep user data opaque so the adapter can be shared. The C host provides
+/// a thread-safe callback and keeps its data valid for the resolver's lifetime.
+struct CHookResolver {
+    callback: ZpkgResolverCallback,
+    user_data: usize,
+}
+
+impl ZpkgResolver for CHookResolver {
+    fn resolve(&self, namespace: &str) -> Option<Vec<u8>> {
+        let cname = CString::new(namespace).ok()?;
+        let mut bytes_ptr: *const u8 = std::ptr::null();
+        let mut length: usize = 0;
+        // SAFETY: the callback signature matches the Rust type by
+        // construction (we got it from a typed field in `Z42HostConfig`).
+        // The runtime keeps the bytes only for the lifetime of this call.
+        let rc = unsafe {
+            (self.callback)(
+                cname.as_ptr(),
+                &mut bytes_ptr,
+                &mut length,
+                self.user_data as *mut c_void,
+            )
+        };
+        if rc == 0 || bytes_ptr.is_null() || length == 0 {
+            return None;
+        }
+        // SAFETY: contract requires the host to keep these bytes valid
+        // until our callback returns. We immediately copy into a `Vec`
+        // owned by the runtime; nothing in `bytes_ptr` escapes this
+        // function.
+        let slice = unsafe { std::slice::from_raw_parts(bytes_ptr, length) };
+        Some(slice.to_vec())
+    }
+}
 
 /// Visitor for [`super::z42_zpkg_read_namespaces`]: invoked once per
 /// resolution key a zpkg answers to — its package name and each namespace
@@ -91,44 +127,6 @@ pub struct Z42HostConfig {
 /// Stays fixed when fields are appended later.
 pub const MIN_CONFIG_SIZE: usize = std::mem::size_of::<Z42HostConfig>();
 
-/// Rust-side resolved configuration after validation. The thread-safety
-/// requirement comes from holding this inside the global `RwLock` —
-/// `*mut c_void` is not auto-`Send`, so we wrap the whole config in
-/// `unsafe impl Send + Sync` at the storage site (see `state.rs`).
-#[derive(Clone)]
-pub struct ResolvedConfig {
-    pub exec_mode: Z42ExecMode,
-    pub heap_initial_bytes: usize,
-    pub heap_max_bytes: usize,
-    pub stdout_sink: Z42WriteSink,
-    pub stderr_sink: Z42WriteSink,
-    pub sink_user_data: usize, // raw pointer kept as usize so this struct is Send
-    pub search_paths: Vec<String>,
-    /// `None` when neither the C config nor Tier 2 supplied a resolver.
-    /// Otherwise either a `CHookResolver` (built from the C pair) or a
-    /// Rust trait object handed to us by Tier 2 via
-    /// [`super::install_zpkg_resolver`].
-    pub zpkg_resolver: Option<Arc<dyn ZpkgResolver>>,
-    /// The file system the host's VMs load packages from and run on. The default VFS
-    /// (`pal::fs::default_vfs`) unless Tier 2 installed one via [`super::install_vfs`].
-    pub vfs: Arc<dyn crate::pal::fs::Vfs>,
-}
-
-impl std::fmt::Debug for ResolvedConfig {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ResolvedConfig")
-            .field("exec_mode", &self.exec_mode)
-            .field("heap_initial_bytes", &self.heap_initial_bytes)
-            .field("heap_max_bytes", &self.heap_max_bytes)
-            .field("stdout_sink", &self.stdout_sink.is_some())
-            .field("stderr_sink", &self.stderr_sink.is_some())
-            .field("sink_user_data", &self.sink_user_data)
-            .field("search_paths", &self.search_paths)
-            .field("zpkg_resolver", &self.zpkg_resolver.is_some())
-            .finish()
-    }
-}
-
 /// Validation outcome. Caller maps `Err` to a `Z42HostStatus`.
 #[derive(Debug)]
 pub enum ConfigError {
@@ -146,7 +144,9 @@ pub enum ConfigError {
 /// Caller must ensure that, if `cfg` is non-null, it points to a valid
 /// `Z42HostConfig` with a valid `search_paths` array (NULL-terminated, or
 /// null pointer if no paths are configured).
-pub(crate) unsafe fn validate(cfg: *const Z42HostConfig) -> Result<ResolvedConfig, ConfigError> {
+pub(super) unsafe fn validate(
+    cfg: *const Z42HostConfig,
+) -> Result<(SessionConfig, crate::corelib::io::HostSinks), ConfigError> {
     if cfg.is_null() {
         return Err(ConfigError::NullConfig);
     }
@@ -173,23 +173,29 @@ pub(crate) unsafe fn validate(cfg: *const Z42HostConfig) -> Result<ResolvedConfi
 
     let search_paths = unsafe { collect_search_paths(cfg.search_paths) }?;
 
-    let zpkg_resolver =
-        crate::host::resolver::arc_from_c_pair(cfg.zpkg_resolver, cfg.zpkg_resolver_user_data);
+    let zpkg_resolver = cfg.zpkg_resolver.map(|callback| {
+        Arc::new(CHookResolver {
+            callback,
+            user_data: cfg.zpkg_resolver_user_data as usize,
+        }) as Arc<dyn ZpkgResolver>
+    });
 
-    Ok(ResolvedConfig {
+    let resolved = SessionConfig {
         exec_mode,
         heap_initial_bytes: cfg.heap_initial_bytes,
         heap_max_bytes: cfg.heap_max_bytes,
-        stdout_sink: cfg.stdout_sink,
-        stderr_sink: cfg.stderr_sink,
-        sink_user_data: cfg.sink_user_data as usize,
         search_paths,
         zpkg_resolver,
         vfs: crate::pal::fs::default_vfs(),
-    })
+    };
+    let sinks = crate::corelib::io::HostSinks {
+        stdout: output_sink(cfg.stdout_sink, cfg.sink_user_data),
+        stderr: output_sink(cfg.stderr_sink, cfg.sink_user_data),
+    };
+    Ok((resolved, sinks))
 }
 
-fn check_feature_available(mode: Z42ExecMode) -> Result<(), ConfigError> {
+pub(super) fn check_feature_available(mode: Z42ExecMode) -> Result<(), ConfigError> {
     match mode {
         Z42ExecMode::Default | Z42ExecMode::Interp => Ok(()),
         Z42ExecMode::Jit => if cfg!(all(feature = "jit", z42_jit_supported)) { Ok(()) } else { Err(ConfigError::FeatureOff { mode }) },
@@ -235,3 +241,10 @@ unsafe fn collect_search_paths(
     })
 }
 
+
+pub(super) fn output_sink(
+    callback: Z42WriteSink, user_data: *mut c_void,
+) -> Option<crate::corelib::io::OutputSink> {
+    use crate::corelib::io::{HostSink, OutputSink};
+    callback.map(|callback| OutputSink::C(HostSink { callback, user_data }))
+}

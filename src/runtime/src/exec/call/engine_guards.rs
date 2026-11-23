@@ -14,7 +14,7 @@
 //! runs above that bottom frame, under the guards already installed. The one
 //! way another context's code can run on this thread while this context has
 //! frames is a host re-entry (`z42_host_invoke` from a native callback), and
-//! `host::ops::invoke_impl` installs both guards itself, unconditionally. Each
+//! `exec::invoke_entry` installs both guards itself, unconditionally. Each
 //! guard restores what it found, so the nesting unwinds in order.
 //!
 //! The same bottom push also stores the running thread's stack limit into the

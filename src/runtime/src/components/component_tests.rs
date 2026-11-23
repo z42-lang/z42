@@ -25,7 +25,7 @@ fn count(lease: &ComponentLease<CounterApi>) -> (u64, u64) {
 }
 fn load(components: ComponentOptions) -> anyhow::Result<LoadedProgram> {
     LoadedProgram::load_bytes_with_components(
-        &crate::host::program_tests::empty_zbc(),
+        &crate::loader::test_support::empty_zbc(),
         LoadOptions {
             mode: ExecMode::Interp,
             ..Default::default()
