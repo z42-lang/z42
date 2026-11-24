@@ -18,11 +18,9 @@ pub fn invoke_module(
     ctx: &VmContext, provider: &str, name: &str, regs: &[Value], args: &[u32],
 ) -> abi::CallResult {
     ctx.counters().native_calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    if ctx.core().diagnostics().runtime_observers.has_observers() {
-        ctx.core().diagnostics().runtime_observers.fire(&crate::diagnostics::RuntimeEvent::NativeCallEntered {
-            module: provider.to_owned(), symbol: name.to_owned(),
-        });
-    }
+    crate::diagnostics::emit_runtime_event(ctx, || crate::diagnostics::RuntimeEvent::NativeCallEntered {
+        module: provider.to_owned(), symbol: name.to_owned(),
+    });
     let values: Result<Vec<_>, _> = args.iter().map(|&index| {
         regs.get(index as usize).copied().ok_or_else(|| Box::new(
             abi::BuiltinError::Internal(format!("undefined native argument register %{index}"))))

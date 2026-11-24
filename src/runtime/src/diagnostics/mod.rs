@@ -4,6 +4,18 @@
 //! use z42::diagnostics::{RuntimeCounters, CounterSnapshot, RuntimeEvent, RuntimeObserver};
 //! let _: CounterSnapshot = RuntimeCounters::new().snapshot();
 //! ```
+//! ```
+//! use std::sync::Arc;
+//! use z42::{diagnostics::{add_runtime_observer, RuntimeObserver}, vm::VmContext};
+//! fn subscribe(ctx: &VmContext, observer: Arc<dyn RuntimeObserver>) {
+//!     add_runtime_observer(ctx, observer);
+//! }
+//! ```
+//! ```compile_fail
+//! fn registry(ctx: &z42::vm::VmContext) {
+//!     let _ = &ctx.core().diagnostics().runtime_observers;
+//! }
+//! ```
 //! ```compile_fail
 //! use z42::diagnostics::counters::RuntimeCounters;
 //! ```
@@ -17,6 +29,7 @@ pub(crate) use crash_report::install as install_crash_report;
 mod exit_report;
 pub(crate) use exit_report::{configure_exit_report, report_on_exit};
 mod observer;
+pub(crate) use observer::ModuleLoadEvents;
 pub use observer::{RuntimeEvent, RuntimeObserver, RuntimeObserverRegistry};
 pub mod sampling;
 pub mod retention;
@@ -30,7 +43,7 @@ use crate::vm::VmContext;
 /// Fields retain their own synchronization; the aggregate adds no lock.
 pub struct DiagnosticsState {
     pub counters: Arc<crate::diagnostics::RuntimeCounters>,
-    pub runtime_observers: crate::diagnostics::RuntimeObserverRegistry,
+    runtime_observers: RuntimeObserverRegistry,
     pub park_histogram: Mutex<crate::gc::types::PauseHistogram>,
     pub lock_contentions: AtomicU64,
     pub lock_wait_us: AtomicU64,
@@ -46,6 +59,22 @@ pub struct ThreadDiagnosticsState {
 pub(crate) mod contention;
 
 impl DiagnosticsState {
+    pub(crate) fn new(pause_window: usize, sampler: sampling::Sampling) -> Self {
+        Self {
+            counters: Arc::new(RuntimeCounters::new()),
+            runtime_observers: RuntimeObserverRegistry::new(),
+            park_histogram: Mutex::new(crate::gc::types::PauseHistogram::new(pause_window)),
+            lock_contentions: AtomicU64::new(0),
+            lock_wait_us: AtomicU64::new(0),
+            sampler,
+        }
+    }
+
+    #[inline]
+    pub(crate) fn module_loads(&self) -> ModuleLoadEvents<'_> {
+        self.runtime_observers.module_loads()
+    }
+
     /// Exact totals across living and departed contexts; base is read under the
     /// same registry lock used to transfer a departing shard into it.
     pub fn snapshot(&self, threads: &crate::threads::ThreadState) -> CounterSnapshot {
@@ -53,6 +82,29 @@ impl DiagnosticsState {
             shards.fold(self.counters.snapshot(), |total, shard| total.add(shard.snapshot()))
         })
     }
+}
+
+/// Subscribe to subsequent events from this VM and its workers.
+pub fn add_runtime_observer(ctx: &VmContext, observer: Arc<dyn RuntimeObserver>) {
+    ctx.core().diagnostics().runtime_observers.add(observer);
+}
+
+/// Publish an event. The payload is only built when the VM has subscribers.
+#[inline]
+pub fn emit_runtime_event(ctx: &VmContext, build: impl FnOnce() -> RuntimeEvent) {
+    ctx.core().diagnostics().runtime_observers.fire_with(build);
+}
+
+/// Report a managed throw, limiting the UTF-8 message prefix read by observers.
+pub fn emit_exception_thrown(ctx: &VmContext, describe: impl FnOnce() -> (String, String)) {
+    emit_runtime_event(ctx, || {
+        let (class, mut message) = describe();
+        if message.len() > 256 {
+            message.truncate(message.floor_char_boundary(256));
+            message.push('…');
+        }
+        RuntimeEvent::ExceptionThrown { class, message }
+    });
 }
 
 /// Sample the counters and heap statistics shared by CLI and managed diagnostics.

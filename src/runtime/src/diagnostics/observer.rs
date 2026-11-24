@@ -1,70 +1,30 @@
-//! `RuntimeObserver` — push-based event stream for **non-GC** runtime activity.
+//! Non-GC runtime events and per-VM subscriptions.
 //!
-//! Symmetric pair to existing [`crate::gc::types::GcObserver`]: GcObserver
-//! handles allocation / collection events; `RuntimeObserver` covers
-//! everything else (module loads, JIT compiles, exception traffic, native
-//! calls). The two trait families are kept separate so existing GcObserver
-//! consumers don't need to change.
-//!
-//! CoreCLR parallel: EventPipe (provider-based). docs/review.md Part 4 D3
-//! Phase 1  — final remaining Part 4 ops/devex item.
-//!
-//! # Phase 1 scope (this commit)
-//!
-//! Lands the trait + enum + registration plumbing on `VmCore` + one demo
-//! emit site (`ModuleLoaded`, fired from `main.rs` after each successful
-//! `loader::load_artifact`). All other event variants are listed only
-//! as Phase 2 placeholders; the enum carries a `Custom { source, payload }`
-//! escape hatch so experimental code can emit without bumping the public
-//! event enum.
-//!
-//! Phase 2 (independent refactors):
-//! - [`RuntimeEvent::JitCompiled`] ← `jit::compile_module`
-//! - [`RuntimeEvent::ExceptionThrown`] / `ExceptionCaught` ← engine throw/catch paths
-//! - [`RuntimeEvent::NativeCallEntered`] ← `interp::ops::exec_ffi`
-//!
-//! # Concurrency
-//!
-//! Observers are `Send + Sync` so they can sit in async runtimes / metrics
-//! pipelines. The registry is a `Mutex<Vec<Arc<dyn RuntimeObserver>>>` on
-//! `VmCore` (process-wide per VM). Fire-event snapshots the Vec under lock
-//! then releases before invoking callbacks — reentrant `add_runtime_observer`
-//! inside a callback is safe (won't deadlock or skip events for the current
-//! fire).
+//! The registry snapshots its subscribers before calling them. Subscriptions
+//! added from a callback take effect on the next dispatch.
 
 use std::sync::Arc;
 
-/// Push-based runtime event. Phase 1 shipped `ModuleLoaded` + `Custom`;
-/// Phase 2  wired 4 more covering JIT compile / exception
-/// throw+catch / native FFI call sites.
+/// Push-based event about activity in a VM.
 #[derive(Debug, Clone)]
 pub enum RuntimeEvent {
-    /// A `.zbc` / `.zpkg` artifact was loaded into the VM. Fired by
-    /// `main.rs` for eager loads (z42.core + user artifact) and by the
-    /// lazy loader for on-demand zpkg resolution. Captures canonical
-    /// path + on-disk byte size (None when reading from buffer).
+    /// Startup or lazy loading published a bytecode artifact. Byte size is
+    /// present when the publisher has it.
     ModuleLoaded {
         name:       String,
         byte_size:  Option<u64>,
     },
 
-    /// A module's JIT compilation finished. Fired from `jit::run` after
-    /// `compile_module` returns. Phase 2 emits one event per
-    /// compile_module call (covering all module functions); per-function
-    /// granularity is deferred. `function_count` is how many functions
-    /// Cranelift translated; `duration_us` is wall-clock compile time.
-    /// Phase 2 .
+    /// JIT setup for a module finished. The function count measures the module
+    /// size and the duration measures setup. Function translation can be lazy.
     JitModuleCompiled {
         module_name:     String,
         function_count:  u32,
         duration_us:     u64,
     },
 
-    /// A user exception was thrown via `Terminator::Throw` or JIT's
-    /// `set_exception` bridge. `class` is the exception's declared
-    /// type-name (e.g. `"Std.Exception"` / user subclass); `message`
-    /// is the first 256 chars of the exception's Message field
-    /// (truncated to avoid huge payloads in event firehose). Phase 2.
+    /// A managed exception was thrown. The interpreter limits the message
+    /// prefix to 256 UTF-8 bytes and appends an ellipsis when truncated.
     ExceptionThrown {
         class:    String,
         message:  String,
@@ -73,15 +33,13 @@ pub enum RuntimeEvent {
     /// A user exception was caught by a `try { ... } catch` clause.
     /// `class` is the catch-clause's declared type; `frames_unwound`
     /// is how many z42 call-stack frames were popped between throw
-    /// and catch (0 = same-frame catch). Phase 2.
+    /// and catch (0 = same-frame catch).
     ExceptionCaught {
         class:           String,
         frames_unwound:  u32,
     },
 
-    /// A native FFI call was dispatched via `Instruction::CallNative`.
-    /// `module` is the native library name (e.g. `"libz42_compression"`);
-    /// `symbol` is the resolved `extern "C"` symbol called. Phase 2.
+    /// Dispatch entered a native method or a named native module export.
     NativeCallEntered {
         module:  String,
         symbol:  String,
@@ -140,6 +98,17 @@ impl RuntimeObserverRegistry {
     /// the event — useful for unit tests; non-test callers ignore.
     pub fn fire(&self, event: &RuntimeEvent) -> usize {
         if !self.has_observers() { return 0; }
+        self.dispatch(event)
+    }
+
+    #[inline]
+    pub(super) fn fire_with(&self, build: impl FnOnce() -> RuntimeEvent) {
+        if self.has_observers() {
+            self.dispatch(&build());
+        }
+    }
+
+    fn dispatch(&self, event: &RuntimeEvent) -> usize {
         let snapshot: Vec<Arc<dyn RuntimeObserver>> = {
             let g = self.inner.lock();
             g.iter().cloned().collect()
@@ -158,6 +127,21 @@ impl RuntimeObserverRegistry {
 
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+}
+
+/// Publish completed loads without access to the subscription registry.
+pub(crate) struct ModuleLoadEvents<'a>(&'a RuntimeObserverRegistry);
+
+impl ModuleLoadEvents<'_> {
+    pub(crate) fn loaded(&self, name: String, byte_size: Option<u64>) {
+        self.0.fire(&RuntimeEvent::ModuleLoaded { name, byte_size });
+    }
+}
+
+impl RuntimeObserverRegistry {
+    pub(crate) fn module_loads(&self) -> ModuleLoadEvents<'_> {
+        ModuleLoadEvents(self)
     }
 }
 

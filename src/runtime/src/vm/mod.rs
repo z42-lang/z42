@@ -14,7 +14,6 @@
 //! ```
 use std::marker::PhantomPinned;
 use std::sync::{Arc, Weak};
-use parking_lot::Mutex;
 use crate::gc::Heap;
 use crate::threads::VmContextPtr;
 
@@ -210,15 +209,7 @@ impl VmContext {
             heap:                 Box::new(Heap::new(config.gc)),
             runtime: crate::metadata::RuntimeState::new(module, catalog),
 
-            diagnostics: crate::diagnostics::DiagnosticsState {
-                counters: Arc::new(crate::diagnostics::RuntimeCounters::new()),
-                runtime_observers: crate::diagnostics::RuntimeObserverRegistry::new(),
-                park_histogram: Mutex::new(crate::gc::types::PauseHistogram::new(config.gc.pause_window)),
-                lock_contentions: std::sync::atomic::AtomicU64::new(0),
-                lock_wait_us:     std::sync::atomic::AtomicU64::new(0),
-                // Construct the backend here; the VM owns only its sampling capability.
-                sampler,
-            },
+            diagnostics: crate::diagnostics::DiagnosticsState::new(config.gc.pause_window, sampler),
             exec: crate::exec::ExecState::new(
                 engines, builtins, config.stack_alloc,
             ),
@@ -298,7 +289,7 @@ impl VmContext {
     pub fn loader(&self) -> crate::loader::RuntimeLoader<'_> {
         crate::loader::RuntimeLoader::new(
             &self.core.loader, &self.core.runtime, &self.runtime,
-            &self.core.diagnostics.runtime_observers,
+            self.core.diagnostics.module_loads(),
         )
     }
     #[inline]

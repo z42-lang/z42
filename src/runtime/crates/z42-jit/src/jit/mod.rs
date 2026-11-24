@@ -113,7 +113,7 @@ pub fn run(ctx: &VmContext, module: &Module, entry_name: &str, config: JitConfig
     compile::state::install(ctx, module, config)?;
 
     let setup_us = start.elapsed().as_micros() as u64;
-    ctx.core().diagnostics().runtime_observers.fire(&crate::diagnostics::RuntimeEvent::JitModuleCompiled {
+    crate::diagnostics::emit_runtime_event(ctx, || crate::diagnostics::RuntimeEvent::JitModuleCompiled {
         module_name:    module.module_name().to_string(),
         function_count,
         duration_us:    setup_us,
@@ -130,7 +130,7 @@ pub fn invoke_host(ctx: &VmContext, module: &Module, func: &crate::metadata::Fun
     let start = std::time::Instant::now();
     compile::state::install(ctx, module, config)?;
     if first_install {
-        ctx.core().diagnostics().runtime_observers.fire(&crate::diagnostics::RuntimeEvent::JitModuleCompiled {
+        crate::diagnostics::emit_runtime_event(ctx, || crate::diagnostics::RuntimeEvent::JitModuleCompiled {
             module_name: module.module_name().to_owned(), function_count: module.functions().len() as u32,
             duration_us: start.elapsed().as_micros() as u64,
         });

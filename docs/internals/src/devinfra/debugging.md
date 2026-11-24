@@ -137,15 +137,15 @@ inferno-flamegraph z42-samples.folded > flame.svg
 ## 6. 事件流：`RuntimeObserver`（嵌入宿主用）
 
 VM 用 push-based 事件流通知**非 GC** 的运行时活动；GC 事件留在独立的 `GcObserver`。
-宿主经 `VmContext::add_runtime_observer(Arc<dyn RuntimeObserver>)` 注册。
+从 `z42::diagnostics` 调用 `add_runtime_observer(ctx, observer)`，为该 VM 及其 worker 注册观察者。
 
 `RuntimeEvent` 的变体：`ModuleLoaded`（eager 加载与 lazy zpkg 解析都发）、
-`JitModuleCompiled`（模块名 + 函数数 + 编译微秒）、`ExceptionThrown` / `ExceptionCaught`、
+`JitModuleCompiled`（模块名、函数数和 JIT 初始化耗时）、`ExceptionThrown` / `ExceptionCaught`、
 `NativeCallEntered`、`Custom`。
 
 ```rust
 use std::sync::Arc;
-use z42::diagnostics::{RuntimeObserver, RuntimeEvent};
+use z42::diagnostics::{add_runtime_observer, RuntimeEvent, RuntimeObserver};
 
 #[derive(Debug)]
 struct JsonLineExporter;
@@ -154,11 +154,11 @@ impl RuntimeObserver for JsonLineExporter {
     fn on_event(&self, evt: &RuntimeEvent) { eprintln!("{evt:?}"); }
 }
 
-ctx.add_runtime_observer(Arc::new(JsonLineExporter));
+add_runtime_observer(ctx, Arc::new(JsonLineExporter));
 ```
 
 回调的三条约束：**Send + Sync**（宿主可能跨线程转发到 async runtime / 监控管线）；
-**不许 panic**（fire 循环不 catch unwind，panic 会 abort 整个进程）；
+**回调须正常返回**（事件分发不捕获 panic）；
 **快速返回**（重活丢 channel 给 worker 线程，别阻塞热路径）。注册表是
 `Mutex<Vec<Arc<dyn RuntimeObserver>>>`，fire 时先取快照再放锁，所以在回调里重入
 `add_runtime_observer` 不会死锁。
