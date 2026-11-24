@@ -274,65 +274,26 @@ fn resolve_vcall_unchecked<'a>(
         }
     }
 
-    // ── 2. boxed struct (add-struct-object-methods PR2b) ──────────────────────────────────
-    // GetType → precise struct type; GetHashCode → native FNV; ToString → short type name
-    // (C# ValueType default) except for records, whose compiler-synthesized `<Type>.ToString`
-    // is reached through the candidate lookup; Equals / user methods → `{type}.{m}$arity`
-    // synthesized/declared methods (`this = box`, the body's AsCast unboxes), fallback Std.Object.
     if let Value::BoxedStruct(b) = obj_val {
-        if arity == 0 {
-            if method == "GetType" {
-                let ty = (ctx.core().object_protocol().get_type)(ctx, &obj_val)?;
-                return Ok(ResolvedVCall { target: VCallTarget::Immediate(ty), this: obj_val.clone() });
-            }
-            if method == "GetHashCode" {
-                // add-value-hash-ref-leaves：用户/record 合成的 `GetHashCode` 优先（先探本类型
-                // 自己的槽位，同下方 ToString 的先例）——native FNV 只是无真实现时的兜底。此前
-                // 无条件 native ⇒ 用户哈希在装箱位点（字典/集合探测正是这条）被无视：引用叶子
-                // 哈希全同时靠单桶+用户 Equals 兜底碰巧正确，散布后「Equals 相等 ⇒ 哈希相等」
-                // 直接破约（HashSet Add 后 Contains 找不回）。
-                let type_name = b.type_desc().name.to_string();
-                if let Some(target) = resolve_own_slot(ctx, module, &type_name, method, arity) {
-                    return Ok(ResolvedVCall { target, this: obj_val.clone() });
-                }
-                let h = Value::I64(crate::object::value::boxed_hash::struct_hash_code(b));
-                return Ok(ResolvedVCall { target: VCallTarget::Immediate(h), this: obj_val.clone() });
-            }
-            // 短类型名只是 **没有真实现时** 的兜底（C# ValueType 默认行为）。record 的合成
-            // `ToString` 一直走下方候选查找；**用户自己写的 `override string ToString()` 此前
-            // 被这条短路一并拦掉** —— 于是 `Console.WriteLine(p)` 打的是 `P` 而不是用户写的格式，
-            // 而显式 `p.ToString()`（编译器发静态 Call）却是对的，两条路说法不一致。
-            // 故先探一次候选：有真实现就用它，没有才回落短类型名。
-            if method == "ToString" && !b.type_desc().is_record() {
-                // ⚠️ 只探**这个 struct 自己**的槽位，不能用 `resolve_by_candidates` ——
-                // 它最后会回落到 `Std.Object`，于是没写 ToString 的 struct 会被派发到
-                // `Std.Object.ToString`，而那个 builtin 收到装箱 struct 直接抛
-                // `__obj_to_str: expected an object`（我第一版就这么踩了）。
-                let type_name = b.type_desc().name.to_string();
-                if let Some(target) = resolve_own_slot(ctx, module, &type_name, method, arity) {
-                    return Ok(ResolvedVCall { target, this: obj_val.clone() });
-                }
-                let short = crate::zpkg::index::type_names::unqualified(&b.type_desc().name);
-                return Ok(ResolvedVCall {
-                    target: VCallTarget::Immediate(Value::Str(short.into())), this: obj_val.clone(),
-                });
-            }
+        if arity == 0 && method == "GetType" {
+            let ty = (ctx.core().object_protocol().get_type)(ctx, obj_val)?;
+            return Ok(ResolvedVCall { target: VCallTarget::Immediate(ty), this: *obj_val });
         }
-        let type_name = b.type_desc().name.to_string();
-        // add-value-auto-iequatable：`Equals` 命中 **float-free 合成体**（保留名
-        // `Equals$1$synth`，用户方法名不可能产生双 `$` 段）→ 原生值比较，不 unbox 不进
-        // IR（字典探测的热路径）。含浮点布局的合成体仍名 `Equals$1`，用户 Equals 解析到
-        // 用户方法——都走下方候选查找 → invoke，行为不变。
+        let name = &b.type_desc().name;
         if arity == 1 && method == "Equals" {
-            let synth_key = format!("{}.Equals$1$synth", type_name);
+            let synth_key = format!("{name}.Equals$1$synth");
             if target_by_name(ctx, module, &synth_key).is_some() {
-                return Ok(ResolvedVCall { target: VCallTarget::StructValueEq, this: obj_val.clone() });
+                return Ok(ResolvedVCall { target: VCallTarget::StructValueEq, this: *obj_val });
             }
         }
-        match resolve_by_candidates(ctx, module, &type_name, method, arity, true, None, ic) {
-            Some(target) => return Ok(ResolvedVCall { target, this: obj_val.clone() }),
-            None => bail!("VCall on boxed struct `{}`: method `{}` (arity {}) not found", type_name, method, arity),
-        }
+        use crate::zpkg::index::well_known_names::{STD_OBJECT, STD_VALUE_TYPE};
+        let target = resolve_own_slot(ctx, module, name, method, arity)
+            .or_else(|| resolve_own_slot(ctx, module, STD_VALUE_TYPE, method, arity))
+            .or_else(|| resolve_own_slot(ctx, module, STD_OBJECT, method, arity));
+        return match target {
+            Some(target) => Ok(ResolvedVCall { target, this: *obj_val }),
+            None => bail!("VCall on boxed struct `{name}`: method `{method}` (arity {arity}) not found"),
+        };
     }
 
     // ── 3. primitive-as-struct (L3-G4b) ───────────────────────────────────────────────────
@@ -486,15 +447,7 @@ fn resolve_by_candidates<'a>(
     None
 }
 
-/// Probe **only** `{class}.{method}` (mangled + plain), never the `Std.Object` fallback.
-///
-/// [`resolve_by_candidates`] deliberately ends with `Std.Object`; that is right for a normal
-/// dispatch but wrong when the caller needs to answer "does this type declare the method
-/// *itself*?" — a boxed struct with no `ToString` of its own would resolve to
-/// `Std.Object.ToString`, whose builtin rejects a boxed struct outright
-/// (`__obj_to_str: expected an object`). Used by the boxed-struct `ToString` arm to pick the
-/// user's / record's own implementation when there is one, and fall back to the short type
-/// name when there is not.
+/// Probe a single declaring type before continuing up the value type base chain.
 fn resolve_own_slot<'a>(
     ctx: &'a VmContext, module: &'a Module, class_name: &str, method: &str, arity: usize,
 ) -> Option<VCallTarget<'a>> {

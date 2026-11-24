@@ -498,11 +498,18 @@ pub mod typed {
         }
     }
 
-    /// `GetHashCode` of a value struct in any representation (`struct_payload`) —
-    /// the boxed form serves the VM-internal vcall protocol; the compiler emits the
-    /// same builtin directly at statically-typed `GetHashCode()` sites, skipping the box.
+    #[builtin(name = "__value_type_equals")]
+    pub fn value_type_equals(ctx: &VmContext, this: &Value, other: &Value) -> Result<bool, BuiltinError> {
+        crate::exec::ops::object::struct_leaf::value_type_equals(ctx, this, other)
+            .map_err(|e| BuiltinError::Internal(e.to_string()))
+    }
+
+    /// Field hash shared by the base implementation and direct struct calls.
     #[builtin(name = "__struct_hash_code", pure)]
     pub fn struct_hash_code(ctx: &VmContext, v: &Value) -> Result<i64, BuiltinError> {
+        if let Value::BoxedStruct(boxed) = v {
+            return Ok(crate::object::value::boxed_hash::struct_hash_code(boxed));
+        }
         match crate::exec::ops::object::struct_leaf::struct_payload(ctx, v)
             .map_err(|e| BuiltinError::Internal(e.to_string()))?
         {

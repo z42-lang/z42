@@ -141,9 +141,12 @@ vtable 把「可能重载的方法名」映射到编译器为该站点绑定的�
 
 细节见 [inline cache 发布](inline-cache-publication.md)与 [interp / JIT 语义一致性](interp-jit-semantics.md)。
 
-## `Equals` / `GetHashCode` / `GetType` 没有第二套机制
+## 值类型的对象方法
 
-它们全部走上面那条 `VCall` 阶梯，**没有**各自的协议 helper。三件事值得单记：
+装箱 struct 的虚调用先找具体类型的规范签名，再查 `Std.ValueType` 和 `Std.Object`。
+编译器为 `Equals(object?)`、`GetHashCode()` 和 `ToString()` 保留裸键，其它 struct 重载
+使用完整签名键。默认哈希和短类型名由基类外部方法提供。编译器可以为具体布局发出逐字段比较，
+也可以在静态收者上直接使用值比较或字段哈希。
 
 - **基元的 `Equals` / `GetHashCode` 没有 builtin**（没有 `__int32_equals` / `__double_hash_code` /
   `__char_equals` 之类），
@@ -154,7 +157,7 @@ vtable 把「可能重载的方法名」映射到编译器为该站点绑定的�
   `Std.Object.GetType` → `__obj_get_type` builtin（`corelib/core/object.rs`）合成 `Std.Type` 对象。
   `Std.Type` 自己的 `GetType()` 有一个独立的 vtable 撞车坑，见
   [反射 Type 身份](reflection-type-identity.md)。
-- **装箱值的四方法**由「基元盒 / struct 盒」分流决定，判据是 `ScriptObject::boxed_prim_i64()` 的
+- **装箱值的四方法**由「基元盒 / struct 盒」分流决定，判据是 `ScriptObject::boxed_scalar()` 的
   `Some`/`None`。那张逐消费点的分流表在 [struct 值语义](struct-value-semantics.md)，本页不复述。
 
 ## 为什么是两条入口而不是一条

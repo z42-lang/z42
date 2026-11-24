@@ -215,6 +215,19 @@ public sealed class MemberCollector {
         return r;
     }
 
+    private static int _structObjectMethod(Z42ClassType ct, MethodSymbol method) {
+        if (!ct.IsStruct || ct.IsScalarType() || method.IsStatic) { return 0; }
+        int count = method.Signature.ParamCount;
+        if (method.Name == "Equals") {
+            return count == 1 && !method.Signature.IsRefParam(0)
+                && method.Signature.ParamTypes[0].CanonName() == "object" ? 2 : 1;
+        }
+        if (method.Name == "GetHashCode" || method.Name == "ToString") {
+            return count == 0 ? 2 : 1;
+        }
+        return 0;
+    }
+
     [Suppress("style.fnLinesHard", "153 body lines；拆分见 code-organization.md")]
     private void _fillClass(SymbolTable table, ClassDecl c) {
         // 本 CU 声明的这个类（`table` 已是 `WithScopeOf(cu)` 视图）：arity-mangle 键与对象都按本命名空间的 FQN 取。
@@ -406,7 +419,10 @@ public sealed class MemberCollector {
                     regName = md.Name;
                     bool tracks = !(md.IsPartial && !md.HasBody);
                     if (tracks) {
-                        if (emittedInst.ContainsKey(md.Name)) {
+                        int protocol = MemberCollector._structObjectMethod(ct, msym);
+                        if (protocol == 1) {
+                            regName = DispatchKeys.MethodKey(md.Name, msym.Signature);
+                        } else if (protocol == 0 && emittedInst.ContainsKey(md.Name)) {
                             regName = DispatchKeys.MethodKey(md.Name, msym.Signature);
                         } else {
                             emittedInst.Put(md.Name, "1");
