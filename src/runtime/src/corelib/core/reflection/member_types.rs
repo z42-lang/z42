@@ -39,8 +39,7 @@ pub(super) fn member_subst(ty: &Value) -> Option<MemberSubst> {
 pub(super) fn projected_base_type(
     ctx: &VmContext, definition: &TypeDesc, subst: &MemberSubst,
 ) -> Option<Value> {
-    let template = definition.custom_attributes().iter().find(|a| a.type_name == "$ReflectionBase")?;
-    projected_member_type(ctx, &template.factory_func, subst, &[])
+    projected_member_type(ctx, definition.base_type_template()?, subst, &[])
 }
 
 /// Member signatures must use the arguments of the class that declared them.

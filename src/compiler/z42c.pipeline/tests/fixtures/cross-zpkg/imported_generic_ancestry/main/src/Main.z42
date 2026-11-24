@@ -1,0 +1,43 @@
+using Std.IO;
+using Demo.GenericAncestry;
+
+bool HasIntMarker(object value) { return value is IMarker<int>; }
+
+void Main() {
+    var textLeaf = new Leaf<string,int>();
+    var numberLeaf = new Leaf<int,string>();
+    object text = textLeaf;
+    object number = numberLeaf;
+    Assert.Equal(typeof(string), textLeaf.ElementType());
+    Assert.Equal(typeof(int), numberLeaf.ElementType());
+
+    Assert.True(text is Middle<int,string>);
+    Assert.False(text is Middle<string,int>);
+    Assert.True(text is Base<string>);
+    Assert.False(text is Base<int>);
+    Assert.True(text is Base);
+    Assert.True(text is IMarker<string>);
+    Assert.False(HasIntMarker(text));
+    Assert.True(HasIntMarker(number));
+    Assert.False(HasIntMarker(text));
+    Assert.True((text as Base<int>) == null);
+    Assert.Throws("InvalidCastException", () => { var wrong = (IMarker<int>)text; });
+
+    Type type = text.GetType();
+    Assert.Equal(typeof(Middle<int,string>), type.BaseType);
+    Assert.True(typeof(Base<string>).IsAssignableFrom(type));
+    Assert.False(typeof(Base<int>).IsAssignableFrom(type));
+    Assert.True(typeof(IMarker<string>).IsAssignableFrom(type));
+    Assert.False(typeof(IMarker<int>).IsAssignableFrom(type));
+    var interfaces = type.GetInterfaces();
+    Assert.Equal(1, interfaces.Length);
+    Assert.Equal(typeof(IMarker<string>), interfaces[0]);
+
+    var markers = new IMarker<int>[1];
+    markers.SetValue(number, 0);
+    Assert.Throws("InvalidCastException", () => markers.SetValue(text, 0));
+    var values = new Leaf<string,int>[] { (Leaf<string,int>)text };
+    Assert.Throws("InvalidCastException", () => Array.CopyRange(values, 0, markers, 0, 1));
+    Assert.True(Object.ReferenceEquals(number, markers[0]));
+    Console.WriteLine("generic ancestry ok");
+}
