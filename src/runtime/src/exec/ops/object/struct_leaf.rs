@@ -186,6 +186,9 @@ pub fn struct_payload(
             let (bytes, refs, _layout, type_name) = crate::object::snapshot_struct_element(&e)?;
             Ok(Some((type_name.to_string(), bytes, refs)))
         }
+        Value::Object(o) if o.type_desc().is_struct() && o.type_desc().fields.is_empty() => {
+            Ok(Some((o.type_desc().name.clone(), Vec::new(), Vec::new())))
+        }
         _ => Ok(None),
     }
 }
@@ -201,4 +204,45 @@ pub fn struct_value_eq(ctx: &VmContext, a: &Value, b: &Value) -> Result<bool> {
         _ => return Ok(false),
     };
     Ok(pa.0 == pb.0 && pa.1 == pb.1 && pa.2 == pb.2)
+}
+
+/// Default equality when invoked directly on the ValueType declaration. Ordinary
+/// boxed calls can select the concrete type's compiled field comparison.
+pub fn value_type_equals(ctx: &VmContext, a: &Value, b: &Value) -> Result<bool> {
+    if matches!(a, Value::BoxedStruct(o) if o.borrow().boxed_scalar().is_some())
+        || matches!(a, Value::I64(_) | Value::F64(_) | Value::Bool(_) | Value::Char(_))
+    {
+        return Ok(a == b);
+    }
+    let (Some((name, lhs, lhs_refs)), Some((other, rhs, rhs_refs))) =
+        (struct_payload(ctx, a)?, struct_payload(ctx, b)?)
+    else {
+        return Ok(false);
+    };
+    if name != other || lhs_refs != rhs_refs || lhs.len() != rhs.len() {
+        return Ok(false);
+    }
+    if lhs.is_empty() {
+        return Ok(true);
+    }
+    equal_scalar_fields(&|n| ctx.loader().try_lookup_type(n), &name, &lhs, &rhs)
+}
+
+fn equal_scalar_fields(
+    resolve: &named_struct_layout::TypeResolver<'_>, name: &str, lhs: &[u8], rhs: &[u8],
+) -> Result<bool> {
+    for field in &named_struct_layout::compute(resolve, name)?.leaves {
+        if field.is_ref { continue; }
+        let start = field.byte_off as usize;
+        let end = start + field.size as usize;
+        let a = lhs.get(start..end).ok_or_else(|| anyhow::anyhow!("invalid field layout for {name}"))?;
+        let b = rhs.get(start..end).ok_or_else(|| anyhow::anyhow!("invalid field layout for {name}"))?;
+        let equal = if field.is_struct {
+            equal_scalar_fields(resolve, &field.type_name, a, b)?
+        } else {
+            decode_prim(a, 0, a.len(), field.tag)? == decode_prim(b, 0, b.len(), field.tag)?
+        };
+        if !equal { return Ok(false); }
+    }
+    Ok(true)
 }

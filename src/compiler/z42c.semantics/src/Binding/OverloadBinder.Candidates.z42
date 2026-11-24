@@ -231,7 +231,9 @@ public sealed partial class OverloadBinder {
                 i = i + 1;
             }
             if (!cur.HasBase) {
-                if (cur.Name() != "Object" && symbols.HasClass("Object")) { cur = symbols.GetClass("Object"); }
+                Z42ClassType valueBase = cur.IsStruct && !cur.IsScalarType() ? symbols.GetClass("Std.ValueType") : null;
+                if (valueBase != null) { cur = valueBase; }
+                else if (cur.Name() != "Object" && symbols.HasClass("Object")) { cur = symbols.GetClass("Object"); }
                 else { more = false; }
             } else {
                 Z42ClassType b = symbols.BaseOf(cur);   // A5：走句柄

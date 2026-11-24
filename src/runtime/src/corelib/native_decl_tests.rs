@@ -59,7 +59,6 @@ const UNDECLARED_ALLOWLIST: &[(&str, &str)] = &[
     // Invoked by the VM itself (boxed-struct `GetHashCode` protocol intercept in exec/ops/vcall),
     // and emitted by the compiler at statically-typed struct `GetHashCode()` sites (any
     // representation — no box).
-    ("__struct_hash_code", "VM-internal + compiler-emitted: struct GetHashCode"),
     // Emitted by the compiler for struct `==`/`!=` and unoverridden `Equals` on float-free
     // layouts — a single-instruction value comparison over any struct representation.
     ("__struct_eq", "compiler-emitted: add-struct-value-eq-fastpath"),

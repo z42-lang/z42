@@ -35,9 +35,10 @@ void Main() {
 struct 可以有字段、方法、构造器、`static` 方法、运算符重载，也可以
 [实现接口](interfaces.md)、带 [`[Record]`](record-attribute.md)。
 
-## 值语义由编译器合成
+## 默认对象方法
 
-编译器为 `struct` 合成按字段内容比较的 `Equals` 和 `GetHashCode`：
+`Std.ValueType` 提供按字段工作的 `Equals(object?)` 和 `GetHashCode()`。调用这两个签名时，
+具体 struct 的实现优先。其余重载按声明的参数类型选择，例如 `Equals(Pair)`。
 
 ```z42
 struct Pair { public int A; public int B; public Pair(int a, int b) { A = a; B = b; } }
@@ -51,8 +52,7 @@ a.Equals(c);                          // false
 a.GetHashCode() == b.GetHashCode();   // true
 ```
 
-`ToString()` 是个例外：普通 struct 没有自定义 `ToString` 时只返回**短类型名**（`"Pair"`）。
-想要「显示内容」两条路：
+默认 `ToString()` 返回短类型名（`"Pair"`）。可以通过下列方式显示字段内容：
 
 - 自己写 `public override string ToString() => ...`；
 - 或者用 [`[Record]` struct](record-attribute.md)，它合成记录式的输出：

@@ -1,4 +1,16 @@
 namespace Std;
 
 /// 抽象引用基类。具体值类型经装箱可以赋给 ValueType。
-public abstract class ValueType {}
+public abstract class ValueType {
+    /// 比较同一值类型的字段。
+    [Native("__value_type_equals")]
+    public override extern bool Equals(object? other);
+
+    /// 根据值类型的字段计算哈希码。
+    [Native("__struct_hash_code")]
+    public override extern int GetHashCode();
+
+    /// 默认返回具体类型的短名。
+    [Native("__obj_to_str")]
+    public override extern string ToString();
+}

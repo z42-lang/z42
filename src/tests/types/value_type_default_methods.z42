@@ -1,0 +1,74 @@
+namespace ValueTypeDefaults;
+
+struct DefaultPoint(int X, int Y) {
+    public bool Equals(DefaultPoint other) { return this.X == other.X; }
+    public string ToString(string prefix) { return prefix + this.X.ToString(); }
+    public int GetHashCode(int offset) { return this.X + offset; }
+}
+
+struct CustomPoint(int X, int Y) {
+    public bool Equals(CustomPoint other) { return this.Y == other.Y; }
+    public override bool Equals(object? other) {
+        if (other != null && other is CustomPoint) { return this.X == ((CustomPoint)other).X; }
+        return false;
+    }
+    public string ToString(string prefix) { return prefix + this.Y.ToString(); }
+    public override string ToString() { return "custom"; }
+    public override int GetHashCode() { return this.X; }
+}
+
+struct Empty {}
+
+struct FloatPoint(double X, int Y) {
+    public bool Equals(FloatPoint other) { return this.Y == other.Y; }
+}
+
+void Main() {
+    DefaultPoint a = new DefaultPoint(3, 4);
+    DefaultPoint b = new DefaultPoint(3, 9);
+    DefaultPoint c = new DefaultPoint(3, 4);
+    ValueType va = a;
+    ValueType vb = b;
+    ValueType vc = c;
+    object oa = va;
+    Assert.True(a.Equals(b));
+    Assert.False(a.Equals((object)b));
+    Assert.False(va.Equals(vb));
+    Assert.True(oa.Equals(vc));
+    Assert.False(va.Equals(null));
+    Assert.False(va.Equals(new CustomPoint(3, 4)));
+
+    Assert.Equal("x=3", a.ToString("x="));
+    Assert.Equal("DefaultPoint", a.ToString());
+    Assert.Equal(a.ToString(), va.ToString());
+    Assert.Equal(a.ToString(), oa.ToString());
+    Assert.Equal(7, a.GetHashCode(4));
+    Assert.Equal(a.GetHashCode(), oa.GetHashCode());
+    Assert.Equal(va.GetHashCode(), vc.GetHashCode());
+
+    CustomPoint x = new CustomPoint(7, 4);
+    CustomPoint y = new CustomPoint(7, 9);
+    ValueType vx = x;
+    ValueType vy = y;
+    object ox = vx;
+    Assert.False(x.Equals(y));
+    Assert.True(x.Equals((object)y));
+    Assert.True(vx.Equals(vy));
+    Assert.True(ox.Equals(vy));
+    Assert.Equal("y=4", x.ToString("y="));
+    Assert.Equal("custom", x.ToString());
+    Assert.Equal("custom", vx.ToString());
+    Assert.Equal("custom", ox.ToString());
+    Assert.Equal(7, vx.GetHashCode());
+    Assert.Equal(7, ox.GetHashCode());
+
+    ValueType empty = new Empty();
+    Assert.True(empty.Equals(new Empty()));
+    Assert.Equal("Empty", empty.ToString());
+
+    ValueType positive = new FloatPoint(0.0, 2);
+    ValueType negative = new FloatPoint(-0.0, 2);
+    ValueType nan = new FloatPoint(Double.NaN, 2);
+    Assert.True(positive.Equals(negative));
+    Assert.False(nan.Equals(nan));
+}

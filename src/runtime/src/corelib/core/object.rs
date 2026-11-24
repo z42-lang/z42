@@ -298,7 +298,7 @@ pub fn obj_equals(this: &Value, other: &Value) -> bool {
 pub fn obj_to_str(this: &Value) -> Result<String, BuiltinError> {
     match this {
         Value::InterfaceRef(view) => obj_to_str(&view.receiver()),
-        Value::Object(rc) => {
+        Value::Object(rc) | Value::BoxedStruct(rc) => {
             let td_name = &rc.type_desc().name;
             Ok(crate::zpkg::index::type_names::unqualified(td_name).to_string())
         }
