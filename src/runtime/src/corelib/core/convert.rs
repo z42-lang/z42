@@ -507,19 +507,11 @@ pub mod typed {
     /// Field hash shared by the base implementation and direct struct calls.
     #[builtin(name = "__struct_hash_code", pure)]
     pub fn struct_hash_code(ctx: &VmContext, v: &Value) -> Result<i64, BuiltinError> {
-        if let Value::BoxedStruct(boxed) = v {
-            return Ok(crate::object::value::boxed_hash::struct_hash_code(boxed));
-        }
-        match crate::exec::ops::object::struct_leaf::struct_payload(ctx, v)
+        crate::exec::ops::object::struct_leaf::struct_value_hash(ctx, v)
             .map_err(|e| BuiltinError::Internal(e.to_string()))?
-        {
-            Some((_, bytes, refs)) => {
-                Ok(crate::object::value::boxed_hash::hash_struct_payload(&bytes, &refs))
-            }
-            None => Err(BuiltinError::Internal(format!(
+            .ok_or_else(|| BuiltinError::Internal(format!(
                 "__struct_hash_code: expected a struct value, got {v:?}"
-            ))),
-        }
+            )))
     }
 
     /// Value equality of two struct values in any representation — the engine-level core

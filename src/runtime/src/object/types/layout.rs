@@ -2,7 +2,8 @@
 
 #![allow(unused_imports)]
 use crate::object::*;
-use std::sync::Arc;
+use std::ops::Range;
+use std::sync::{Arc, OnceLock};
 use crate::object::string::vstr::Str;
 use crate::object::ArrRef;
 use crate::object::header::{BlockType, VarGcRef};
@@ -27,7 +28,7 @@ pub const STRUCT_REF_GCREF: u8 = 2;
 /// empty reference arrays. A type with no delivered layout resolves (in
 /// `interp::ops::exec_struct::resolve_layout`) to a `size`-only empty layout, which
 /// reproduces the pre-A-use pure-primitive behavior byte-for-byte.
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, Default)]
 pub struct StructTypeLayout {
     pub size: usize,
     pub ref_offsets: Box<[u32]>,
@@ -44,11 +45,19 @@ pub struct StructTypeLayout {
     /// 而它们的偏移随 `A`/`B` 而变。于是解析 = `fields[i].offset`，
     /// **O(1) 数组下标，无哈希、无字符串、不需要 IC**。
     ///
-    /// ⚠️ 本字段目前是**休眠元数据：没有任何消费方**（形态同
-    /// `unify-object-byte-layout (PR-1)` 的先例）。接通它是 P2 的事。
-    /// 之所以先单独落地：P0 纯附加、零行为变化，可独立 GREEN；而 P2 要改指令编码、
-    /// 得在此之上做。
+    /// 字段访问和默认哈希使用同一张字段表。
     pub fields: Box<[StructFieldLayout]>,
+    /// Flattened float byte ranges used to normalize signed zero for default hashing.
+    pub float_field_ranges: OnceLock<Box<[Range<usize>]>>,
+}
+
+impl PartialEq for StructTypeLayout {
+    fn eq(&self, other: &Self) -> bool {
+        self.size == other.size
+            && self.ref_offsets == other.ref_offsets
+            && self.ref_kinds == other.ref_kinds
+            && self.fields == other.fields
+    }
 }
 
 /// `StructTypeLayout::fields` 的一项 —— 一个字段的偏移 / 宽 / 叶子种类。

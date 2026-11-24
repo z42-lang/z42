@@ -342,11 +342,13 @@ struct 的完整对象协议。unboxed struct 仍无 vtable（这些方法经装
   → `ExprEmitter.EmitSynthEqualsResult`）= `(other is P) ? leafEq((P)this,(P)other) : false`——**this/other
   均按 boxed 处理、内部 `AsCast` 拆箱到 callee 帧 arena StructRef**（避开 JIT 帧无 frame_id），再复用
   `_emitStructEquality` 逐叶子比较（NaN 精确、嵌套递归、string 内容 / object 引用）。
-- **`GetHashCode()`**：**native `__struct_hash_code`**（VM boxed-vcall 臂路由）——对 boxed blob 的 `bytes`
-  FNV-1a + 混入引用叶子哈希（string 内容；object/array 叶子走地址身份哈希 `identity_hash`（GC 不移动
+- **`GetHashCode()`** 通过 `Std.ValueType` 的原生方法 `__struct_hash_code` 对 struct 的字节计算
+  FNV-1a，并混入引用叶子哈希（string 内容；object/array 叶子走地址身份哈希 `identity_hash`（GC 不移动
   对象 ⇒ 稳定；add-value-hash-ref-leaves——此前贡献常量 0，引用叶子互异的 struct 全落同一桶）；null/委托
   叶子保持常量贡献，Equals 按身份比较的语义下 collisions 合法）。
-  `& 0x7fffffff` 非负（Dictionary 契约）。同值 → 同 `bytes`/`refs` → 同哈希。
+  `& 0x7fffffff` 保证结果非负。每种布局按需缓存嵌套浮点字段的字节位置，哈希前在临时副本中
+  将这些字段的负零归一为正零，使默认相等的值得到相同哈希。无浮点字段的局部 struct 直接对已有
+  字段数据计算哈希。
 - **`ToString()`**：VM boxed-vcall 臂直接返回**短类型名**（C# `ValueType.ToString` 默认；字段 dump 留后续）。
 - **`GetType()`**：`builtin_obj_get_type`（PR2a）。
 
@@ -362,14 +364,13 @@ struct 的完整对象协议。unboxed struct 仍无 vtable（这些方法经装
   按位相等 ⇔ `Eq`，故该等价只对 float-free 布局成立；浮点叶（±0.0/NaN 语义）保持逐叶 IR。
 - **`a.Equals(x)`**（未自声明 `Equals`）：x 静态同型（binder 已包 `BoundBox`）→ 剥壳拿裸
   StructRef 直比（float-free → `__struct_eq`；含浮点 → 逐叶）；x 静态为其他值类型/null →
-  `ConstBool(false)`（`x is P` 编译期恒假）；x 为 object/接口/型参 → `__struct_eq`（builtin 内
+  保留实参和接收者的求值，再发射 `ConstBool(false)`；x 为 object/接口/型参 → `__struct_eq`（builtin 内
   运行期同名判定，非 struct 侧答 false；含浮点布局内联 `is`+`AsCast`+逐叶）。
 - **`a.GetHashCode()`**（未自声明）：`__struct_hash_code` 直呼——builtin 已扩为收**任意表示**
-  （`StructRef` / `StructRefHeap` / `BoxedStruct`，`convert.rs::struct_payload`），哈希走
+  （`StructRef` / `StructRefHeap` / `BoxedStruct`），哈希走
   payload 级 `boxed_hash::hash_struct_payload`（boxed 臂同一实现 ⇒ 跨表示同哈希）。
 
-`__struct_eq` / `__struct_hash_code` 均 compiler-emitted（无 stdlib 声明，
-`native_decl_tests` allowlist 在案）。
+`__struct_eq` 由编译器直接发射。`__struct_hash_code` 同时服务具体类型调用和 `Std.ValueType.GetHashCode()`。
 
 ### 值类型自动满足 IEquatable + 装箱 vcall Equals 快路（add-value-auto-iequatable）
 

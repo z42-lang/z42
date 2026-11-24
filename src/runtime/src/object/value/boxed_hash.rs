@@ -2,17 +2,34 @@
 
 use super::Value;
 
-/// add-struct-object-methods (PR2b): boxed 值 struct 的 GetHashCode——FNV-1a over 基元字节 blob + 混入
-/// 引用叶子哈希（string 走内容 FNV；object/array 叶子走地址身份哈希（`identity_hash`——GC 不移动对象，
-/// 地址稳定），见 add-value-hash-ref-leaves）。结果 `& 0x7fffffff` 非负（`__str_hash_code` 同款，
-/// Dictionary 契约）。值相等的 struct → 字节+refs 相同 → 同哈希（契约满足）。⚠️边角：float ±0.0
-/// 字节不同→哈希不同，而 Equals 的浮点 == 判 +0==-0 → 极少数含 ±0 float 的 struct 违反契约
-/// （pre-1.0 文档标注，与 C# 历史一致；修约需运行期知道浮点字段位置=zbc 字段表 prim 码，另行推进）。
-pub fn struct_hash_code(gc: &crate::object::ObjRef) -> i64 {
-    // add-boxed-struct-identity (P4b): read the blob out of the shared box object.
-    // The blob's reference slots hold reference words — hash the bytes with them zeroed.
-    let (bytes, refs) = gc.borrow().boxed_blob();
-    hash_struct_payload(&bytes, &refs)
+/// Canonicalize negative zero in the float lanes of a value snapshot. Struct equality
+/// treats both zeros as equal, so the default hash must see the same bytes for both.
+pub fn normalize_signed_zero(
+    bytes: &mut [u8], float_fields: &[std::ops::Range<usize>],
+) -> anyhow::Result<()> {
+    for range in float_fields {
+        let field = bytes.get_mut(range.clone())
+            .ok_or_else(|| anyhow::anyhow!("struct hash: invalid float field range {range:?}"))?;
+        if let Some((sign, rest)) = field.split_last_mut() {
+            if *sign == 0x80 && rest.iter().all(|&b| b == 0) {
+                *sign = 0;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Hash borrowed arena storage. A float layout uses a scratch copy for zero normalization.
+#[inline]
+pub fn hash_struct_with_floats(
+    bytes: &[u8], refs: &[Value], float_fields: &[std::ops::Range<usize>],
+) -> anyhow::Result<i64> {
+    if float_fields.is_empty() {
+        return Ok(hash_struct_payload(bytes, refs));
+    }
+    let mut copy = bytes.to_vec();
+    normalize_signed_zero(&mut copy, float_fields)?;
+    Ok(hash_struct_payload(&copy, refs))
 }
 
 /// add-struct-value-eq-fastpath：payload 级哈希——boxed、frame arena `StructRef`、

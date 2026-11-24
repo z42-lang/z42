@@ -23,7 +23,43 @@ struct FloatPoint(double X, int Y) {
     public bool Equals(FloatPoint other) { return this.Y == other.Y; }
 }
 
+struct EvalTarget(int Value);
+struct EvalArgument(int Value);
+
+EvalArgument Argument(int[] trace, bool fail) {
+    trace[0] = trace[0] * 10 + 1;
+    if (fail) { throw new InvalidOperationException("argument"); }
+    return new EvalArgument(1);
+}
+
+EvalTarget Receiver(int[] trace, bool fail) {
+    trace[0] = trace[0] * 10 + 2;
+    if (fail) { throw new InvalidOperationException("receiver"); }
+    return new EvalTarget(2);
+}
+
+void CheckOperandEffects() {
+    int[] trace = new int[1];
+    Assert.False(Receiver(trace, false).Equals(Argument(trace, false)));
+    Assert.Equal(12, trace[0]);
+
+    trace[0] = 0;
+    bool threw = false;
+    try { Receiver(trace, false).Equals(Argument(trace, true)); }
+    catch (InvalidOperationException e) { threw = e.Message == "argument"; }
+    Assert.True(threw);
+    Assert.Equal(1, trace[0]);
+
+    trace[0] = 0;
+    threw = false;
+    try { Receiver(trace, true).Equals(Argument(trace, false)); }
+    catch (InvalidOperationException e) { threw = e.Message == "receiver"; }
+    Assert.True(threw);
+    Assert.Equal(12, trace[0]);
+}
+
 void Main() {
+    CheckOperandEffects();
     DefaultPoint a = new DefaultPoint(3, 4);
     DefaultPoint b = new DefaultPoint(3, 9);
     DefaultPoint c = new DefaultPoint(3, 4);

@@ -214,6 +214,7 @@ public static class CompilerFingerprint {
         "bind-interface-implementation-templates",
         "unify-value-type-object-methods",
         "bind-class-parameter-interface-slots"
+        "preserve-struct-equals-operand-effects"
     };
 
     // 指纹值：`Entries` 逐条以 `\n` 连接后取内容哈希（`mmh3:` 前缀，同 SourceHash）。
