@@ -31,10 +31,10 @@ impl Sampling {
             initialized: OnceLock::new(), backend: OnceLock::new() }
     }
     /// Called only by a validated same-build component through the shared core.
-    pub fn install(&self, backend: Box<dyn ProfilerBackend>) -> anyhow::Result<()> {
+    pub(super) fn install(&self, backend: Box<dyn ProfilerBackend>) -> anyhow::Result<()> {
         self.backend.set(backend).map_err(|_| anyhow::anyhow!("profiler provider is already installed"))
     }
-    pub fn provider(&self, ctx: &VmContext) -> anyhow::Result<&dyn ProfilerBackend> {
+    pub(super) fn provider(&self, ctx: &VmContext) -> anyhow::Result<&dyn ProfilerBackend> {
         let result = self.initialized.get_or_init(|| {
             if self.backend.get().is_some() { return Ok(()); }
             (self.prepare)(ctx, self.hz.unwrap_or(0), self.trace)
@@ -44,23 +44,23 @@ impl Sampling {
         self.backend.get().map(|b| b.as_ref())
             .ok_or_else(|| anyhow::anyhow!("profiler component did not install its provider"))
     }
-    pub fn is_loaded(&self) -> bool {
+    pub(super) fn is_loaded(&self) -> bool {
         self.initialized.get().is_some_and(|result| result.is_ok()) && self.backend.get().is_some()
     }
     #[inline]
-    pub fn enabled(&self) -> bool { self.enabled }
+    pub(super) fn enabled(&self) -> bool { self.enabled }
     #[inline]
-    pub fn poll(&self, ctx: &VmContext) {
+    pub(super) fn poll(&self, ctx: &VmContext) {
         // The host resolves enabled sampling before execution. Disabled polls do
         // not resolve a provider, take a clock, allocate, lock or dispatch.
         if self.enabled {
             if let Some(backend) = self.backend.get() { backend.maybe_sample(ctx); }
         }
     }
-    pub fn flush_folded(&self, path: &str) -> std::io::Result<()> {
+    pub(super) fn flush_folded(&self, path: &str) -> std::io::Result<()> {
         self.backend.get().ok_or_else(|| std::io::Error::other("profiler is not initialized"))?.flush_folded(path)
     }
-    pub fn flush_trace(&self, path: &str) -> std::io::Result<()> {
+    pub(super) fn flush_trace(&self, path: &str) -> std::io::Result<()> {
         self.backend.get().ok_or_else(|| std::io::Error::other("profiler is not initialized"))?.flush_trace(path)
     }
 }

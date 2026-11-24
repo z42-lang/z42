@@ -188,7 +188,7 @@ LOH 覆盖、native 扩展加载、固定地址登记和 TLAB/SATB 顺序保持�
 
 动态包 verify 将库搬移到独立目录，清除动态链接搜索环境，执行实际生产依赖图的 engine_components 集成测试，覆盖解释/JIT、worker/GC/异常、VM 隔离、缺库/来源禁用、worker 在宿主释放后的执行及正常释放，以及从 host 动态库调用 C 嵌入接口。测试必须实际执行，零用例不算通过。通用静态/动态 ABI 夹具另覆盖描述符拒绝、依赖、回滚与库保活。
 
-profiler 的算法与线程位于 z42-profiler，diagnostics 只持有中立契约和按需 provider。关闭采样时不实例化 Sampler；开启时在托管执行前加载并检查身份，堆分析在首次请求时加载。每 VM 的 provider 先于其组件代码租约释放，租约不反向持有 Core。
+profiler 的算法与线程位于 z42-profiler，diagnostics 只持有中立契约和按需 provider。关闭采样时不实例化 Sampler；开启时在托管执行前加载并检查身份，堆分析在首次请求时加载。组件装配校验 Core 身份并保留代码，再调用附着回调。profiler 通过 `components::bridge::install_profiler_backend` 登记后端，采样状态由 diagnostics 持有。每 VM 的 provider 先于其组件代码租约释放，租约不反向持有 Core。
 
 后续拆 debugger：core 仅保留观察者、采样和诊断契约，独立组件拥有工具实现、线程和重型状态。AOT 按其后端计划接入。每项都需要完整运行时、SDK、平台与性能验证；不得把通用框架或某一平台通过当作全部组件已交付。
 

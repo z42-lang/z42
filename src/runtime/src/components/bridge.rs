@@ -1,9 +1,21 @@
 //! Minimal same-build VM views and physical image/layout identity for components.
+//!
+//! ```
+//! use z42::components::bridge::{install_profiler_backend, ProfilerBackend};
+//! use z42::vm::VmContext;
+//! let _: unsafe fn(&VmContext, Box<dyn ProfilerBackend>) -> _ = install_profiler_backend;
+//! ```
+//! ```compile_fail
+//! fn sampler(ctx: &z42::vm::VmContext) {
+//!     let _ = &ctx.core().diagnostics().sampler;
+//! }
+//! ```
 // Component-facing VM identities and layout facts stay here when their owner
 // moves internally. Export individual contracts, never whole implementation modules.
 pub use crate::vm::{VmContext, VM_CONTEXT_CCTORS_OFFSET,
     VM_CONTEXT_SAFEPOINT_SKIP_OFFSET, VM_CONTEXT_STACK_LIMIT_OFFSET};
 use crate::components::abi::ExecutionCoreAbi;
+pub use crate::diagnostics::sampling::{ProfilerBackend, SampleBackend};
 static CORE_IDENTITY: u8 = 0;
 pub fn core_identity() -> *const core::ffi::c_void { core::ptr::addr_of!(CORE_IDENTITY).cast() }
 pub const CORE_ABI: ExecutionCoreAbi = ExecutionCoreAbi {
@@ -51,6 +63,19 @@ pub fn object_protocol(ctx: &crate::vm::VmContext) -> &crate::object::ObjectProt
     crate::vm::VmContext, crate::exec::builtin_abi::BuiltinError,
 > {
     ctx.core().object_protocol()
+}
+
+/// Install the backend supplied by a validated same-build profiler component.
+///
+/// # Safety
+/// The component containing the backend's vtable, methods and destructor must
+/// remain loaded until the VM releases it. Component attachment retains that
+/// code before calling this function.
+pub unsafe fn install_profiler_backend(
+    ctx: &VmContext,
+    backend: Box<dyn ProfilerBackend>,
+) -> anyhow::Result<()> {
+    crate::diagnostics::install_profiler_backend(ctx, backend)
 }
 
 #[cfg(feature = "jit-test-support")]

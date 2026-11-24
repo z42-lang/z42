@@ -1,6 +1,6 @@
 //! Static and dynamic registration of the same profiling backend.
 use z42::components::abi::*;
-use z42::components::bridge::{core_identity, CORE_ABI};
+use z42::components::bridge::{core_identity, install_profiler_backend, CORE_ABI};
 use core::ffi::c_void;
 unsafe extern "C" fn identity() -> ExecutionIdentity {
     ExecutionIdentity { image: core_identity(), abi: CORE_ABI }
@@ -13,7 +13,8 @@ unsafe extern "C" fn attach(vm: *const c_void, hz: u32, trace: u32) -> Component
         let ctx = unsafe { &*vm.cast::<z42::components::bridge::VmContext>() };
         let sampler = if hz == 0 { super::cpu::Sampler::disabled() }
             else { super::cpu::Sampler::start(hz, trace != 0) };
-        ctx.core().diagnostics().sampler.install(Box::new(sampler))
+        // The Core validates the component and retains its code before attach.
+        unsafe { install_profiler_backend(ctx, Box::new(sampler)) }
     }));
     match result { Ok(Ok(())) => ComponentStatus::OK, _ => ComponentStatus::ERROR }
 }
