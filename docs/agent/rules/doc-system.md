@@ -48,7 +48,6 @@
 ### 1.4 不是书的位置
 
 - **PR 描述**：只记这一次迭代（方案 / 进度 / 验证），长期知识合并前上浮进书（见 §三）。
-- **`docs/roadmap.md`**：计划与 Deferred 索引，不放知识。
 - **`docs/` 根目录的临时迭代底稿**：迭代完成即删除；届时未完成的项转入 internals 对应页的 `## Deferred`。
 
 ## 二、链接方向（硬规则）
@@ -134,7 +133,7 @@ agent 与仓库 README 仍按仓库文件路径链接。
    |---|---|
    | 页头「待办」行（可选） | 本页已知缺口的一行摘要，没有就整行省掉 |
    | internals 机制页 `## 边界与限制` / reference 参考页 `## 不支持` | 当前不支持什么、已知的坑（不打算排期的也写） |
-   | internals 机制页 `## Deferred` | 登记过的延后项（格式见 [philosophy.md 延后特性管理](philosophy.md#延后特性管理必须遵守)），每条在 `docs/roadmap.md` 的 Deferred Backlog Index 有索引行 |
+   | internals 机制页 `## Deferred` | 延后项及恢复条件，格式见[延后特性管理](philosophy.md#延后特性管理必须遵守) |
    | 目录 README `## 待办` | 只与本目录绑定的那几条 |
 
 违反即按文档过时处理：见到就改，不需要单独立项。

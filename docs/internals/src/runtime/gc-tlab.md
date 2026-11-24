@@ -497,7 +497,7 @@ thread-local `TlabCell { armed: u32, tlab }`（`UnsafeCell`，owner 独占 + all
 
   **决定**：**不翻 `ParallelConfig` 默认**（编译器墙钟这个「性能门」未转正）。但 TLAB **不是**投机地基——
   微基准证明它已修好分配机制层的「越多越慢」。真加速的**唯一剩余前置 = 编译器把重阶段（parse/typecheck/
-  codegen）也并行化**（编译器侧 change，roadmap Deferred `compiler-parallel-heavy-phases`），届时机制层的
+  codegen）也并行化**，届时机制层的
   4.73× 才会兑现到墙钟。串行 overhead 经 `UnsafeCell`+单次 TLS 优化后 ≈ 噪声（~0.5%）。
 
 ## Deferred / Future Work

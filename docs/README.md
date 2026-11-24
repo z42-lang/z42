@@ -11,7 +11,6 @@ docs/
 ├── internals/      实现内幕      改 z42 本身的人
 ├── logo/           标志图片与网站图标包
 ├── agent/          AI 协作规范   给大模型的工作流程与约束
-├── roadmap.md      项目计划与 Deferred 索引
 └── <主题>.md       临时迭代底稿（迭代完删除）
 
 src/**/README.md    目录说明      这个目录有什么、怎么用、怎么测、深入读哪页
@@ -38,7 +37,6 @@ README.md           仓库门面      定位 + 上手 + 分流
 |---|---|
 | [`agent/`](agent/README.md) | AI 协作规范：大模型（及与之协作的人）干活的流程、判据与约束。系统知识不在这里 |
 | [`logo/`](logo/README.md) | 标志的 SVG / PNG 图片、使用说明与网站图标包 |
-| [`roadmap.md`](roadmap.md) | 项目计划与 Deferred 索引 |
 | [`internals/src/features.md`](internals/src/features.md) | 语言特性决策台账（决策 + 状态） |
 | 各 `src/**/README.md` | 目录说明：这个目录有什么、怎么用、怎么测，深入去 internals 哪一页 |
 | 根 [`README.md`](../README.md) | 仓库门面与分流 |

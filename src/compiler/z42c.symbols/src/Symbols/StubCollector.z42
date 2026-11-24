@@ -300,9 +300,42 @@ public sealed class StubCollector {
             bn = SymbolTable.ShortNameOf(bn);
             // 裸名作查找键，**AST 原节点**另存一份：裸名把 `IMid<int>` 的 `int` 丢了，而沿继承链
             // 代换型参时正需要它（见 Z42InterfaceType.BaseRefs 抬头）。这里不能就地解析 ——
-            // 本 pass 是 Pass A，后声明的父接口此刻可能还没进符号表；解析延到消费端。
+            // 本 pass 是 Pass A，后声明的父接口此刻可能还没进符号表；先保存节点，等骨架齐备再绑定。
             target.AddBaseRef(bn, c.Bases[b]);
             b = b + 1;
+        }
+    }
+
+    internal void _passBindIfaceBases(SymbolTable table, CompilationUnit cu) {
+        SymbolTable scope = table.WithCu(cu);
+        int i = 0;
+        while (i < cu.DeclCount) {
+            var declaration = this._sc._unwrap(cu.Decls[i]) as ClassDecl;
+            if (declaration != null && declaration.Kind == "interface" && declaration.BaseCount > 0) {
+                string key = SymbolTable.QualOf(scope.ScopeNs, declaration.Name);
+                var iface = table.InterfacesByFqn.Get(key) as Z42InterfaceType;
+                if (iface != null) {
+                    this._bindIfaceBases(scope, declaration, iface);
+                }
+            }
+            i = i + 1;
+        }
+    }
+
+    private void _bindIfaceBases(SymbolTable scope, ClassDecl declaration, Z42InterfaceType iface) {
+        int i = 0;
+        while (i < declaration.BaseCount) {
+            TypeExpr source = declaration.Bases[i];
+            int slot = 0;
+            // A partial interface can have bases declared under different using lists.
+            while (slot < iface.BaseCount && iface.BaseRefs[slot] != source) { slot = slot + 1; }
+            if (slot < iface.BaseCount) {
+                var parent = scope.ResolveTypeP(source, iface.TypeParamNames, iface.TypeParamCount) as Z42InterfaceType;
+                if (parent != null) {
+                    iface.BaseRefs[slot] = new ResolvedTypeExpr(parent, source.Span);
+                }
+            }
+            i = i + 1;
         }
     }
 

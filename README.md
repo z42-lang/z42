@@ -24,7 +24,7 @@ performance-oriented runtime.
 
 z42 is under active development. AOT compilation, structured async/await, and hot reload
 are planned. See the [design philosophy](docs/internals/src/philosophy.md) for design goals
-and trade-offs, and the [roadmap](docs/roadmap.md) for planned work.
+and trade-offs.
 
 ---
 
@@ -65,8 +65,7 @@ see [`docs/README.md`](docs/README.md) for the full split.
 | [`docs/reference/`](docs/reference) | Looking things up — language rules, stdlib API, CLI, `z42.toml` fields, error codes | <https://z42-lang.github.io/z42/reference/> |
 | [`docs/internals/`](docs/internals) | Changing z42 itself — architecture, mechanisms, decisions, build/test/release | <https://z42-lang.github.io/z42/internals/> |
 
-Beyond the books: [`docs/roadmap.md`](docs/roadmap.md) (plan + deferred index),
-[`docs/agent/`](docs/agent) (collaboration rules for AI + human contributors).
+[`docs/agent/`](docs/agent) contains the collaboration rules for AI and human contributors.
 
 ---
 
@@ -84,7 +83,7 @@ z42/
 ├── scripts/               # xtask dev CLI (build / test / package) + install primers
 ├── .github/               # CI workflows and composite actions
 ├── docs/                  # learn/ + reference/ + internals/ books, book/ site root,
-│                          # roadmap.md, agent/ rules
+│                          # agent/ rules
 ├── examples/              # Companion projects for the learn book, run by `xtask test docs examples`
 └── AGENTS.md              # AI entry (cross-tool standard): thin pointer to docs/agent/
 ```

@@ -56,9 +56,8 @@ User 决定方向，事实与约束应先说明；是否暂停依 workflow 的�
 
 ## 延后特性管理（必须遵守）
 
-已决定暂不实现的具体缺口，登记在 `docs/internals/` 对应机制页的 `## Deferred`，并在
-`docs/roadmap.md` 的 Deferred Backlog Index 加索引；只登记一处，不把整项内容复制到 roadmap。
-抽象远期展望归 roadmap 或[语言特性决策台账](../../internals/src/features.md)。
+已决定暂不实现的具体缺口，登记在 `docs/internals/` 对应机制页的 `## Deferred`。
+语言特性的设计决策与状态归[语言特性决策台账](../../internals/src/features.md)。
 页头摘要、当前限制与 Deferred 的分工见 [doc-system 防漂移](doc-system.md)。
 
 ```markdown

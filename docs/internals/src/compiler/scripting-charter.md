@@ -2,9 +2,7 @@
 
 > **页型**: 决策页 ｜ **代码**: —
 > **相关**: [架构总览](architecture.md)
-> **待办**: 设计已定，尚未实施（charter，不进 roadmap minor 表）
-
-> **Status**: charter / not-scheduled — 长期目标，不进 roadmap minor 表
+> **待办**: 设计已定，尚未排期。
 >
 > **Driving question**: 如何让 z42 在全平台支持 Roslyn-style 动态编译 API（`Compile(source)` / `Eval(source)`），同时不让 mobile 包体爆炸？
 >
@@ -40,7 +38,7 @@ z42 设计目标是"全栈系统语言"，host-equivalent 动态编译能力（�
 **2b 选择理由**：
 - z42-written compiler 体积估 2–5 MB（z42 字节码 + 元数据），跟随 VM 走
 - 不引入额外 toolchain（zpkg 是 VM 已经能加载的产物）
-- 自举本就是 [roadmap 1.0 必经里程碑](https://github.com/z42-lang/z42/blob/main/docs/roadmap.md#长期-semver-路线05--10)，全平台 compiler 是顺带
+- 自举产出的编译器包可以用同一种格式分发到各平台
 - 与 project_supported_platforms "只支持厂商官方维护的架构" 兼容
 
 ---
@@ -135,7 +133,7 @@ API 变成跨包公开面（`SymbolTable` / `Bound*` / `SemanticModel` 等），
 
 底层 C 是 pipeline 直接产物；B 在其上加 binding 持久化；A 是单次调用 sugar。
 
-### P5. 自举循环验证（roadmap 1.0 "byte-identical" 要求）
+### P5. 自举循环验证
 
 **问题**：如何验证 z42-written compiler 自举固定点？
 
@@ -162,22 +160,22 @@ ScriptOptions opts = ScriptOptions.Default;
 
 ---
 
-## 6. 长期实施顺序（charter，不进 roadmap 表）
+## 6. 实施依赖
 
-| 阶段 | 动作 | 估算触发点 | 依赖 |
-|------|------|---------|------|
-| **C1** | 把 compiler 模块组织为"可作为库被嵌入"（`ICompiler` / `IPipeline` interface） | 与 LSP Q13 共用基础 | 现有模块成熟 |
-| **C2** | `z42.scripting` v0 上线 host 5 平台，底层调 compiler 库 | 0.6.x – 0.7.x | C1 |
-| **C3** | L3 全 feature 就绪（lambda / generic / async / Result / 反射） | 0.5 – 0.9 主线 | roadmap 主线 |
-| **C4** | compiler 模块全部以 `.z42` 源维护（每模块独立 spec） | 1.0-α – 1.0-rc | C3 |
-| **C5** | byte-identical fixed-point 验证 | 1.0.0 | C4 |
-| **C6** | 7 个 zpkg + scripting 进 mobile / WASM 分发；移除 `PlatformNotSupportedException` | 1.1.x – 1.2.x | C5 + Q15 (WASM GC) |
+| 阶段 | 动作 | 依赖 |
+|------|------|------|
+| **C1** | 把 compiler 模块组织为可嵌入的库（`ICompiler` / `IPipeline`） | 现有模块成熟 |
+| **C2** | 在宿主平台提供 `z42.scripting`，底层调用编译器库 | C1 |
+| **C3** | 所需语言能力就绪（lambda / generic / async / Result / 反射） | 对应语言功能 |
+| **C4** | 编译器模块全部以 `.z42` 源维护 | C3 |
+| **C5** | 验证自举固定点的字节一致性 | C4 |
+| **C6** | 将编译器包与 scripting 分发到 mobile / WASM | C5 与目标平台的 GC 支持 |
 
 **关键依赖链**：
 - C1 → C2（host scripting 落地）
 - C3 → C4（自举语言能力前置）
 - C4 → C5 → C6（自举 → byte-identical → mobile 落地）
-- C1 也为 LSP（Q13）铺路 —— compiler library API 是两者共享前提
+- C1 提供 scripting 与 LSP 共用的编译器库 API
 
 ---
 
@@ -229,4 +227,4 @@ ScriptOptions opts = ScriptOptions.Default;
 - `z42.scripting` 具体 API surface 设计（与 stdlib 其他 L3 包对齐风格）
 - 自举 byte-identical 验证脚本与 CI 集成
 - mobile 分发包体增量预算（C6 启动前测量）
-- 多平台 scripting 性能基线（interp-only 模式 vs JIT，对齐 `docs/roadmap.md` 的五条性能基线）
+- 多平台 scripting 性能基线，比较纯解释执行与 JIT 的结果

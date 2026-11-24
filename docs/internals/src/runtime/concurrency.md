@@ -339,7 +339,7 @@ public async void Worker<T>(Channel<T> ch) where T : Send {
 
 ### 4.3 与 GC 的关系
 
-z42 始终带 GC（见 roadmap"固定决策"），`Send`/`Sync` 不引入所有权 / 借用模型。
+z42 始终带 GC，`Send` / `Sync` 约束值能否安全跨线程传递或共享。
 其作用纯粹是**类型层数据竞争检查**，不影响堆管理。GC 处理的是内存生命周期；
 `Send`/`Sync` 处理的是访问可见性。
 

@@ -3,7 +3,7 @@
 //
 // add-associated-types PR-1 起，`Dictionary<TKey,TValue> where TKey : IEquatable` 的约束
 // **真正跨包生效**了，故键类型必须实现 IEquatable —— 否则本文件放进真实工程会 E0402
-// （单文件 `--emit-zbc` 路径今天还看不出来，那是独立的 Deferred，见 roadmap）。
+// （单文件 `--emit-zbc` 路径尚未检查此约束）。
 // ⚠️ **覆盖点因此发生了偏移**：原先这里测的是「**不**实现 IEquatable 的 blob struct 靠装箱后的
 // 默认 GetHashCode/Equals 当键」；现在走的是用户自己的 Equals/GetHashCode。blob 值跨泛型边界的
 // 装箱/拆箱（P3a 的本意）仍被覆盖，但「boxed 默认相等语义」这一条不再由本用例守。

@@ -30,7 +30,7 @@
           "samples":  { "type": ["integer", "null"], "minimum": 1 },
           "profile": {
             "type": "object",
-            "description": "Execution profile the measurement was taken under. `mode` is an execution COMPOSITION (not a scalar): `tiers` = active backends (interp always present), `aot_pkgs` = zpkgs precompiled to AOT (empty today; non-empty is skipped until roadmap M9). `caps` come from Std.Platform.Capabilities() probed on the target VM binary — never a static guess.",
+            "description": "Execution profile for the measurement. `tiers` identifies active backends and always includes interp. `aot_pkgs` identifies zpkgs precompiled to AOT and stays empty until the runtime supports AOT execution. `caps` comes from Std.Platform.Capabilities() on the target VM.",
             "required": ["mode", "mode_label", "platform", "caps"],
             "additionalProperties": false,
             "properties": {

@@ -51,12 +51,10 @@ public sealed partial class ClassDescBuilder {
     }
 
     private bool _appendClosedInterfaceParents(SymbolTable symbols, Z42InterfaceType iface, List<Z42InterfaceType> pending) {
-        if (iface.BaseCount == 0) { return true; }
-        // Base refs retain their declaration spelling. Resolve them only in
-        // that compilation unit's scope.
-        if (this._g.IfaceDecls == null || !this._g.IfaceDecls.ContainsKey(iface.Fqn())) { return false; }
         int i = 0;
         while (i < iface.BaseCount) {
+            // The complete closure needs the original declaration's bound reference.
+            if (i >= iface.BaseRefs.Length || !(iface.BaseRefs[i] is ResolvedTypeExpr)) { return false; }
             Z42InterfaceType parent = InterfaceClosure.BaseAt(symbols, iface, i);
             if (parent == null) { return false; }
             pending.Add(parent);

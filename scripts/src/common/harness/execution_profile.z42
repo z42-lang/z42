@@ -6,7 +6,7 @@
 // mode is an execution COMPOSITION, not a scalar:
 //   tiers    — active backends this run uses; interp is always present, +jit.
 //   aot_pkgs — zpkgs precompiled to AOT. Always empty for now; a non-empty set is
-//              `skipped-not-yet` until roadmap M9 implements AOT execution. Only the
+//              `skipped-not-yet` until the runtime supports AOT execution. Only the
 //              shape is modelled so results tag it and the matrix reserves it.
 //
 // caps come from the target VM itself: the harness runs src/benches/probe/capabilities.z42

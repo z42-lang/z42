@@ -1,7 +1,6 @@
 // z42d CLI 路由 —— Std.Cli 嵌套 router（对照 builder_cli.z42 / launcher_cli.z42）。
 //
-// 已实现：doc / symbolicate / install。fmt / dbg / prof / lint 只登记了命令面，dispatch 打 "planned"，
-// 引擎按 roadmap 分期落地。
+// 已实现：doc / symbolicate / install。fmt / dbg / prof / lint 只登记了命令面，dispatch 打 "planned"。
 namespace Z42Devtools;
 
 using Std.IO;
@@ -32,7 +31,7 @@ int _runDevtools(string[] argv) {
 SubcommandRouter _devtoolsRoot() {
     SubcommandRouter root = new SubcommandRouter("z42d", "z42 developer toolchain");
 
-    // fmt — code formatter（planned；roadmap 0.2.4 → 0.4.x，原独立 z42-fmt 收编于此）。
+    // fmt — code formatter（planned）。
     ArgParser fmt = new ArgParser("z42d fmt", "format z42 source (planned)");
     fmt.AddOptionalPositional("path", "file or directory (default: current dir)");
     root.Add("fmt", "format z42 source files", fmt);
@@ -58,12 +57,12 @@ SubcommandRouter _devtoolsRoot() {
     dbg.AddOptionalPositional("target", "<app.zpkg> | <project.z42.toml>");
     root.Add("dbg", "debug a z42 program (breakpoints/step)", dbg);
 
-    // prof — profiler front-end（planned；roadmap 0.4.4 Pv4/Pc4 profiling 门控）。
+    // prof — profiler front-end（planned）。
     ArgParser prof = new ArgParser("z42d prof", "profile a z42 program (planned)");
     prof.AddOptionalPositional("target", "<app.zpkg> | <project.z42.toml>");
     root.Add("prof", "profile runtime / compile performance", prof);
 
-    // lint — static analysis（planned；roadmap 0.7.x，原独立 z42-lint）。
+    // lint — static analysis（planned）。
     ArgParser lint = new ArgParser("z42d lint", "static analysis / lint (planned)");
     lint.AddOptionalPositional("project", "<project.z42.toml>");
     root.Add("lint", "static analysis", lint);
