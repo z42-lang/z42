@@ -44,8 +44,11 @@ pub fn is_subclass_or_eq_td(
     let Some(td) = registry.get(derived).cloned().or_else(|| ctx.loader().try_lookup_type(derived)) else {
         return constructed_name_isa(ctx, registry, derived, target);
     };
+    if td.name != derived && derived.contains('<') {
+        return constructed_name_isa(ctx, registry, derived, target);
+    }
     if !td.id.is_resolved() {
-        return is_subclass_or_eq_td_walk(ctx, registry, derived, target);
+        return is_subclass_or_eq_td_walk(ctx, registry, derived, target, &[]);
     }
     let key = target_key(ctx, registry, target);
     isa_keyed(ctx, registry, &td, target, key)
@@ -69,6 +72,12 @@ fn constructed_name_isa(
     if let Some(v) = erased_instance_matches(def, &args, target) {
         return v;
     }
+    if target.contains('<') {
+        let td = registry.get(def).cloned().or_else(|| ctx.loader().try_lookup_type(def));
+        if td.is_some_and(|td| td.has_interface_templates()) {
+            return is_subclass_or_eq_td_walk(ctx, registry, def, target, &args);
+        }
+    }
     is_subclass_or_eq_td(ctx, registry, def, target)
 }
 
@@ -89,7 +98,7 @@ pub fn isa_td(
     key: &crate::metadata::ids::tokens::TypeKeyCell,
 ) -> bool {
     if !td.id.is_resolved() {
-        return td.name == target || is_subclass_or_eq_td_walk(ctx, registry, &td.name, target);
+        return td.name == target || is_subclass_or_eq_td_walk(ctx, registry, &td.name, target, &[]);
     }
     let k = match key.get() {
         Some(k) => k,
@@ -123,6 +132,11 @@ pub fn isa_object(
     if !inst_args.is_empty() {
         if let Some(v) = erased_instance_matches(&td.name, inst_args, target) {
             return v;
+        }
+        // A generic definition id is shared by every imported instantiation.
+        // These verdicts depend on the instance and must bypass the descriptor cache.
+        if target.contains('<') && !td.name.contains('<') && td.has_interface_templates() {
+            return is_subclass_or_eq_td_walk(ctx, registry, &td.name, target, inst_args);
         }
     }
     isa_td(ctx, registry, td, target, key)
@@ -242,7 +256,7 @@ fn isa_slow(
         None => {
             // `recv == key`: the key is the target's own TypeId and `td` is (a version of) it.
             let v = recv == key || td.name == target
-                || is_subclass_or_eq_td_walk(ctx, registry, &td.name, target);
+                || is_subclass_or_eq_td_walk(ctx, registry, &td.name, target, &[]);
             ctx.runtime.subclass_memo.lock().insert(pair, v);
             v
         }
@@ -276,6 +290,7 @@ fn is_subclass_or_eq_td_walk(
     registry: &rustc_hash::FxHashMap<String, std::sync::Arc<TypeDesc>>,
     derived: &str,
     target: &str,
+    mut instance_args: &[String],
 ) -> bool {
     let mut cur_td = match registry
         .get(derived)
@@ -301,8 +316,9 @@ fn is_subclass_or_eq_td_walk(
         }
         // add-reflection-transitive-interfaces: a declared interface matches `target`
         // directly OR transitively (interface-extends-interface).
-        let implements = match target.contains('<').then(|| cur_td.closed_interfaces()).flatten() {
-            Some(mut names) => names.any(|name| name == target),
+        let args = if instance_args.is_empty() { cur_td.type_args() } else { instance_args };
+        let implements = match target.contains('<').then(|| cur_td.bound_interfaces(args)).flatten() {
+            Some(mut names) => names.any(|name| name.as_ref() == target),
             None => cur_td.interfaces().iter().any(|i| iface_reaches_td(ctx, registry, i, target)),
         };
         if implements {
@@ -324,6 +340,7 @@ fn is_subclass_or_eq_td_walk(
             None => return false,
         };
         cur_td = next;
+        instance_args = &[];
     }
 }
 
