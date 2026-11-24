@@ -74,7 +74,7 @@ fn constructed_name_isa(
     }
     if target.contains('<') {
         let td = registry.get(def).cloned().or_else(|| ctx.loader().try_lookup_type(def));
-        if td.is_some_and(|td| td.has_interface_templates()) {
+        if td.is_some_and(|td| td.has_bound_ancestry_metadata()) {
             return is_subclass_or_eq_td_walk(ctx, registry, def, target, &args);
         }
     }
@@ -135,7 +135,7 @@ pub fn isa_object(
         }
         // A generic definition id is shared by every imported instantiation.
         // These verdicts depend on the instance and must bypass the descriptor cache.
-        if target.contains('<') && !td.name.contains('<') && td.has_interface_templates() {
+        if target.contains('<') && !td.name.contains('<') && td.has_bound_ancestry_metadata() {
             return is_subclass_or_eq_td_walk(ctx, registry, &td.name, target, inst_args);
         }
     }
@@ -282,9 +282,9 @@ pub(crate) fn target_key(
     ctx.types().name_key(target)
 }
 
-/// Alloc-free base+interface chain walk backing [`isa_td`] / [`is_subclass_or_eq_td`]. Caller
+/// Base and interface chain walk backing [`isa_td`] / [`is_subclass_or_eq_td`]. Caller
 /// has already handled `derived == target` and the caches. Holds the current `Arc<TypeDesc>` across
-/// iterations and follows `base_name` by `&str` (no per-level `String` allocation).
+/// iterations. Ordinary base names borrow from the descriptor.
 fn is_subclass_or_eq_td_walk(
     ctx: &VmContext,
     registry: &rustc_hash::FxHashMap<String, std::sync::Arc<TypeDesc>>,
@@ -292,31 +292,23 @@ fn is_subclass_or_eq_td_walk(
     target: &str,
     mut instance_args: &[String],
 ) -> bool {
-    let mut cur_td = match registry
-        .get(derived)
-        .cloned()
-        .or_else(|| ctx.loader().try_lookup_type(derived))
-    {
-        Some(td) => td,
-        None => return false,
-    };
+    let resolve = |name: &str| registry.get(name).cloned()
+        .or_else(|| ctx.loader().try_lookup_type(name));
+    let Some(mut cur_td) = resolve(derived) else { return false };
+    let mut inherited_args: Box<[String]> = Box::default();
     loop {
-        // complete-generic-class-identity P2: **the erased name is a fallback, never an identity.**
-        //
-        // z42 lets you write `x is GBox` with no type arguments (C# cannot name an open generic),
-        // and it means "any instantiation of GBox". Once every instantiation is its own runtime
-        // type, the string compare `derived == target` no longer sees it: the receiver reports
-        // `Demo.GBox<int>` while the test asks for `Demo.GBox`. Measured fallout before this arm:
-        // `catch (MulticastException e)` stopped catching `Std.MulticastException<bool>`.
-        //
-        // Only the bare prefix matches — `GBox<int>` against target `GBox<string>` stays false,
-        // which is the whole point of giving instantiations identity.
-        if erased_either(&cur_td.name, target) {
+        let args = if !instance_args.is_empty() {
+            instance_args
+        } else if !inherited_args.is_empty() {
+            &inherited_args
+        } else {
+            cur_td.type_args()
+        };
+        // An erased descriptor can represent a known constructed base.
+        // Its exact name was checked on the preceding inheritance edge.
+        if (args.is_empty() || cur_td.name.contains('<')) && erased_either(&cur_td.name, target) {
             return true;
         }
-        // add-reflection-transitive-interfaces: a declared interface matches `target`
-        // directly OR transitively (interface-extends-interface).
-        let args = if instance_args.is_empty() { cur_td.type_args() } else { instance_args };
         let implements = match target.contains('<').then(|| cur_td.bound_interfaces(args)).flatten() {
             Some(mut names) => names.any(|name| name.as_ref() == target),
             None => cur_td.interfaces().iter().any(|i| iface_reaches_td(ctx, registry, i, target)),
@@ -324,22 +316,18 @@ fn is_subclass_or_eq_td_walk(
         if implements {
             return true;
         }
-        let base = match cur_td.nominal_base_name() {
-            Some(b) => b,
-            None => return false,
+        let projected = cur_td.projected_base_name(args);
+        let Some(base) = projected.as_deref().or_else(|| cur_td.nominal_base_name()) else {
+            return false;
         };
         if base == target || erased_either(base, target) {
             return true;
         }
-        let next = match registry
-            .get(base)
-            .cloned()
-            .or_else(|| ctx.loader().try_lookup_type(base))
-        {
-            Some(td) => td,
-            None => return false,
+        let Some((next, next_args)) = crate::metadata::types::resolve_base_instance(base, resolve) else {
+            return false;
         };
         cur_td = next;
+        inherited_args = next_args;
         instance_args = &[];
     }
 }

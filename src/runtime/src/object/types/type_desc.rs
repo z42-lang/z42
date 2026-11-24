@@ -261,8 +261,26 @@ impl TypeDesc {
     #[inline] pub fn field_attributes(&self)       -> &[(Box<str>, Box<[crate::zpkg::ir::AttributeRef]>)] { self.cold_slice(|c| &c.field_attributes) }
     /// add-reflection-get-interfaces: the class's directly-declared interfaces.
     #[inline] pub fn interfaces(&self)             -> &[Box<str>]                               { self.cold_slice(|c| &c.interfaces) }
-    pub(crate) fn has_interface_templates(&self) -> bool {
-        self.custom_attributes().iter().any(|attr| attr.type_name == "$InterfaceTemplate")
+    pub(crate) fn has_bound_ancestry_metadata(&self) -> bool {
+        self.custom_attributes().iter()
+            .any(|attr| matches!(attr.type_name.as_str(), "$InterfaceTemplate" | "$ReflectionBase"))
+    }
+
+    pub(crate) fn base_type_template(&self) -> Option<&str> {
+        self.custom_attributes().iter().find(|attr| attr.type_name == "$ReflectionBase")
+            .map(|attr| attr.factory_func.as_str())
+    }
+
+    /// Resolve a generic base name without using the erased layout name as its identity.
+    pub(crate) fn projected_base_name(&self, arguments: &[String]) -> Option<String> {
+        use crate::zpkg::index::{type_names, type_param_markers};
+        let params = self.type_params();
+        if params.is_empty() || arguments.len() != params.len()
+            || arguments.iter().any(|arg| type_param_markers::has_markers(arg))
+        {
+            return None;
+        }
+        self.base_type_template().map(|template| type_names::substitute(template, params, arguments))
     }
 
     /// Complete interface closure when the descriptor carries sufficient information.

@@ -74,6 +74,11 @@ is_int_div_by_zero(divisor)  DIV_BY_ZERO_EXC  div_by_zero_msg(op)  SHIFT_MASK
   不把解析结果写入共享映像；目标类型后来才加载、键仍是先前保留的那个，判定照旧正确。
   反射等只有名字的调用方（`is_subclass_or_eq_td`）每次按名求键，走同一份 memo。
 
+导入的泛型实例可能共用定义的 `TypeId`。当闭合目标依赖接口或基类的实参时，运行时使用当前实例的实参，
+沿基类链逐级绑定 `$ReflectionBase` 并把每一级的实参交给其型别描述符。类型测试、反射和数组检查共用这个判定，
+此类结果绕过以定义 `TypeId` 为键的两级缓存。继承成员读取类级形参时也用同一套逐级绑定。
+缺少基类模板的描述符沿用已记录的基类名。
+
 `IsaCache` 每槽是**一个** `AtomicU64`：`recv << 32 | verdict << 31 | target`（两个 id 都在 `IMPORT_BASE = 1<<31`
 以下，第 31 位空出来放判定），一次 store 安装、一次 load 读出，三者不可能撕裂；空槽是 `u64::MAX`（接收者
 `UNRESOLVED`，永不匹配）。命中 = 一次 relaxed load + 一次比较，无锁无哈希；直接映射、冲突覆盖，未命中回 memo

@@ -112,37 +112,18 @@ impl<'a> TypeParamEnv<'a> {
 }
 
 /// complete-generic-class-identity（邻线收尾）: resolve a **class-level** type parameter to the
-/// concrete argument bound at the level that **declares** it.
-///
-/// Two carriers, and the order between them is the whole point:
-///
-/// 1. **The declaring level's name.** `class DInt : Box<int> {}` has an empty `type_args` of
-///    its own — the argument lives in the *base name*, which is `Demo.Box<int>` only since P1
-///    stopped stripping closed generic bases. Walk the chain to the level whose erased name is
-///    `owner`, then read the argument off that name.
-/// 2. **The receiver's own `type_args`.** Still needed for cross-package generics, which get no
-///    identity name (so their descriptor name carries no arguments) and rely on the per-instance
-///    carrier `ObjNew` fills in.
-///
-/// 🔴 **(2) must not run when the declaring class is a *base*.** `class DG<U> : Box<int>` has
-/// `type_args = [U's argument]`, so reading index 0 off the receiver answers with `DG`'s
-/// parameter while the question was about `Box`'s — a plausible-but-wrong type, which is worse
-/// than the placeholder. Measured: `DG<string>` reported `Std.String` for `Box`'s `T`.
+/// The argument at the declaring class of a class-level type parameter.
 pub fn class_type_arg(ctx: &VmContext, recv: &Value, idx: usize, owner: Option<&str>) -> Option<String> {
+    use crate::zpkg::index::type_names::erased;
+
     let (name, own_args) = receiver_parts(ctx, recv)?;
-    if let Some(o) = &owner {
-        if let Some(n) = inherited_type_arg(ctx, &name, o, idx) {
-            return Some(n);
-        }
+    let Some(owner) = owner else { return own_args.get(idx).cloned() };
+    let owner = erased(owner);
+    if erased(&name) == owner {
+        return crate::object::type_args_from_name(&name).get(idx).cloned()
+            .or_else(|| own_args.get(idx).cloned());
     }
-    let own_is_declaring = match &owner {
-        None => true,   // old bytecode: keep the previous behaviour verbatim
-        Some(o) => erased_of(&name) == erased_of(o),
-    };
-    if own_is_declaring {
-        return own_args.get(idx).cloned();
-    }
-    None
+    inherited_type_arg(ctx, &name, own_args.as_slice(), owner, idx)
 }
 
 /// The receiver's descriptor name and own type arguments. An escape-analysis **stack** object
@@ -161,33 +142,35 @@ fn receiver_parts(ctx: &VmContext, recv: &Value) -> Option<(String, crate::objec
     }
 }
 
-/// Erased prefix of a (possibly instantiated) type name: `Demo.Box<int>` → `Demo.Box`.
-fn erased_of(name: &str) -> &str {
-    match name.find('<') {
-        Some(i) => &name[..i],
-        None => name,
-    }
-}
-
-/// Walk the receiver's base chain to the level declaring `owner`, and read the `idx`-th
-/// type argument **off that level's name**. `None` when the chain has no such level or it
-/// carries no arguments (both degrade to today's placeholder).
+/// Bind each base from the current class before reading the declaring class's argument.
 fn inherited_type_arg(
     ctx: &VmContext,
     recv_name: &str,
+    mut own_args: &[String],
     owner: &str,
     idx: usize,
 ) -> Option<String> {
-    let mut cur = recv_name.to_string();
-    let want = erased_of(owner).to_string();
-    // Bounded: a class hierarchy is finite, but a corrupt `base_name` cycle must not hang us.
+    use crate::metadata::types::resolve_base_instance;
+    use crate::zpkg::index::type_names::erased;
+
+    let resolve = |name: &str| ctx.loader().resolve_type(name);
+    let (mut descriptor, mut inherited_args) = resolve_base_instance(recv_name, resolve)?;
+    // Keep the bound for malformed metadata cycles.
     for _ in 0..64 {
-        if erased_of(&cur) == want {
-            let targs = crate::object::type_args_from_name(&cur);
-            return targs.get(idx).cloned();
+        let args = if !inherited_args.is_empty() {
+            &inherited_args
+        } else if !descriptor.type_args().is_empty() {
+            descriptor.type_args()
+        } else {
+            own_args
+        };
+        if erased(&descriptor.name) == owner {
+            return args.get(idx).cloned();
         }
-        let td = ctx.loader().try_lookup_type(&cur)?;
-        cur = td.base_name.clone()?;
+        let projected = descriptor.projected_base_name(args);
+        let base = projected.as_deref().or(descriptor.base_name.as_deref())?;
+        (descriptor, inherited_args) = resolve_base_instance(base, resolve)?;
+        own_args = &[];
     }
     None
 }

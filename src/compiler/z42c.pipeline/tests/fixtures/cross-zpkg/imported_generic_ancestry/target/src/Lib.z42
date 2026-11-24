@@ -1,0 +1,8 @@
+namespace Demo.GenericAncestry;
+
+public interface IMarker<T> {}
+public class Base<T> : IMarker<T> {
+    public Type ElementType() { return typeof(T); }
+}
+public class Middle<TLeft,TRight> : Base<TRight> {}
+public class Leaf<TFirst,TSecond> : Middle<TSecond,TFirst> {}
