@@ -15,10 +15,11 @@ public static partial class ImportedSymbolLoader {
     // 名字形态与 `Z42FuncType.Name()` 的产物**互逆**（Action / Action<A,…> / Func<A,…,Ret> / Predicate<A>），
     // 故 TSIG 里的委托类型串能无损还原。语义逐条对齐 `SymbolTable.ResolveTypeP:238-254`。
     private static Z42Type _resolveDelegate(ImportedSymbols r, string name, string[] typeParams, int tpCount) {
-        if (name == "Action") { return new Z42FuncType(new Z42Type[0], 0, new Z42VoidType()); }
+        if (name == "Action" || name == "Std.Action") { return new Z42FuncType(new Z42Type[0], 0, new Z42VoidType()); }
         int lt = name.IndexOf('<');
         if (lt <= 0 || !name.EndsWith(">")) { return null; }
         string b = name.Substring(0, lt);
+        if (b == "Std.Func" || b == "Std.Action") { b = SymbolTable.ShortNameOf(b); }
         if (b != "Action" && b != "Func" && b != "Predicate") { return null; }
         string[] argStrs = ImportedSymbolLoader._splitTypeArgs(name.Substring(lt + 1, name.Length - lt - 2));
         int n = argStrs.Length;
