@@ -44,7 +44,7 @@ use crate::metadata::ids::func_table::FuncTable;
 use crate::metadata::ids::seg_vec::SparseSegTable;
 use crate::metadata::ids::tokens::FnId;
 use crate::metadata::{Function, Module};
-use crate::components::bridge::VmContext;
+use crate::components::bridge::{install_tier, installed_tier, VmContext};
 
 use crate::jit::compile::lookup::CompileLookup;
 use crate::jit::runtime::frame::FnEntry;
@@ -133,10 +133,13 @@ unsafe impl Sync for JitRuntime {}
 /// Racing installers build one each; the first published wins and the other is
 /// dropped unused.
 pub fn install<'a>(vm: &'a VmContext, module: &Module, config: crate::exec::JitConfig) -> Result<&'a JitRuntime> {
-    if vm.core().exec().engines.tier().is_none() {
-        let _ = vm.core().exec().engines.install_tier(crate::exec::TierApi::new(JitRuntime::new(vm, module, config)?));
+    if installed_tier(vm).is_none() {
+        let backend = JitRuntime::new(vm, module, config)?;
+        // SAFETY: the JIT is statically linked or attached with a lease that
+        // retains its code until the VM drops the tier.
+        unsafe { install_tier(vm, backend) };
     }
-    let rt = vm.core().exec().engines.tier().and_then(|tier| tier.backend::<JitRuntime>())
+    let rt = installed_tier(vm).and_then(|tier| tier.backend::<JitRuntime>())
         .ok_or_else(|| anyhow::anyhow!("JIT: a different tier backend is installed on this VM"))?;
     crate::exec::refresh_tier(vm);
     anyhow::ensure!(
@@ -154,13 +157,12 @@ pub fn install<'a>(vm: &'a VmContext, module: &Module, config: crate::exec::JitC
 pub(crate) fn install_tuned<'a>(
     vm: &'a VmContext, module: &Module, tune: impl FnOnce(&mut JitRuntime),
 ) -> &'a JitRuntime {
-    if !vm.core().exec().engines.has_baseline() {
-        vm.core().exec().engines.register_baseline(&crate::interp::engine::ENGINE).expect("baseline");
-    }
+    super::super::test_support::ensure_baseline(vm).expect("baseline");
     let mut rt = JitRuntime::new(vm, module, z42::config::runtime_config().jit_config()).expect("JIT setup");
     tune(&mut rt);
-    assert!(vm.core().exec().engines.install_tier(crate::exec::TierApi::new(rt)).is_ok(), "a tier is already installed on this VM");
-    let rt = vm.core().exec().engines.tier().and_then(|t| t.backend::<JitRuntime>()).expect("installed");
+    // SAFETY: the test links the backend into the process.
+    assert!(unsafe { install_tier(vm, rt) }, "a tier is already installed on this VM");
+    let rt = installed_tier(vm).and_then(|tier| tier.backend::<JitRuntime>()).expect("installed");
     crate::exec::refresh_tier(vm);
     rt
 }

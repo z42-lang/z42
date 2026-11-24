@@ -111,7 +111,8 @@ fn spawn_via_builtin_then_join_runs_action_on_worker_thread() {
     // threads registry.
     let module = make_void_action_module("TestVoidAction");
     let ctx = VmContext::with_module(module);
-    ctx.core().exec().engines.register_baseline(&z42_interp::engine::ENGINE).unwrap();
+    // SAFETY: the test links the interpreter into the process.
+    unsafe { z42::components::bridge::register_baseline_engine(&ctx, &z42_interp::engine::ENGINE).unwrap() };
 
     // P1-2 PR 8: a `FuncRef` holds its target's `FnId` — the entry module's index 0.
     let action = Value::FuncRef(z42::metadata::ids::tokens::FnId(0));

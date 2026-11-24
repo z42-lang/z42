@@ -416,6 +416,7 @@ private static string _fqTrimTypeArgs(string fq) {
     }
 
     internal static void _fillClass(ImportedSymbols r, Z42ClassType ct, ExportedClassZ cl) {
+        ImportedSymbolLoader._fillConstructedInterfaces(r, ct, cl);
         string[] tps = cl.TypeParams;
         int tpc = cl.TpCount;
         int i = 0;

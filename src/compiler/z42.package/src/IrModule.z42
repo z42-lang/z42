@@ -15,6 +15,11 @@ public sealed class IrAttrRef {
     public IrAttrRef(string typeName, string factoryFunc) { this.TypeName = typeName; this.FactoryFunc = factoryFunc; }
 }
 
+public static class IrImplementedInterface {
+    public static string Closed = "$ClosedInterface";
+    public static string Template = "$InterfaceTemplate";
+}
+
 // add-deprecated-directive（PR5，零格式-bump）：`[Deprecated]` 经既有 attr-ref 块持久化的哨兵（TypeName=Sentinel、
 // FactoryFunc=消息）。生产方 ClassDescBuilder._attrRefs 追加、消费方 TsigReconcile/反射按 TypeName 识别并剥离。
 // 常量放 z42.package（叶子库）供 z42c.semantics（生产）与 z42.package/TsigReconcile（消费）共用；`$` 前缀不撞 D8 `*Attribute`。

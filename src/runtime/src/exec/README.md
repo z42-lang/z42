@@ -33,7 +33,8 @@
 
 ## 基础用法
 
-跨领域与独立引擎通过 `exec::{EngineRegistry, Engine, TierBackend, Initialization}` 及 `exec::invoke` 消费契约。解释器和 JIT 通过 `current_tier(ctx)` 读取当前线程的 tier，附着与栈底帧入口通过 `refresh_tier(ctx)` 刷新。`push_frame(ctx, frame)` 用同一上下文压入帧并在栈底帧安装 VM 和堆的线程局部状态。`engine.rs`、`init.rs` 为私有实现，移动它们不改变消费路径。
+执行消费者通过 `exec::invoke` 调用基线引擎，通过 `exec::invoke_mode` 按显式模式调用所属 VM 的引擎。`Engine`、`TierBackend` 和 `Initialization` 是共享执行契约。解释器和 JIT 通过 `components::bridge` 登记引擎和 tier，执行层持有注册表和后端代码租约。
+两个后端通过 `current_tier(ctx)` 读取当前线程的 tier。JIT 安装后及栈底帧入口通过 `refresh_tier(ctx)` 刷新。`push_frame(ctx, frame)` 通过同一上下文压入帧并在栈底帧安装 VM 和堆的线程局部状态。
 
 解释器和 JIT helper 从 `z42::exec::ops::scalar` 调用共享函数；JIT 内联发码遵循相同规则，由双模式 golden 验证。异常对象的构造和传播由调用方处理。
 对象能力契约位于 `object/protocol.rs`；执行层借用 Core 已绑定的服务，保留托管调用、异常和文本物化。

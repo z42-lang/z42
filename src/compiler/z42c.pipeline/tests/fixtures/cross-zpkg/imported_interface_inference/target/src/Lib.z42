@@ -1,0 +1,7 @@
+namespace DemoInfer;
+
+public interface IValue<T> {}
+public interface IChild<T> : IValue<T> {}
+public class Closed : IChild<string> {}
+public class Open<T> : IValue<T[]> {}
+public class Both : IValue<string>, IValue<int> {}

@@ -6,6 +6,7 @@
 // （P2 期另有对账器 Compare 与 TSIG oracle 逐字段验证 29 包 0-DIFF，P3 删 TSIG 后随之移除。）
 namespace Z42.Package;
 
+using Std.Collections;
 using Std.IO;   // repl-scan-nsindex-cache：LazyReconWorld.EnsureIdx 惰性 open（File.ReadAllBytes）
 using Z42.IR;
 
@@ -476,7 +477,21 @@ public static class TsigReconcile {
                                   methods, methods.Length,
                                   cd.TypeParams == null ? new string[0] : cd.TypeParams, cd.TypeParamCount);
         TsigReconcile._reconClassTail(cd, ecz, isStruct);   // Interfaces / BaseFqn / flags / 约束搬运
+        ecz.ConstructedInterfaces = TsigReconcile._constructedInterfaces(cd);
         return ecz;
+    }
+
+    private static string[] _constructedInterfaces(IrClassDesc cd) {
+        if (cd.Attrs == null || cd.AttrCount == 0) { return new string[0]; }
+        string tag = cd.TypeParamCount == 0 ? IrImplementedInterface.Closed : IrImplementedInterface.Template;
+        var names = new List<string>();
+        int i = 0;
+        while (i < cd.AttrCount && i < cd.Attrs.Length) {
+            IrAttrRef attr = cd.Attrs[i];
+            if (attr != null && attr.TypeName == tag) { names.Add(attr.FactoryFunc); }
+            i = i + 1;
+        }
+        return names.ToArray();
     }
 
     // ── base 链构建（惰性 world：遇祖先 FQ 先 EnsureFq 路由填充其包，再按 FQ 名在已填包中定位）──

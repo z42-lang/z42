@@ -2,11 +2,11 @@
 //!
 //! Consumers name the execution contract, not its implementation files:
 //! ```
-//! use z42::exec::{EngineRegistry, Initialization, TierBackend};
-//! let _ = EngineRegistry::new(None);
+//! use z42::exec::{Engine, Initialization, TierBackend, invoke_mode};
+//! let _ = invoke_mode;
 //! ```
 //! ```compile_fail
-//! use z42::exec::engine::EngineRegistry;
+//! use z42::exec::engine::Engine;
 //! ```
 //! ```compile_fail
 //! use z42::exec::init::Initialization;
@@ -24,9 +24,11 @@
 //! fn active_tier(ctx: &VmContext) -> Option<&TierApi> { current_tier(ctx) }
 //! ```
 //! ```compile_fail
-//! use z42::{exec::EngineRegistry, vm::VmContext};
-//! fn publish(ctx: &VmContext, engines: &EngineRegistry) {
-//!     ctx.exec().publish_tier(engines);
+//! use z42::exec::EngineRegistry;
+//! ```
+//! ```compile_fail
+//! fn engine_state(ctx: &z42::vm::VmContext) {
+//!     let _ = ctx.core().exec();
 //! }
 //! ```
 //! ```compile_fail
@@ -55,8 +57,9 @@ pub use call::{
 };
 pub mod stack;
 mod engine;
-pub use engine::{Engine, EngineRegistry, JitConfig, OsrState, TierApi, TierBackend, TierTarget,
-    invoke, invoke_args};
+pub(crate) use engine::EngineRegistry;
+pub use engine::{Engine, JitConfig, OsrState, TierApi, TierBackend, TierTarget,
+    invoke, invoke_args, invoke_mode};
 
 mod init;
 pub use init::{Initialization, make_type_init_exception};
@@ -64,7 +67,7 @@ pub use init::{Initialization, make_type_init_exception};
 pub(crate) use init::{claim as claim_initialization, claim_with as claim_initialization_with};
 
 mod state;
-pub use state::ExecState;
+pub(crate) use state::ExecState;
 
 mod thread_state;
 pub use thread_state::{ThreadExecState, current_tier, push_frame, refresh_tier};

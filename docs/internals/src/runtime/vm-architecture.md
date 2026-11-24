@@ -38,7 +38,7 @@ flowchart TB
 
 装配从 config 获取设置并转换为各子系统的显式输入。
 组件装配先选择来源、校验契约并创建每 VM 实例，再把执行引擎或诊断服务接入 Core。
-实际执行使用已绑定的 `EngineRegistry`，不在每条指令上查询组件。
+装配在附着前保留代码租约，解释器和 JIT 经同构建桥登记引擎。实际执行使用 VM 内已绑定的引擎。
 `z42-zpkg` 是直接包含的独立模块，不需要组件实例；compression 等独立运行时库通过
 loader/interop 按需加载，不进入执行组件依赖闭包。
 
@@ -458,7 +458,7 @@ sequenceDiagram
     Components->>Components: 校验与绑定，再创建实例
     Components->>VM: 附着引擎、保留代码租约
     VM-->>Host: 重放事件，发布 LoadedProgram
-    Host->>VM: 经 EngineRegistry 调用入口
+    Host->>VM: 经 exec::invoke_mode 调用入口
     VM-->>Host: 结果或异常
     Host-->>CLI: 执行结果与退出报告
     CLI->>CLI: 返回退出码
@@ -483,7 +483,7 @@ interp/JIT 的声明依赖保留为惰性候选，JIT 编译也按函数触发�
 flowchart TD
     invoke["LoadedProgram::invoke / run_entry"] --> roots["校验参数、建立执行 guard、钉住参数根"]
     roots --> first["首次调用：清理静态存储、排空待加载类型队列"]
-    first --> engine["EngineRegistry 按模式分发"]
+    first --> engine["exec::invoke_mode 按模式分发"]
     engine --> barrier["exec 初始化屏障：包 / 类型初始化、等待或失败传播"]
     barrier --> body["执行函数体"]
     body --> kind{"调用目标"}
@@ -635,14 +635,14 @@ host::session（进程级嵌入会话）
    │ z42_host_resolve_entry(handle, mod, fqn, &entry)
    │ z42_host_invoke(entry, args, n, &result)
    ▼
-LoadedProgram::invoke_index → EngineRegistry::invoke_mode（按宿主选择的执行模式分发）
+LoadedProgram::invoke_index → exec::invoke_mode（按宿主选择的执行模式分发）
 ```
 
 ### 模块边界与 VM 全局状态
 
 | 关系 | 说明 |
 |------|------|
-| host 模块 ↔ `VmContext` | `host::session` 持有宿主会话配置与句柄注册表；每个模块句柄拥有一个 `LoadedProgram` 及其独立 `VmContext`。`SessionConfig::load_options` 传入 VFS、resolver、预加载策略与执行模式，经 `LoadedProgram::load_bytes` → `load::prepare` → `program_builder::build` 完成装配。首次调用准备与执行访问屏障由程序调用入口统一负责，实际后端由 `EngineRegistry::invoke_mode` 按加载时选定的模式分发 |
+| host 模块 ↔ `VmContext` | `host::session` 持有宿主会话配置与句柄注册表；每个模块句柄拥有一个 `LoadedProgram` 及其独立 `VmContext`。`SessionConfig::load_options` 传入 VFS、resolver、预加载策略与执行模式，经 `LoadedProgram::load_bytes` → `load::prepare` → `program_builder::build` 完成装配。首次调用准备与执行访问屏障由程序调用入口统一负责，实际后端由 `exec::invoke_mode` 按加载时选定的模式分发 |
 | stdout / stderr | C 函数指针或 Rust 闭包经会话登记到 `corelib::io`；`invoke` 期间 `HostSinkGuard` 置位 per-thread「host sink active」标志，`corelib/io` 据此把输出路由到宿主回调，结束时复原 |
 | panic 隔离 | 每个 `extern "C"` 入口经 `host::guard()` `catch_unwind` 兜底，panic → `Z42_HOST_ERR_INTERNAL` |
 | 错误诊断 | TLS `LAST_ERROR` 由 `host::error::set_error / clear_error` 管理；与 `interop::error::LAST_ERROR` 独立（两条 ABI 各自维护） |

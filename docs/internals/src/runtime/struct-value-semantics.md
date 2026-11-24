@@ -361,7 +361,8 @@ struct 的完整对象协议。unboxed struct 仍无 vtable（这些方法经装
 - **`a == b` / `a != b`**（两操作数均 blob struct 且布局**无浮点叶子**，递归含嵌套——
   `EmitContext.LayoutHasFloatLeaf`）：单条 `__struct_eq(a, b)` builtin——运行期同名判定 +
   基元字节 + 引用叶子 `Value` 相等（与 `Value::eq` 装箱臂同式）。`!=` 追加 `Not`。非浮点叶
-  按位相等 ⇔ `Eq`，故该等价只对 float-free 布局成立；浮点叶（±0.0/NaN 语义）保持逐叶 IR。
+  按位相等 ⇔ `Eq`，故该等价只对 float-free 布局成立；浮点叶（±0.0/NaN 语义）保持逐叶 IR。 两个操作数都在帧
+  arena 时，一次加锁即可借用两份字段数据直接比较，两个句柄均校验创建帧 id。
 - **`a.Equals(x)`**（未自声明 `Equals`）：x 静态同型（binder 已包 `BoundBox`）→ 剥壳拿裸
   StructRef 直比（float-free → `__struct_eq`；含浮点 → 逐叶）；x 静态为其他值类型/null →
   保留实参和接收者的求值，再发射 `ConstBool(false)`；x 为 object/接口/型参 → `__struct_eq`（builtin 内

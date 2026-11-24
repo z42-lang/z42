@@ -1,0 +1,8 @@
+[project]
+name = "demo.inferapp"
+version = "0.1.0"
+kind = "exe"
+pack = true
+
+[dependencies]
+"demo.infertarget" = "0.1.0"

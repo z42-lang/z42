@@ -1,7 +1,9 @@
 //! Minimal same-build VM views and physical image/layout identity for components.
 //!
 //! ```
-//! use z42::components::bridge::{install_profiler_backend, ProfilerBackend};
+//! use z42::components::bridge::{install_profiler_backend, register_baseline_engine, ProfilerBackend};
+//! use z42::exec::Engine;
+//! let _: unsafe fn(&z42::vm::VmContext, &'static dyn Engine) -> _ = register_baseline_engine;
 //! use z42::vm::VmContext;
 //! let _: unsafe fn(&VmContext, Box<dyn ProfilerBackend>) -> _ = install_profiler_backend;
 //! ```
@@ -15,6 +17,7 @@
 pub use crate::vm::{VmContext, VM_CONTEXT_CCTORS_OFFSET,
     VM_CONTEXT_SAFEPOINT_SKIP_OFFSET, VM_CONTEXT_STACK_LIMIT_OFFSET};
 use crate::components::abi::ExecutionCoreAbi;
+use crate::exec::{Engine, JitConfig, TierApi, TierBackend};
 pub use crate::diagnostics::sampling::{ProfilerBackend, SampleBackend};
 static CORE_IDENTITY: u8 = 0;
 pub fn core_identity() -> *const core::ffi::c_void { core::ptr::addr_of!(CORE_IDENTITY).cast() }
@@ -63,6 +66,51 @@ pub fn object_protocol(ctx: &crate::vm::VmContext) -> &crate::object::ObjectProt
     crate::vm::VmContext, crate::exec::builtin_abi::BuiltinError,
 > {
     ctx.core().object_protocol()
+}
+
+/// Register the engine supplied by the VM's validated baseline component.
+///
+/// # Safety
+/// The engine and all of its code must outlive the VM. Component attachment
+/// retains the validated component's code before calling this function.
+pub unsafe fn register_baseline_engine(ctx: &VmContext, engine: &'static dyn Engine) -> anyhow::Result<()> {
+    ctx.core().exec().engines.register_baseline(engine)
+}
+
+/// Register the engine and configuration supplied by the VM's validated JIT component.
+///
+/// # Safety
+/// The engine and all of its code must outlive the VM. Component attachment
+/// retains the validated component's code before calling this function.
+pub unsafe fn register_jit_engine(
+    ctx: &VmContext, engine: &'static dyn Engine, config: JitConfig,
+) -> anyhow::Result<()> {
+    ctx.core().exec().engines.register_jit(engine, config)
+}
+
+/// Read the configuration captured at JIT attachment.
+pub fn jit_config(ctx: &VmContext) -> anyhow::Result<JitConfig> {
+    ctx.core().exec().engines.jit_config()
+}
+
+/// Borrow the tier installed on this VM, even before this thread's cache is refreshed.
+pub fn installed_tier(ctx: &VmContext) -> Option<&TierApi> {
+    ctx.core().exec().engines.tier()
+}
+
+/// Publish the tier, returning false if another backend already owns the slot.
+///
+/// # Safety
+/// The backend's code and destructor must remain loaded until the VM releases
+/// it. Component attachment retains the JIT code before execution begins.
+pub unsafe fn install_tier(ctx: &VmContext, backend: impl TierBackend) -> bool {
+    ctx.core().exec().engines.install_tier(TierApi::new(backend)).is_ok()
+}
+
+#[cfg(feature = "jit-test-support")]
+#[doc(hidden)]
+pub fn test_engine_registered(ctx: &VmContext, mode: crate::zpkg::ExecMode) -> bool {
+    crate::components::api::execution_registered(ctx, mode)
 }
 
 /// Install the backend supplied by a validated same-build profiler component.

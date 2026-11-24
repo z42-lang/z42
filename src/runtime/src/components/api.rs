@@ -42,6 +42,11 @@ pub(crate) fn execution_available(role: ExecutionRole) -> bool {
     }
 }
 
+/// Whether this execution mode already has a registered engine on the VM.
+pub(crate) fn execution_registered(ctx: &VmContext, mode: ExecMode) -> bool {
+    ctx.core().exec().engines.is_registered(mode)
+}
+
 pub(crate) use super::profiling::{ProfilingState, prepare as prepare_profiler};
 
 pub(super) fn attach_execution(ctx: &VmContext, mode: ExecMode, cfg: &crate::exec::JitConfig) -> Result<()> {
@@ -63,9 +68,9 @@ pub(super) fn attach_execution(ctx: &VmContext, mode: ExecMode, cfg: &crate::exe
         let status = unsafe { (interface.attach)((ctx as *const VmContext).cast(), &config) };
         anyhow::ensure!(status == ComponentStatus::OK, "{name} registration failed: status {}", status.0);
     }
-    anyhow::ensure!(ctx.core().exec().engines.has_baseline(), "interpreter component did not register its execution engine");
+    anyhow::ensure!(execution_registered(ctx, ExecMode::Interp), "interpreter component did not register its execution engine");
     if mode == ExecMode::Jit {
-        anyhow::ensure!(ctx.core().exec().engines.has_jit(), "JIT component did not register its execution engine");
+        anyhow::ensure!(execution_registered(ctx, ExecMode::Jit), "JIT component did not register its execution engine");
     }
     Ok(())
 }

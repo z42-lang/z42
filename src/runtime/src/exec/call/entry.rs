@@ -57,11 +57,7 @@ pub(crate) fn invoke_entry(
         args.iter().map(|v| ctx.heap().pin_root(*v)).collect(),
     );
     prepare();
-    let outcome = ctx
-        .core()
-        .exec()
-        .engines
-        .invoke_mode(mode, ctx, module, func, args);
+    let outcome = crate::exec::invoke_mode(ctx, mode, module, func, args);
     if crate::exec::stack_guard::is_fatal(ctx) {
         let report = crate::exec::stack_guard::report()
             .unwrap_or_else(|| format!("{}stack overflow", crate::exec::stack_guard::FATAL_PREFIX));

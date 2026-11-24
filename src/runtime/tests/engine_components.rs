@@ -60,7 +60,7 @@ fn actual_dynamic_engines_preserve_vm_isolation_worker_gc_and_exceptions() {
             let before = ctx.core().diagnostics().snapshot(ctx.core().threads()).jit_native_from_interp;
             let module = ctx.module().unwrap();
             let hot = module.functions.iter().find(|f| f.name == "EngineComponentProbe.HotLoop").unwrap();
-            let result = ctx.core().exec().engines.invoke_mode(ExecMode::Interp, ctx, module, hot, &[Value::I64(20_000)]).unwrap();
+            let result = z42::exec::invoke(ctx, module, hot, &[Value::I64(20_000)]).unwrap();
             assert!(matches!(result, z42::exec::outcome::ExecOutcome::Returned(Some(Value::I64(199_990_000)))));
             assert!(ctx.core().diagnostics().snapshot(ctx.core().threads()).jit_native_from_interp > before, "dynamic interpreter must hand its hot loop to the dynamic JIT");
         } else {
@@ -80,7 +80,7 @@ fn worker_retains_dynamic_execution_after_host_release() {
     drop(program);
     assert!(weak.upgrade().is_some());
     let function = module.functions.iter().find(|f| f.name == "EngineComponentProbe.Echo").unwrap();
-    let result = worker.core().exec().engines.invoke_mode(ExecMode::Jit, &worker, &module, function, &[Value::I64(5)]).unwrap();
+    let result = z42::exec::invoke_mode(&worker, ExecMode::Jit, &module, function, &[Value::I64(5)]).unwrap();
     assert!(matches!(result, z42::exec::outcome::ExecOutcome::Returned(Some(Value::I64(7)))));
     drop(worker);
     assert!(weak.upgrade().is_none(), "backend state must not form a Core cycle");
@@ -168,7 +168,7 @@ fn dynamic_interpreter_preserves_native_pin_instructions() {
     })], Default::default());
     let program = load(ExecMode::Interp, native_loading()).unwrap();
     let ctx = program.context();
-    let outcome = ctx.core().exec().engines.invoke_mode(ExecMode::Interp, ctx, &module, &module.functions[0], &[]).unwrap();
+    let outcome = z42::exec::invoke(ctx, &module, &module.functions[0], &[]).unwrap();
     assert!(matches!(outcome, ExecOutcome::Returned(Some(Value::I64(11)))));
 }
 

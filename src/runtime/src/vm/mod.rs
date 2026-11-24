@@ -95,7 +95,7 @@ impl VmCore {
     #[inline] pub(crate) fn object_protocol(&self) -> &crate::object::ObjectProtocol<VmContext, crate::exec::builtin_abi::BuiltinError> { &self.object_protocol }
     #[inline] pub(crate) fn profiling(&self) -> &crate::components::api::ProfilingState { &self.profiling }
     #[inline] pub(crate) fn components(&self) -> &std::sync::OnceLock<crate::components::api::VmComponents> { &self.components }
-    #[inline] pub fn exec(&self) -> &crate::exec::ExecState { &self.exec }
+    #[inline] pub(crate) fn exec(&self) -> &crate::exec::ExecState { &self.exec }
     #[inline] pub fn heap(&self) -> &Heap { &self.heap }
     #[inline] pub fn runtime(&self) -> &crate::metadata::RuntimeState { &self.runtime }
     #[inline] pub fn diagnostics(&self) -> &crate::diagnostics::DiagnosticsState { &self.diagnostics }
@@ -178,18 +178,18 @@ impl VmContext {
 
 }
 /// Mechanism inputs resolved by the host; no concrete backend or configuration parser.
-pub struct RuntimeInputs {
-    pub extensions: crate::vm::ExtensionState,
-    pub config: crate::config::VmConfig,
-    pub object_protocol: crate::object::ObjectProtocol<VmContext, crate::exec::builtin_abi::BuiltinError>,
-    pub engines: crate::exec::EngineRegistry,
-    pub builtins: &'static [crate::exec::builtin_abi::BuiltinDesc],
-    pub catalog: &'static crate::metadata::builtins::BuiltinCatalog,
-    pub fusion: crate::loader::fusion_inputs::FusionInputSource,
-    pub sampler: crate::diagnostics::Sampling,
+struct RuntimeInputs {
+    extensions: crate::vm::ExtensionState,
+    config: crate::config::VmConfig,
+    object_protocol: crate::object::ObjectProtocol<VmContext, crate::exec::builtin_abi::BuiltinError>,
+    engines: crate::exec::EngineRegistry,
+    builtins: &'static [crate::exec::builtin_abi::BuiltinDesc],
+    catalog: &'static crate::metadata::builtins::BuiltinCatalog,
+    fusion: crate::loader::fusion_inputs::FusionInputSource,
+    sampler: crate::diagnostics::Sampling,
 }
 impl VmContext {
-    pub fn with_runtime(
+    fn with_runtime(
         module: Option<Arc<crate::metadata::Module>>,
         vfs: Arc<dyn crate::pal::fs::Vfs>,
         inputs: RuntimeInputs,

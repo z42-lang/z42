@@ -256,6 +256,18 @@ fn struct_payload(
 /// 成立，故编译器只对 float-free 布局把调用引到这条路（保留名 `Equals$1$synth` /
 /// builtin 发射侧的 float-free 谓词）。
 pub fn struct_value_eq(ctx: &VmContext, a: &Value, b: &Value) -> Result<bool> {
+    if let (
+        Value::StructRef { idx: a_idx, frame_id: a_frame },
+        Value::StructRef { idx: b_idx, frame_id: b_frame },
+    ) = (a, b) {
+        let arena = ctx.exec().struct_arena.lock();
+        return arena.with(*a_idx, *a_frame, |lhs| {
+            arena.with(*b_idx, *b_frame, |rhs| {
+                lhs.type_name == rhs.type_name && lhs.bytes == rhs.bytes && lhs.refs == rhs.refs
+            })
+        })?;
+    }
+
     let (pa, pb) = match (struct_payload(ctx, a)?, struct_payload(ctx, b)?) {
         (Some(pa), Some(pb)) => (pa, pb),
         _ => return Ok(false),

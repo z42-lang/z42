@@ -119,6 +119,7 @@ void Main() {
     WithRef r3 = new WithRef(1, new Cell(7));
     Assert.True(r1 == r2);
     Assert.False(r1 == r3);
+    Assert.True(r1.Equals(r1));
     Assert.True(r1.Equals(r2));
     Assert.False(r1.Equals(r3));
 

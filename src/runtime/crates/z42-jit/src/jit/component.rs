@@ -1,6 +1,6 @@
 //! Static and dynamic registration of the same execution backend.
 use z42::components::abi::*;
-use z42::components::bridge::{core_identity, CORE_ABI};
+use z42::components::bridge::{core_identity, register_jit_engine, CORE_ABI};
 use core::ffi::c_void;
 unsafe extern "C" fn identity() -> ExecutionIdentity {
     ExecutionIdentity { image: core_identity(), abi: CORE_ABI }
@@ -9,11 +9,18 @@ unsafe extern "C" fn attach(vm: *const c_void, config: *const ExecutionConfig) -
     if vm.is_null() || config.is_null() { return ComponentStatus::INVALID_ARGUMENT; }
     let ctx = unsafe { &*vm.cast::<crate::components::bridge::VmContext>() };
     let config = unsafe { &*config };
-    let _ = config;
-    match ctx.core().exec().engines.register_jit(&super::engine::ENGINE, crate::exec::JitConfig {
-        threshold: config.threshold, osr_threshold: config.osr_threshold, interp_tierup: config.interp_tierup,
-        profile: config.profile != 0, debug_promote: config.debug_promote != 0,
-    }) { Ok(()) => ComponentStatus::OK, Err(_) => ComponentStatus::ERROR }
+    let policy = crate::exec::JitConfig {
+        threshold: config.threshold,
+        osr_threshold: config.osr_threshold,
+        interp_tierup: config.interp_tierup,
+        profile: config.profile != 0,
+        debug_promote: config.debug_promote != 0,
+    };
+    // SAFETY: the runtime validated the component and retained its code before attachment.
+    match unsafe { register_jit_engine(ctx, &super::engine::ENGINE, policy) } {
+        Ok(()) => ComponentStatus::OK,
+        Err(_) => ComponentStatus::ERROR,
+    }
 }
 static API: ExecutionApi = ExecutionApi { header: ApiHeader::of::<ExecutionApi>(1), core_identity: identity, attach };
 unsafe extern "C" fn create(runtime: *const RuntimeApi, _vm: VmHandle, out: *mut InstanceHandle) -> ComponentStatus {
