@@ -149,7 +149,7 @@ fn field_info_set_value_into_an_old_object_survives_the_next_minor() {
 
 /// `struct S { object R; }`——一个引用叶子。
 fn struct_s() -> (Arc<TypeDesc>, Arc<StructTypeLayout>) {
-    let layout = Arc::new(StructTypeLayout {
+    let layout = Arc::new(StructTypeLayout { float_field_ranges: Default::default(),
         size: 8, ref_offsets: Box::new([0]), ref_kinds: Box::new([STRUCT_REF_GCREF]), fields: Box::new([]),
     });
     let td = Arc::new(TypeDesc {

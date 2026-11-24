@@ -358,7 +358,7 @@ fn install_method_struct_types(vm: &VmContext) {
             base_name: None,
             visibility: 0,
             cold: size.map(|size| Box::new(TypeDescCold {
-                struct_layout: Some(Arc::new(StructTypeLayout {
+                struct_layout: Some(Arc::new(StructTypeLayout { float_field_ranges: Default::default(),
                     size, ref_offsets: Box::new([]), ref_kinds: Box::new([]),
                     fields: Box::new([StructFieldLayout { offset: size as u32 - 4, size: 4, kind: 0 }]),
                 })),

@@ -295,7 +295,7 @@ fn composed_object_layout_ref_matches_the_cloning_twin() {
 fn struct_array_backing_roundtrip_and_traced_leaves() {
     use crate::object::*;
     // Point[2] with element layout {x:i32@0, y:i32@4, tag:string@8}, size 16, 1 ref leaf.
-    let layout = Arc::new(StructTypeLayout {
+    let layout = Arc::new(StructTypeLayout { float_field_ranges: Default::default(),
         size: 16,
         ref_offsets: Box::new([8]),
         ref_kinds: Box::new([STRUCT_REF_ARC_STRING]),

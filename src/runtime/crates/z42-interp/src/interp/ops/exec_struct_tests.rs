@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 /// Pure-primitive layout of `size` bytes (no reference leaves).
 fn prim_layout(size: usize) -> Arc<StructTypeLayout> {
-    Arc::new(StructTypeLayout { size, ref_offsets: Box::new([]), ref_kinds: Box::new([]), fields: Box::new([]) })
+    Arc::new(StructTypeLayout { float_field_ranges: Default::default(), size, ref_offsets: Box::new([]), ref_kinds: Box::new([]), fields: Box::new([]) })
 }
 
 fn enc(bytes: &mut [u8], off: usize, tag: u8, v: Value) {
@@ -187,7 +187,7 @@ fn struct_array_element_leaf_access_via_handle() {
     use crate::components::bridge::VmContext;
     use crate::object::{ArrayObj, StructArrayElem, STRUCT_REF_ARC_STRING};
 
-    let layout = Arc::new(StructTypeLayout {
+    let layout = Arc::new(StructTypeLayout { float_field_ranges: Default::default(),
         size: 16,
         ref_offsets: Box::new([8]),
         ref_kinds: Box::new([STRUCT_REF_ARC_STRING]),
@@ -378,7 +378,7 @@ fn symbolization_cost_by_path_depth() {
             base_name: None,
             visibility: 0,
             cold: Some(Box::new(TypeDescCold {
-                struct_layout: Some(Arc::new(StructTypeLayout {
+                struct_layout: Some(Arc::new(StructTypeLayout { float_field_ranges: Default::default(),
                     size: n * 8,
                     ref_offsets: Box::new([]),
                     ref_kinds: Box::new([]),

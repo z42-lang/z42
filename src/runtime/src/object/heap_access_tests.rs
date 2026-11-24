@@ -51,7 +51,7 @@ fn struct_copy_tracks_leaves_and_snapshots_independent_storage_without_vm() {
     let heap = Heap::default();
     let observer = Arc::new(BarrierObserver::new());
     heap.install_barrier_observer(observer.clone());
-    let layout = Arc::new(StructTypeLayout {
+    let layout = Arc::new(StructTypeLayout { float_field_ranges: Default::default(),
         size: 8, ref_offsets: Box::new([0]), ref_kinds: Box::new([STRUCT_REF_GCREF]), fields: Box::new([]),
     });
     let td = Arc::new(TypeDesc {
