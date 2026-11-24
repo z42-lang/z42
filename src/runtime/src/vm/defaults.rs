@@ -39,7 +39,7 @@ pub(crate) fn with_config(
     protocol: crate::object::ObjectProtocol<VmContext, crate::exec::builtin_abi::BuiltinError>,
     engines: crate::exec::EngineRegistry,
 ) -> std::pin::Pin<Box<VmContext>> {
-    let sampler = crate::diagnostics::sampling::Sampling::with_config(
+    let sampler = crate::diagnostics::Sampling::with_config(
         config.sample_hz, config.trace_timeline, crate::components::api::prepare_profiler,
     );
     VmContext::with_runtime(

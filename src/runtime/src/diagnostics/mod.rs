@@ -31,7 +31,8 @@ pub(crate) use exit_report::{configure_exit_report, report_on_exit};
 mod observer;
 pub(crate) use observer::ModuleLoadEvents;
 pub use observer::{RuntimeEvent, RuntimeObserver, RuntimeObserverRegistry};
-pub mod sampling;
+pub(crate) mod sampling;
+pub use sampling::Sampling;
 pub mod retention;
 
 use std::sync::{Arc, atomic::AtomicU64};
@@ -47,7 +48,7 @@ pub struct DiagnosticsState {
     pub park_histogram: Mutex<crate::gc::types::PauseHistogram>,
     pub lock_contentions: AtomicU64,
     pub lock_wait_us: AtomicU64,
-    pub sampler: sampling::Sampling,
+    pub(crate) sampler: Sampling,
 }
 
 /// Observation-only shard; transferred under the registry lock before deregistration.
@@ -111,6 +112,13 @@ pub fn emit_exception_thrown(ctx: &VmContext, describe: impl FnOnce() -> (String
 pub(crate) fn capture_counters(ctx: &VmContext) -> (CounterSnapshot, crate::gc::HeapStats) {
     let core = ctx.core();
     (core.diagnostics().snapshot(core.threads()), ctx.heap().stats())
+}
+
+pub(crate) fn install_profiler_backend(
+    ctx: &VmContext,
+    backend: Box<dyn sampling::ProfilerBackend>,
+) -> anyhow::Result<()> {
+    ctx.core().diagnostics().sampler.install(backend)
 }
 
 pub(crate) fn profiler_loaded(ctx: &VmContext) -> bool {
