@@ -1,5 +1,5 @@
 use super::{api, api::ComponentOptions, execution_roles::ExecutionBindings};
-use crate::{components::abi::*, vm::VmContext};
+use crate::{components::abi::*, vm::VmContext, zpkg::ExecMode};
 use std::sync::{Mutex, atomic::{AtomicUsize, Ordering}};
 
 static LOCK: Mutex<()> = Mutex::new(());
@@ -134,9 +134,9 @@ fn successful_attach_without_registering_the_requested_engine_is_rejected() {
         crate::exec::EngineRegistry::new(None), crate::composition::freeze);
     let options = unsafe { ComponentOptions::default().with_static(RENAMED, renamed) };
     options.install_bound(&ctx, ExecutionBindings::new([(api::ExecutionRole::Baseline, RENAMED)]).unwrap()).unwrap();
-    let error = super::api::attach_execution(&ctx, crate::zpkg::ExecMode::Interp, &crate::config::runtime_config_snapshot().jit_config()).unwrap_err().to_string();
+    let error = api::attach_execution(&ctx, ExecMode::Interp, &crate::config::runtime_config_snapshot().jit_config()).unwrap_err().to_string();
     assert!(error.contains("did not register"), "{error}");
-    assert!(!ctx.core().exec().engines.has_baseline());
+    assert!(!api::execution_registered(&ctx, ExecMode::Interp));
     assert_eq!(LIVE.load(Ordering::SeqCst), 1);
     let weak = std::sync::Arc::downgrade(ctx.core());
     drop(ctx);

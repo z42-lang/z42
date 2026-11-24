@@ -47,11 +47,11 @@ fn absent_registered_backend_is_an_explicit_error() {
     let m = module(false); let ctx = VmContext::new(); let registry = EngineRegistry::new(None);
     assert!(registry.invoke(&ctx, &m, &m.functions[0], CallArgs::Values(&[]), &[])
         .unwrap_err().to_string().contains("no baseline engine"));
-    assert!(registry.run(ExecMode::Interp, &ctx, &m, &m.functions[0])
+    assert!(registry.invoke_mode(ExecMode::Interp, &ctx, &m, &m.functions[0], &[])
         .unwrap_err().to_string().contains("no baseline engine"));
-    assert!(registry.run(ExecMode::Jit, &ctx, &m, &m.functions[0])
+    assert!(registry.invoke_mode(ExecMode::Jit, &ctx, &m, &m.functions[0], &[])
         .unwrap_err().to_string().contains("JIT backend unavailable"));
-    assert!(registry.run(ExecMode::Aot, &ctx, &m, &m.functions[0])
+    assert!(registry.invoke_mode(ExecMode::Aot, &ctx, &m, &m.functions[0], &[])
         .unwrap_err().to_string().contains("not implemented"));
 }
 
@@ -90,8 +90,10 @@ fn worker_contexts_share_their_vm_tier_and_refresh_only_at_entry() {
     assert!(current_tier(&a).is_none());
     assert!(current_tier(&b).is_none());
     assert!(current_tier(&worker).is_none());
-    assert!(a.core.exec.engines.install_tier(TierApi::new(ProbeTier { id: 5,
-        dropped: Arc::new(AtomicUsize::new(0)) })).is_ok());
+    let backend = ProbeTier { id: 5, dropped: Arc::new(AtomicUsize::new(0)) };
+    // SAFETY: the test backend is linked into this test process.
+    assert!(unsafe { crate::components::bridge::install_tier(&a, backend) });
+    assert!(crate::components::bridge::installed_tier(&b).is_none());
     refresh_tier(&a);
     refresh_tier(&b);
     assert!(current_tier(&b).is_none());

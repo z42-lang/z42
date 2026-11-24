@@ -1,6 +1,6 @@
 //! Static and dynamic registration of the same execution backend.
 use z42::components::abi::*;
-use z42::components::bridge::{core_identity, CORE_ABI};
+use z42::components::bridge::{core_identity, register_baseline_engine, CORE_ABI};
 use core::ffi::c_void;
 unsafe extern "C" fn identity() -> ExecutionIdentity {
     ExecutionIdentity { image: core_identity(), abi: CORE_ABI }
@@ -8,9 +8,11 @@ unsafe extern "C" fn identity() -> ExecutionIdentity {
 unsafe extern "C" fn attach(vm: *const c_void, config: *const ExecutionConfig) -> ComponentStatus {
     if vm.is_null() || config.is_null() { return ComponentStatus::INVALID_ARGUMENT; }
     let ctx = unsafe { &*vm.cast::<crate::components::bridge::VmContext>() };
-    let config = unsafe { &*config };
-    let _ = config;
-    match ctx.core().exec().engines.register_baseline(&super::engine::ENGINE) { Ok(()) => ComponentStatus::OK, Err(_) => ComponentStatus::ERROR }
+    // SAFETY: the runtime validated the component and retained its code before attachment.
+    match unsafe { register_baseline_engine(ctx, &super::engine::ENGINE) } {
+        Ok(()) => ComponentStatus::OK,
+        Err(_) => ComponentStatus::ERROR,
+    }
 }
 static API: ExecutionApi = ExecutionApi { header: ApiHeader::of::<ExecutionApi>(1), core_identity: identity, attach };
 unsafe extern "C" fn create(runtime: *const RuntimeApi, _vm: VmHandle, out: *mut InstanceHandle) -> ComponentStatus {

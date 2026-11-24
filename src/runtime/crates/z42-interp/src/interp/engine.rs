@@ -19,7 +19,4 @@ impl Engine for Interpreter {
                 super::run::exec_function_from_receiver_regs(ctx, module, func, &receiver, regs, indices, type_args),
         }
     }
-    fn run(&self, ctx: &VmContext, module: &Module, entry: &Function) -> Result<()> {
-        super::run_with_static_init(ctx, module, entry)
-    }
 }

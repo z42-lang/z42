@@ -34,7 +34,7 @@ native 安装器将其聚合成既有统一头，workload 不增加逐模块 inc
 | `metadata/state.rs` | `RuntimeState` 组合入口 module 与运行时身份表，保留每 VM 链接隔离 |
 | `loader/state.rs` | `LoaderState` 组合每 VM 加载上下文、初始化队列与 VFS |
 | `metadata/statics/` / `exec/init.rs` | 静态存储/初始化事实与执行/等待的职责边界 |
-| `host/services.rs` | 门面适配隔离应用执行与退出报告，经冻结扩展服务注入 corelib |
+| `composition.rs` | 库组合根组装嵌入扩展、崩溃报告和退出报告 |
 | `vm/app_state.rs` | 每 VM 的应用参数，经核心库服务接口提供快照 |
 | `exec/thread_state.rs` | `ThreadExecState` 组合每线程帧、arena、异常槽和中立 JIT 头 |
 | `exec/state.rs` | `ExecState` 组合每 VM 的引擎注册与代码寿命 |
@@ -72,7 +72,7 @@ native 安装器将其聚合成既有统一头，workload 不增加逐模块 inc
 | `src/interop/` | 原生提供方注册/查询与 Tier 1 C ABI 编组，见 [`src/interop/README.md`](src/interop/README.md) |
 | `src/components/abi.rs` / `src/components/bridge.rs` | 独立组件共享的同构建协议及核心身份/布局桥，不经 host 转出 |
 | `src/components/` | 内部能力门面、角色绑定、工厂加载、后端选择与每 VM 生命周期，见 [`src/components/README.md`](src/components/README.md) |
-| `src/host/` | CLI 与外部宿主共用的 Rust 加载、调用及应用服务，C ABI 适配收在 `c/` 子目录，见 [embedding.md](../../docs/internals/src/runtime/embedding.md) |
+| `src/host/` | CLI 与外部宿主共用的 Rust 加载、调用及应用服务，C ABI 由 `host/ffi.rs` 与同目录的配置、编组代码提供，见 [embedding.md](../../docs/internals/src/runtime/embedding.md) |
 | `src/pal/` | 平台抽象层（OS 相关 `#[cfg]` 分支集中处），见 [`src/pal/README.md`](src/pal/README.md) |
 | `src/exec/exception.rs` | 异常对象布局、传播模型与栈迹捕获 |
 

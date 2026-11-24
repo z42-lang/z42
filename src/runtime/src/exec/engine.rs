@@ -11,7 +11,6 @@ use super::call::{args::CallArgs, outcome::ExecOutcome};
 pub trait Engine: Send + Sync {
     fn invoke(&self, ctx: &VmContext, module: &Module, func: &Function,
         args: CallArgs<'_>, type_args: &[String]) -> Result<ExecOutcome>;
-    fn run(&self, ctx: &VmContext, module: &Module, entry: &Function) -> Result<()>;
 }
 
 /// A call-site resolve counts toward tier-up; an existing-function divert uses
@@ -41,7 +40,7 @@ pub struct TierApi {
 }
 
 impl TierApi {
-    pub fn new<T: TierBackend>(backend: T) -> Self {
+    pub(crate) fn new<T: TierBackend>(backend: T) -> Self {
         Self { osr_threshold: backend.osr_threshold(), backend: Box::new(backend) }
     }
     #[inline]
@@ -55,7 +54,7 @@ impl TierApi {
         -> Option<Result<ExecOutcome>> { self.backend.osr(ctx, func, header, state) }
 }
 
-pub struct EngineRegistry {
+pub(crate) struct EngineRegistry {
     baseline: OnceLock<&'static dyn Engine>,
     jit_engine: OnceLock<&'static dyn Engine>,
     jit_config: OnceLock<JitConfig>,
@@ -78,13 +77,18 @@ impl EngineRegistry {
         self.jit_config.set(config).map_err(|_| anyhow::anyhow!("JIT policy already registered"))?;
         self.jit_engine.set(engine).map_err(|_| anyhow::anyhow!("JIT already registered"))
     }
-    pub fn has_jit(&self) -> bool { self.jit_engine.get().is_some() }
-    pub fn has_baseline(&self) -> bool { self.baseline.get().is_some() }
+    pub fn is_registered(&self, mode: ExecMode) -> bool {
+        match mode {
+            ExecMode::Interp => self.baseline.get().is_some(),
+            ExecMode::Jit => self.jit_engine.get().is_some(),
+            ExecMode::Aot => false,
+        }
+    }
     pub fn jit_config(&self) -> Result<JitConfig> {
         self.jit_config.get().copied().ok_or_else(|| anyhow::anyhow!("JIT policy not registered"))
     }
     pub fn retain_code(&self, code: std::sync::Arc<dyn Send + Sync>) { self.code_leases.lock().push(code); }
-    pub fn invoke_mode(&self, mode: ExecMode, ctx: &VmContext, module: &Module,
+    fn invoke_mode(&self, mode: ExecMode, ctx: &VmContext, module: &Module,
         func: &Function, args: &[Value]) -> Result<ExecOutcome> {
         match mode {
             ExecMode::Interp => self.invoke(ctx, module, func, CallArgs::Values(args), &[]),
@@ -95,20 +99,18 @@ impl EngineRegistry {
     }
     pub fn tier(&self) -> Option<&TierApi> { self.tier.get() }
     pub fn install_tier(&self, tier: TierApi) -> Result<(), TierApi> { self.tier.set(tier) }
-    pub fn invoke(&self, ctx: &VmContext, module: &Module, func: &Function,
+    fn invoke(&self, ctx: &VmContext, module: &Module, func: &Function,
         args: CallArgs<'_>, type_args: &[String]) -> Result<ExecOutcome> {
         self.baseline.get().ok_or_else(|| anyhow::anyhow!("no baseline engine registered on this VM"))?
             .invoke(ctx, module, func, args, type_args)
     }
-    pub fn run(&self, mode: ExecMode, ctx: &VmContext, module: &Module, entry: &Function) -> Result<()> {
-        match mode {
-            ExecMode::Interp => self.baseline.get().ok_or_else(|| anyhow::anyhow!("no baseline engine registered on this VM"))?
-                .run(ctx, module, entry),
-            ExecMode::Jit => self.jit_engine.get().ok_or_else(|| anyhow::anyhow!("JIT backend unavailable on this VM"))?
-                .run(ctx, module, entry),
-            ExecMode::Aot => bail!("AOT mode is not implemented yet. Switch to `--mode interp` or `--mode jit`."),
-        }
-    }
+}
+
+/// Invoke a function in the requested mode using this VM's registered engine.
+pub fn invoke_mode(
+    ctx: &VmContext, mode: ExecMode, module: &Module, func: &Function, args: &[Value],
+) -> Result<ExecOutcome> {
+    ctx.core().exec().engines.invoke_mode(mode, ctx, module, func, args)
 }
 
 pub fn invoke(ctx: &VmContext, module: &Module, func: &Function, args: &[Value]) -> Result<ExecOutcome> {

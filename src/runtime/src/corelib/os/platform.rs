@@ -9,8 +9,14 @@
 //!
 //!  add-platform-os-stdlib.
 
+use crate::components::api::{execution_available, execution_registered, ExecutionRole};
 use crate::object::Value;
 use crate::vm::VmContext;
+use crate::zpkg::ExecMode;
+
+fn jit_available(ctx: &VmContext) -> bool {
+    execution_registered(ctx, ExecMode::Jit) || execution_available(ExecutionRole::Optimizing)
+}
 
 /// 宿主 OS 名。wasm32 报 `"wasm"` 而不是 `consts::OS`（见 [`crate::pal::system::os_name`]），
 /// 否则 `OSKind.Wasm`、`IsWasm()`、`[Skip(platform: "wasm")]` 在 wasm 上都不生效。
@@ -74,7 +80,7 @@ pub fn platform_arch_kind() -> i64 {
 /// Order is stable (declaration order) so probe output is deterministic.
 pub fn platform_caps(ctx: &VmContext) -> Value {
     let mut caps: Vec<&str> = Vec::new();
-    if ctx.core().exec().engines.has_jit() || crate::components::api::execution_available(crate::components::api::ExecutionRole::Optimizing) { caps.push("jit"); }
+    if jit_available(ctx) { caps.push("jit"); }
     #[cfg(feature = "native-interop")]      caps.push("native-interop");
     #[cfg(feature = "bundled-compression")] caps.push("bundled-compression");
     let os = crate::pal::system::OS_CAPS;
@@ -104,8 +110,8 @@ pub fn platform_caps(ctx: &VmContext) -> Value {
 /// `skipped-not-yet` (M9), independent of this list.
 pub fn platform_exec_modes(ctx: &VmContext) -> Value {
     let mut modes: Vec<&str> = Vec::new();
-    if ctx.core().exec().engines.has_baseline() { modes.push("interp"); }
-    if ctx.core().exec().engines.has_jit() || crate::components::api::execution_available(crate::components::api::ExecutionRole::Optimizing) { modes.push("jit"); }
+    if execution_registered(ctx, ExecMode::Interp) { modes.push("interp"); }
+    if jit_available(ctx) { modes.push("jit"); }
     #[cfg(feature = "aot")] modes.push("aot");
     let list: Vec<Value> = modes.into_iter().map(|s| Value::Str(s.to_string().into())).collect();
     ctx.heap().alloc_array(list)
