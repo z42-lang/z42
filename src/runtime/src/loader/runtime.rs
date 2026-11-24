@@ -7,14 +7,14 @@ pub struct RuntimeLoader<'a> {
     state: &'a super::LoaderState,
     metadata: &'a crate::metadata::RuntimeState,
     cache: &'a crate::metadata::ThreadRuntimeState,
-    events: &'a crate::diagnostics::RuntimeObserverRegistry,
+    events: crate::diagnostics::ModuleLoadEvents<'a>,
 }
 impl<'a> RuntimeLoader<'a> {
     #[inline]
-    pub fn new(
+    pub(crate) fn new(
         state: &'a super::LoaderState, metadata: &'a crate::metadata::RuntimeState,
         cache: &'a crate::metadata::ThreadRuntimeState,
-        events: &'a crate::diagnostics::RuntimeObserverRegistry,
+        events: crate::diagnostics::ModuleLoadEvents<'a>,
     ) -> Self { Self { state, metadata, cache, events } }
 
     pub(crate) fn configure_native(&self, settings: super::NativeLoading) -> anyhow::Result<()> {
@@ -116,7 +116,7 @@ impl RuntimeLoader<'_> {
         // Resolve queued type owners after releasing the loader lock.
         self.drain_pending_type_loads();
         for name in newly_loaded {
-            self.events.fire(&crate::diagnostics::RuntimeEvent::ModuleLoaded { name, byte_size: None });
+            self.events.loaded(name, None);
         }
         result
     }
@@ -197,7 +197,7 @@ impl RuntimeLoader<'_> {
         // defer-class-initialization (T2): 同上。
         self.drain_pending_type_loads();
         for name in newly_loaded {
-            self.events.fire(&crate::diagnostics::RuntimeEvent::ModuleLoaded { name, byte_size: None });
+            self.events.loaded(name, None);
         }
         result.map(|td| self.metadata.current_type_desc(td))
     }
@@ -287,7 +287,7 @@ impl RuntimeLoader<'_> {
         // before publishing their load events; do not execute their initializers.
         self.drain_pending_type_loads();
         for name in newly {
-            self.events.fire(&crate::diagnostics::RuntimeEvent::ModuleLoaded { name, byte_size: None });
+            self.events.loaded(name, None);
         }
     }
 

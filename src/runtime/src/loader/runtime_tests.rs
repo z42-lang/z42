@@ -10,7 +10,7 @@ fn lookup_and_queue_drain_need_no_vm_heap_or_execution_engine() {
         || crate::loader::fusion_inputs::FusionInputs { no_fusion: true, no_typed_fusion: true, fusion_debug: false },
     );
     let events = crate::diagnostics::RuntimeObserverRegistry::new();
-    let loader = RuntimeLoader::new(&state, &metadata, &cache, &events);
+    let loader = RuntimeLoader::new(&state, &metadata, &cache, events.module_loads());
     loader.install_lazy_loader(None, 0);
     assert!(loader.try_lookup_function("Missing.Run").is_none());
     assert!(loader.try_lookup_type("Missing.Type").is_none());
@@ -39,7 +39,7 @@ fn context_load_registers_a_private_assembly_and_rejects_inactive_contexts() {
     let metadata = crate::metadata::RuntimeState::new(None, &CATALOG);
     let cache = crate::metadata::ThreadRuntimeState::new();
     let events = crate::diagnostics::RuntimeObserverRegistry::new();
-    let loader = RuntimeLoader::new(&state, &metadata, &cache, &events);
+    let loader = RuntimeLoader::new(&state, &metadata, &cache, events.module_loads());
     loader.install_lazy_loader(None, 0);
     let context = loader.create_collectible_context("plugins");
 

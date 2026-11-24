@@ -28,6 +28,7 @@
 | `context_gc.rs` | 保留 VM 上下文回收适配器的公开路径 |
 | `image_cache.rs` | 会话级 zpkg 解码缓存（内容哈希键）：已加载即共享定义 Arc，未命中才解码冻结 |
 | `contexts.rs` | ContextRegistry、assembly 身份和惰性卸载关联 |
+| `runtime.rs` | 包和符号查询，通过装配注入的入口发布加载事件 |
 | `runtime_contexts.rs` | RuntimeLoader 的上下文生命周期和反射查询，内部管理注册表锁 |
 | `availability.rs` | 加载期可用性折叠 |
 

@@ -77,9 +77,9 @@ fn event_payload_preserved() {
     let obs = Arc::new(RecordingObserver::default());
     r.add(obs.clone());
 
-    r.fire(&RuntimeEvent::ModuleLoaded { name: "user.zbc".into(),    byte_size: None });
+    r.module_loads().loaded("user.zbc".into(), None);
     r.fire(&RuntimeEvent::Custom       { source: "demo", message: "hi".into() });
-    r.fire(&RuntimeEvent::ModuleLoaded { name: "z42.io.zpkg".into(), byte_size: Some(42) });
+    r.module_loads().loaded("z42.io.zpkg".into(), Some(42));
 
     let seen = obs.seen.lock().clone();
     assert_eq!(seen, vec![
@@ -147,4 +147,41 @@ fn fire_snapshot_allows_reentrant_add() {
     let n2 = r.fire(&RuntimeEvent::Custom { source: "second", message: "".into() });
     assert_eq!(n2, 2);
     assert_eq!(late.count.load(Ordering::Relaxed), 1);
+}
+
+#[test]
+fn vm_events_only_build_payloads_for_subscribed_vms() {
+    let subscribed = crate::vm::VmContext::new();
+    let other = crate::vm::VmContext::new();
+    let observer = Arc::new(CountingObserver::default());
+    crate::diagnostics::add_runtime_observer(&subscribed, observer.clone());
+    crate::diagnostics::emit_runtime_event(&other, || panic!("constructed an event without subscribers"));
+    crate::diagnostics::emit_runtime_event(&subscribed, || RuntimeEvent::Custom {
+        source: "test",
+        message: "observed".into(),
+    });
+    assert_eq!(observer.count.load(Ordering::Relaxed), 1);
+}
+
+#[test]
+fn exception_event_truncates_at_a_utf8_boundary() {
+    #[derive(Debug, Default)]
+    struct ExceptionObserver(parking_lot::Mutex<String>);
+
+    impl RuntimeObserver for ExceptionObserver {
+        fn on_event(&self, event: &RuntimeEvent) {
+            if let RuntimeEvent::ExceptionThrown { message, .. } = event {
+                self.0.lock().clone_from(message);
+            }
+        }
+    }
+
+    let ctx = crate::vm::VmContext::new();
+    let observer = Arc::new(ExceptionObserver::default());
+    crate::diagnostics::add_runtime_observer(&ctx, observer.clone());
+    let prefix = "a".repeat(255);
+    crate::diagnostics::emit_exception_thrown(&ctx, || {
+        ("Std.Exception".into(), format!("{prefix}é and more"))
+    });
+    assert_eq!(observer.0.lock().as_str(), format!("{prefix}…"));
 }

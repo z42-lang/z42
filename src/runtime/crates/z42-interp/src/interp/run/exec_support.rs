@@ -221,35 +221,22 @@ pub(crate) fn exec_function_from_receiver_regs(
 /// callee's final value of that reg and store it through the original Ref
 /// to the caller's lvalue. Runs before every function-exit return path
 /// (normal return + uncaught throw).
-/// Phase 2 D3+D6 : increment `exceptions_thrown` counter and
-/// fire `RuntimeEvent::ExceptionThrown`. Reads class name + message from
-/// the thrown value if it's an Exception subclass; otherwise stamps both
-/// as `"<non-exception-value>"`. Message truncated to 256 chars to keep
-/// the event firehose bounded.
+/// Record a managed throw. Read the payload when there are event subscribers.
 pub(super) fn fire_exception_thrown(ctx: &VmContext, module: &crate::metadata::Module, val: &crate::object::Value) {
-    use std::sync::atomic::Ordering;
-    ctx.counters().exceptions_thrown.fetch_add(1, Ordering::Relaxed);
-    if !ctx.core().diagnostics().runtime_observers.has_observers() { return; }
-    let (class, mut message) = exception_class_and_message(ctx, val, module);
-    if message.len() > 256 {
-        message.truncate(256);
-        message.push_str("…");
-    }
-    ctx.core().diagnostics().runtime_observers.fire(&crate::diagnostics::RuntimeEvent::ExceptionThrown { class, message });
+    ctx.counters().exceptions_thrown.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    crate::diagnostics::emit_exception_thrown(ctx, || exception_class_and_message(ctx, val, module));
 }
 
-/// Phase 2 D3+D6 sibling: increment `exceptions_caught` + fire
-/// `RuntimeEvent::ExceptionCaught`. `frames_unwound` = 0 for same-frame
-/// catch; 1 for callee-thrown + caller-caught; >1 for deeper unwind.
+/// Record a managed catch with its unwind depth.
 pub(super) fn fire_exception_caught(
     ctx: &VmContext, module: &crate::metadata::Module,
     val: &crate::object::Value, frames_unwound: u32,
 ) {
-    use std::sync::atomic::Ordering;
-    ctx.counters().exceptions_caught.fetch_add(1, Ordering::Relaxed);
-    if !ctx.core().diagnostics().runtime_observers.has_observers() { return; }
-    let (class, _) = exception_class_and_message(ctx, val, module);
-    ctx.core().diagnostics().runtime_observers.fire(&crate::diagnostics::RuntimeEvent::ExceptionCaught { class, frames_unwound });
+    ctx.counters().exceptions_caught.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    crate::diagnostics::emit_runtime_event(ctx, || {
+        let (class, _) = exception_class_and_message(ctx, val, module);
+        crate::diagnostics::RuntimeEvent::ExceptionCaught { class, frames_unwound }
+    });
 }
 
 pub(super) fn exception_class_and_message(
