@@ -373,12 +373,7 @@ fn alloc_default(ctx: &VmContext, td: &Arc<TypeDesc>, type_args: crate::object::
     for (i, f) in td.fields.iter().enumerate() {
         inst.set_field_value(i, &crate::object::default_value_for(&f.type_tag));
     }
-    for (i, v) in crate::object::generic_field_zero_overrides(td, &type_args) {
-        inst.set_field_value(i, &v);
-    }
-    if !type_args.is_empty() {
-        inst.set_type_args(type_args);
-    }
+    inst.install_type_args(type_args);
     ctx.heap().alloc_script_object(inst)
 }
 

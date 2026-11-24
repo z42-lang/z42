@@ -94,6 +94,9 @@ pub struct TypeDescCold {
     /// fixup pass can rebuild `fields` = base.fields ++ own_fields once the
     /// base class becomes resolvable via the global type registry.
     pub own_fields: Box<[FieldSlot]>,
+    /// Present when a constructed ancestor shares erased storage. The entries
+    /// initialize the inherited type-parameter cells that bind to primitives.
+    pub inherited_generic_zeros: Option<Box<[(usize, u8)]>>,
     /// fix-cross-pkg-subclass-fields : the **qualified func
     /// names** of methods this class itself defines, in the order they
     /// were discovered by `build_type_registry`. Used by fixup to rebuild
@@ -253,6 +256,10 @@ impl TypeDesc {
     /// fix-silent-symbol-resolution：见 [`TypeDescCold::base_unmerged`]。`false` = 继承视图
     /// 完整（没有基类，或基类已并入）。冷区不在（绝大多数类型）时恒 `false`。
     #[inline] pub fn base_unmerged(&self) -> bool { self.cold.as_ref().is_some_and(|c| c.base_unmerged) }
+    #[inline]
+    pub(crate) fn inherited_generic_zeros(&self) -> Option<&[(usize, u8)]> {
+        self.cold.as_ref()?.inherited_generic_zeros.as_deref()
+    }
     /// add-reflection-static-fields: the class's static fields (reflection only).
     #[inline] pub fn static_fields(&self)          -> &[crate::zpkg::ir::FieldDesc]             { self.cold_slice(|c| &c.static_fields) }
     /// add-interface-member-reflection: the interface's declared method signatures.

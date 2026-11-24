@@ -6,6 +6,46 @@ Type Infer<T>(IValue<T> value) { return typeof(T); }
 class Local<T> : Leaf<T> {}
 class Marker {}
 
+class Counter : Forward<int> {
+    public int Own;
+    public override int Tag() { return 2; }
+}
+
+class DeepCounter : Counter {}
+
+class TextSlot<T> : Forward<string> {
+    public T Other;
+}
+
+void CheckInheritedStorage() {
+    Counter value = new DeepCounter();
+    IStored<int> stored = value;
+    Assert.Equal(0, stored.Read());
+    stored.Write(11);
+    value.Middle = 22;
+    value.Own = 33;
+    Assert.Equal(11, stored.Read());
+    Assert.Equal(2, stored.Tag());
+    Assert.Equal(22, value.Middle);
+    Assert.Equal(33, value.Own);
+    Assert.Equal(typeof(int), value.Argument());
+    Assert.Equal(typeof(Forward<int>), typeof(Counter).BaseType);
+    Assert.Equal(typeof(Storage<int>), typeof(Forward<int>).BaseType);
+    Assert.True(typeof(IStored<int>).IsAssignableFrom(typeof(Counter)));
+    Assert.False(typeof(IStored<bool>).IsAssignableFrom(typeof(Counter)));
+    object receiver = value;
+    Assert.True(receiver is Storage<int>);
+    Assert.False(receiver is Storage<bool>);
+
+    var text = new TextSlot<int>();
+    IStored<string> storedText = text;
+    Assert.Null(storedText.Read());
+    Assert.Equal(0, text.Other);
+    storedText.Write("retained");
+    Assert.Equal("retained", storedText.Read());
+}
+
+
 void Main() {
     Assert.Equal(typeof(string), Infer(new Closed()));
     Assert.Equal(typeof(int[]), Infer(new Open<int>()));
@@ -15,6 +55,8 @@ void Main() {
     Assert.Equal(typeof(string[]), Infer(new Leaf<string>()));
     Assert.Equal(typeof(int[]), Infer(new Fixed()));
     Assert.Equal(typeof(int[]), Infer(new Local<int>()));
+    Assert.Equal(typeof(bool[]), Infer(new Local<bool>()));
     Assert.Equal(typeof(Pair<int, DemoInferArgs.Marker>[]), Infer(new Scoped<int>()));
+    CheckInheritedStorage();
     Console.WriteLine("OK");
 }

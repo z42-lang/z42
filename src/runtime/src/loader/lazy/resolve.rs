@@ -19,7 +19,7 @@ impl LazyLoader {
     /// 不完整时要 `ensure_base_chain_loaded`（会加载 zpkg），只能走写锁。
     pub fn probe_type(&self, class_name: &str) -> Option<Arc<TypeDesc>> {
         let td = self.type_registry.get(class_name)?;
-        if self.base_chain_complete(class_name) { Some(Arc::clone(td)) } else { None }
+        if !td.base_unmerged() { Some(Arc::clone(td)) } else { None }
     }
 
     /// Look up a function by FQ name; triggers lazy load if needed.
@@ -109,7 +109,7 @@ impl LazyLoader {
         };
         // 快路径：基类链已完整 ⇒ `load_zpkg_file` 末尾的 fixup 已经收敛过，直接返回。
         // （不能无条件跑 fixup —— 那是 O(registry) 的扫描，会压在每次跨包类型查找上。）
-        if self.base_chain_complete(class_name) {
+        if !td.base_unmerged() {
             return Some(td);
         }
         // defer-class-initialization : 返回前保证**基类闭包已就位**。
@@ -124,40 +124,55 @@ impl LazyLoader {
         self.type_registry.get(class_name).map(Arc::clone)
     }
 
-    /// 基类链上的每一级是否都已在 registry 中（短走，链深级别，无分配）。
-    fn base_chain_complete(&self, class_name: &str) -> bool {
-        let mut cur = class_name;
-        for _ in 0..64 {
-            let Some(td) = self.type_registry.get(cur) else { return true };
-            let Some(base) = td.base_name.as_deref() else { return true };
-            if !self.type_registry.contains_key(base) { return false; }
-            cur = base;
-        }
-        true
-    }
-
     /// 加载 `class_name` 的整条基类链所在的包，然后把继承 fixup 跑到不动点。
     /// 迭代（非递归）向上走，`resolve_type_raw` 只负责加载、不再回调本函数。
     fn ensure_base_chain_loaded(&mut self, class_name: &str) {
         let mut cur = class_name.to_string();
+        let mut erased_bases = rustc_hash::FxHashSet::default();
         // 上限 = 类型数 + 8：良构继承链的深度远小于此，超出说明元数据有环，
         // 停下让 fixup 的收敛检查报错，而不是在这里空转。
         for _ in 0..(self.type_registry.len() + 8) {
             let Some(td) = self.type_registry.get(&cur) else { break };
             let Some(base) = td.base_name.clone() else { break };
-            if !self.type_registry.contains_key(&base) {
-                self.resolve_type_raw(&base);
+            if self.resolve_type_raw(&base).is_some() {
+                cur = base;
+            } else if let Some(definition) = self.erased_storage_base(&base) {
+                erased_bases.insert(base);
+                cur = definition;
+            } else {
+                break;
             }
-            if !self.type_registry.contains_key(&base) { break; }
-            cur = base;
         }
         let cap = self.type_registry.len() + 8;
         for _ in 0..cap {
-            if crate::metadata::types::try_fixup_inheritance(&mut self.type_registry) == 0 {
+            if crate::metadata::types::try_fixup_inheritance_with_erased_bases(
+                &mut self.type_registry, &erased_bases,
+            ) == 0 {
                 break;
             }
         }
         self.publish_types();
+    }
+
+    /// A closed reference-class edge may reuse the definition's storage once
+    /// the defining package has been searched for the exact instantiation.
+    fn erased_storage_base(&mut self, name: &str) -> Option<String> {
+        use crate::zpkg::index::type_names::erased;
+
+        let definition = erased(name);
+        if definition == name { return None; }
+        let args = crate::object::type_args_from_name(name);
+        if args.is_empty() || args.iter().any(|arg| arg.is_empty()
+            || crate::zpkg::index::type_param_markers::has_markers(arg)) {
+            return None;
+        }
+        let td = self.resolve_type_raw(definition)?;
+        let non_class = crate::zpkg::ir::CLASS_FLAG_STRUCT
+            | crate::zpkg::ir::CLASS_FLAG_INTERFACE | crate::zpkg::ir::CLASS_FLAG_ENUM;
+        if td.class_flags & non_class != 0 || td.type_params().len() != args.len() {
+            return None;
+        }
+        Some(definition.to_string())
     }
 
     /// 纯查找 + 按需加载，**不**补基类链（避免与 `ensure_base_chain_loaded` 互递归）。

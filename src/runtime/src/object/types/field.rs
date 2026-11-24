@@ -130,7 +130,13 @@ pub fn generic_field_zero_overrides(td: &TypeDesc, type_args: &[String]) -> Vec<
         return Vec::new();
     }
     let mut out = Vec::new();
-    for (slot, f) in td.fields.iter().enumerate() {
+    // For an explicitly bound erased base, its fields use the base's arguments.
+    let first_own_slot = if td.inherited_generic_zeros().is_some() {
+        td.fields.len().saturating_sub(td.own_fields().len())
+    } else {
+        0
+    };
+    for (slot, f) in td.fields.iter().enumerate().skip(first_own_slot) {
         // The field's declared type is a type parameter exactly when its tag is one of
         // the declaring type's parameter names (`"T"`), not a type name.
         let Some(pi) = params.iter().position(|p| p.as_str() == &*f.type_tag) else {

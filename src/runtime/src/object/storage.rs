@@ -469,7 +469,7 @@ impl ScriptObject {
     /// field whose argument is a primitive value type to that type's zero
     /// (fix-generic-typeparam-field-zero — see [`generic_field_zero_overrides`]). One
     /// implementation, so the engines and `Z42_STACKALLOC` cannot disagree on
-    /// `GBox<int>().V`. No-op for an empty list.
+    /// `GBox<int>().V`. Apply any bound inherited defaults even for a non-generic receiver.
     pub fn install_type_args(&mut self, type_args: TypeArgs) {
         // SAFETY: `&mut self` — not shared.
         unsafe { self.install_type_args_unpublished(type_args) }
@@ -481,13 +481,15 @@ impl ScriptObject {
     /// # Safety
     /// The object is not published yet: nothing else reads its payload.
     pub(crate) unsafe fn install_type_args_unpublished(&self, type_args: TypeArgs) {
-        if type_args.is_empty() {
-            return;
+        if !type_args.is_empty() {
+            // SAFETY: per the contract.
+            unsafe { self.set_type_args_unpublished(type_args) };
+            for (slot, zero) in generic_field_zero_overrides(&self.type_desc, type_args.as_slice()) {
+                self.set_field_value(slot, &zero);
+            }
         }
-        // SAFETY: per the contract.
-        unsafe { self.set_type_args_unpublished(type_args) };
-        for (slot, zero) in generic_field_zero_overrides(&self.type_desc, type_args.as_slice()) {
-            self.set_field_value(slot, &zero);
+        for &(slot, tag) in self.type_desc.inherited_generic_zeros().unwrap_or_default() {
+            self.set_field_value(slot, &default_value_for_tag(tag));
         }
     }
 
