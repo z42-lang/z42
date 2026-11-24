@@ -73,11 +73,15 @@ public static partial class ImportedSymbolLoader {
                 bool hasBase = cl.HasBase && cl.BaseName != "Object";
                 // enforce-fqn-name-identity：有 FQ 就用 FQ —— 基类句柄绑定（`_bindClassBase`）按 FQN 直接命中，
                 // 不再落到裸名表猜（`Type : MemberInfo` 这类跨 ns 基类，声明方的 `using` 不随元数据走）。
-                if (hasBase) { baseName = cl.BaseFqn != null && cl.BaseFqn != "" ? cl.BaseFqn : cl.BaseName; }
+                if (hasBase) {
+                    string baseSpelling = cl.BaseFqn != null && cl.BaseFqn != "" ? cl.BaseFqn : cl.BaseName;
+                    // Bind the nominal definition. The constructed arguments are restored from $BaseRef.
+                    baseName = ImportedSymbolLoader._fqTrimTypeArgs(baseSpelling);
+                }
                 Z42ClassType nct = new Z42ClassType(cl.Name, hasBase, baseName);
                 // feat/multicast-base-class（跨包段）：开放泛型基重建 BaseRef（TypeExpr 形态）——
                 // #1923 的 _substBaseHop 在跨包消费时按它代换基类成员签名（本地类由 StubCollector
-                // 从 AST 回填，导入类只有这里）。闭合/非泛型基无拼写，BaseRef 保持 null（既有行为）。
+                // 从 AST 回填，导入类只有这里）。旧包或非泛型基没有拼写时，BaseRef 保持 null。
                 if (cl.BaseRefSpelling != null && cl.BaseRefSpelling != "") {
                     nct.BaseRef = ImportedSymbolLoader._parseBaseRef(cl.BaseRefSpelling);
                 }

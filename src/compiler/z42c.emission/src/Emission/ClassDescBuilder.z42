@@ -239,10 +239,11 @@ public sealed partial class ClassDescBuilder {
                     baseName = barebn;
                     baseName = this._qDecl(baseName);
                     if (ltIdx >= 0 && c.TypeParams.Count > 0) {
-                        // feat/multicast-base-class（跨包段）：开放泛型基的声明全拼写（FQ + 源实参拼写）
-                        // 进 $BaseRef 哨兵——导入侧据此重建 BaseRef，#1923 的 _substBaseHop 才能在
-                        // 跨包消费时按派生类基类实参代换基类成员签名。实参引用本类型参（源拼写即键）。
-                        baseRefSpell = baseName + c.Bases[bi2].Dump().Substring(ltIdx);
+                        // Record qualified argument types in the declaration's scope for importers.
+                        baseRefSpell = LayoutKey.Of(this._scope().ResolveTypeP(c.Bases[bi2], c.TypeParams.Names, c.TypeParams.Count));
+                        if (baseRefSpell == "") {
+                            baseRefSpell = baseName + c.Bases[bi2].Dump().Substring(ltIdx);
+                        }
                         if (declarationAttrs != null) {
                             reflectionBase = this._qInst(this._reflectionTypeName(c.Bases[bi2], c));
                         }

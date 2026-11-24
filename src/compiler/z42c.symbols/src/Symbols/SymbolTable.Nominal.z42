@@ -528,6 +528,18 @@ public sealed partial class SymbolTable {
         return this.GetClass(ct.BaseName);
     }
 
+    // Project the immediate generic base into the receiver's type arguments.
+    public Z42InstantiatedType ProjectBaseInstance(Z42ClassType ct, Z42InstantiatedType receiver) {
+        Z42InstantiatedType instance = ct.BoundBaseInstance;
+        if (instance == null) {
+            var source = ct.BaseRef as NamedType;
+            if (source == null || source.ArgCount == 0) { return null; }
+            instance = this.ResolveTypeP(source, ct.GenericParamNames, ct.GenericParamCount) as Z42InstantiatedType;
+        }
+        if (instance == null || receiver == null) { return instance; }
+        return TypeSubst.Apply(instance, new ClassArgsMap(receiver)) as Z42InstantiatedType;
+    }
+
     // 基类链走查的**跳数护栏**（全部沿 base 链走的循环共用）。合法的链没有层数上限：继承环在收集期就报
     // E0502 并断开（`SymbolCollector._passRejectBaseCycles`），之后链必然有限。所以走到这么多跳只可能是
     // 编译器内部错误（某条没断的环 / 名字回落绕回自身）⇒ 抛错。不要换回「到上限就当链到头」——那正是
