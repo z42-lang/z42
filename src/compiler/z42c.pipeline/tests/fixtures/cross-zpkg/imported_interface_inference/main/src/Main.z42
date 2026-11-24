@@ -3,11 +3,18 @@ using DemoInfer;
 
 Type Infer<T>(IValue<T> value) { return typeof(T); }
 
+class Local<T> : Leaf<T> {}
+class Marker {}
+
 void Main() {
     Assert.Equal(typeof(string), Infer(new Closed()));
     Assert.Equal(typeof(int[]), Infer(new Open<int>()));
     Assert.Equal(typeof(string[]), Infer(new Open<string>()));
     Assert.Equal(typeof(string), Infer<string>(new Both()));
     Assert.Equal(typeof(int), Infer<int>(new Both()));
+    Assert.Equal(typeof(string[]), Infer(new Leaf<string>()));
+    Assert.Equal(typeof(int[]), Infer(new Fixed()));
+    Assert.Equal(typeof(int[]), Infer(new Local<int>()));
+    Assert.Equal(typeof(Pair<int, DemoInferArgs.Marker>[]), Infer(new Scoped<int>()));
     Console.WriteLine("OK");
 }

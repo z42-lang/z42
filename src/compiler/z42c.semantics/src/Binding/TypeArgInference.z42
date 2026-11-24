@@ -245,7 +245,6 @@ public static class TypeArgInference {
             while (i < ct.IfaceInstCount) {
                 Z42InterfaceType it = ct.IfaceInsts[i];
                 if ((it is Z42InstantiatedInterfaceType) && (it as Z42InstantiatedInterfaceType).Def.Fqn() == def.Fqn()) {
-                    // 实例化类的类级型参按受者实参代换；基类那一层的类级型参无从代换 ⇒ 只接受受者自身那层。
                     var candidate = it as Z42InstantiatedInterfaceType;
                     if (inst != null) {
                         candidate = MemberResolver._substGeneric(candidate, inst) as Z42InstantiatedInterfaceType;
@@ -255,8 +254,18 @@ public static class TypeArgInference {
                 }
                 i = i + 1;
             }
-            if (symbols == null || inst != null) { return view; }
-            ct = symbols.BaseOf(ct);
+            if (symbols == null) { return view; }
+            Z42ClassType parent = symbols.BaseOf(ct);
+            if (parent == null) { return view; }
+            inst = symbols.ProjectBaseInstance(ct, inst);
+            if (parent.GenericParamCount > 0) {
+                // Incomplete metadata cannot supply arguments for a generic base.
+                if (inst == null || inst.Def.Fqn() != parent.Fqn() ||
+                    inst.ArgCount != parent.GenericParamCount || LayoutKey.Of(inst) == "") { return view; }
+            } else {
+                inst = null;
+            }
+            ct = parent;
             hops = SymbolTable.NextBaseHop(hops);
         }
         return view;

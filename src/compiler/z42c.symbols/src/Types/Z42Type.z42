@@ -180,6 +180,8 @@ public sealed class Z42ClassType : Z42Type {
     // Canon/内建码的惰性记忆（见基类 CanonName 注释）。哨兵：_canon=="" 未算（Canon 对非空名恒非空；
     // 名为空的退化类型只是每次重算，无正确性影响）、_code==-2 未算（-1 是「非内建」这个合法结果）。
     private string _canon; private int _code;
+    // Generic base template bound in the declaring compilation unit.
+    public Z42InstantiatedType BoundBaseInstance;
     // add-associated-types PR-3：登记一条关联类型绑定（`type Item = int;`）。
     public void AddAssocBinding(string name, string typeName) {
         if (this.AssocBindingCount == this.AssocBindingNames.Length) {

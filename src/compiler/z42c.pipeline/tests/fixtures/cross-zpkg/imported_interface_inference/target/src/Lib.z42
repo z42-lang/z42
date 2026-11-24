@@ -1,7 +1,16 @@
 namespace DemoInfer;
+using DemoInferArgs;
 
 public interface IValue<T> {}
 public interface IChild<T> : IValue<T> {}
 public class Closed : IChild<string> {}
 public class Open<T> : IValue<T[]> {}
 public class Both : IValue<string>, IValue<int> {}
+
+public class Base<T> : IValue<T> {}
+public class Middle<U> : Base<U[]> {}
+public class Leaf<V> : Middle<V> {}
+public class Fixed : Leaf<int> {}
+
+public class Pair<A, B> {}
+public class Scoped<U> : Base<Pair<U, Marker>[]> {}

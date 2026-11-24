@@ -336,11 +336,7 @@ public static partial class ImportedSymbolLoader {
     // ⚠️ 截 `<` 的顺序仍然要紧：先截实参再动 ns —— 反了的话「最后一个点」会落进实参里
     // （`Std.IComparable<Std.String>` → `String>`）。现在不剥短名了，这条只剩「先截」一半，
     // 但别把 `Substring` 的边界改掉。
-    // feat/multicast-base-class（跨包段）：把 $BaseRef 哨兵的声明全拼写
-//（`Std.MulticastDelegate<Func<TArg, TResult>>`）解析回 TypeExpr 树（NamedType 嵌套）。
-// 消费点只有 _substBaseHop：读 br.Args[i] 后经 ResolveTypeP 按**派生类自己的型参表**解析
-//（实参拼写引用派生类的型参名 / prelude 短名，两种 ResolveTypeP 都认）。只覆盖哨兵生产方
-//（ClassDescBuilder）写得出的形状：FQ 名 + `<...>` 逗号分隔的同类递归——不做完整类型文法。
+// Rebuild the type expression stored in $BaseRef for generic base substitution.
 private static TypeExpr _parseBaseRef(string spell) {
     int i = 0;
     return ImportedSymbolLoader._parseBaseType(spell, ref i);
@@ -348,16 +344,18 @@ private static TypeExpr _parseBaseRef(string spell) {
 
 private static TypeExpr _parseBaseType(string s, ref int i) {
     int start = i;
-    while (i < s.Length && s[i] != '<' && s[i] != '>' && s[i] != ',') { i = i + 1; }
+    while (i < s.Length && s[i] != '<' && s[i] != '>' && s[i] != ',' && s[i] != '[') { i = i + 1; }
     string name = s.Substring(start, i - start).Trim();
+    if (name == "Std.Func" || name == "Std.Action") { name = SymbolTable.ShortNameOf(name); }
     // 词级 prim 归一（Boolean→bool 等）：两侧（本解析 / reconcile 改名串）统一关键字拼写，
     // 否则 Z42FuncType.CanonName 不归一内部叶 ⇒ 展平版与代换版签名键相异、伪重载。
     string canon = PrimModel.Canon(name);
     if (canon != "" && PrimModel.Code(canon) >= 0) { name = canon; }
+    TypeExpr[] args = new TypeExpr[0];
+    int n = 0;
     if (i < s.Length && s[i] == '<') {
-        i = i + 1;   // consume '<'
-        TypeExpr[] args = new TypeExpr[4];
-        int n = 0;
+        i = i + 1;
+        args = new TypeExpr[4];
         while (i < s.Length && s[i] != '>') {
             if (s[i] == ',') { i = i + 1; continue; }
             if (n == args.Length) {
@@ -365,14 +363,20 @@ private static TypeExpr _parseBaseType(string s, ref int i) {
                 int k = 0; while (k < n) { b[k] = args[k]; k = k + 1; }
                 args = b;
             }
+            int before = i;
             args[n] = ImportedSymbolLoader._parseBaseType(s, ref i);
+            if (i == before) { return null; }
             n = n + 1;
         }
         if (i < s.Length) { i = i + 1; }   // consume '>'
-        // 哨兵生产方剥 ns 后只剩短名/型参名；span 用零位（AST 节点仅为 ResolveTypeP 输入）
-        return new NamedType(name, args, n, new Z42.Core.Span(0, 0, 0, 0, ""));
     }
-    return new NamedType(name, new TypeExpr[0], 0, new Z42.Core.Span(0, 0, 0, 0, ""));
+    var span = new Z42.Core.Span(0, 0, 0, 0, "");
+    TypeExpr result = new NamedType(name, args, n, span);
+    while (i + 1 < s.Length && s[i] == '[' && s[i + 1] == ']') {
+        result = new ArrayType(result, span);
+        i = i + 2;
+    }
+    return result;
 }
 
 private static string _fqTrimTypeArgs(string fq) {
