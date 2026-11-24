@@ -27,6 +27,8 @@ components 命名空间只公开同构建必需的 abi/bridge 子模块，内部
 VM 程序准备、执行角色查询和分析请求通过内部 `components::api`。基线/优化角色绑定由每 VM 的组件注册表保存，
 先验证提供方存在、角色唯一及接口版本/大小/对齐，再创建实例；消费者不传 interp/JIT 的组件 ID。
 附着返回成功但未登记所需引擎仍失败。执行循环继续使用准备时注册的引擎，不逐指令查询组件表。
+引擎注册表及共享执行状态仅在 Runtime crate 内可见。解释器、JIT 通过同构建桥登记引擎和 tier，桥要求后端代码覆盖 VM 的使用期。
+`exec::invoke_mode` 按当前上下文取引擎。托管平台能力通过 `components::api` 查询注册和来源状态。
 
 支持性查询只核对目标能力，候选查询只读路径与已装入映像缓存；Android 未知的裸库名不会因查询触发装入。
 显式准备仍可交给系统加载器按名称装入并校验。独立后端对核心模块使用私有导入，不再通过自身批量再导出。
@@ -44,7 +46,7 @@ main.rs 只依赖 std/libloading，加载 libz42 的 z42_main_v1。命令行参�
 不把历史 LoadOptions 中的组件管理状态扩散到该接口。环境、相对路径、搜索默认值由来源适配解析，
 加载服务不读取 CLI probing 设置或隐式补目录。
 
-领域根提供稳定消费契约：`exec::{EngineRegistry, Initialization, TierBackend}`、
+领域根提供稳定消费契约：`exec::{invoke, invoke_mode, Engine, Initialization, TierBackend}`、
 `diagnostics::{RuntimeCounters, CounterSnapshot, RuntimeEvent}`、`object::ObjectProtocol`。
 engine/init、counters/observer、protocol 实现模块私有；实现文件移动只需调整所属模块的声明与显式导出。
 模块内的实现引用不做机械改写，也不建立总括所有领域的 prelude。正向 doctest 与私有路径 compile_fail 验证这条边界。

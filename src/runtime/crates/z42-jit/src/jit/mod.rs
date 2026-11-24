@@ -90,7 +90,7 @@ fn run_with_static_init(ctx: &VmContext, entry_name: &str) -> Result<()> {
 
 // ─── Entry point called by the registered JIT engine ───────────────────────────────────
 
-/// Called by `host::LoadedProgram::run_entry` when the execution mode is JIT.
+/// Execute an entry directly with this backend and discard the returned value.
 ///
 /// Installs the VM's JIT ([`compile::state::install`] — one per VM, shared by every
 /// thread; reused when already installed) without compiling any user function;
@@ -145,9 +145,6 @@ pub fn invoke_host(ctx: &VmContext, module: &Module, func: &crate::metadata::Fun
 }
 
 pub mod component;
-
-/// Internal mode-entry contract used by static host assembly.
-pub fn execution_engine() -> &'static dyn crate::exec::Engine { &engine::ENGINE }
 
 #[cfg(test)]
 mod forward_cross_tests;

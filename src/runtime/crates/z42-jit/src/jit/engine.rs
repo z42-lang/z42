@@ -3,7 +3,7 @@ use anyhow::Result;
 use crate::exec::{args::CallArgs, outcome::ExecOutcome};
 use crate::exec::{OsrState, TierBackend, TierTarget};
 use crate::metadata::Function;
-use crate::components::bridge::VmContext;
+use crate::components::bridge::{jit_config, VmContext};
 use crate::jit::{runtime::frame::JitFrame, compile::state::JitRuntime};
 
 impl TierBackend for JitRuntime {
@@ -56,9 +56,6 @@ impl crate::exec::Engine for JitEngine {
         args: CallArgs<'_>, type_args: &[String]) -> Result<ExecOutcome> {
         let CallArgs::Values(values) = args else { anyhow::bail!("JIT mode entry requires value arguments"); };
         anyhow::ensure!(type_args.is_empty(), "JIT mode entry does not accept open method type arguments");
-        super::invoke_host(ctx, module, func, values, ctx.core().exec().engines.jit_config()?)
-    }
-    fn run(&self, ctx: &VmContext, module: &crate::metadata::Module, entry: &Function) -> Result<()> {
-        super::run(ctx, module, &entry.name, ctx.core().exec().engines.jit_config()?)
+        super::invoke_host(ctx, module, func, values, jit_config(ctx)?)
     }
 }

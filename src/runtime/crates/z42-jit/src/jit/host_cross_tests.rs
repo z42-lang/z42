@@ -1,5 +1,7 @@
 //! Static composition exercises real interpreter and JIT through the host.
-use crate::components::bridge::VmContext;
+use crate::components::bridge::{
+    installed_tier, register_baseline_engine, register_jit_engine, test_engine_registered, VmContext,
+};
 use z42::host::{ExecMode, LoadOptions, LoadedProgram, Value};
 use z42::metadata::Module;
 use z42::zpkg::{self, BasicBlock, Instruction, Terminator};
@@ -24,9 +26,9 @@ fn jit_mode_registers_both_engines_without_eager_compilation() {
     register_components();
     let program = LoadedProgram::load_bytes(&empty_zbc(), LoadOptions { mode: ExecMode::Jit, ..Default::default() }).unwrap();
     let ctx = program.context();
-    assert!(ctx.core().exec().engines.has_baseline());
-    assert!(ctx.core().exec().engines.has_jit());
-    assert!(ctx.core().exec().engines.tier().is_none());
+    assert!(test_engine_registered(ctx, ExecMode::Interp));
+    assert!(test_engine_registered(ctx, ExecMode::Jit));
+    assert!(installed_tier(ctx).is_none());
     assert_eq!(ctx.core().diagnostics().snapshot(ctx.core().threads()).jit_methods_compiled, 0);
 }
 fn program(throws: bool) -> LoadedProgram {
@@ -40,8 +42,11 @@ fn program(throws: bool) -> LoadedProgram {
     let module = Module::new(zpkg::image::ModuleData { name: "Demo".into(), string_pool: Vec::new(), classes: Vec::new(),
         func_index: [("Demo.Main".into(), 0)].into_iter().collect() }, vec![z42::metadata::Function::new(func)], Default::default());
     let ctx = VmContext::with_module(module);
-    ctx.core().exec().engines.register_baseline(&z42_interp::interp::engine::ENGINE).unwrap();
-    ctx.core().exec().engines.register_jit(crate::jit::execution_engine(), z42::config::runtime_config().jit_config()).unwrap();
+    // SAFETY: both backend engines are linked into this test process.
+    unsafe {
+        register_baseline_engine(&ctx, &z42_interp::interp::engine::ENGINE).unwrap();
+        register_jit_engine(&ctx, &super::engine::ENGINE, z42::config::runtime_config().jit_config()).unwrap();
+    }
     z42::components::bridge::test_loaded_program(ctx, ExecMode::Jit, Some("Demo.Main".into())).unwrap()
 }
 #[test]
