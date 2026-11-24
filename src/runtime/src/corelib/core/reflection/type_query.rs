@@ -145,16 +145,16 @@ pub fn type_interfaces(ctx: &VmContext, ty: &Value) -> Value {
     // (most-derived first), then BFS-expand each interface's own base interfaces
     // (add-reflection-transitive-interfaces) so the result is the transitive
     // closure. Dedup by FQ name.
-    let reflected_args = if td.has_interface_templates() && td.type_args().is_empty() {
+    let reflected_args = if td.has_bound_ancestry_metadata() && td.type_args().is_empty() {
         type_value_name(ty).map(|name| crate::object::type_args_from_name(&name))
     } else {
         None
     };
     let mut queue = VecDeque::new();
     let mut cur = Some(td);
-    let mut instance_args = reflected_args.as_deref();
+    let mut instance_args = reflected_args.unwrap_or_default();
     while let Some(c) = cur {
-        let args = instance_args.take().unwrap_or_else(|| c.type_args());
+        let args = if instance_args.is_empty() { c.type_args() } else { &instance_args };
         if let Some(names) = c.bound_interfaces(args) {
             queue.extend(names.map(|name| (name.into_owned(), false)));
         } else {
@@ -166,7 +166,15 @@ pub fn type_interfaces(ctx: &VmContext, ty: &Value) -> Value {
         for tr in ctx.loader().impl_traits_for(crate::zpkg::index::type_names::erased(&c.name)) {
             queue.push_back((tr, true));
         }
-        cur = c.base_name.as_ref().and_then(|b| resolve(b));
+        let projected = c.projected_base_name(args);
+        let base = projected.as_deref().or(c.base_name.as_deref());
+        match base.and_then(|name| crate::metadata::types::resolve_base_instance(name, resolve)) {
+            Some((next, next_args)) => {
+                cur = Some(next);
+                instance_args = next_args;
+            }
+            None => break,
+        }
     }
     let mut out = Vec::new();
     let mut seen = HashSet::new();

@@ -241,6 +241,7 @@ IMid<string> bad = r;      // ✗ E0402
 `GetInterfaces()` 会返回 `IRepo<int>`。数组的 `SetValue` 与 `CopyRange` 使用同一判定。
 泛型类的类型描述也可保留带形参的接口声明。运行时按实例实参绑定，例如从标准库导入的
 `List<string>` 实现 `IEnumerable<string>`。
+通过泛型基类继承接口时，每一级都用当前实例化的实参解释它的基类声明，跨包时也适用。
 只有擦除接口名的旧包仍按原有规则运行。
 
 接口作为**泛型约束**（`where T : IShape`）的规则见[泛型约束](generic-constraints.md)。
