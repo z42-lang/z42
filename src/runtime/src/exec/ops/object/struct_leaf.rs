@@ -170,14 +170,27 @@ pub fn struct_value_hash(ctx: &VmContext, value: &Value) -> Result<Option<i64>> 
     let hash = match &value.unproject_interface() {
         Value::StructRef { idx, frame_id } => hash_frame_struct(ctx, *idx, *frame_id)?,
         Value::BoxedStruct(boxed) => {
+            const STACK_HASH_BYTES: usize = 64;
             let td = boxed.type_desc();
-            let (bytes, refs) = boxed.borrow().boxed_blob();
-            hash_snapshot(ctx, &td.name, bytes, &refs, td.struct_layout_ref())?
+            let layout = td.struct_layout_ref();
+            let object = boxed.borrow();
+            let cells = object.cells();
+            if cells.len() <= STACK_HASH_BYTES
+                && layout.is_some_and(|layout| layout.ref_offsets.is_empty())
+            {
+                let mut scratch = [0; STACK_HASH_BYTES];
+                let bytes = &mut scratch[..cells.len()];
+                cells.copy_out(0, bytes);
+                hash_snapshot(ctx, &td.name, bytes, &[], layout)?
+            } else {
+                let (mut bytes, refs) = object.boxed_blob();
+                hash_snapshot(ctx, &td.name, &mut bytes, &refs, layout)?
+            }
         }
         Value::StructRefHeap { idx, frame_id } => {
             let element = ctx.exec().transient_arena.lock().struct_elem(*idx, *frame_id)?;
-            let (bytes, refs, layout, name) = crate::object::snapshot_struct_element(&element)?;
-            hash_snapshot(ctx, &name, bytes, &refs, Some(&layout))?
+            let (mut bytes, refs, layout, name) = crate::object::snapshot_struct_element(&element)?;
+            hash_snapshot(ctx, &name, &mut bytes, &refs, Some(&layout))?
         }
         Value::Object(o) if o.type_desc().is_struct() && o.type_desc().fields.is_empty() =>
             hash_struct_payload(&[], &[]),
@@ -207,7 +220,7 @@ fn hash_frame_struct(ctx: &VmContext, idx: u32, frame_id: u32) -> Result<i64> {
 }
 
 fn hash_snapshot(
-    ctx: &VmContext, name: &str, mut bytes: Vec<u8>, refs: &[Value],
+    ctx: &VmContext, name: &str, bytes: &mut [u8], refs: &[Value],
     layout: Option<&StructTypeLayout>,
 ) -> Result<i64> {
     use crate::object::value::boxed_hash::{hash_struct_payload, normalize_signed_zero};
@@ -215,9 +228,9 @@ fn hash_snapshot(
         let fields = named_struct_layout::float_field_ranges(
             layout, &|n| ctx.loader().try_lookup_type(n), name,
         )?;
-        normalize_signed_zero(&mut bytes, fields)?;
+        normalize_signed_zero(bytes, fields)?;
     }
-    Ok(hash_struct_payload(&bytes, refs))
+    Ok(hash_struct_payload(bytes, refs))
 }
 
 /// 任一表示（frame arena `StructRef` / 堆 `StructRefHeap` 元素视图 / `BoxedStruct`）的

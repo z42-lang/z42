@@ -36,6 +36,19 @@ struct Vec {
     public Vec(double x, double y) { this.x = x; this.y = y; }
 }
 
+struct EightWords(long A, long B, long C, long D, long E, long F, long G, long H);
+struct NineWords(EightWords Head, long Tail);
+
+void CheckBoxedHashSizes() {
+    EightWords eight = new EightWords(1L, 2L, 3L, 4L, 5L, 6L, 7L, 8L);
+    NineWords nine = new NineWords(eight, 9L);
+    object boxedEight = eight;
+    object boxedNine = nine;
+    Assert.Equal(eight.GetHashCode(), boxedEight.GetHashCode());
+    Assert.Equal(nine.GetHashCode(), boxedNine.GetHashCode());
+    Assert.True(boxedNine.GetHashCode() != (new NineWords(eight, 10L)).GetHashCode());
+}
+
 class Cell {
     public int n;
     public Cell(int n) { this.n = n; }
@@ -52,6 +65,7 @@ struct WithRef {
 }
 
 void Main() {
+    CheckBoxedHashSizes();
     Pt a = new Pt(1, 2, 3);
     Pt b = new Pt(1, 2, 3);
     Pt c = new Pt(1, 2, 9);
