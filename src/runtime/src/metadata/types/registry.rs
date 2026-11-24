@@ -149,7 +149,8 @@ pub fn build_type_registry(module: &mut Module) {
         // Cross-zpkg base classes contribute nothing here — that's fixed up
         // later by `try_fixup_inheritance` once the dep is loaded.
         let (fields, field_index, vtable, vtable_index) =
-            merge_with_base(&own_fields, &own_methods, &own_static, &own_iface_slots, class_name, desc.base_class.as_deref(), &registry);
+            merge_with_base(&own_fields, &own_methods, &own_static, &own_iface_slots, class_name,
+                desc.base_class.as_deref().and_then(|name| registry.get(name).map(Arc::as_ref)));
 
         let type_id = crate::metadata::ids::tokens::TypeId(next_type_id);
         next_type_id += 1;
@@ -165,6 +166,7 @@ pub fn build_type_registry(module: &mut Module) {
             // unify-static-init-into-cctor（7.3）：初始为 0（未知）；慢路确认 Done 后置 1。
             init_gen:               Default::default(),
             own_fields:             own_fields.into(),
+            inherited_generic_zeros: None,
             own_methods:            own_methods.into(),
             own_constructors:       own_constructors.into(),
             own_static_flags:       own_static.into(),
@@ -425,13 +427,8 @@ fn check_struct_field_table_coverage(
 // from `LazyLoader::load_zpkg_file` to fill them in, using the global
 // type_registry that now contains both A's and B's types.
 
-/// Merge inherited fields/vtable from `base_class_name` (looked up in
-/// `registry`) with `own_fields` / `own_methods`. Returns the four fields
-/// stored on `TypeDesc`: `(fields, field_index, vtable, vtable_index)`.
-///
-/// If `base_class_name` is `None`, `own_*` becomes the entire merged view.
-/// If `base_class_name` is `Some(b)` but `b` isn't in `registry`, the merge
-/// degrades to "own only" (cross-zpkg base unresolved — fixup later).
+/// Merge the resolved base's storage slots and vtable with the class's own
+/// fields and methods. An unresolved base contributes an empty view until fixup.
 ///
 /// review.md E5.5 : `own_methods` carries qualified func names
 /// only; the vtable slot key (simple name) is derived per entry via
@@ -442,10 +439,9 @@ fn merge_with_base(
     own_static:  &[bool],
     own_iface_slots: &[(Box<str>, Box<str>)],
     class_name:  &str,
-    base_class_name: Option<&str>,
-    registry:    &FxHashMap<String, Arc<TypeDesc>>,
+    base: Option<&TypeDesc>,
 ) -> (Vec<FieldSlot>, NameIndex, Vec<(String, String)>, NameIndex) {
-    let (mut fields, mut vtable, mut vtable_index) = match base_class_name.and_then(|b| registry.get(b)) {
+    let (mut fields, mut vtable, mut vtable_index) = match base {
         Some(base) => (base.fields.clone(), base.vtable.clone(), base.vtable_index.clone()),
         None       => (Vec::new(), Vec::new(), NameIndex::new()),
     };
@@ -532,6 +528,15 @@ fn apply_iface_slots(vtable_index: &mut NameIndex, own_iface_slots: &[(Box<str>,
 pub fn try_fixup_inheritance(
     registry: &mut FxHashMap<String, Arc<TypeDesc>>,
 ) -> usize {
+    try_fixup_inheritance_with_erased_bases(registry, &Default::default())
+}
+
+/// Compose a missing constructed base from its erased layout only after the loader
+/// has searched for the exact descriptor. The nominal edge remains unchanged.
+pub(crate) fn try_fixup_inheritance_with_erased_bases(
+    registry: &mut FxHashMap<String, Arc<TypeDesc>>,
+    erased_bases: &rustc_hash::FxHashSet<String>,
+) -> usize {
     // ── Phase 1: immutable scan — compute new layouts without mutating anything.
     type MergedLayout = (Vec<FieldSlot>, NameIndex, Vec<(String, String)>, NameIndex);
     // unify-object-byte-layout (PR-2): recompose the object byte layout in lockstep
@@ -539,7 +544,7 @@ pub fn try_fixup_inheritance(
     // base_shift 0); once resolvable, recompose `base.composed ++ own`. `None` when
     // this class carries no own object layout (e.g. 0-own-field derived not emitting a
     // block). Convergence rides on the same `needs_fixup` gate as `fields`.
-    let mut planned: Vec<(String, MergedLayout, Option<Arc<crate::object::ObjectLayout>>)> = Vec::new();
+    let mut planned = Vec::<(String, MergedLayout, Option<Arc<crate::object::ObjectLayout>>, _)>::new();
     // fix-silent-symbol-resolution：`base_unmerged` 的清位**不能**挂在 `needs_fixup` 上。
     // 基类一旦可解析，`needs_fixup` 比的是「字段/vtable 条数对不对得上」——基类若**零字段
     // 零非静态方法**（标记基类），条数天然相等 ⇒ needs_fixup 恒 false ⇒ 旗子永远清不掉
@@ -548,9 +553,10 @@ pub fn try_fixup_inheritance(
     // 旗子沿基链传递（见 `build_type_registry`），清位同样要整条链都可解析：基类自己带旗且
     // 本轮清不掉 ⇒ 子类也不清。按链在同一轮里收敛——标记基类不产生 `newly_fixed`，拖到下一轮
     // 不动点循环就已经停了。
-    let clear_flag = clearable_flags(registry);
+    let clear_flag = clearable_flags(registry, erased_bases);
     for (name, td) in registry.iter() {
-        if !needs_fixup(td, registry) {
+        let Some(base) = storage_base(td, registry, erased_bases) else { continue; };
+        if !needs_fixup(td, base) {
             continue;
         }
         let layout = merge_with_base(
@@ -559,27 +565,26 @@ pub fn try_fixup_inheritance(
             td.own_static_flags(),
             td.own_iface_slots(),
             &td.name,
-            td.base_name.as_deref(),
-            registry,
+            Some(base),
         );
         let composed = match td.cold.as_ref().and_then(|c| c.object_layout.as_ref()) {
             Some(own) => {
-                let base_composed = td.base_name.as_deref()
-                    .and_then(|b| registry.get(b))
-                    .and_then(|b| b.composed_object_layout());
+                let base_composed = base.composed_object_layout();
                 // `layout.0` = freshly merged fields (base ++ own) for the access table.
                 Some(Arc::new(crate::object::compose_object_layout(
                     base_composed.as_deref(), own, &layout.0, td.type_params(),
                 )))
             }
-            // No zbc object block — synthesize over the full merged fields (mirrors the
-            // build-time fallback), so a cross-zpkg normal class still gets a layout.
+            // With no own fields the base's byte layout is the entire object layout.
+            None if td.own_fields().is_empty() => base.composed_object_layout(),
+            // Older descriptors without an own layout block use the synthetic layout.
             None if !layout.0.is_empty() && (td.class_flags & (4 | 16 | 32 | 64)) == 0 => {
                 Some(Arc::new(crate::object::synthesize_object_layout(&layout.0)))
             }
             None => None,
         };
-        planned.push((name.clone(), layout, composed));
+        let defaults = inherited_generic_zeros(td, base, registry, erased_bases);
+        planned.push((name.clone(), layout, composed, defaults));
     }
 
     // ── Phase 2: apply mutations.
@@ -594,7 +599,7 @@ pub fn try_fixup_inheritance(
             }
         }
     }
-    for (name, (new_fields, new_field_index, new_vtable, new_vtable_index), new_composed) in planned {
+    for (name, (new_fields, new_field_index, new_vtable, new_vtable_index), new_composed, defaults) in planned {
         let arc = match registry.get_mut(&name) {
             Some(arc) => arc,
             None      => continue, // unreachable in normal use
@@ -626,24 +631,88 @@ pub fn try_fixup_inheritance(
         td.vtable       = new_vtable;
         td.vtable_index = new_vtable_index;
         // unify-object-byte-layout (PR-2): install the recomposed layout.
-        // `td.cold` is `Some` whenever `new_composed` is (both derive from the
-        // own object layout living on cold); guard defensively regardless.
-        if let (Some(cold), Some(composed)) = (td.cold.as_mut(), new_composed) {
-            cold.composed_object_layout = Some(composed);
+        if let Some(cold) = td.cold.as_mut() {
+            cold.composed_object_layout = new_composed;
+            cold.inherited_generic_zeros = defaults;
         }
         newly_fixed += 1;
     }
     newly_fixed
 }
 
+fn storage_base<'a>(
+    td: &TypeDesc,
+    registry: &'a FxHashMap<String, Arc<TypeDesc>>,
+    erased_bases: &rustc_hash::FxHashSet<String>,
+) -> Option<&'a TypeDesc> {
+    use crate::zpkg::index::type_names::erased;
+
+    let name = td.base_name.as_deref()?;
+    registry.get(name).or_else(|| {
+        if !erased_bases.contains(name) { return None; }
+        registry.get(erased(name))
+    }).map(Arc::as_ref)
+}
+
+/// Bind zero values to the inherited slots without changing the erased layout's
+/// type-parameter cells. Their offsets and GC representation stay as declared.
+fn inherited_generic_zeros(
+    td: &TypeDesc,
+    base: &TypeDesc,
+    registry: &FxHashMap<String, Arc<TypeDesc>>,
+    erased_bases: &rustc_hash::FxHashSet<String>,
+) -> Option<Box<[(usize, u8)]>> {
+    use crate::object::{is_prim_tag, tag_from_type_name, type_args_from_name};
+
+    let inherited = base.inherited_generic_zeros();
+    let Some(base_name) = td.base_name.as_deref().filter(|name| *name != base.name) else {
+        return inherited.map(Box::from);
+    };
+    let mut zeros = inherited.unwrap_or_default().to_vec();
+    let mut args = type_args_from_name(base_name);
+    let mut current = base;
+    for _ in 0..registry.len() {
+        for field in current.own_fields() {
+            let field_type = field.type_tag.strip_suffix('?').unwrap_or(&field.type_tag);
+            let Some(index) = current.type_params().iter().position(|p| p == field_type) else {
+                continue;
+            };
+            let Some(argument) = args.get(index) else { continue; };
+            let tag = tag_from_type_name(argument);
+            if is_prim_tag(tag) {
+                if let Some(&slot) = base.field_index.get(&field.name) {
+                    if !zeros.iter().any(|&(i, _)| i == slot) {
+                        zeros.push((slot, tag));
+                    }
+                }
+            }
+        }
+        let Some(parent) = storage_base(current, registry, erased_bases) else { break; };
+        if current.base_name.as_deref() == Some(parent.name.as_str())
+            && !parent.type_args().is_empty()
+        {
+            // A real constructed parent has already bound its storage and defaults.
+            break;
+        }
+        let projected = current.projected_base_name(&args);
+        let Some(name) = projected.as_deref().or(current.base_name.as_deref()) else { break; };
+        args = type_args_from_name(name);
+        current = parent;
+    }
+    Some(zeros.into_boxed_slice())
+}
+
 /// Types whose `base_unmerged` flag can be cleared now: every class up the base chain is
 /// in `registry` and no ancestor keeps its flag. Chain-depth walk per flagged type.
-fn clearable_flags(registry: &FxHashMap<String, Arc<TypeDesc>>) -> Vec<String> {
+fn clearable_flags(
+    registry: &FxHashMap<String, Arc<TypeDesc>>,
+    erased_bases: &rustc_hash::FxHashSet<String>,
+) -> Vec<String> {
     let chain_resolved = |start: &TypeDesc| -> bool {
         let mut cur = start;
         for _ in 0..=registry.len() {
-            let Some(base) = cur.base_name.as_deref() else { return true; };
-            let Some(bt) = registry.get(base) else { return false; };
+            if cur.base_name.is_none() { return true; }
+            let Some(bt) = storage_base(cur, registry, erased_bases) else { return false; };
             if !bt.base_unmerged() { return true; }
             cur = bt;
         }
@@ -659,7 +728,8 @@ fn clearable_flags(registry: &FxHashMap<String, Arc<TypeDesc>>) -> Vec<String> {
 /// loader's non-convergence safety-cap error message actionable.
 pub fn unconverged_type_names(registry: &FxHashMap<String, Arc<TypeDesc>>) -> Vec<String> {
     registry.iter()
-        .filter(|(_, td)| needs_fixup(td, registry))
+        .filter(|(_, td)| td.base_name.as_deref().and_then(|name| registry.get(name))
+            .is_some_and(|base| needs_fixup(td, base)))
         .map(|(name, _)| name.clone())
         .collect()
 }
@@ -673,9 +743,7 @@ pub fn unconverged_type_names(registry: &FxHashMap<String, Arc<TypeDesc>>) -> Ve
 /// `simple_name` (arity-overloaded methods like `Foo$1` / `Foo$2` both
 /// map to the same vtable slot `Foo`); count *distinct* simple names
 /// for the vtable size projection, mirroring [`merge_with_base`].
-fn needs_fixup(td: &TypeDesc, registry: &FxHashMap<String, Arc<TypeDesc>>) -> bool {
-    let Some(base_name) = td.base_name.as_deref() else { return false; };
-    let Some(base) = registry.get(base_name) else { return false; }; // base still unresolvable
+fn needs_fixup(td: &TypeDesc, base: &TypeDesc) -> bool {
     // Count *distinct* own field names not already in base — mirroring
     // `merge_with_base`, which pushes each own field only if its name isn't
     // already present (dedup against the growing layout). Counting with

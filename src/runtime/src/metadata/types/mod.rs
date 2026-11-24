@@ -3,6 +3,7 @@ mod registry;
 mod constraints;
 pub use registry::{build_type_registry, try_fixup_inheritance, unconverged_type_names};
 pub use constraints::verify_constraints;
+pub(crate) use registry::try_fixup_inheritance_with_erased_bases;
 
 #[cfg(all(test, z42_test_facade))]
 mod constraint_tests;

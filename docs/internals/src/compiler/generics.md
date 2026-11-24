@@ -469,9 +469,9 @@ per-instance `type_args` 只覆盖「实例自己那一层泛型」，两种形�
 否则实参不符会打印成「cannot assign IBox to IBox」。分类器侧的接线见
 [类型转换的实现](conversions.md)的步 6e。
 
-🔴 **跨包只通了编译期**：`class DInt : GBox<int>` 其中 `GBox` 来自别的 zpkg，现在**编得过**，
-但运行期抛 ``MissingSymbolException: base type `...GBox<int>` ... could not be resolved``。
-那是泛型实例化线的缺口，与本页的符号层代换无关。
+跨包派生类保留闭合基类的名义身份。加载器优先查找生产包的闭合类型描述符，缺失时在基类链上
+复用泛型声明的存储布局和方法。继承的类型形参字段仍占用声明方的存储槽，运行时根据构造基类的
+实参初始化基元字段。类型检查、反射及继承成员中的 `typeof(T)` 继续读取闭合类型实参。
 
 ---
 
