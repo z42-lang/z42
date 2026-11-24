@@ -19,6 +19,9 @@ struct Vec {
     public Vec(double x, double y) { this.x = x; this.y = y; }
 }
 
+struct Part<T>(T Value);
+struct SignedZeroKey(int Marker, Part<float> Single, double Double);
+
 struct PtE : IEquatable {
     public int x;
     public int y;
@@ -53,8 +56,6 @@ void Main() {
     Assert.Equal(oa.GetHashCode(), a.GetHashCode());
 
     // ── 含浮点 struct 键：合成体仍名 Equals$1（逐叶 IR，浮点语义），键契约成立 ──
-    // ⚠️ ±0.0 案例不在本用例：哈希走 FNV 按字节（boxed_hash 文档在案的 pre-1.0 边角），
-    // +0.0/-0.0 哈希不同 → 不同桶，Equals 的浮点语义无从生效——修约在哈希契约役（另开 PR）。
     var dv = new Dictionary<Vec, int>();
     dv[new Vec(1.5, 1.0)] = 1;
     dv[new Vec(2.5, 1.0)] = 2;
@@ -62,6 +63,26 @@ void Main() {
     Assert.Equal(2, dv[new Vec(2.5, 1.0)]);
     Assert.True(dv.ContainsKey(new Vec(1.5, 1.0)));
     Assert.False(dv.ContainsKey(new Vec(9.5, 1.0)));
+
+    SignedZeroKey zero = new SignedZeroKey(Int32.MinValue, new Part<float>(0.0f), 0.0);
+    SignedZeroKey negative = new SignedZeroKey(Int32.MinValue, new Part<float>(-0.0f), -0.0);
+    SignedZeroKey different = new SignedZeroKey(0, new Part<float>(-0.0f), -0.0);
+    object boxedZero = zero;
+    ValueType boxedNegative = negative;
+    SignedZeroKey[] array = new SignedZeroKey[1];
+    array[0] = negative;
+    Assert.True(boxedZero.Equals(boxedNegative));
+    Assert.Equal(zero.GetHashCode(), negative.GetHashCode());
+    Assert.Equal(zero.GetHashCode(), boxedZero.GetHashCode());
+    Assert.Equal(zero.GetHashCode(), boxedNegative.GetHashCode());
+    Assert.Equal(zero.GetHashCode(), array[0].GetHashCode());
+    Assert.True(zero.GetHashCode() != different.GetHashCode());
+    var signedZeros = new Dictionary<SignedZeroKey, int>();
+    signedZeros[zero] = 42;
+    Assert.Equal(42, signedZeros[negative]);
+    var zeroSet = new HashSet<SignedZeroKey>();
+    Assert.True(zeroSet.Add(negative));
+    Assert.False(zeroSet.Add(zero));
 
     // ── 用户三件套键（既有行为不回归）──
     var de = new Dictionary<PtE, int>();
