@@ -53,7 +53,7 @@
 要么写 `"C:\\Users\\bin"`，要么用下面的原始串。
 
 > 熟悉 C# 的读者请注意：**`\uXXXX` 和 `\xXX` 不支持**，写了同样报 `E0102`。
-> 完整转义表见参考手册的
+> 完整转义表见语言参考的
 > [字符串](https://z42-lang.github.io/z42/reference/language/strings.html)。
 
 ## 插值串 `$"…"`

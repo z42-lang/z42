@@ -10,7 +10,7 @@
 > `src/runtime/crates/z42-repl/src/registration.rs`（脚本描述符、每 VM 会话和通用 C 回调）、
 > `src/toolchain/launcher/core/launcher_cli.z42`（`z42 repl` 转发）。
 >
-> 要查**怎么用** `z42 repl`（旗标、元指令）→ 敲 `z42 repl -h`，或语言与库参考的工具链部分。
+> 要查**怎么用** `z42 repl`（旗标、元指令）→ 敲 `z42 repl -h`，或语言参考的工具链部分。
 
 本页写 REPL 是**怎么实现的**：一行输入从按键到结果值要穿过哪几层、会话状态凭什么跨轮存活、
 「写完了没」由谁判定、编译器如何静态绑定、首轮延迟是靠哪几层惰性压下去的。

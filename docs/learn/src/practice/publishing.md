@@ -104,5 +104,5 @@ iOS / Android 分别得到 Xcode 与 Gradle 工程，各自还要几个必填项
 - 默认形态依赖目标机器上的 z42 运行时；`--self-contained` 把运行时嵌进去，目标机器零安装。
 - 产出里的 `app.runtimeconfig.toml` 可以事后调运行时旋钮，不必重新发布。
 
-旗标全表与清单字段见[参考手册 · `z42 publish`](https://z42-lang.github.io/z42/reference/toolchain/cli-z42.html#z42-publish-options-manifest)
+旗标全表与清单字段见[语言参考 · `z42 publish`](https://z42-lang.github.io/z42/reference/toolchain/cli-z42.html#z42-publish-options-manifest)
 与 [`z42.toml` 的 `[platform.*]`](https://z42-lang.github.io/z42/reference/toolchain/z42-toml.html)。

@@ -2,7 +2,7 @@
 
 改标准库本身时要读的东西：包怎么分、native 能力放哪儿、写 API 守什么准则。
 
-**各包的公开 API 不在这里**——那是[语言与库参考的标准库部分](https://z42-lang.github.io/z42/reference/stdlib/index.html)。
+**各包的公开 API 不在这里**——那是[语言参考的标准库部分](https://z42-lang.github.io/z42/reference/stdlib/index.html)。
 本部分只回答「为什么这么分、在哪改、加一个包要满足什么」。
 
 | 页 | 什么时候读 |

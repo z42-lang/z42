@@ -10,7 +10,7 @@
 | **机制页** | 为什么这样编排、在哪改 | [xtask](xtask.md) · [构建编排](build.md) · [GREEN gate](test-gate.md) · [测试流水线](test-pipeline.md) · [声明式夹具](fixture-harness.md) · [性能门禁](benchmarking.md) · [打包引擎](packaging.md) · [产物目录布局](artifacts-layout.md) |
 
 另有两页是约定而非流程：[本仓命名与目录约定](repo-conventions.md)——改 z42 本身时用；
-**用户代码的命名规则在参考手册**，那里才是 SoT。[测试用例组织规范](test-layout.md)——用例放哪、
+**用户代码的命名规则在语言参考**，那里才是 SoT。[测试用例组织规范](test-layout.md)——用例放哪、
 写成什么形态、在哪些平台跑、输出落哪。
 
 > **与「测试体系」部分的分工**：本部分的 [怎么跑测试](testing.md) / [GREEN gate](test-gate.md) /

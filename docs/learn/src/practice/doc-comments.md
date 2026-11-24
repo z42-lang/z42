@@ -58,7 +58,7 @@ z42 把这件事做成了语言的一部分：写在声明上方的 `///` 是 **
 | `@warning 说明` | 要醒目提示的事（线程安全、不是密码学安全……） |
 
 全部可选。**只为签名表达不了的东西写**——`@param factor 缩放系数` 这种复述参数名的话不如不写。
-完整的标记清单与书写规则见[参考手册 · doc 注释](https://z42-lang.github.io/z42/reference/language/doc-comments.html)。
+完整的标记清单与书写规则见[语言参考 · doc 注释](https://z42-lang.github.io/z42/reference/language/doc-comments.html)。
 
 ## 命名空间的概述：`//!`
 
@@ -132,7 +132,7 @@ z42 把这件事做成了语言的一部分：写在声明上方的 `///` 是 **
 - ⚠️ **标记还不校验**。`@param` 写错名字、`@throws` 写了不存在的类型，编译器目前不会警告——
   写完用 `z42 doc` 查一遍自己看。
 - ⚠️ **标准库的文档暂时查不到**。`z42 doc` 现在只索引有源码的包；装好的 SDK 里没有标准库源码，
-  查 `String` 之类会说找不到。标准库 API 请看[参考手册 · 标准库](https://z42-lang.github.io/z42/reference/stdlib/)，
+  查 `String` 之类会说找不到。标准库 API 请看[语言参考 · 标准库](https://z42-lang.github.io/z42/reference/stdlib/)，
   那些页面正是从标准库源码的 `///` 生成的。
 - ⚠️ `@example` 里的代码还不会被当作测试运行。
 
@@ -143,4 +143,4 @@ z42 把这件事做成了语言的一部分：写在声明上方的 `///` 是 **
 - `z42 doc <名字>` 查签名与说明，`--members` 看轮廓，`--search` 按名字和摘要搜；不用先构建。
 - record 位置参数每个前面写一行 `///`；方法形参和方法体里的 `///` 挂不上任何东西。
 
-命令的全部旗标见[参考手册 · `z42 doc`](https://z42-lang.github.io/z42/reference/toolchain/cli-z42.html#z42-doc-options-符号)。
+命令的全部旗标见[语言参考 · `z42 doc`](https://z42-lang.github.io/z42/reference/toolchain/cli-z42.html#z42-doc-options-符号)。

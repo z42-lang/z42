@@ -38,7 +38,7 @@
 | `string` | 文本 | `"hello"` |
 
 > z42 还有另一套 Rust 风格的短名（`i32` / `f64` / `u8`…），和上面的关键字**指向同一个类型**，
-> 可以混用。完整类型总表（所有位宽与无符号类型）见参考手册的
+> 可以混用。完整类型总表（所有位宽与无符号类型）见语言参考的
 > [基本类型与字面量](https://z42-lang.github.io/z42/reference/language/types.html)。
 
 ## `var`：让编译器推断类型
@@ -90,7 +90,7 @@
 
 > 熟悉 C# 的读者请注意：**z42 比 C# 更严**。C# 允许 `float f = someDouble` 这类有损转换隐式发生，
 > z42 一律要求显式 `(T)`。规则是「**只要可能丢东西，就得由你写出来**」。
-> 完整转换矩阵见参考手册的
+> 完整转换矩阵见语言参考的
 > [类型转换](https://z42-lang.github.io/z42/reference/language/conversions.html)。
 
 ## 不变的值：`const` 与 `readonly`

@@ -3,7 +3,7 @@
 > 代码：`src/libraries/z42.json/src/{JsonSerializer,JsonBinder,JsonMember,JsonReflect}.z42`、
 > `src/runtime/src/corelib/core/reflection/attributes.rs`
 >
-> 公开 API（`Serialize` / `Deserialize<T>` / `[JsonProperty]` / `[JsonIgnore]` / 类型覆盖）见参考手册
+> 公开 API（`Serialize` / `Deserialize<T>` / `[JsonProperty]` / `[JsonIgnore]` / 类型覆盖）见语言参考
 > [Std.Json](https://z42-lang.github.io/z42/reference/stdlib/json.html)。本页写**这套东西怎么跑起来的**。
 >
 > DOM 层（`JsonValue` 的 parse / stringify）不在本页范围——serde 只是站在 DOM 之上的一层反射绑定。
@@ -196,7 +196,7 @@ public class C2 {
 | `float F` | `2.5` | **`0`**——静默丢值 |
 | `Color Col` | `1` | 造出一个空 `ScriptObject`，等到**下一次读它**才炸 `Std.Exception: __box_prim: expected integer value, got Object(...)`，且异常文本直接吐出整个 `TypeDesc` 的 Rust `Debug` 串 |
 
-所以 float / enum 在参考手册里仍应记为**不支持**：序列化「看起来通了」只会掩盖往返不闭合这件事。
+所以 float / enum 在语言参考里仍应记为**不支持**：序列化「看起来通了」只会掩盖往返不闭合这件事。
 
 ## 7. 跨包泛型 `typeof(T)` 的 handle 解析
 

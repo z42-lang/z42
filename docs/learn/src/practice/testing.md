@@ -122,4 +122,4 @@
 - 任何失败退出码 `1`；签名写错编不过（`E0911`）。
 
 `Assert` 的全部方法、`[Skip]` 的平台与能力条件、`[Benchmark]` 与 JSON 输出，见
-[参考手册 · 编写与运行测试](https://z42-lang.github.io/z42/reference/testing.html)。
+[语言参考 · 编写与运行测试](https://z42-lang.github.io/z42/reference/testing.html)。

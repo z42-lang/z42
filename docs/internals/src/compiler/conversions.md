@@ -4,7 +4,7 @@
 > （`Classify` / `_classifyUser` / `_findConvOn` / `ProvablyFails`）· `TypeChecker.ConvertIfNeeded` · `TypeOpTyper._bindCastExpr`
 > **相关**: [源代码编译流程](source-compile.md) · [架构总览](architecture.md)
 >
-> 用户视角的**转换规则**（哪些隐式、哪些要写 `(T)`、报什么错）在参考手册的「类型转换」页
+> 用户视角的**转换规则**（哪些隐式、哪些要写 `(T)`、报什么错）在语言参考的「类型转换」页
 > —— 那里是语义 SoT。本页只讲**分类器怎么判、lowering 落在哪**。
 >
 

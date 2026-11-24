@@ -3,7 +3,7 @@
 **测试框架本身**怎么实现的：用例怎么被发现、怎么被执行、跨平台怎么跑。
 
 **怎么写测试不在这里**——`[Test]` / `[Skip]` / `Assert` / `z42 test` 的用法见
-[语言与库参考的测试页](https://z42-lang.github.io/z42/reference/testing.html)。
+[语言参考的测试页](https://z42-lang.github.io/z42/reference/testing.html)。
 **仓库侧怎么组织和跑**（GREEN gate 组成、CI 拓扑、`test changed` 映射）见
 [开发基础设施](../devinfra/index.md)。
 

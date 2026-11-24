@@ -10,7 +10,7 @@
 
 一条用例**放哪、写成什么形态、在哪些平台跑、输出落哪、用哪条命令跑**，全仓只有一套答案，写在本页。
 加用例、搬用例、加平台、加能力之前读这页。`[Test]` / `Assert` 的写法不在这里，见
-[参考手册的测试页](https://z42-lang.github.io/z42/reference/testing.html)。
+[语言参考的测试页](https://z42-lang.github.io/z42/reference/testing.html)。
 
 ## 设计目标与约束
 

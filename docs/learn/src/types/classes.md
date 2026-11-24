@@ -103,7 +103,7 @@
 - **索引器** `this[int i]`——让你的对象能用 `b[0]` 这种写法。前面 `List` 和 `Dictionary`
   的方括号就是这么来的。
 
-完整规则（`init` 访问器、访问器各自的可见性等）见参考手册的
+完整规则（`init` 访问器、访问器各自的可见性等）见语言参考的
 [属性与索引器](https://z42-lang.github.io/z42/reference/language/properties-indexers.html)。
 
 ## 建对象时顺手设值

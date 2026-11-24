@@ -5,7 +5,7 @@
 > `scripts/src/build/docs/index.z42`（Rust 索引构建）、`scripts/src/test/check/doc_lints.z42`（注释检查）、
 > `src/toolchain/launcher/core/launcher_cli.z42`（`_forwardZ42d`）、`src/compiler/z42c.syntax/src/DocBlock.z42`（doc 挂靠）
 >
-> 要查**怎么用**（旗标、输出、名字怎么写）→ 语言与库参考的 `z42` 命令页与 doc 注释页。
+> 要查**怎么用**（旗标、输出、名字怎么写）→ 语言参考的 `z42` 命令页与 doc 注释页。
 
 本页写 `z42 doc` 是**怎么实现的**：一次查询从命令行到输出经过哪几层、索引里的符号身份（Doc ID）怎么定、
 名字按什么顺序解析、缓存凭什么判断失效。改查询行为、输出格式或索引范围时读它。
