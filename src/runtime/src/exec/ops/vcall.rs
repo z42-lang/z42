@@ -10,7 +10,9 @@ use crate::metadata::{Function, Module};
 use crate::object::Value;
 use crate::vm::VmContext;
 
-use crate::metadata::dispatch::vcall::{resolve_virtual, iface_slot_method, erased_iface_slot_key};
+use crate::metadata::dispatch::vcall::{
+    erased_iface_slot_key, iface_slot_method, receiver_type_id, resolve_virtual,
+};
 use crate::metadata::dispatch::receiver::{primitive_class_name, value_synthetic_type_id};
 
 /// What a virtual call resolved to. The engine decides how to run it.
@@ -59,9 +61,8 @@ pub struct ResolvedVCall<'a> {
 pub fn assert_pic_target(
     ctx: &VmContext, module: &Module, obj_val: &Value, method: &str, callee: &Function,
 ) {
-    // Only object receivers key the PIC on a real `TypeDesc.id`; primitives / boxes use
-    // synthetic ids and resolve through `Std.Object` fallbacks, which this check would
-    // wrongly flag.
+    // This hierarchy assertion covers ordinary objects. Primitive and boxed
+    // dispatch also has native targets and synthetic base-method fallbacks.
     let Value::Object(rc) = obj_val else { return };
     let td = rc.type_desc();
     let callee = callee.name.as_str();
@@ -291,7 +292,12 @@ fn resolve_vcall_unchecked<'a>(
             .or_else(|| resolve_own_slot(ctx, module, STD_VALUE_TYPE, method, arity))
             .or_else(|| resolve_own_slot(ctx, module, STD_OBJECT, method, arity));
         return match target {
-            Some(target) => Ok(ResolvedVCall { target, this: *obj_val }),
+            Some(target) => {
+                if let Some(key) = receiver_type_id(obj_val) {
+                    install_ic(ic, arity, key, &target);
+                }
+                Ok(ResolvedVCall { target, this: *obj_val })
+            }
             None => bail!("VCall on boxed struct `{name}`: method `{method}` (arity {arity}) not found"),
         };
     }

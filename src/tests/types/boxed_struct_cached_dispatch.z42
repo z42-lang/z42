@@ -1,0 +1,29 @@
+namespace ValuePerf.Mixed;
+
+struct DefaultPoint(int X, int Y, int Z);
+struct CustomPoint(int X, int Y, int Z) {
+    public override int GetHashCode() { return this.X * 1000 + this.Y; }
+    public override string ToString() { return "point"; }
+}
+class RefKey {
+    public override int GetHashCode() { return 750; }
+    public override string ToString() { return "reference"; }
+}
+
+void Main() {
+    DefaultPoint point = new DefaultPoint(1, 2, 3);
+    object boxedPoint = point;
+    object boxedCustom = new CustomPoint(21, 4, 3);
+    object reference = new RefKey();
+    object boxedLong = (long)9;
+    object[] keys = new object[] { boxedPoint, boxedCustom, reference, boxedLong };
+    int[] hashes = new int[] { point.GetHashCode(), 21004, 750, 9 };
+    string[] strings = new string[] { "DefaultPoint", "point", "reference", "9" };
+    int i = 0;
+    while (i < 5000) {
+        int index = i % keys.Length;
+        Assert.Equal(hashes[index], keys[index].GetHashCode());
+        Assert.Equal(strings[index], keys[index].ToString());
+        i = i + 1;
+    }
+}

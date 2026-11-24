@@ -3,15 +3,19 @@ use anyhow::{bail, Result};
 use crate::object::Value;
 use crate::metadata::{Function, Module};
 use crate::metadata::dispatch::ic::{vcall_ic_lookup, VCallIC};
-use crate::metadata::ids::tokens::UNRESOLVED;
+use crate::metadata::ids::tokens::{IMPORT_BASE, PRIM_TYPE_BASE, UNRESOLVED};
 use crate::metadata::dispatch::receiver::value_synthetic_type_id;
 
-/// Receiver type id used to key the PIC: real `TypeDesc.id` for objects, synthetic id for
-/// primitives / arrays; `None` for boxes and null (not cacheable).
+/// PIC receiver key. Boxes and ordinary objects use distinct ranges because their
+/// dispatch ladders differ, even when they carry the same type descriptor.
 #[inline]
 pub(crate) fn receiver_type_id(obj_val: &Value) -> Option<u32> {
     match obj_val {
         Value::Object(rc) => Some(rc.type_desc().id.0),
+        Value::BoxedStruct(rc) => {
+            let id = rc.type_desc().id.0;
+            (id < PRIM_TYPE_BASE - IMPORT_BASE).then_some(id | IMPORT_BASE)
+        }
         other => value_synthetic_type_id(other),
     }
 }
