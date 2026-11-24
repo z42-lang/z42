@@ -51,8 +51,8 @@ reference 的[类](https://z42-lang.github.io/z42/reference/language/classes.htm
 3. 未命中 vtable（类没覆写 `ToString`，继承 `Std.Object` 的那个）→ 调 `__obj_to_str` builtin，
    返回不含命名空间的短类名。
 
-**`Value::BoxedStruct`** → `resolve_vcall(.., "ToString", ..)` 的阶梯（enum 成员名 / 基元标量 /
-struct 自身的 `ToString`），刻意不回落 `Std.Object.ToString`。
+**`Value::BoxedStruct`** 走 `resolve_vcall(.., "ToString", ..)`。枚举优先返回成员名，基元按标量
+派发，普通 struct 先查具体类型再查 `Std.ValueType` 的默认实现。
 
 **`Value::FuncRef` / `Value::Closure`**（P1-2 PR 8）→ `<fn 函数名>` / `<closure 函数名>`：值里存的是目标
 `FnId`，名字从它指向的 `Function` 取（`fn_by_id`）。与值里还存着名字时 `value_to_str` 打印的文本相同。
@@ -94,11 +94,11 @@ i64），先查 enum 名才能让 `Console.WriteLine(Color.Blue)` 与 `((object)
 | # | 接收者 | 处理 |
 |---|---|---|
 | 1 | **基元盒**（`BoxedStruct` 且 `boxed_prim_i64()==Some`）| 无参 `GetType` 原生作答（盒保留精确 wrapper 类）；其余把 `this` 拆回标量，再解析 `{wrapper}.{m}` / `Std.Object.{m}` |
-| 2 | **struct 盒** | `GetType` / `GetHashCode` / 非 record 的无参 `ToString` 原生拦截；否则解析 `{struct}.{m}` / `Std.Object.{m}`，`this` = 盒 |
+| 2 | **struct 盒** | `GetType` 原生作答。float-free 合成 `Equals` 使用原生字段比较。其余查找具体类型、`Std.ValueType`、`Std.Object`，`this` = 盒 |
 | 3 | **裸基元 / 数组**（`primitive_class_name`）| 解析 `{Std.Int32\|Std.String\|Std.Array…}.{m}` / `Std.Object.{m}`，`this` = 值本身；全落空则落到第 4 级由它报「非对象接收者」 |
 | 4 | **对象** | `vtable_index` → `dispatch::resolve_virtual`（模块内类链）→ 经 `ctx.try_lookup_type` 的惰性基类链走（跨 zpkg 基类）|
 
-解析结果是 `VCallTarget` 三态：`Immediate(Value)`（第 1/2 级的原生拦截，一个 z42 函数都没跑）、
+解析结果包括 `VCallTarget::Immediate(Value)`（原生拦截）、`StructValueEq`（原生字段比较）、
 `Local { func, id }`（本模块与惰性加载的函数同一形态：`func` 是函数本身，`id` 是它在 `module` 下的
 `FnId`——只有非入口模块的单测里惰性目标没有 id）、`Thrown(Value)`（按站点键找到了定义
 但其签名吃不下这次调用的实参，携带 `MissingSymbolException`，**绝不进 PIC**）。
@@ -131,13 +131,14 @@ vtable 把「可能重载的方法名」映射到编译器为该站点绑定的�
 
 ### PIC 安装
 
-凡是解析到的 callee 有 `FnId`（本模块的与惰性包的都有）、且接收者有类型 id（对象用真 `TypeDesc.id`，
-基元用合成 `PRIM_TYPE_*`；**盒没有** id），就把 `(type_id, FnId)` 写进站点的 `VCallIC`，下一次同类型
-接收者走 `vcall_ic_hit`、根本进不到本模块——跨包虚调用也一样，命中路径不查名字、不碰加载器。
-安装点与阶梯的四处首选命中一致（4a vtable、4b 模块类链、4c 基类链逐层、候选名带合成 id 时）；
-擦除名回退（`try_erased_level`）和 struct 自身槽位探测（`resolve_own_slot`）不安装。安装前还要校验目标签名吃得下这次的实参
-（`install_ic`）——缓存一个 arity 不匹配的目标，等于让之后**每一次**调用
-都从 PIC 直接派发到错的函数、绕过 `resolve_vcall` 里的检查。
+当解析到的目标有 `FnId` 且签名与实参匹配时，可将接收者键与 `FnId` 写进站点的 `VCallIC`。
+解释器与 JIT 命中时直接按 id 调用，无需重新查名字或访问加载器。普通对象使用 `TypeDesc.id`，
+裸基元使用保留的合成 id，普通 struct 盒使用带装箱标记的类型 id。标记区间与普通对象、基元合成 id
+及空槽哨兵互斥，同一类型描述符的两种接收者表示也不会共用缓存结果。
+
+普通 struct 盒的已解析方法接收原盒，可直接通过缓存调用。基元盒在派发时会还原标量 `this`，
+继续走自己的解析路径。`GetType` 的原生返回值和合成 `Equals` 的字段比较仍按调用计算。
+擦除名回退也保留原有解析规则。
 
 细节见 [inline cache 发布](inline-cache-publication.md)与 [interp / JIT 语义一致性](interp-jit-semantics.md)。
 
