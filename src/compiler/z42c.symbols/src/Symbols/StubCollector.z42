@@ -306,17 +306,34 @@ public sealed class StubCollector {
         }
     }
 
-    internal void _passBindIfaceBases(SymbolTable table, CompilationUnit cu) {
+    internal void _passBindTypeBases(SymbolTable table, CompilationUnit cu) {
         SymbolTable scope = table.WithCu(cu);
         int i = 0;
         while (i < cu.DeclCount) {
             var declaration = this._sc._unwrap(cu.Decls[i]) as ClassDecl;
-            if (declaration != null && declaration.Kind == "interface" && declaration.BaseCount > 0) {
-                string key = SymbolTable.QualOf(scope.ScopeNs, declaration.Name);
-                var iface = table.InterfacesByFqn.Get(key) as Z42InterfaceType;
-                if (iface != null) {
-                    this._bindIfaceBases(scope, declaration, iface);
+            if (declaration != null && declaration.BaseCount > 0) {
+                if (declaration.Kind == "interface") {
+                    string key = SymbolTable.QualOf(scope.ScopeNs, declaration.Name);
+                    var iface = table.InterfacesByFqn.Get(key) as Z42InterfaceType;
+                    if (iface != null) { this._bindIfaceBases(scope, declaration, iface); }
+                } else {
+                    this._bindClassBase(scope, declaration);
                 }
+            }
+            i = i + 1;
+        }
+    }
+
+    private void _bindClassBase(SymbolTable scope, ClassDecl declaration) {
+        Z42ClassType ct = scope.LocalClassOf(scope.ScopeNs, declaration);
+        if (ct == null) { return; }
+        var source = ct.BaseRef as NamedType;
+        if (source == null || source.ArgCount == 0) { return; }
+        int i = 0;
+        while (i < declaration.BaseCount) {
+            if (declaration.Bases[i] == source) {
+                ct.BoundBaseInstance = scope.ResolveTypeP(source, ct.GenericParamNames, ct.GenericParamCount) as Z42InstantiatedType;
+                return;
             }
             i = i + 1;
         }

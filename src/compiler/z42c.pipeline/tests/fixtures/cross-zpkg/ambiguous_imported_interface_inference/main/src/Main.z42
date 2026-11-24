@@ -1,5 +1,9 @@
 using DemoAmbigInfer;
 
-Type Infer<T>(IValue<T> value) { return typeof(T); }
+Type InferDirect<T>(IValue<T> value) { return typeof(T); }
+Type InferInherited<T>(IValue<T> value) { return typeof(T); }
 
-void Main() { var inferred = Infer(new Both()); }
+void Main() {
+    var direct = InferDirect(new Both());
+    var inherited = InferInherited(new Derived<string>());
+}
