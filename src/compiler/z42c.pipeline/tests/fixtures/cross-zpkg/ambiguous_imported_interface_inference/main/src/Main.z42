@@ -1,0 +1,5 @@
+using DemoAmbigInfer;
+
+Type Infer<T>(IValue<T> value) { return typeof(T); }
+
+void Main() { var inferred = Infer(new Both()); }

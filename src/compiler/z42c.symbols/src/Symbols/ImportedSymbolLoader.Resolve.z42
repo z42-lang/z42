@@ -6,6 +6,7 @@
 // 「把 TSIG 里那一串名字变回类型」。
 namespace Z42.Symbols;
 using Z42.IR;   // StrMap（裸名回落的 *NsAll 表）
+using Z42.Package;
 
 
 
@@ -170,6 +171,27 @@ public static partial class ImportedSymbolLoader {
         int tp = 0;
         while (tp < tpCount) { if (typeParams[tp] == name) { return new Z42GenericParamType(name); } tp = tp + 1; }
         return Z42ClassType.Builtin(name);    // fallback（含泛型实例化串——既有 Unknown 吸收兼容）
+    }
+
+    private static void _fillConstructedInterfaces(ImportedSymbols r, Z42ClassType ct, ExportedClassZ cl) {
+        if (cl.ConstructedInterfaces == null || cl.ConstructedInterfaces.Length == 0) { return; }
+        int count = cl.TpCount;
+        var markers = new string[count];
+        var parameters = new Z42Type[count];
+        int i = 0;
+        while (i < count) {
+            markers[i] = "$cta:" + i.ToString() + "@" + ct.Fqn();
+            parameters[i] = new Z42GenericParamType(cl.TypeParams[i]);
+            i = i + 1;
+        }
+        var map = new NameListMap(markers, count, parameters);
+        foreach (string name in cl.ConstructedInterfaces) {
+            var iface = ImportedSymbolLoader._resolve(r, name, markers, count) as Z42InstantiatedInterfaceType;
+            if (iface != null && iface.ArgCount == iface.Def.TypeParamCount) {
+                if (count > 0) { iface = TypeSubst.Apply(iface, map) as Z42InstantiatedInterfaceType; }
+                ct.AddIfaceInst(iface);
+            }
+        }
     }
 
     // 无型参上下文（自由函数等）——委托四参版本。

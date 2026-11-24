@@ -138,6 +138,7 @@ public sealed class ExportedClassZ {
     public string           BaseRefSpelling;
     // Append fields to preserve the bootstrap seed's existing field offsets.
     public bool             IsAbstract;
+    public string[]         ConstructedInterfaces;
     public ExportedClassZ(string name, bool hasBase, string baseName,
                           ExportedFieldZ[] fields, int fieldCount,
                           ExportedMethodZ[] methods, int methodCount,
@@ -146,6 +147,7 @@ public sealed class ExportedClassZ {
         this.Fields = fields; this.FieldCount = fieldCount;
         this.Methods = methods; this.MethodCount = methodCount;
         this.Interfaces = new string[0]; this.InterfaceCount = 0;
+        this.ConstructedInterfaces = new string[0];
         this.TypeParams = typeParams; this.TpCount = tpCount;
         this.IsSealed = false;
         this.IsAbstract = false;

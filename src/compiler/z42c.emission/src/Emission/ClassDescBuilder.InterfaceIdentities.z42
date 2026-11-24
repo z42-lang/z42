@@ -46,7 +46,7 @@ public sealed partial class ClassDescBuilder {
             if (!this._appendClosedInterfaceParents(symbols, iface, pending)) { return; }
         }
         if (!hasConstructed) { return; }
-        string tag = parameters == null ? "$ClosedInterface" : "$InterfaceTemplate";
+        string tag = parameters == null ? IrImplementedInterface.Closed : IrImplementedInterface.Template;
         this._emitInterfaceNames(cd, names, tag);
     }
 

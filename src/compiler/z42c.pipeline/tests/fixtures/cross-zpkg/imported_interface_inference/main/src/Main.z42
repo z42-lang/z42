@@ -1,0 +1,13 @@
+using Std.IO;
+using DemoInfer;
+
+Type Infer<T>(IValue<T> value) { return typeof(T); }
+
+void Main() {
+    Assert.Equal(typeof(string), Infer(new Closed()));
+    Assert.Equal(typeof(int[]), Infer(new Open<int>()));
+    Assert.Equal(typeof(string[]), Infer(new Open<string>()));
+    Assert.Equal(typeof(string), Infer<string>(new Both()));
+    Assert.Equal(typeof(int), Infer<int>(new Both()));
+    Console.WriteLine("OK");
+}

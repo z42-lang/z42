@@ -1,0 +1,8 @@
+[project]
+name = "demo.ambiginferapp"
+version = "0.1.0"
+kind = "exe"
+pack = true
+
+[dependencies]
+"demo.ambiginfertarget" = "0.1.0"

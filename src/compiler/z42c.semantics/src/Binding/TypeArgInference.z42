@@ -224,7 +224,7 @@ public static class TypeArgInference {
 
     // `a` 作为接口 `def` 的实例是什么形态：`a` 本身就是 def 的实例 ⇒ 它；`a` 是类（或类的实例化）⇒ 沿基类链找
     // 声明实现子句里的 def 实例（受者是实例化类时按其类型实参代换类级型参）。找不到 null。
-    // 只看声明子句（`Z42ClassType.IfaceInsts`），不沿接口继承闭包上溯；跨包类没有这份数据 ⇒ null。
+    // A receiver only supplies an inference bound when its matching views agree.
     private static Z42InstantiatedInterfaceType _ifaceView(SymbolTable symbols, Z42Type a, Z42InterfaceType def) {
         if (a is Z42InstantiatedInterfaceType) {
             Z42InstantiatedInterfaceType ai = a as Z42InstantiatedInterfaceType;
@@ -239,23 +239,27 @@ public static class TypeArgInference {
             ct = inst.Def as Z42ClassType;
         }
         int hops = 0;
+        Z42InstantiatedInterfaceType view = null;
         while (ct != null) {
             int i = 0;
             while (i < ct.IfaceInstCount) {
                 Z42InterfaceType it = ct.IfaceInsts[i];
                 if ((it is Z42InstantiatedInterfaceType) && (it as Z42InstantiatedInterfaceType).Def.Fqn() == def.Fqn()) {
                     // 实例化类的类级型参按受者实参代换；基类那一层的类级型参无从代换 ⇒ 只接受受者自身那层。
-                    if (inst != null && hops == 0) { return MemberResolver._substGeneric(it, inst) as Z42InstantiatedInterfaceType; }
-                    if (inst == null || hops == 0) { return it as Z42InstantiatedInterfaceType; }
-                    return null;
+                    var candidate = it as Z42InstantiatedInterfaceType;
+                    if (inst != null) {
+                        candidate = MemberResolver._substGeneric(candidate, inst) as Z42InstantiatedInterfaceType;
+                    }
+                    if (view != null && !Z42InterfaceType.SameInterface(view, candidate)) { return null; }
+                    view = candidate;
                 }
                 i = i + 1;
             }
-            if (symbols == null) { return null; }
+            if (symbols == null || inst != null) { return view; }
             ct = symbols.BaseOf(ct);
             hops = SymbolTable.NextBaseHop(hops);
         }
-        return null;
+        return view;
     }
 
     private static int _nameIndex(string[] names, int nameCount, string n) {

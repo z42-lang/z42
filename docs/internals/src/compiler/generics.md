@@ -906,15 +906,6 @@ GenericType("Foo", [T..])   → _classes["Foo$N"] first, fallback _classes["Foo"
 
 ## Deferred / Future Work
 
-### generic-inference-future-imported-iface-args：跨包类的接口实现参与类型实参推断
-
-- **来源**：subst-generic-return（泛型方法调用点代换返回类型）实施期
-- **触发原因**：推断穿过接口实现靠 `Z42ClassType.IfaceInsts`（带实参的实现子句），它只从本包 AST 填；
-  跨包类的导出数据（`ExportedClassZ.Interfaces`）只带接口名，没有类型实参
-- **前置依赖**：导出带实参的接口拼写 + `ImportedSymbolLoader` 解析回 `Z42InstantiatedInterfaceType`（zpkg 格式变更，support-then-use 两个 nightly）
-- **触发条件**：跨包 visitor / 访问者类库被大量使用、调用方不想写显式类型实参时
-- **当前 workaround**：显式写出类型实参，如 `node.Accept<int>(new Eval())`
-
 ### 共享泛型体的接口槽
 
 共享泛型体通过 `IFoo<T>` 调用时，若接口唯一的实参直接来自当前方法或类的类型形参，

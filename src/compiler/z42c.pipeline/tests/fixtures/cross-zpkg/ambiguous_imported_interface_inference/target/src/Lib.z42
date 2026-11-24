@@ -1,0 +1,4 @@
+namespace DemoAmbigInfer;
+
+public interface IValue<T> {}
+public class Both : IValue<string>, IValue<int> {}
