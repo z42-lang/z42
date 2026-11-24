@@ -1,0 +1,22 @@
+// tier: gate
+// Exercises warm GetHashCode dispatch at a single object call site with two boxed types.
+// Both values are boxed before the loop. The checksum is 2487704084000000.
+namespace Bench.BoxedStructHash;
+
+using Std.IO;
+
+struct Point(int X, int Y, int Z);
+struct Vector(int X, int Y, int Z);
+
+void Main() {
+    object a = new Point(1, 2, 3);
+    object b = new Vector(1, 2, 9);
+    long sum = 0;
+    int i = 0;
+    while (i < 2000000) {
+        object key = (i & 1) == 0 ? a : b;
+        sum = sum + key.GetHashCode();
+        i = i + 1;
+    }
+    Console.WriteLine(sum);
+}
