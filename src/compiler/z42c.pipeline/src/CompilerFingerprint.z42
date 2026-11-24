@@ -1,241 +1,33 @@
-// 编译器语义指纹的**内容派生**来源（change `fingerprint-content-derived`）。
-//
-// 指纹 = 下面这张 `Entries` 列表的**内容哈希**。每条语义变更**追加一行自己的 slug**，
-// 不再手工 +1。完整规则与历史见
-// `docs/internals/src/compiler/compiler-fingerprint.md` 与 `docs/internals/src/devinfra/format-bump.md`。
-//
-// ── 为什么是「只许追加的列表」而不是手工计数器 ──────────────────────────────
-//
-// 计数器方案有两个结构性损害：① **撞号 / 让号**——号是「先合先得」，并行 PR 拿了同一个号，
-// 后合的必须回头改自己的 PR；② 🔴 **正文被整行覆盖而丢失**——两个 PR 基于同号、都改**同一行**，
-// 后合的整行胜出而 **git 没报冲突**，一档指纹连同它的理由凭空消失。
-//
-// 列表方案把两者**结构性**消掉：**没有号可抢**；两个 PR 各追加一行，合并只会**两行都留下**
-//（能自动合并则自动，冲突时正解是「都留」而不是「谁让号」）。
-//
-// ── 为什么不去哈希编译器全部源码 ────────────────────────────────────────────────
-//
-// 实测那会让**每次注释编辑**都全量失效（内循环约 +50%，还连带 stdlib 全量）。本方案只在
-// **人记录了一条语义变更**时才变，零额外失效。代价：仍需人判断「这次要不要记」，由 CI 守门兜底。
 namespace Z42.Package;
 
-// `ZpkgBuilder.SourceHashHex` 就在本命名空间（`Z42.Package`，见 z42.package/src/ZpkgBuilder.z42）——
-// 不需要额外 using。⚠️ 别写 `using Z42.IR.BinaryFormat`：那是 zbc 二进制格式的命名空间，
-// 与 ZpkgBuilder 不同（#896 把包名 z42.ir 改成 z42.package，命名空间没跟着改，容易看混）。
-
 public static class CompilerFingerprint {
-
-    // 🔴 **只许在末尾追加，不许改动/删除既有条目**：改了等于让一批本该命中的缓存作废
-    // （安全方向，但白付一次全量）；删了会让指纹回退、可能**误命中**更早的条目。
-    //
-    // `baseline-41` = 换方案前计数器到 41 时的编译器语义。1–41 的逐条理由在
-    // `docs/internals/src/compiler/compiler-fingerprint.md`，不在这里堆。
-    public static string[] Entries = new string[] {
-        "baseline-41",
-        "fingerprint-content-derived",
-        "fix-paramref-constraint-iface",
-        "enforce-fqn-name-identity",
-        // relocate-compiler-domain-libs：编译器域包挪去 `src/compiler/` 后，driver 的解析域组成变了
-        // —— `_compilerDomainDirs()`（落点改 `programs/z42c/`）+ `${compiler_libs}` 路径宏 +
-        // **编译器域目录排在框架之后**（排前面会让整套 stdlib 被判成 vendored 私有包）。
-        // 指纹门实测：`编译器输出变了：1 个包（z42.json）`。
-        "relocate-compiler-domain-libs",
-        // fqn-typeref-base-chain（enforce-fqn-name-identity B4）：`IsSubclassOf` 沿 base 链的
-        // 相等判定改走**名义身份句柄**。
-        //
-        // 🔴 **累加的理由是「行为实测变了」，不是「指纹门红了」** —— 这个区别要紧：门在两侧
-        // driver 不同代时会因漂移而红（见 memory `fingerprint-gate-false-red-generation-drift`），
-        // 照那种红 bump 是治症状、下个 PR 照样红。
-        //
-        // 本条的依据是**撤掉改动跑探针**拿到的直接观测：`BaseName` **从不经过归一 pass**
-        // （`_passQualifyIfaceNames` 只归一接口那两根轴）⇒ 它存的是源码里写的**短名**。
-        // 修前：`namespace Demo; class A {} class B : A {}` 下，拿**短名**查基类答 true，
-        // 拿**限定名**（Demo.A）查同一个继承关系却答 **false** —— 换个拼写就答错。
-        // 句柄化后两种拼写解析到同一个 id ⇒ 都答 true。
-        //
-        // ⇒ 那类源文件**哈希一字未变而判定结果变** ⇒ 不 bump 就会命中旧缓存条目、让修复
-        //   永不生效（与 #791 / #806 / #850 同一条理由）。
-        "fqn-typeref-base-chain",
-        // fix-nested-ctor-key：嵌套类型的 ctor 键（`Outer+Inner` 的 ctor 注册在 `Inner`）——
-        // 发射变了（无参那格此前压根不发 Call、带参那格发的是错名），源码哈希一字未变。
-        "fix-nested-ctor-key",
-        // fix-compound-assign-operand-check：复合赋值改走与二元运算同一条绑定路径 ⇒ 既发新诊断
-        // （bool/函数值/对象上的 `op=`），又改发射（用户 `op_Add` 现在真的被派发）。
-        "fix-compound-assign-operand-check",
-        // fix-delegate-param-default：委托形参默认值改为声明处报错（纯新增诊断，不动发射）。
-        "fix-delegate-param-default",
-        // enforce-attribute-const-args：attribute 实参白名单（E0500）。纯新增诊断、不动发射，
-        // 但「诊断变了而源码哈希未变」正是最需要失效缓存的那一档（规则第 1 行明确含「发出的诊断」）。
-        "enforce-attribute-const-args",
-        // fix-static-form-receiver-slot：「接收者作首参」的静态形式此前整条实参流水线错位一格
-        // （接收者占 args[0] 却仍按 ParamTypes[0] 检查/装箱/填默认值）⇒ 正确调用被拒、末参从不检查、
-        // 错接收者可能放行。改动既发新诊断（receiver 位 E0402）又改发射（带参形态此前编不过）。
-        "fix-static-form-receiver-slot",
-        // unify-type-subst：类级 / 接口 / Self / 方法级型参代换统一为一份完整递归（TypeSubst）。此前
-        // `_substGeneric` 不下钻接口实例与函数类型 ⇒ 泛型类成员返回 `IGet<T>` / `Func<T,int>` 时 `T` 漏给调用方：
-        // 该拒的放行（`string s = b.AsGet().Get();` 零诊断）、该过的误报（`+ 1` got T）。既发新诊断又改推断类型。
-        "unify-type-subst",
-        // fix-enum-type-identity（A5b-2b-2）：嵌套 enum 类型位与 `E.Member` 常量读造出的 enum 类型此前 Namespace 为空，
-        // 按 FQN 的门在这条轴上是瞎的（跨包同 FQN 嵌套 enum 零诊断）。产物字节恒等（A-B 对账 19 包），但新发 E0601。
-        "fix-enum-type-identity",
-        // fix-class-base-scope（A5b-2b-3）：基类句柄改按声明方作用域绑定、15 处基类链走查收敛到 BaseOf ——
-        // 同包两个 ns 各有同名基类时不再误报 E0402 / E0427（此前取决于文件顺序）。
-        "fix-class-base-scope",
-        // using-csharp-enclosing-ns：外围命名空间按 C# 规则隐式可见且优先于 using —— 同名冲突时解析答案变、
-        // E0456 / E0436 放宽。stdlib 19 包字节不变。
-        "using-csharp-enclosing-ns",
-        // using-add-missing：z42.core 的 Type / AssemblyLoadContext 补了 using Std.Reflection —— 模块元数据的 using 列表变了，
-        // 依赖 z42.core 的包解析导入签名时答案随之变（bench-pr 指纹门实测 z42.json +11B）。编译器本身字节未变。
-        "using-add-missing",
-        // using-csharp-strict-gate：同包跨 ns 与纯类型注解也计入 E0436（每文件记录用到的 ns）—— 新发诊断。
-        "using-csharp-strict-gate",
-        // using-csharp-unused-warning：多余 / 重复的 using 报 W0607 / W0608 —— 新发诊断。
-        "using-csharp-unused-warning",
-        // add-sdk-libs：SDK 库（编译器域包）的可见性——exe / lib 按名声明可见（+ 传递闭包）、analyzer 全部可见，
-        // 不放行的进扫描 tier 的 Hidden；E0494 指名未声明的 SDK 库。解析域是语义分析的输入。z42c 自建字节不变。
-        "add-sdk-libs-visibility",
-        // fix-imported-base-fqn：导入类的基类名改用元数据里的 FQ（ExportedClassZ.BaseFqn），class 到 class 的转换判定改按对象 ——
-        // 本地类与跨 ns 导入基类同短名时，基类不再被绑成本地类（该报的 E0402 报出、合法向上转型不再误报）。
-        "fix-imported-base-fqn",
-        // fix-class-scan-lookup：遍历类表的两处诊断（转换中间类型提示、switch 穷举）按表键直接取值，EmitContext 基类链走句柄 ——
-        // 不再按调用点作用域把短名再解析一遍（同短名类并存时诊断答案可能变）。stdlib 19 包字节不变。
-        "fix-class-scan-lookup",
-        // drop-bare-name-fallback（A5b-2c）：四个类型访问器删掉短名回落、统一走作用域解析；本地接口名按 CU 作用域归一；
-        // 没 using 的类型引用改在引用处报 E0436（此前静默解析、事后报在文件头）。stdlib 19 包字节不变。
-        "drop-bare-name-fallback",
-        // generated-usings-no-lint：generator 碎片从宿主抄来的 using 不再报 W0607 / W0608 —— 诊断变少。
-        "generated-usings-no-lint",
-        // fix-class-identity-ns：同短名不同命名空间的两个类不再互相可赋（IsAssignableTo 同名判据加 ns）—— 新发 E0402。stdlib 19 包字节不变。
-        "fix-class-identity-ns",
-        // resolvetype-scope-only（A5b-2d）：类型注解位的名字只走作用域解析（外围链 / FQN / using / prelude），短名表回落删除；
-        // 同短名跨 ns 时答案可能变，没 using 的类型名改在引用处报 E0436。
-        "resolvetype-scope-only",
-        // global-using-package-lint：global using 全包没有文件用到报 W0607；写在自己 ns 文件里的 global using 不再误报 W0607 —— 诊断变化。
-        // 同时作废 nightly 写下的 meta（它们没有 usedns 行，cached 文件的用法集合会缺一半）。
-        "global-using-package-lint",
-        // fix-ref-addr-opt：被 `ref` 取过地址的局部不再被当作单赋值（IrRegCounts.Defs 对 load_local_addr 的槽 +1）——
-        // 复制传播 / 常量折叠等不再改写它，含 `ref` 局部的函数代码会变。
-        "fix-ref-addr-opt",
-        // fix-sdklibs-transitive：SDK 库的传递闭包真正生效（DEPS 段是文件名，此前拿去和包名比、永远对不上）——
-        // 只声明 z42c.semantics 的工程现在能看见它依赖的 z42.package 等；解析域是语义分析的输入。
-        "fix-sdklibs-transitive",
-        // fqn-enum-delegate-tables：enum / delegate 表按 FQN 键、按作用域解析 —— 同包两个 ns 的同名 enum / delegate 不再撞成一份；
-        // 跨 ns 引用不写 using 报 E0436；enum 类型名后的未知成员新报 E0401。
-        "fqn-enum-delegate-tables",
-        // crosspkg-delegate-import：依赖包导出的用户 delegate 能在消费方源码里当类型写（此前报 E0443）—— 诊断变化。
-        "crosspkg-delegate-import",
-        // forbid-local-shadowing：同一作用域重复声明局部（E0467）、内层与外层局部 / 形参重名（E0491）新报错 —— 诊断变化。
-        "forbid-local-shadowing",
-        // deterministic-zpkg-deps：DEPS 只记符号实际来自的包，`using` 不再贡献依赖 —— 几乎所有 zpkg 的 DEPS 段字节变化。
-        "deterministic-zpkg-deps",
-        // reject-using-after-decl：`using` 写在类型/函数声明之后新报 E0210 —— 诊断变化。
-        "reject-using-after-decl",
-        // report-nested-ambiguous-names：泛型实参 / 数组元素 / 可空内层里的歧义裸名新报 E0456 —— 诊断变化。
-        "report-nested-ambiguous-names",
-        // instance-call-by-receiver：导入类非虚实例方法按接收者类型定位直接 Call（不再按方法名在全部可见包里猜）—— 输出变化。
-        "instance-call-by-receiver",
-        // call-delegate-members：委托类型的字段 / 属性可直接调用（`x.F(args)`，此前报 E0401）—— 诊断与输出变化。
-        "call-delegate-members",
-        // reject-derived-static-access：经派生类访问基类静态成员（`B.M()` / `B.T` / 派生类体内裸调）新报 E0401；
-        // 类名接收者上找不到静态成员报 E0401 而非 E0436 —— 诊断变化。
-        "reject-derived-static-access",
-        // reject-inheritance-cycle：基类型成环新报 E0502；继承链走查去掉 32 层上限（深链不再误报 E0402 / E0401）—— 诊断与输出变化。
-        "reject-inheritance-cycle",
-        // deps-from-bound-tree：文件依赖集改由绑定期 + 绑定树 walker 产出、不再取代码生成的记录（DEPS 条目顺序变化）；
-        // 声明类在别的包里的跨包 devirt 回落 VCall —— 输出变化。
-        "deps-from-bound-tree",
-        // reflective-test-discovery：测试家族 attribute（`[Test]` / `[Skip]` …）改为普通 store-meta ⇒ 每处应用多合成
-        // 一个反射工厂 + attr-ref；同名多 arity 泛型类（`Box` / `Box<E>`）的类级 `typeof(E)` / `default(E)` 声明类名改用
-        // `Box$1`（此前写 `Box` ⇒ 运行期退成占位 `T`）—— 输出变化。
-        "reflective-test-discovery",
-        // retire-tidx：不再写 TIDX 段（zbc 1.47 / zpkg 0.53）、MkClos 去尾字节；`[Benchmark] f(Bencher b)` 不再脱糖成
-        // `f$impl` + 零参 wrapper —— 输出变化。
-        "retire-tidx",
-        // subst-generic-return：泛型方法调用点按类型实参代换返回类型（struct 返回包拆箱）、实参装箱改按擦除形参、
-        // 本地符号型参名裁成精确长度（显式代换此前只在 4 / 8 个型参时生效）、泛型方法体读方法级型参元素后
-        // 发 __box_struct —— 输出变化。
-        "subst-generic-return",
-        // foreach-var-elem-type：`foreach (var x in c)` 与 `c[i]` 的元素类型按收者代换型参（此前泛型容器上是 Unknown）；
-        // 推不出类型的收者上调方法报 E0506，泛型实例化收者上找不到的方法 / 字段报 E0401 —— 输出与诊断变化。
-        "foreach-var-elem-type",
-        // is-as-type-then-ternary：`is` / `as` / 模式位类型后的 `?` 按 C# 规则消歧（后随能开始表达式 ⇒ 三目），
-        // `A<B<C>>?` 的 `?` 归外层（此前挂到 `>>` 拆出的内层）—— 解析结果与诊断变化。
-        "is-as-type-then-ternary",
-        // checked-conversions：必败的显式转换 / `as` 报 E0424；其余引用目标的 `(T)x` 一律运行期受检；blob struct
-        // 拆箱核结果抛 NRE / ICE；泛型 struct 实例化算值类型（E0476 / E0475）；数组元素名、数组类型测试目标、
-        // `typeof(X[])` 改由 `_arrayElemName` 一个出口产出 —— 输出与诊断变化。
-        "checked-conversions",
-        // type-param-markers：泛型体里以型参为目标 / 实参的类型名（`o is T` / `(T)o` / `new List<T>()` /
-        // `catch (Err<T>)` / 泛型调用站点的类级型参）特化体内代换、共享体里发 `$mta:` / `$cta:` 型参标记；
-        // `(T)o` 受检；类级 `new T()` 走 `__class_type_arg` + `__activator_create`；catch 目标带实参 —— 输出变化。
-        "type-param-markers",
-        // 可变寄存器和参数不再登记为全函数常量，避免覆盖旧值或 ref 写入。
-        "fix-constfold-mutable-registers",
-        "share-hosttarget-incremental-cache",
-        "invalidate-global-using-context",
-        "host-dependency-surface-identity",
-        "explicit-workspace-compile-domain",
-        "compiler-domain-runtime-probe-fallback",
-        "bind-constructed-count-members",
-        "preserve-generic-base-projection",
-        "reject-intrinsic-size-writes",
-        "inline-bound-type-test",
-        "indirect-struct-abi-preserve-generic-return-identity",
-        "preserve-native-module-qualification",
-        "fix-interface-ref-signatures",
-        "reify-inferred-type-arguments",
-        "carry-imported-method-constraints",
-        "ref-overload-method-signatures",
-        "infer-static-interface-implementation",
-        "reject-overlapping-concrete-impls",
-        "support-open-generic-impls",
-        "overload-compound-assignment",
-        "bind-open-impl-self",
-        "remove-event-keyword",
-        "infer-forwarded-method-types",
-        "emit-static-interface-witnesses",
-        "bind-static-self-witness",
-        "pass-struct-witness-values",
-        "preserve-imported-interface-variance",
-        "bind-generic-interface-slots",
-        "dispatch-ref-static-witness",
-        "bind-value-self-witness-parameters",
-        "bind-value-self-witness-returns",
-        "enable-interface-variance-conversions",
-        "guard-closed-interface-ref-arguments",
-        "convert-multiparameter-variant-interfaces",
-        "project-adapted-interface-arguments",
-        "guard-adapted-interface-ref-slots",
-        "distinguish-closed-interface-overloads",
-        "distinguish-free-interface-overloads",
-        "enforce-array-element-identity",
-        "bind-runtime-interface-type-arguments",
-        "retain-closed-interface-metadata",
-        "bind-interface-implementation-templates",
-        "unify-value-type-object-methods",
-        "bind-class-parameter-interface-slots",
-        "preserve-struct-equals-operand-effects",
-        "bind-interface-bases-in-declaration-scope",
-        "infer-imported-interface-type-arguments"
-    };
-
-    // 指纹值：`Entries` 逐条以 `\n` 连接后取内容哈希（`mmh3:` 前缀，同 SourceHash）。
-    // 只算一次并缓存 —— `Serialize` / `Parse` 每个 CU 都要它。
-    private static string _cached = "";
+    private static string _value = CompilerFingerprint._identify();
 
     public static string Value() {
-        if (CompilerFingerprint._cached != "") { return CompilerFingerprint._cached; }
-        string joined = "";
-        int i = 0;
-        while (i < CompilerFingerprint.Entries.Length) {
-            if (i > 0) { joined = joined + "\n"; }
-            joined = joined + CompilerFingerprint.Entries[i];
-            i = i + 1;
-        }
-        CompilerFingerprint._cached = ZpkgBuilder.SourceHashHex(joined);
-        return CompilerFingerprint._cached;
+        return CompilerFingerprint._value;
     }
 
-    // 条目数 —— CI 守门用它做**可打印**的身份片段（追加一条即变）。
-    public static int Count() { return CompilerFingerprint.Entries.Length; }
+    private static string _identify() {
+        bool entropy = false;
+        foreach (string capability in Platform.Capabilities()) {
+            if (capability == "program-content-identity") {
+                string? identity = CompilerFingerprint._programIdentity();
+                if (identity != null) { return "program:" + identity; }
+            }
+            if (capability == "entropy") { entropy = true; }
+        }
+        // A bootstrap VM or unresolved package closure cannot share disk caches
+        // with another compiler invocation.
+        return entropy ? "session:" + Guid.NewGuid().ToString() : "";
+    }
+
+    // Keep bootstrapping with a core package that predates the query.
+    private static string? _programIdentity() {
+        foreach (var method in typeof(ModuleSearch).GetMethods()) {
+            if (method.Name == "ProgramContentIdentity") {
+                return method.Invoke(null, new object[0]) as string;
+            }
+        }
+        return null;
+    }
 }

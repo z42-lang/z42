@@ -230,6 +230,7 @@ fn session_cache_shares_definitions_between_programs() {
             import_namespaces: vec!["Shared".into()],
             impl_pairs: Vec::new(),
             package_name: Some("shared_fixture".into()),
+            content_id: None,
         }
     }
     let cache = crate::loader::ImageCache::default();
@@ -321,6 +322,7 @@ fn no_eager_merge_unit_registration_lands_in_func_table() {
         import_namespaces: Vec::new(),
         impl_pairs: Vec::new(),
         package_name: Some("dep_pkg".into()),
+        content_id: None,
     };
     let options = LoadOptions {
         mode: ExecMode::Interp,

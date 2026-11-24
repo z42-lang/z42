@@ -14,6 +14,9 @@ impl RuntimeLoader<'_> {
             packages.declared_candidates,
             packages.initially_loaded,
         );
+        if let Some(loader) = self.state.lazy_loader.write().as_mut() {
+            loader.entry_identity = packages.entry_identity;
+        }
         if let Some(entry) = self.metadata.module.as_deref() {
             let func_names: Vec<_> = entry.functions.iter().map(|f| f.name.clone()).collect();
             self.seed_lazy_loader_types(&entry.type_registry, &func_names);
@@ -86,6 +89,10 @@ impl RuntimeLoader<'_> {
             .read()
             .as_ref()
             .map_or_else(Vec::new, |loader| loader.search_dirs().to_vec())
+    }
+
+    pub(crate) fn program_content_identity(&self) -> Option<String> {
+        self.state.lazy_loader.read().as_ref()?.program_content_identity()
     }
 
     /// Clear the lazy loader (used in tests).

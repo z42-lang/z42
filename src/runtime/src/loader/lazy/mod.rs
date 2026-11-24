@@ -44,11 +44,14 @@ use crate::loader::locate::namespace_index;
 // Candidate metadata comes from locate::namespace_index; this loader retains
 // declared candidates and owns their load/track/release lifecycle.
 pub use crate::loader::locate::namespace_index::ZpkgCandidate;
+mod identity;
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
 /// Lazy-loaded dependency state. Owned by `VmContext::lazy_loader`.
 pub struct LazyLoader {
+    pub(super) entry_identity: Option<super::package_identity::PackageIdentity>,
+    pub(super) package_identities: FxHashMap<String, super::package_identity::PackageIdentity>,
     fusion_inputs: FusionInputSource,
     /// Directories searched (in order) to resolve a transitive dep zpkg by
     /// file name. Typically `[entry-zpkg-dir, stdlib-libs-dir]` so an apphost's
@@ -305,6 +308,8 @@ impl LazyLoader {
         let strings = crate::metadata::ids::str_table::StrTable::new(None);
         strings.reserve(main_pool_len);
         Self {
+            entry_identity: None,
+            package_identities: FxHashMap::default(),
             fusion_inputs,
             search_dirs,
             vfs: crate::pal::fs::default_vfs(),

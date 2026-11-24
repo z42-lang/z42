@@ -46,6 +46,7 @@ fn artifact(module_name: &str, classes: Vec<ClassDesc>) -> crate::loader::packag
         import_namespaces: vec![],
         impl_pairs: vec![],
         package_name: Some(module_name.to_lowercase()),
+        content_id: None,
     }
 }
 

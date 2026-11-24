@@ -423,7 +423,7 @@ self-hosting.md Deferred。
 ### workspace 增量
 
 workspace 成员（`--workspace`，per-member 与 flat 两种布局）与单工程一样 probe cache；`--no-incremental` 透传到每个成员。
-正确性由三道键保证：编译器身份（`CompilerFingerprint` + 格式 Minor，CI `test compiler fingerprint` 守门）、依赖身份
+正确性由三道键保证：编译器身份（加载包的内容身份与格式版本）、依赖身份
 （`package.meta` 的 `deps` 行）、源哈希。自举不动点 gen2 与 CI 两代自举显式 `--no-incremental`。
 
 **成员可见性是封闭的**：编译第 i 个成员时，拓扑序排在它之后的成员（它们的 dist 与 `Z42_LIBS` 里的同名副本）一律不可见，

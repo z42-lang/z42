@@ -23,6 +23,7 @@ pub(crate) struct ArtifactMeta {
     pub import_namespaces: Vec<String>,
     pub impl_pairs: Vec<(String, String)>,
     pub package_name: Option<String>,
+    pub content_id: Option<String>,
     /// The decoded module's type registry. `Module::from_image` rebuilds a
     /// module with an EMPTY registry; per-package registration (M1+) consumes
     /// the artifact's registry directly, so the cache carries it alongside
@@ -64,6 +65,7 @@ impl ImageCache {
                     import_namespaces: meta.import_namespaces,
                     impl_pairs: meta.impl_pairs,
                     package_name: meta.package_name,
+                    content_id: meta.content_id,
                 })
             }
             // Miss: decode, freeze the image + the decoded type registry
@@ -81,6 +83,7 @@ impl ImageCache {
                     import_namespaces: artifact.import_namespaces.clone(),
                     impl_pairs: artifact.impl_pairs.clone(),
                     package_name: artifact.package_name.clone(),
+                    content_id: artifact.content_id.clone(),
                     type_registry: artifact.module.type_registry.clone(),
                 };
                 self.artifacts
@@ -97,6 +100,7 @@ impl ImageCache {
                     import_namespaces: meta.import_namespaces,
                     impl_pairs: meta.impl_pairs,
                     package_name: meta.package_name,
+                    content_id: meta.content_id,
                 })
             }
         }

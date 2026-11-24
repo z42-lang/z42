@@ -229,13 +229,6 @@ jobs:
       # CompilerFingerprint / 格式 Minor 没累加 ⇒ 红（docs/internals/src/compiler/compiler-fingerprint.md）。
       # `--base-driver` 让门自己判两侧 driver 是否同一个二进制；这里本就不是（BASEDRIVER 是 PRDRIVER
       # 又编一代）⇒ 门如实说「判不了」而不判红。根治需两侧 driver 同代，尚未做。
-      - name: Compiler fingerprint guard (output changed ⇒ version bumped)
-        if: steps.scope.outputs.bench_toolchain == 'true' && steps.fmtgap.outcome == 'success' && steps.fmtgap.outputs.gap == '0'
-        shell: bash
-        run: |
-          xtask test compiler fingerprint --base "$PWD/base-src" \
-              --base-driver "${{ steps.prepare.outputs.base_driver }}"
-
       - name: Same-runner A/B regression gate (symmetric toolchains; >15% time fails)
         if: steps.scope.outputs.bench_integration == 'true' && steps.fmtgap.outputs.gap == '0'
         shell: bash

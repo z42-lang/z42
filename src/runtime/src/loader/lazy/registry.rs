@@ -64,6 +64,9 @@ impl LazyLoader {
 
         let path_str = file_path.to_string_lossy().into_owned();
         let mut artifact = load_artifact_with_fusion(&*self.vfs, &path_str, self.fusion_inputs)?;
+        if let Some(identity) = crate::loader::package_identity::PackageIdentity::from_artifact(&artifact) {
+            self.package_identities.insert(file_name.to_owned(), identity);
+        }
 
         // add-crosspkg-impl-reflection: register this package's
         // `impl Trait for Type` pairs (backs GetInterfaces cross-pkg traits).
@@ -349,6 +352,9 @@ impl LazyLoader {
         // (fix-repl-inmemory-dep-warn)
         if let Some(pkg) = &artifact.package_name {
             self.mark_zpkg_loaded(format!("{pkg}.zpkg"));
+            if let Some(identity) = crate::loader::package_identity::PackageIdentity::from_artifact(&artifact) {
+                self.package_identities.entry(format!("{pkg}.zpkg")).or_insert(identity);
+            }
         }
 
         let offset = self.append_strings(&mut artifact.module.string_pool)?;

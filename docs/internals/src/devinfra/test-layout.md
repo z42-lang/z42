@@ -196,6 +196,7 @@ Rust 侧的 `*_tests.rs` 与 `tests/*.rs` 按 cargo 惯例，不在此列。
 已生效（运行期报告）：
 
 <!-- caps-active:begin -->
+- `program-content-identity` — 加载器提供入口包及可解析依赖的内容身份
 - `jit` — cargo feature `jit`
 - `native-interop` — cargo feature `native-interop`
 - `bundled-compression` — cargo feature `bundled-compression`

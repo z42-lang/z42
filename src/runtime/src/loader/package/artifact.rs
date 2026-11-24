@@ -23,6 +23,7 @@ pub struct LoadedArtifact {
     /// meta `repl_rN.zpkg`" WARN for REPL rounds compiled to bytes in memory and
     /// never written to disk. (fix-repl-inmemory-dep-warn)
     pub package_name: Option<String>,
+    pub content_id: Option<String>,
 }
 
 pub fn load_artifact_with_fusion(fs: &dyn Vfs, path: &str, fusion_inputs: FusionInputSource) -> Result<LoadedArtifact> {
@@ -144,6 +145,7 @@ fn load_zbc_bytes(raw: &[u8], fusion_inputs: FusionInputSource) -> Result<Loaded
         import_namespaces,
         impl_pairs: vec![],
         package_name: None, // bare .zbc carries no zpkg package name
+        content_id: None,
     })
 }
 
@@ -211,7 +213,10 @@ fn load_zpkg_indexed(fs: &dyn Vfs, path: &str, raw: &[u8], fusion_inputs: Fusion
     }
     assemble_zpkg_artifact(meta.entry, meta.dependencies, module_pairs,
         crate::zpkg::reader::read_zpkg_impl_pairs(raw).context("cannot read zpkg IMPL section")?,
-        Some(meta.name), fusion_inputs)
+        Some(meta.name), fusion_inputs).map(|mut artifact| {
+        artifact.content_id = Some(crate::loader::content_id(raw));
+        artifact
+    })
 }
 
 fn hex_lower(bytes: &[u8]) -> String {
@@ -244,7 +249,10 @@ fn load_zpkg_bytes_with_sidecar(
 
     assemble_zpkg_artifact(meta.entry, meta.dependencies, module_pairs,
         crate::zpkg::reader::read_zpkg_impl_pairs(raw).context("cannot read zpkg IMPL section")?,
-        Some(meta.name), fusion_inputs)
+        Some(meta.name), fusion_inputs).map(|mut artifact| {
+        artifact.content_id = Some(crate::loader::content_id(raw));
+        artifact
+    })
 }
 
 /// Shared tail of every zpkg load path (packed by path / packed by bytes /
@@ -271,6 +279,7 @@ fn assemble_zpkg_artifact(
         import_namespaces: vec![],
         impl_pairs,
         package_name,
+        content_id: None,
     })
 }
 
@@ -345,5 +354,8 @@ fn load_zpkg_bytes(raw: &[u8], fusion_inputs: FusionInputSource) -> Result<Loade
         .into_iter().map(|(m, ns)| (Module::from_ir(m), ns)).collect::<Vec<_>>();
     assemble_zpkg_artifact(meta.entry, meta.dependencies, module_pairs,
         crate::zpkg::reader::read_zpkg_impl_pairs(raw).context("cannot read zpkg IMPL section")?,
-        Some(meta.name), fusion_inputs)
+        Some(meta.name), fusion_inputs).map(|mut artifact| {
+        artifact.content_id = Some(crate::loader::content_id(raw));
+        artifact
+    })
 }

@@ -26,7 +26,6 @@
 | 库 | `xtask test stdlib [<lib>]` | `src/libraries/<lib>/tests/` 与编译器域库的 `[Test]`，由 `z42b` 调度 |
 | 编译器 | `xtask test compiler` | 自举不动点（gen1 == gen2 逐字节）+ 编译器 `[Test]` 单元 + 编译器 e2e |
 | | `xtask test compiler incremental` | 逐文件 touch，增量结果与全量**逐字节**相同 |
-| | `xtask test compiler fingerprint --base <tree>` | 编译器输出变了就必须 bump `CompilerFingerprint` / 格式 minor |
 | | `xtask test compiler bootstrap [--rid <rid>]` | 自举边界：上一 nightly 的 z42c 能不能编当前 z42c 源 |
 | 工具链 | `xtask test toolchain [<comp>] [--target <name>]` | `src/toolchain/<comp>/` 下各工程 `tests/` 的 `[Test]`（`fixtures/` 除外）+ builder 的 manifest 目标夹具（`[[test]]` / `[[example]]` / `[[bench]]`、z42b 清单 / hook / 发现规则） |
 | VM（Rust） | `xtask test runtime` | `src/runtime/src/*_tests.rs` + `src/runtime/tests/*.rs` |
@@ -179,49 +178,6 @@ xtask 的 `--jobs N` 是**上层 unit 级**批宽（每批 N 个 unit 同时 com
 CI 只在 Windows 腿跑 `cargo test`，容易静默腐烂——改 ClassDesc / 反射 / 版本相关代码后
 **本地必跑**；版本 bump 还要更新 `reader/reader_tests.rs` 里的 version-pin 测试。
 
-### `test compiler fingerprint`：本地怎么给它一棵 base 树
-
-这道门要两棵树（本树编译器重编 **base 的** stdlib 源码，逐包比字节），过去多个 change 的
-tasks.md 都记着「本地无从提供 base 树」而只能等 CI。其实当 **nightly release 正好发自
-当前 origin/main** 时很便宜 —— 先对一下：
-
-```bash
-gh release view nightly --json targetCommitish,publishedAt   # == origin/main HEAD？
-```
-
-相等就可以铺一棵：
-
-```bash
-BASE=../z42-base
-git worktree add $BASE --detach <那个 sha>
-# nightly SDK 当冷种子（解包在 $SDK）
-mkdir -p $BASE/artifacts/intermediate/libraries/flat/release $BASE/artifacts/build/compiler/z42c.driver/release/dist $BASE/.seedvm
-cp $SDK/libs/*          $BASE/artifacts/intermediate/libraries/flat/release/
-cp $SDK/programs/z42c/* $BASE/artifacts/build/compiler/z42c.driver/release/dist/
-cp $SDK/bin/z42vm       $BASE/.seedvm/z42vm && chmod +x $BASE/.seedvm/z42vm
-cp -R <warm>/.z42 $BASE/.z42 && cp <warm>/xtask $BASE/xtask      # 种子 + apphost
-# xtask.zpkg 用 SDK 自带的 z42c 现建（**别**用 .z42/bin/z42c，见 bootstrap-seed 的格式墙）
-(cd $BASE && Z42_LIBS=$PWD/artifacts/intermediate/libraries/flat/release ./.seedvm/z42vm \
-   artifacts/build/compiler/z42c.driver/release/dist/z42c.driver.zpkg \
-   -- build scripts/xtask.z42.toml --release)
-# 🔴 关键一步：**必须真跑一遍 build stdlib**
-(cd $BASE && RUSTUP_TOOLCHAIN=1.98.1 Z42_PORTABLE_VM=<本树>/artifacts/build/runtime/release/z42vm \
-   ./xtask build stdlib)
-```
-
-然后在本树 `./xtask test compiler fingerprint --base $BASE`。
-
-两个容易踩的：
-
-- 🔴 **只把 flat libs 铺进 `artifacts/intermediate/libraries/flat/release/` 不够** —— 那是**运行期**
-  libs，而门比的是 **per-member dist**（`artifacts/build/libraries/<pkg>/release/dist/<pkg>.zpkg`）。
-  漏了这步，门会明确报「只有一侧有产物，无从比对」并拒绝出结论
-  （不会把这种输入缺失静默报成「N 个包输出变了，请加 slug」——那种假象 25/25 全变，
-  非常像真的）。
-- ⭐ `Z42_PORTABLE_VM` 可以直接借**本树刚建好的** z42vm：VM 与源码树无关，同 sha 下等价，
-  省掉 base 树一次 ~10 分钟的 cargo 全量。（但**别拷 `artifacts/build/runtime/` 目录本身** ——
-  里面 `-sys` crate 的 `CMakeCache.txt` 烤死了绝对路径。）
-
 ## 3. 用例放哪
 
 「被测对象在哪，测试就在哪」+「中央 VM e2e 按特性分类」。
@@ -334,7 +290,7 @@ xtask test
 | **xtask 源 `scripts/`** | `z42 publish scripts/xtask.z42.toml` 重建后随便跑条命令冒烟 | changed 映射对 `scripts/**` = 全套 | 每腿 `ci-bootstrap` 的种子编 xtask 步 |
 | **新语法 / zbc·zpkg 格式** | 阶段一只落 support（仓库源码不用）→ `test compiler bootstrap` | 格式 bump 另跑 [格式 bump 清单](format-bump.md)；等 nightly 发布后才 use | 全腿 `ci-bootstrap`（种子编当前源）+ `compiler-checks` |
 | **打包 `scripts/src/package/` / `packages.toml`** | `xtask package sdk --verify` | 同左 | `package-host` + `package-{ios,android,wasm}` |
-| **codegen / 优化 / typecheck / IR writer（会改产物字节）** | `test compiler` | 同步 `CacheStore.CompilerFingerprint` +1；自查 `test compiler fingerprint` | `bench-regression` 的 fingerprint guard |
+| **codegen / 优化 / typecheck / IR writer（会改产物字节）** | `test compiler` | 运行自举与受影响的回归用例 | 编译器与宿主门禁 |
 | **增量编译（IncrementalBuild / CacheStore / ZbcReader）** | `test compiler` | `test compiler incremental`（逐文件 touch 对账，增量 == 全量逐字节） | `compiler-checks` |
 | **学习手册 / `examples/`** | `test docs examples <part>/<chapter>`（只改页面加 `--book-only`）；输出确实该变则 `--bless` 后审 diff | `xtask package dev-sdk` + `test docs examples` | `test-host` 的 examples stage、`package-host`（用打包 SDK 重放，含 Windows）、`deploy-book` |
 | **launcher / z42b 的命令行输出** | `test docs examples`（手册会话脚本记录了这些输出） | 同上 | 同上 |
