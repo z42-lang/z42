@@ -248,11 +248,12 @@ public sealed class TypeChecker {
     public BoundExpr BoxIfNeeded(BoundExpr value, Z42Type target) {
         if (value == null || target == null) { return value; }
         Z42Type vt = value.Type();
+        bool boxesToValueBase = TypeFacts.CanBoxToValueBase(vt, target);
         // unify-value-types Phase 1：整数基元装箱路径先行——覆盖 Z42PrimType("int") 与翻转后
         // Z42ClassType(Int32,Scalar)。_intPrimFQ 经 PrimModel 兼容 wrapper 名，返 "" 表非整数（不装箱）。
         string fq = TypeChecker._intPrimFQ(vt.Name());
         if (fq != "") {
-            bool erases = (target is Z42InterfaceType) || TypeChecker._isObjectName(target.Name());
+            bool erases = boxesToValueBase || (target is Z42InterfaceType) || TypeChecker._isObjectName(target.Name());
             if (!erases) { return value; }
             return new BoundBox(value, fq, target, value.Span);
         }
@@ -264,13 +265,18 @@ public sealed class TypeChecker {
         // 就不装箱（存裸 i64），enum 跟着走同一条路，容器里外表示不变、无需拆箱对偶。
         // PrimFQ 存 enum **短名**，FQ 化留给 codegen（`TypeOpEmitter._emitBox` 按 enum 类型对象的声明 ns 限定）。
         if ((vt is Z42ClassType) && (vt as Z42ClassType).IsEnum) {
-            bool erasesE = (target is Z42InterfaceType) || TypeChecker._isObjectName(target.Name());
+            bool erasesE = boxesToValueBase || (target is Z42InterfaceType) || TypeChecker._isObjectName(target.Name());
             if (!erasesE) { return value; }
             return new BoundBox(value, vt.Name(), target, value.Span);
         }
         // 非整数 Scalar（bool/char/double/float，Z42PrimType 或翻转后 Z42ClassType(Scalar)）→ 不装箱
         // （独立 Value 变体自带身份，特例保留）。string（引用）同不装箱。
-        if ((vt is Z42ClassType) && vt.IsScalarType()) { return value; }
+        if ((vt is Z42ClassType) && vt.IsScalarType()) {
+            if (boxesToValueBase && vt.CanonName() == "float") {
+                return new BoundBox(value, "Std.Single", target, value.Span);
+            }
+            return value;
+        }
         // add-struct-object-boxing (PR2a)：值 struct（Blob）擦除到 object/接口/泛型形参 → 装箱（否则裸拷帧
         // 作用域 StructRef 句柄逃逸创建帧 → use-after-free）。真装箱（blob struct）由 codegen `_emitBox`
         // 按 `IsBlobStruct` 决定——非 blob（单字段等）struct 的 BoundBox 在 codegen 退化为透传。
@@ -287,7 +293,7 @@ public sealed class TypeChecker {
         }
         if (sct != null && sct.IsStruct) {
             // add-struct-generic-boxing (P3a)：泛型 type-param 目标（K/V/T）也是擦除边界。
-            bool erasesS = (target is Z42InterfaceType) || TypeChecker._isObjectName(target.Name())
+            bool erasesS = boxesToValueBase || (target is Z42InterfaceType) || TypeChecker._isObjectName(target.Name())
                            || (target is Z42GenericParamType);
             if (erasesS) { return new BoundBox(value, sct.Name(), target, value.Span); }
         }

@@ -411,6 +411,15 @@ public sealed class TypeOpEmitter {
         if (this._ee._isBlobStruct(c.Type()) && !this._ee._isBlobStruct(c.E.Type())) {
             return this._emitStructUnbox(src, this._ctx.QualifyLayout(this._ee._blobStructName(c.Type())));
         }
+        if (TypeFacts.CanBoxToValueBase(c.Type(), c.E.Type())) {
+            string target = this._typeOpTargetName(c.Type(), c.Type().Name());
+            TypedReg unboxed = this._emitStructUnbox(src, target);
+            int targetIr = this._ctx.ToIrType(c.Type());
+            if (targetIr == IrType.Ref) { return unboxed; }
+            TypedReg scalar = this._ctx.Alloc(targetIr);
+            this._ctx.Emit(new ConvertInstr(scalar, unboxed));
+            return scalar;
+        }
         // make-ref-hard-cast-checked：用户写的**引用下转** `(Derived)base` 此前在这里被下面那句
         // `toIr == IrType.Ref → return src` 原样透传 —— **一条指令都不发**，于是 `(B)o`（o 是 A）
         // 不抛、返回非 null，错类型的对象一路流下去，到很远的地方才以别的面目崩。

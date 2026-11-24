@@ -111,10 +111,10 @@ fn as_cast_to(
     // 命中 object/base/接口 → 保持 boxed（多态用）；否则 Null。基元 vs struct 盒由 boxed_prim_i64 分流。
     if let Value::BoxedStruct(b) = &val {
         let is_obj = class_name == "Std.Object" || class_name == "Object";
-        let prim_scalar = b.borrow().boxed_prim_i64();
+        let prim_scalar = b.borrow().boxed_scalar();
         let out = if &*b.type_desc().name == class_name {
             match prim_scalar {
-                Some(n) => Value::I64(n), // 基元盒精确命中 → 拆回裸标量
+                Some(scalar) => scalar, // 基元盒精确命中 → 拆回裸标量
                 None => crate::exec::ops::structs::unbox_struct(ctx, frame.frame_id(ctx), b)?, // struct 盒 → arena StructRef
             }
         } else if is_obj || isa_td(ctx, &module.type_registry, b.type_desc(), class_name, key) {

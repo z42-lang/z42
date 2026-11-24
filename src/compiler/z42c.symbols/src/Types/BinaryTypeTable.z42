@@ -39,6 +39,17 @@ public static class TypeFacts {
         return ct.IsStruct;
     }
 
+    public static bool IsBoxingBase(Z42Type t) {
+        var ct = t as Z42ClassType;
+        return ct != null && ct.Namespace == "Std" && (ct.Name() == "ValueType" || ct.Name() == "Enum");
+    }
+
+    public static bool CanBoxToValueBase(Z42Type from, Z42Type to) {
+        if (!TypeFacts.IsBoxingBase(to)) { return false; }
+        if (to.Name() == "Enum") { return TypeFacts.IsEnum(from); }
+        return TypeFacts.IsNonNullableValueType(from);
+    }
+
     // 统一取"基元名"：Z42PrimType → 直接取；Z42ClassType 是基元包装 → 映射；其余 → ""。
     public static string _asPrimName(Z42Type t) {
         if (t is Z42ClassType) { return TypeFacts._structPrimName((t as Z42ClassType).Name()); }

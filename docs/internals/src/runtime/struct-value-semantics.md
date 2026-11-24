@@ -301,9 +301,10 @@ p1 == p2   ⟹   逐叶子: la=field_get(p1,off,tag); lc=field_get(p2,off,tag); 
 
 ## struct→object 装箱 + 身份
 
-值 struct 是 C# 真值类型：不形式继承 `Object`、无 vtable（`z42.core/Object.z42` 契约）。要当 `object`
-用（赋给 `object` 变量 / 参数 / 数组、`is`/`as`/`GetType`）靠**装箱**桥接——把帧作用域 blob 拷到堆稳定
-表示，而非给值类型加 vtable。
+装箱把帧作用域的 struct blob 拷到堆上，可赋给 `object`、`Std.ValueType` 和已实现的接口。
+`TypeDesc::nominal_base_name` 从 TYPE 的 struct / enum 形状位投影直接基类。反射 `BaseType` 和
+解释器、JIT 共享的类型测试走同一条基链。字段和 vtable 的继承合并使用 TYPE 的物理基类字段。
+`float` 装箱到 `ValueType` 时携带 `Std.Single` 描述符，保留与 `double` 区分所需的类型身份。
 
 **为什么必须装箱**：`object o = someStruct` 类型合法（`TypeFactsTc._isAssignable` 的「任何类型可赋给 object」
 规则），但若无装箱就**裸拷帧作用域 `Value::StructRef` 句柄进 object 槽**——创建帧一退出（arena LIFO
@@ -311,7 +312,7 @@ truncate）即 use-after-free。
 
 **堆表示**：`Value::BoxedStruct` 载荷是 `ObjRef`（共享堆句柄，struct blob 就是对象的字段区；
 引用叶子是 blob 里的 8 B 引用字，GC 扫描）→ 对齐 C# 引用身份，与普通对象同为变长区的对象块，
-见下「装箱引用身份」节。**不**给 struct 加 base+vtable，只是把值装进对象容器。
+见下「装箱引用身份」节。对象容器持有具体 struct 的类型描述符。
 
 **装箱**（`__box_struct` builtin，复用 `Builtin` opcode → 无格式 bump，同 `__box_prim`）：`TypeChecker.BoxIfNeeded`
 对 blob 值 struct 擦除到 `object`/接口插 `BoundBox`；`TypeOpEmitter._emitBox` 发 `__box_struct(structHandle)`；
@@ -782,7 +783,7 @@ z42c.semantics 依赖它作跨包 API。给它加新 `IsStruct` 字段并在 z42
   （底层同为 `ObjRef`）。`is/as/GetType/vcall/Equals` 保持 boxed 值类型特判，只改「读盒」经对象
   `type_desc.name`/`struct_bytes`/`struct_refs`。
 - **收益**：`object b = a` 别名同盒、传参改盒可见、反射 `SetValue` 写穿——达成 C# 引用身份。
-- **不给 struct 加 base/vtable**——只是把值装进已有对象容器、用 struct 自己的 TypeDesc。
+- 装箱容器使用具体 struct 的 TypeDesc，值的字段布局沿用 struct 布局表。
 
 ### struct 字段反射（`FieldInfo.GetValue/SetValue`）
 

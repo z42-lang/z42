@@ -48,6 +48,10 @@ pub const STD_STRING: &str = "Std.String";
 /// Root class of the type hierarchy. Every user class implicitly inherits.
 pub const STD_OBJECT: &str = "Std.Object";
 
+/// The abstract types used as bases for concrete values and enums.
+pub const STD_VALUE_TYPE: &str = "Std.ValueType";
+pub const STD_ENUM: &str = "Std.Enum";
+
 /// Stdlib's reified-type class returned by `__obj_get_type`.
 pub const STD_TYPE: &str = "Std.Type";
 

@@ -7,7 +7,7 @@
 栈句柄。本页写这套「一个方法名 → N 种接收者表示」的派发是怎么落地的，以及为什么有
 **两条**入口（`ToStr` 指令与 `VCall` 指令）而不是一条。
 
-用户面的契约（哪四个方法、覆写 `Equals` 必须同时覆写 `GetHashCode`、struct 不继承 `Object`）见
+用户面的契约（哪四个方法、覆写 `Equals` 必须同时覆写 `GetHashCode`、struct 经 `ValueType` 接入对象协议）见
 reference 的[类](https://z42-lang.github.io/z42/reference/language/classes.html)一页，本页不复述。
 
 ## 两条入口

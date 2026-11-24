@@ -37,8 +37,7 @@ struct 可以有字段、方法、构造器、`static` 方法、运算符重载�
 
 ## 值语义由编译器合成
 
-`struct` **不**继承 `Std.Object`。编译器直接为值类型合成 `Equals` / `GetHashCode`，
-按**字段内容**比较：
+编译器为 `struct` 合成按字段内容比较的 `Equals` 和 `GetHashCode`：
 
 ```z42
 struct Pair { public int A; public int B; public Pair(int a, int b) { A = a; B = b; } }
@@ -132,12 +131,16 @@ r.Area;      // 20
 
 > 自动属性不改变值语义：`var b = a;` 仍是整份 blob 复制，改 `b.W` 不影响 `a.W`。
 
+## 隐式基类与装箱
+
+`struct` 和内置值类型的直接基类是抽象类 `Std.ValueType`，其基类是 `Std.Object`。
+将 `struct` 赋给 `ValueType` 会装箱为值的快照。显式转换回原类型会受检拆箱。
+`typeof(ValueType).IsValueType` 为 `false`。
+
+struct 的 `:` 后只能写接口。显式声明类基类型、继承一个 struct，或显式继承
+`Std.ValueType` 都会报 `E0504`。
+
 ## 限制与已知缺口
-
-### struct 不能继承
-
-struct 不参与继承层次，没有基类也不能被继承：`struct B : A`（`A` 是类或 struct）与
-`class C : S`（`S` 是 struct）都报 `E0504`。struct 的 `:` 后只能写接口（见下）。
 
 ### 泛型 struct 不能用更深一层的自己
 

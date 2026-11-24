@@ -10,7 +10,7 @@ z42 隐式 prelude 的源码。VM 启动时无条件加载；用户项目**不�
 
 | 路径 | 内容 |
 |------|------|
-| `Object.z42` / `Type.z42` / `TypeVisibility.z42` | 引用类型基类（`ToString` / `Equals` / `GetHashCode`）；运行时类型对象（`typeof` 结果）；反射可见性枚举 |
+| `Object.z42` / `ValueType.z42` / `Type.z42` / `TypeVisibility.z42` | 对象协议根类型；值类型的装箱基类；运行时类型对象（`typeof` 结果）；反射可见性枚举 |
 | `Array.z42` | 所有 `T[]` 的基类（`sealed`）：`Length` / `Clone` / 反射式 `CreateInstance` / `GetValue` / `SetValue` + 静态算法（排序 / 查找 / 谓词 / 变换 / `AsReadOnly`），供反射式 serde |
 | `String.z42` / `String.Split.z42` / `String.Edit.z42` | `string` 的 partial 三片：最小 intrinsic 核 + 纯脚本方法；`Split` / `Join` / `Concat` / `Format`；`Insert` / `Remove` / `Pad*` |
 | `SplitOptions.z42` | `String.Split` 的 bitwise 选项常量 |

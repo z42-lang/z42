@@ -57,14 +57,15 @@ z42 的类型转换体系借鉴 C#（隐式 / 显式），但**比 C# 更严、�
 判定实现：`Conversion._widensLossless(fromCanon, toCanon)` 是这张无损表；不在表中且非同型的
 数值对 → `ExplicitNumeric`。
 
-## 装箱与拆箱（值类型 ↔ `object` / 接口）
+## 装箱与拆箱
 
 `Boxing` / `Unboxing` 这两种分类对应的完整规则：
 
 | 方向 | 规则 |
 |------|------|
-| 值类型 → `object` / 接口 | **隐式**可赋，转换保留**精确的**源类型 |
-| `object` / 接口 → 值类型 | **显式**：`(T)o` 或 `o as T`，运行期受检 |
+| 值类型 → `object` / `ValueType` / 已实现的接口 | **隐式**装箱 |
+| 具体枚举 → `Std.Enum` | **隐式**装箱 |
+| 装箱基类引用或接口 → 具体值类型 | **显式**：`(T)o` 或 `o as T`，运行期受检 |
 | `object[]` 的元素 | `a[i] = 5` 逐元素装箱；`(int)a[i]` 逐元素拆箱 |
 | 引用类型 → `object` | 引用上转（归 `ImplicitRef`），不是装箱 |
 | 数组协变 | **不支持** `int[] <: object[]`（避免 store-hole）|
@@ -164,8 +165,7 @@ catch (Exception e) { Console.WriteLine(e.GetType().Name); }   // InvalidCastExc
 > 想要「不符就给 null」而不是抛，用 `as`：两者的分工是**明确要求** vs **试一下**。
 > `(T)x` 说的是「它就是 T」，说错了应当立刻响；`x as T` 说的是「是 T 的话给我」。
 
-> 只有把值赋给 **`object` 或接口**才发生装箱。赋给泛型形参（`List<int>` 的元素）不装箱，
-> 容器里外的表示不变。
+> 泛型形参的值表示随具体类型而定。例如 `List<int>` 的元素沿用整数标量表示。
 
 ## 必败的显式转换在编译期报错（E0424）
 

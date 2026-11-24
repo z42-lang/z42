@@ -348,10 +348,10 @@ pub unsafe extern "C" fn jit_as_cast(
     // Null。基元 vs struct 盒由 boxed_prim_i64 分流。
     if let Value::BoxedStruct(b) = &val {
         let is_obj = class_name == "Std.Object" || class_name == "Object";
-        let prim_scalar = b.borrow().boxed_prim_i64();
+        let prim_scalar = b.borrow().boxed_scalar();
         let out = if &*b.type_desc().name == class_name {
             match prim_scalar {
-                Some(n) => Value::I64(n), // 基元盒精确命中 → 裸标量
+                Some(scalar) => scalar, // 基元盒精确命中 → 裸标量
                 None => {
                     let fid = super::struct_ops::frame_id_of(frame, ctx);
                     crate::exec::ops::structs::unbox_struct(vm_ctx_ref(ctx), fid, b)

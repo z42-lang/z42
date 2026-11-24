@@ -231,7 +231,7 @@ fn check_reference(ctx: &VmContext, target: &str, value: &Value, key: &TypeKeyCe
 /// 擦除的型参）/ 该 struct 实现的接口。`string` 与其它已知的类 → 不能。
 fn holds_box_of(ctx: &VmContext, holder: &str, strukt: &str) -> bool {
     match holder {
-        "" | "object" | "Std.Object" | "Std.ValueType" => return true,
+        "" | "object" | "Std.Object" => return true,
         "string" | "Std.String" => return false,
         _ => {}
     }

@@ -231,12 +231,12 @@ fn resolve_vcall_unchecked<'a>(
     ic: Option<&VCallIC>,
 ) -> Result<ResolvedVCall<'a>> {
     // ── 1. boxed primitive (add-primitive-value-boxing → unify Phase 2 R3) ────────────────
-    // `boxed_prim_i64` splits the scalar back out; methods run against the primitive struct
+    // `boxed_scalar` splits the scalar back out; methods run against the primitive struct
     // body with `this = scalar` (same source as the unboxed primitive). GetType must keep the
     // box: unboxing would report the scalar's *default* class (I64 → Int32) and lose the
     // precise width (Std.Int64 …), so it goes straight to `builtin_obj_get_type`.
     if let Value::BoxedStruct(gc) = obj_val {
-        if let Some(scalar) = gc.borrow().boxed_prim_i64() {
+        if let Some(scalar) = gc.borrow().boxed_scalar() {
             if method == "GetType" && arity == 0 {
                 let ty = (ctx.core().object_protocol().get_type)(ctx, &obj_val)?;
                 return Ok(ResolvedVCall { target: VCallTarget::Immediate(ty), this: obj_val.clone() });
@@ -247,8 +247,8 @@ fn resolve_vcall_unchecked<'a>(
             // `Color.ToString`, falls back to `Std.Object.ToString` with `this = I64` and
             // dies in `__obj_to_str: expected an object`. Undefined value → the number,
             // same as C#.
-            if method == "ToString" && arity == 0 {
-                if let Some(name) = gc.type_desc().enum_member_name(scalar) {
+            if let (Value::I64(bits), "ToString", 0) = (&scalar, method, arity) {
+                if let Some(name) = gc.type_desc().enum_member_name(*bits) {
                     return Ok(ResolvedVCall {
                         target: VCallTarget::Immediate(Value::Str(name.into())),
                         this: obj_val.clone(),
@@ -268,7 +268,7 @@ fn resolve_vcall_unchecked<'a>(
                 class_name = "Std.Int64".to_string();
             }
             match resolve_by_candidates(ctx, module, &class_name, method, arity, true, None, ic) {
-                Some(target) => return Ok(ResolvedVCall { target, this: Value::I64(scalar) }),
+                Some(target) => return Ok(ResolvedVCall { target, this: scalar }),
                 None => bail!("VCall on boxed `{}`: method `{}` (arity {}) not found", class_name, method, arity),
             }
         }
@@ -413,9 +413,10 @@ fn resolve_vcall_unchecked<'a>(
             .and_then(|c| c.base_class.clone())
             .or_else(|| {
                 if cur == type_desc.name {
-                    type_desc.base_name.clone()
+                    type_desc.nominal_base_name().map(str::to_owned)
                 } else {
-                    ctx.loader().try_lookup_type(&cur).and_then(|td| td.base_name.clone())
+                    ctx.loader().try_lookup_type(&cur)
+                        .and_then(|td| td.nominal_base_name().map(str::to_owned))
                 }
             });
         if spec_no_inherit { break; }   // S1-d：特化名只认接收者自己那一层

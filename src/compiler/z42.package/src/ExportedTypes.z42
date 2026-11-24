@@ -136,6 +136,8 @@ public sealed class ExportedClassZ {
     // 导入侧据此重建 Z42ClassType.BaseRef（TypeExpr 形态），供 _substBaseHop 按派生类
     // 基类实参代换基类成员签名。空串 = 闭合基/无基/非泛型基（无需重建）。
     public string           BaseRefSpelling;
+    // Append fields to preserve the bootstrap seed's existing field offsets.
+    public bool             IsAbstract;
     public ExportedClassZ(string name, bool hasBase, string baseName,
                           ExportedFieldZ[] fields, int fieldCount,
                           ExportedMethodZ[] methods, int methodCount,
@@ -146,6 +148,7 @@ public sealed class ExportedClassZ {
         this.Interfaces = new string[0]; this.InterfaceCount = 0;
         this.TypeParams = typeParams; this.TpCount = tpCount;
         this.IsSealed = false;
+        this.IsAbstract = false;
         this.IsRecord = false;   // complete-generic-instantiation：TsigReconcile 从 (cd.Flags & 8) 构造后赋值
         this.BaseFqn = "";   // enforce-fqn-name-identity：TsigReconcile 构造后赋值
         this.Visibility = "public";   // enforce-class-access：默认 public（reconcile 后赋值；未赋值即 public，绝不误拒）

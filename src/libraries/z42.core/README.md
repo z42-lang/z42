@@ -10,7 +10,7 @@
 
 | 能力 | 入口 |
 |------|------|
-| Object / String / 数值 primitive（`struct int` 等） | `src/Object.z42` / `src/String*.z42` / `src/Primitives/` |
+| Object / ValueType / Enum / String / 数值 primitive（`struct int` 等） | `src/Object.z42` / `src/ValueType.z42` / `src/Enum.z42` / `src/String*.z42` / `src/Primitives/` |
 | 基础泛型集合 `List<T>` / `Dictionary<K,V>` / `HashSet<T>` / `ReadOnlyCollection<T>`（namespace `Std.Collections`） | `src/Collections/` |
 | 接口契约（`IEquatable` / `IComparable` / `IEnumerable` / `INumber` 等） | `src/Protocols/` |
 | 标准异常族 | `src/Exceptions/` |
