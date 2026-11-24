@@ -144,14 +144,8 @@ pub fn check_safepoint_slow(ctx: &VmContext) {
         ctx.heap().collect_cycles_with_vm(ctx);
     }
 
-    // add-sampling-profiler (script-profiling P2): when the
-    // sampling profiler is on (Z42_SAMPLE_HZ set), snapshot the z42 call stack
-    // if the background timer flagged a sample. `enabled()` is one atomic load;
-    // default-off (the common case) short-circuits here with zero further work.
-    // This runs only on the already-throttled slow path (Idle tail, no GC lock
-    // held — gc_phase lock was a temporary above), so it never touches the hot
-    // `check_safepoint` fast path.
-    ctx.core.diagnostics.sampler.poll(ctx);
+    // Poll on the throttled slow path after releasing the collection phase lock.
+    crate::diagnostics::poll_sampling(ctx);
 }
 
 /// Slow path — the mutator parks on the Condvar until the collector

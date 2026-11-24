@@ -23,9 +23,6 @@ pub(crate) fn prepare_program(
     ctx.core().profiling().set_source(profiler.clone())?;
     selected.install_bound(ctx, bindings)?;
     attach_execution(ctx, mode, jit_config)?;
-    if ctx.core().diagnostics().sampler.enabled() {
-        profiler_service(ctx)?;
-    }
     Ok(())
 }
 
@@ -43,10 +40,6 @@ pub(crate) fn execution_available(role: ExecutionRole) -> bool {
         ExecutionRole::Baseline => super::backends::interp_available(),
         ExecutionRole::Optimizing => super::backends::jit_available(),
     }
-}
-
-pub(crate) fn profiler_service(ctx: &VmContext) -> Result<&dyn crate::diagnostics::sampling::ProfilerBackend> {
-    ctx.core().diagnostics().sampler.provider(ctx)
 }
 
 pub(crate) use super::profiling::{ProfilingState, prepare as prepare_profiler};

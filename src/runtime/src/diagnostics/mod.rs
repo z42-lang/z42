@@ -65,10 +65,44 @@ pub(crate) fn profiler_loaded(ctx: &VmContext) -> bool {
     ctx.core().diagnostics().sampler.is_loaded()
 }
 
-pub(crate) fn prepare_profiler(ctx: &VmContext) -> anyhow::Result<()> {
-    ctx.core().diagnostics().sampler.provider(ctx).map(|_| ())
+fn profiler(ctx: &VmContext) -> anyhow::Result<&dyn sampling::ProfilerBackend> {
+    ctx.core().diagnostics().sampler.provider(ctx)
 }
 
-pub(crate) fn write_heap_snapshot(ctx: &VmContext, path: &str) -> anyhow::Result<i64> {
-    ctx.core().diagnostics().sampler.provider(ctx)?.write_heap_snapshot(ctx, path)
+pub(crate) fn prepare_profiler(ctx: &VmContext) -> anyhow::Result<()> {
+    profiler(ctx).map(|_| ())
+}
+
+/// Resolve an enabled sampler before the VM is published.
+pub(crate) fn prepare_sampling(ctx: &VmContext) -> anyhow::Result<()> {
+    let sampler = &ctx.core().diagnostics().sampler;
+    if sampler.enabled() {
+        sampler.provider(ctx)?;
+    }
+    Ok(())
+}
+
+#[inline]
+pub(crate) fn poll_sampling(ctx: &VmContext) {
+    ctx.core().diagnostics().sampler.poll(ctx);
+}
+
+pub(crate) enum HeapSnapshotError {
+    Unavailable(anyhow::Error),
+    Write(anyhow::Error),
+}
+
+impl HeapSnapshotError {
+    pub(crate) fn into_diagnostic(self) -> anyhow::Error {
+        match self {
+            Self::Unavailable(error) | Self::Write(error) => error,
+        }
+    }
+}
+
+pub(crate) fn write_heap_snapshot(ctx: &VmContext, path: &str) -> Result<i64, HeapSnapshotError> {
+    profiler(ctx)
+        .map_err(HeapSnapshotError::Unavailable)?
+        .write_heap_snapshot(ctx, path)
+        .map_err(HeapSnapshotError::Write)
 }

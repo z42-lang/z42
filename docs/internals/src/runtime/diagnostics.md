@@ -36,7 +36,7 @@ z42 的观测遵循**两层成本**原则（design §6）：
 
 ---
 
-分析实现由可选 z42-profiler 提供。核心 diagnostics 只保留契约和关闭快路；host 在采样请求时提前装配，在堆分析请求时惰性装配。缺库、禁用或身份不匹配明确报错；静态宿主需要登记实际链接的工厂。
+可选 z42-profiler 提供分析算法。VM 装配在发布前调用 diagnostics 准备已开启的采样。堆快照、直接引用及保活根查询通过 diagnostics 按需准备同一个后端。组件层负责绑定和校验。堆引用查询由 diagnostics 暂停 mutator 并执行，托管内建将结果转换为返回对象和异常。
 
 ## 2. Safepoint 采样 profiler（P2）—— 核心
 
