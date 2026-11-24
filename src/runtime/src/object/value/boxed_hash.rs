@@ -39,7 +39,7 @@ pub fn hash_struct_payload(bytes: &[u8], refs: &[Value]) -> i64 {
     let mut h: u32 = 2_166_136_261;
     for &byte in bytes.iter() { h ^= byte as u32; h = h.wrapping_mul(16_777_619); }
     for r in refs.iter() {
-        let rh: u32 = match r {
+        let rh: u32 = match r.unproject_interface() {
             Value::Str(s) => {
                 let mut sh: u32 = 2_166_136_261;
                 for &x in s.as_bytes() { sh ^= x as u32; sh = sh.wrapping_mul(16_777_619); }
@@ -51,9 +51,9 @@ pub fn hash_struct_payload(bytes: &[u8], refs: &[Value]) -> i64 {
             // 成立），不同身份 → 良好散布。null/委托叶子仍贡献常量：null 相等语义下合法；委托
             // （FuncRef/Closure）按 id 相等、无稳定地址，保持弱贡献（collision 合法，见 eq 侧）。
             Value::Object(gc) => crate::corelib::core::object::identity_hash(
-                crate::object::ObjRef::as_ptr(gc) as *const _ as *const u8 as usize) as u32,
+                crate::object::ObjRef::as_ptr(&gc) as *const _ as *const u8 as usize) as u32,
             Value::Array(gc) => crate::corelib::core::object::identity_hash(
-                crate::object::ArrRef::as_ptr(gc) as *const _ as *const u8 as usize) as u32,
+                crate::object::ArrRef::as_ptr(&gc) as *const _ as *const u8 as usize) as u32,
             _ => 0,
         };
         h ^= rh; h = h.wrapping_mul(16_777_619);

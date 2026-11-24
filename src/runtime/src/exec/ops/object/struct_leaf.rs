@@ -167,7 +167,7 @@ pub fn as_struct_ref(v: &Value, what: &str) -> Result<(u32, u32)> {
 pub fn struct_value_hash(ctx: &VmContext, value: &Value) -> Result<Option<i64>> {
     use crate::object::value::boxed_hash::hash_struct_payload;
 
-    let hash = match value {
+    let hash = match &value.unproject_interface() {
         Value::StructRef { idx, frame_id } => hash_frame_struct(ctx, *idx, *frame_id)?,
         Value::BoxedStruct(boxed) => {
             let td = boxed.type_desc();
@@ -268,7 +268,10 @@ pub fn struct_value_eq(ctx: &VmContext, a: &Value, b: &Value) -> Result<bool> {
         })?;
     }
 
-    let (pa, pb) = match (struct_payload(ctx, a)?, struct_payload(ctx, b)?) {
+    let (pa, pb) = match (
+        struct_payload(ctx, &a.unproject_interface())?,
+        struct_payload(ctx, &b.unproject_interface())?,
+    ) {
         (Some(pa), Some(pb)) => (pa, pb),
         _ => return Ok(false),
     };
@@ -278,13 +281,15 @@ pub fn struct_value_eq(ctx: &VmContext, a: &Value, b: &Value) -> Result<bool> {
 /// Default equality when invoked directly on the ValueType declaration. Ordinary
 /// boxed calls can select the concrete type's compiled field comparison.
 pub fn value_type_equals(ctx: &VmContext, a: &Value, b: &Value) -> Result<bool> {
-    if matches!(a, Value::BoxedStruct(o) if o.borrow().boxed_scalar().is_some())
+    let a = a.unproject_interface();
+    let b = b.unproject_interface();
+    if matches!(&a, Value::BoxedStruct(o) if o.borrow().boxed_scalar().is_some())
         || matches!(a, Value::I64(_) | Value::F64(_) | Value::Bool(_) | Value::Char(_))
     {
         return Ok(a == b);
     }
     let (Some((name, lhs, lhs_refs)), Some((other, rhs, rhs_refs))) =
-        (struct_payload(ctx, a)?, struct_payload(ctx, b)?)
+        (struct_payload(ctx, &a)?, struct_payload(ctx, &b)?)
     else {
         return Ok(false);
     };

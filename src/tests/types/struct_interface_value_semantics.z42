@@ -1,0 +1,47 @@
+namespace StructInterfaceValueSemantics;
+
+using Std.Collections;
+
+class Animal {}
+class Cat : Animal {}
+interface ISink<T> { void Put(T value); }
+
+class Sink : ISink<Animal> {
+    public void Put(Animal value) {}
+}
+
+struct SinkValue(int X, int Y) : ISink<Animal> {
+    public void Put(Animal value) {}
+}
+
+struct Key(object Receiver, int Id);
+
+void Main() {
+    Sink sink = new Sink();
+    ISink<Animal> direct = sink;
+    ISink<Cat> projection = direct;
+    Key plain = new Key(sink, 7);
+    Key projected = new Key(projection, 7);
+    Assert.True(plain.Equals(projected));
+    Assert.True(projected.Equals(plain));
+    Assert.Equal(plain.GetHashCode(), projected.GetHashCode());
+    ValueType boxedPlain = plain;
+    object boxedProjected = projected;
+    Assert.True(boxedPlain.Equals(boxedProjected));
+    Assert.Equal(boxedPlain.GetHashCode(), boxedProjected.GetHashCode());
+    var map = new Dictionary<Key, int>();
+    map[plain] = 42;
+    Assert.Equal(42, map[projected]);
+
+    SinkValue value = new SinkValue(1, 2);
+    SinkValue different = new SinkValue(1, 3);
+    ValueType boxed = value;
+    ISink<Animal> boxedSink = value;
+    ISink<Cat> projectedSink = boxedSink;
+    object view = projectedSink;
+    Assert.True(value.Equals(view));
+    Assert.False(different.Equals(view));
+    Assert.True(boxed.Equals(view));
+    Assert.True(view.Equals(boxed));
+    Assert.Equal(boxed.GetHashCode(), view.GetHashCode());
+}

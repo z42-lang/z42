@@ -152,6 +152,14 @@ pub enum Value {
 // silently grow the register file / JIT stride back to 24 B.
 const _: () = assert!(std::mem::size_of::<Value>() == 16);
 impl Value {
+    /// Recover the receiver for operations that do not use the projected interface slot.
+    pub(crate) fn unproject_interface(self) -> Self {
+        match self {
+            Self::InterfaceRef(view) => view.receiver(),
+            value => value,
+        }
+    }
+
     /// interp-typed-superinstr : read the `I64` payload **without**
     /// a discriminant check. The interpreter's typed super-instructions call
     /// this only when the compiler-emitted `reg_types[r] == IrType::I64` — the
