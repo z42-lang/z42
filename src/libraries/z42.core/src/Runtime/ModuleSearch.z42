@@ -10,4 +10,12 @@ public static class ModuleSearch {
     /// 同一 VM 的 worker 共享搜索路径，不同 VM 相互隔离。未安装加载器时返回空数组。
     [Native("__search_dirs")]
     public static extern string[] Dirs();
+
+    /// 入口包及可解析依赖的内容身份。无法确定闭包时返回 null。
+    public static string? ProgramContentIdentity() {
+        return ModuleSearch._programContentIdentity();
+    }
+
+    [Native("__program_content_identity")]
+    private static extern string? _programContentIdentity();
 }

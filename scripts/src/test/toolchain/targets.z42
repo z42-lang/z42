@@ -88,7 +88,6 @@ int _testTargetsCore(string kind, string name, bool noBuild) {
         failed = failed + _selfcheckBundleSelection(root);
         failed = failed + _selfcheckBundleCompileFailure(root);
         failed = failed + _selfcheckGateStages();
-        failed = failed + _selfcheckFingerprintEntries();
         failed = failed + _selfcheckLibDiscovery();
         failed = failed + _selfcheckTestProjects(root, tt);
         failed = failed + _selfcheckDiagCodes(root);

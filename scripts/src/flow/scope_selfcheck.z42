@@ -133,15 +133,13 @@ void _flowScopeChecks(FlowConfig cfg) {
     foreach (var kind in _ciBenchKinds()) {
         _gateAssert(benchWorkflow.Contains("steps.scope.outputs." + kind + " == 'true'"), "measurement step consumes its own family: " + kind);
     }
-    foreach (var name in new string[]{ "Prepare symmetric A/B toolchains", "Compiler fingerprint guard (output changed ⇒ version bumped)" }) {
-        int start = benchWorkflow.IndexOf("- name: " + name);
-        _gateAssert(start >= 0, "language preparation step exists: " + name);
-        string step = benchWorkflow.Substring(start);
-        int next = step.IndexOf("\n      - name:");
-        if (next >= 0) { step = step.Substring(0, next); }
-        _gateAssert(step.Contains("steps.scope.outputs.bench_toolchain == 'true'")
-            && step.Contains("steps.fmtgap.outcome == 'success'"), "language preparation must not consume skipped format outputs: " + name);
-    }
+    int prepareStart = benchWorkflow.IndexOf("- name: Prepare symmetric A/B toolchains");
+    _gateAssert(prepareStart >= 0, "language preparation step exists");
+    string prepareStep = benchWorkflow.Substring(prepareStart);
+    int prepareEnd = prepareStep.IndexOf("\n      - name:");
+    if (prepareEnd >= 0) { prepareStep = prepareStep.Substring(0, prepareEnd); }
+    _gateAssert(prepareStep.Contains("steps.scope.outputs.bench_toolchain == 'true'")
+        && prepareStep.Contains("steps.fmtgap.outcome == 'success'"), "language preparation must not consume skipped format outputs");
     FlowPlan preparation = _flowSelect(cfg, new string[]{ "scripts/src/bench/prepare.z42" }, root);
     string[] prepFlags = _flowOutputs(cfg, preparation);
     _gateAssert(_strIn(prepFlags, "bench_stdlib") && _strIn(prepFlags, "bench_integration") && !_strIn(prepFlags, "bench_vm"),

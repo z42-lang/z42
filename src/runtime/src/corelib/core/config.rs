@@ -111,6 +111,11 @@ pub mod typed {
     #[builtin(name = "__search_dirs")]
     pub fn dirs(ctx: &VmContext) -> Value { search_dirs(ctx) }
 
+    #[builtin(name = "__program_content_identity")]
+    pub fn program_content_identity(ctx: &VmContext) -> Option<String> {
+        ctx.loader().program_content_identity()
+    }
+
     #[builtin(name = "__cfg_names")]
     pub fn names(ctx: &VmContext) -> Value { cfg_names(ctx) }
 

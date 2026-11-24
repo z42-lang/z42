@@ -93,12 +93,6 @@ public static class CacheStore {
     //     回填给 E0436 判据。此前只存 `useddep`（依赖包那一半）。v8 条目失效。
     public static int MetaVersion = 9;
 
-    // 编译器语义指纹 —— **已改为内容派生**（change `fingerprint-content-derived`）：
-    // 值 = `CompilerFingerprint.Entries` 列表的内容哈希，来源见 `CompilerFingerprint.z42`。
-    // 手工 +1 的计数器时代（1–41）的逐条理由搬到
-    // `docs/internals/src/compiler/compiler-fingerprint.md`；格式 bump 清单见 docs/internals/src/devinfra/format-bump.md。
-    //
-    // ⚠️ 这里**不再有可改的数**。要让缓存失效，去 `CompilerFingerprint.Entries` 末尾追加一行 slug。
     public static string Fingerprint() { return CompilerFingerprint.Value(); }
 
     // rel（.z42）→ cache 内路径。与 driver `_writeCacheZbc` 同款「去 .z42」规则。
@@ -148,6 +142,7 @@ public static class CacheStore {
     // 解析；版本 pin（metaVersion/zbc/zpkg）任一不符或格式坏 → null（= 条目作废）。
     [Suppress("style.fnLinesHard", "68 body lines；拆分见 code-organization.md")]
     public static CacheMeta Parse(string text, string rel) {
+        if (CacheStore.Fingerprint() == "") { return null; }
         CacheMeta m = new CacheMeta(rel);
         bool verOk = false;
         bool fpOk = false;
@@ -292,6 +287,7 @@ public static class CacheStore {
 
     // 上次源清单；缺失/pin 不符/依赖身份不符/格式坏 → null（= 全量）。
     public static string[] LoadSrcList(string cacheDir, string depsId) {
+        if (CacheStore.Fingerprint() == "") { return null; }
         string p = Path.Join(cacheDir, "package.meta");
         if (!File.Exists(p)) { return null; }
         string text = "";

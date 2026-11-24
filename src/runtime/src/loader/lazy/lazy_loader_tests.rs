@@ -302,6 +302,7 @@ fn ll_inmem_artifact(
         import_namespaces: vec![],
         impl_pairs: vec![],
         package_name: pkg.map(str::to_string),
+        content_id: None,
     }
 }
 

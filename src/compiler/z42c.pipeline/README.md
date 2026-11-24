@@ -77,7 +77,7 @@
 | `src/DepIdentity.z42` | 同一确定性可见依赖集合的完整身份与导入投影身份；CLI 保留 BLID/整文件键，HostTarget 文件 IR 可用严格投影，均排除自身 |
 | `src/DependencySurfaceIdentity.z42` | 无插件且至少 8 源文件的 HostTarget 依赖观测投影：规范化完整 SIGS/TYPE、命名空间与包元数据，函数体变化不作废消费方 IR；插件、indexed、非空 IMPL 和未知段保留完整身份 |
 | `src/DependencySurfaceCache.z42` | 投影的持久化 memo，受完整依赖身份、编译器/格式 pin 和校验和守卫；损坏重算，不能替代 IR/诊断验证 |
-| `src/CompilerFingerprint.z42` | 编译器语义指纹：`Entries` 列表的内容哈希；每条语义变更追加一行 slug。规则见 [compiler-fingerprint.md](../../../docs/internals/src/compiler/compiler-fingerprint.md) |
+| `src/CompilerFingerprint.z42` | 增量缓存使用的编译器内容身份。详见 [compiler-fingerprint.md](../../../docs/internals/src/compiler/compiler-fingerprint.md) |
 
 ## 依赖关系
 `z42c.core`、`z42c.syntax`、`z42c.semantics`、`z42c.emission`（`IrDump` / `CompiledModuleZ`）、`z42c.optimization`（`Opt` 开关解析）、`z42.package`、`z42.project`、`z42.io` + `z42.encoding`（CacheStore）。stdlib 自动可用。

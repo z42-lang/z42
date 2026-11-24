@@ -2,6 +2,7 @@
 pub mod package;
 pub mod locate;
 pub mod lazy;
+mod package_identity;
 pub mod contexts;
 pub mod availability;
 pub use package::LoadedArtifact;

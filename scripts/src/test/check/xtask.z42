@@ -9,7 +9,7 @@ int _checkXtask() {
         if (_checkFlows() != 0 || _selfcheckGateStages() != 0
             || _selfcheckLibDiscovery() != 0 || _selfcheckCiShell() != 0
             || _selfcheckRidDerivation() != 0 || _selfcheckDiagCodes(root) != 0
-            || _selfcheckBundleSelection(root) != 0 || _selfcheckFingerprintEntries() != 0
+            || _selfcheckBundleSelection(root) != 0
             || _selfcheckSelfHostSections() != 0) { return 1; }
         _selfcheckFixtureManifest(root);
         if (_checkCiShell() != 0 || _checkVersions() != 0 || _checkProcEnv() != 0) { return 1; }

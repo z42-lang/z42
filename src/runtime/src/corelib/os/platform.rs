@@ -74,6 +74,7 @@ pub fn platform_arch_kind() -> i64 {
 /// Order is stable (declaration order) so probe output is deterministic.
 pub fn platform_caps(ctx: &VmContext) -> Value {
     let mut caps: Vec<&str> = Vec::new();
+    caps.push("program-content-identity");
     if ctx.core().exec().engines.has_jit() || crate::components::api::execution_available(crate::components::api::ExecutionRole::Optimizing) { caps.push("jit"); }
     #[cfg(feature = "native-interop")]      caps.push("native-interop");
     #[cfg(feature = "bundled-compression")] caps.push("bundled-compression");

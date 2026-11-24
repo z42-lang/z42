@@ -17,6 +17,7 @@ use crate::{metadata::Module, pal::fs::Vfs};
 
 /// Package inputs collected before VM construction.
 pub(crate) struct StartupPackages {
+    pub(super) entry_identity: Option<super::package_identity::PackageIdentity>,
     pub(crate) search_dirs: Vec<std::path::PathBuf>,
     pub(crate) declared_candidates: Vec<(String, ZpkgCandidate)>,
     pub(crate) initially_loaded: Vec<String>,
@@ -191,6 +192,7 @@ pub(crate) fn prepare_startup(
         build_declared_candidates(fs, &user_artifact, &search_dirs, &initially_loaded_zpkgs);
 
     let entry_hint = user_artifact.entry_hint.clone();
+    let entry_identity = super::package_identity::PackageIdentity::from_artifact(&user_artifact);
     eager_impl_pairs.extend(user_artifact.impl_pairs.iter().cloned());
 
     // Dependencies keep their own definitions and are registered after construction.
@@ -201,6 +203,7 @@ pub(crate) fn prepare_startup(
     Ok(PreparedProgram {
         module,
         packages: StartupPackages {
+            entry_identity,
             search_dirs,
             declared_candidates,
             initially_loaded: initially_loaded_zpkgs,
