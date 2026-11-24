@@ -8,9 +8,12 @@
 /// and for the target, and every runtime producer of instance arguments (reflection) goes through
 /// that function. An instance argument that is still an **unsubstituted
 /// type parameter** (`new List<T>()` inside a generic body records `"T"`) cannot be decided: it
-/// matches, which is the erased-generic answer the test had before instantiations had identity.
+/// matches at that position, even inside a constructed argument. A registered global name is
+/// concrete even when its spelling is a bare identifier.
 #[inline(never)]
-pub(crate) fn erased_instance_matches(def: &str, inst_args: &[String], target: &str) -> Option<bool> {
+pub(crate) fn erased_instance_matches(
+    def: &str, inst_args: &[String], target: &str, is_nominal: impl Fn(&str) -> bool,
+) -> Option<bool> {
     let inner = target.strip_prefix(def)?.strip_prefix('<')?.strip_suffix('>')?;
     if def.contains('<') {
         return None;
@@ -19,7 +22,7 @@ pub(crate) fn erased_instance_matches(def: &str, inst_args: &[String], target: &
     if targs.len() != inst_args.len() {
         return Some(false);
     }
-    Some(inst_args.iter().zip(targs.iter()).all(|(a, t)| a == t || is_open_type_arg(a)))
+    Some(inst_args.iter().zip(targs).all(|(a, t)| type_name_matches(a, t, &is_nominal)))
 }
 
 /// Type test for an **array** receiver whose element type is `elem` — the single entry used by

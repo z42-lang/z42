@@ -96,7 +96,7 @@ pub(crate) fn vcall(
     // perf-vm-iteration Phase 1 (Decision 3): no `collect_args` on any path — every
     // target below is invoked by filling the callee frame directly from the caller's
     // registers (`exec_function_from_receiver_regs`), zero args Vec.
-    let resolved = resolve_frame_vcall(ctx, module, &obj_val, method, args.len(), vcall_ic, frame.method_type_args)?;
+    let resolved = resolve_frame_vcall(ctx, module, &obj_val, method, args.len(), vcall_ic, frame.method_type_args, frame.get(0).ok())?;
     match resolved.target {
         VCallTarget::Immediate(v) => { frame.set(dst, v); Ok(None) }
         // add-value-auto-iequatable：float-free 合成 Equals 的原生比较——实参仍在 caller

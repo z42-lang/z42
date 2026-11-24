@@ -212,6 +212,7 @@ public static class CompilerFingerprint {
         "bind-runtime-interface-type-arguments",
         "retain-closed-interface-metadata",
         "bind-interface-implementation-templates",
+        "bind-class-parameter-interface-slots",
         "unify-value-type-object-methods"
     };
 

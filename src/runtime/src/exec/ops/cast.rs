@@ -69,7 +69,9 @@ fn constructed_name_isa(
         return false;
     }
     let args = crate::object::type_args_from_name(derived);
-    if let Some(v) = erased_instance_matches(def, &args, target) {
+    if let Some(v) = erased_instance_matches(def, &args, target, |name| {
+        registry.contains_key(name) || array_type_is_registered(ctx, None, name)
+    }) {
         return v;
     }
     if target.contains('<') {
@@ -130,7 +132,9 @@ pub fn isa_object(
     key: &crate::metadata::ids::tokens::TypeKeyCell,
 ) -> bool {
     if !inst_args.is_empty() {
-        if let Some(v) = erased_instance_matches(&td.name, inst_args, target) {
+        if let Some(v) = erased_instance_matches(&td.name, inst_args, target, |name| {
+            registry.contains_key(name) || array_type_is_registered(ctx, None, name)
+        }) {
             return v;
         }
         // A generic definition id is shared by every imported instantiation.

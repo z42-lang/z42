@@ -444,7 +444,7 @@ public sealed class CallEmitter {
         if (c.IfaceSlot != "") {
             if (c.OpenIfaceSlotArg != null) {
                 string arg = this._ee._typeParamMarker(c.OpenIfaceSlotArg);
-                if (arg.StartsWith("$mta:")) {
+                if (arg.StartsWith("$mta:") || arg.StartsWith("$cta:")) {
                     int hash = c.IfaceSlot.IndexOf('#');
                     return c.IfaceSlot.Substring(0, hash) + "<@" + arg + ">"
                         + c.IfaceSlot.Substring(hash, c.IfaceSlot.Length - hash);
