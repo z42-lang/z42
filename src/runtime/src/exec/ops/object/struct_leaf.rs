@@ -163,61 +163,50 @@ pub fn as_struct_ref(v: &Value, what: &str) -> Result<(u32, u32)> {
 // `VCallTarget::StructValueEq`，interp+JIT 两引擎的 invoke 臂）共用——同一实现保证
 // builtin 与 vcall 两条路对同两个值答案一致。
 
-/// Snapshot of a value struct in any of its storage representations.
-struct StructPayload {
-    name: String,
-    bytes: Vec<u8>,
-    refs: Vec<Value>,
-    layout: Option<std::sync::Arc<StructTypeLayout>>,
-}
-
-fn struct_payload<const NEED_LAYOUT: bool>(ctx: &VmContext, v: &Value) -> Result<Option<StructPayload>> {
-    let payload = match v {
-        Value::BoxedStruct(gc) => {
-            let (bytes, refs) = gc.borrow().boxed_blob();
-            let td = gc.type_desc();
-            StructPayload { name: td.name.to_string(), bytes, refs, layout: if NEED_LAYOUT { td.struct_layout() } else { None } }
-        }
-        Value::StructRef { idx, frame_id } => {
-            ctx.exec().struct_arena.lock().with(*idx, *frame_id, |s| StructPayload {
-                name: s.type_name.to_string(),
-                bytes: s.bytes.to_vec(),
-                refs: s.refs.to_vec(),
-                layout: NEED_LAYOUT.then(|| s.layout.clone()),
-            })?
-        }
-        Value::StructRefHeap { idx, frame_id } => {
-            let e = ctx.exec().transient_arena.lock().struct_elem(*idx, *frame_id)?;
-            let (bytes, refs, layout, name) = crate::object::snapshot_struct_element(&e)?;
-            StructPayload { name: name.to_string(), bytes, refs, layout: NEED_LAYOUT.then_some(layout) }
-        }
-        Value::Object(o) if o.type_desc().is_struct() && o.type_desc().fields.is_empty() => {
-            StructPayload {
-                name: o.type_desc().name.clone(),
-                bytes: Vec::new(),
-                refs: Vec::new(),
-                layout: None,
-            }
-        }
-        _ => return Ok(None),
-    };
-    Ok(Some(payload))
-}
-
 /// Default field hash across frame, array-element, and boxed struct representations.
 pub fn struct_value_hash(ctx: &VmContext, value: &Value) -> Result<Option<i64>> {
-    if let Value::BoxedStruct(boxed) = value {
-        let td = boxed.type_desc();
-        let (bytes, refs) = boxed.borrow().boxed_blob();
-        return hash_payload(ctx, &td.name, bytes, &refs, td.struct_layout_ref()).map(Some);
-    }
-    let Some(StructPayload { name, bytes, refs, layout }) = struct_payload::<true>(ctx, value)? else {
-        return Ok(None);
+    use crate::object::value::boxed_hash::hash_struct_payload;
+
+    let hash = match value {
+        Value::StructRef { idx, frame_id } => hash_frame_struct(ctx, *idx, *frame_id)?,
+        Value::BoxedStruct(boxed) => {
+            let td = boxed.type_desc();
+            let (bytes, refs) = boxed.borrow().boxed_blob();
+            hash_snapshot(ctx, &td.name, bytes, &refs, td.struct_layout_ref())?
+        }
+        Value::StructRefHeap { idx, frame_id } => {
+            let element = ctx.exec().transient_arena.lock().struct_elem(*idx, *frame_id)?;
+            let (bytes, refs, layout, name) = crate::object::snapshot_struct_element(&element)?;
+            hash_snapshot(ctx, &name, bytes, &refs, Some(&layout))?
+        }
+        Value::Object(o) if o.type_desc().is_struct() && o.type_desc().fields.is_empty() =>
+            hash_struct_payload(&[], &[]),
+        _ => return Ok(None),
     };
-    hash_payload(ctx, &name, bytes, &refs, layout.as_deref()).map(Some)
+    Ok(Some(hash))
 }
 
-fn hash_payload(
+fn hash_frame_struct(ctx: &VmContext, idx: u32, frame_id: u32) -> Result<i64> {
+    let arena = ctx.exec().struct_arena.lock();
+    let cached_hash = arena.with(idx, frame_id, |slot| {
+        slot.layout.float_field_ranges.get().map(|fields| {
+            crate::object::value::boxed_hash::hash_struct_with_floats(&slot.bytes, &slot.refs, fields)
+        })
+    })?;
+    if let Some(hash) = cached_hash {
+        return hash;
+    }
+
+    // Type resolution can run loader events. Prepare the plan outside the arena lock.
+    let (name, layout) = arena.with(idx, frame_id, |slot| (slot.type_name.clone(), slot.layout.clone()))?;
+    drop(arena);
+    let fields = named_struct_layout::float_field_ranges(&layout, &|n| ctx.loader().try_lookup_type(n), &name)?;
+    ctx.exec().struct_arena.lock().with(idx, frame_id, |slot| {
+        crate::object::value::boxed_hash::hash_struct_with_floats(&slot.bytes, &slot.refs, fields)
+    })?
+}
+
+fn hash_snapshot(
     ctx: &VmContext, name: &str, mut bytes: Vec<u8>, refs: &[Value],
     layout: Option<&StructTypeLayout>,
 ) -> Result<i64> {
@@ -231,17 +220,47 @@ fn hash_payload(
     Ok(hash_struct_payload(&bytes, refs))
 }
 
+/// 任一表示（frame arena `StructRef` / 堆 `StructRefHeap` 元素视图 / `BoxedStruct`）的
+/// struct 值快照 `(类型名, 基元字节, 引用叶子)`。`None` = 不是 struct 值——调用方按
+/// 「不是这个 struct」处理（值相等答 false），不报错。
+fn struct_payload(
+    ctx: &VmContext, v: &Value,
+) -> Result<Option<(String, Vec<u8>, Vec<Value>)>> {
+    match v {
+        Value::BoxedStruct(gc) => {
+            let o = gc.borrow();
+            let (bytes, refs) = o.boxed_blob();
+            Ok(Some((o.type_desc.name.to_string(), bytes.to_vec(), refs.to_vec())))
+        }
+        Value::StructRef { idx, frame_id } => {
+            let s = ctx.exec().struct_arena.lock().with(*idx, *frame_id, |s| {
+                (s.type_name.to_string(), s.bytes.to_vec(), s.refs.to_vec())
+            })?;
+            Ok(Some(s))
+        }
+        Value::StructRefHeap { idx, frame_id } => {
+            let e = ctx.exec().transient_arena.lock().struct_elem(*idx, *frame_id)?;
+            let (bytes, refs, _layout, type_name) = crate::object::snapshot_struct_element(&e)?;
+            Ok(Some((type_name.to_string(), bytes, refs)))
+        }
+        Value::Object(o) if o.type_desc().is_struct() && o.type_desc().fields.is_empty() => {
+            Ok(Some((o.type_desc().name.clone(), Vec::new(), Vec::new())))
+        }
+        _ => Ok(None),
+    }
+}
+
 /// 值相等：同精确类型名 + 基元字节相等 + 引用叶子逐位 `Value` 相等（string 内容 /
 /// object 引用——与 `Value::eq` 装箱臂同式）。非 struct 侧（Null/object/string/…）答
 /// false——`other is P ? eq : false` 的运行期形态。按位相等 ⇔ 逐叶 `Eq` 仅对**非浮点**叶
 /// 成立，故编译器只对 float-free 布局把调用引到这条路（保留名 `Equals$1$synth` /
 /// builtin 发射侧的 float-free 谓词）。
 pub fn struct_value_eq(ctx: &VmContext, a: &Value, b: &Value) -> Result<bool> {
-    let (pa, pb) = match (struct_payload::<false>(ctx, a)?, struct_payload::<false>(ctx, b)?) {
+    let (pa, pb) = match (struct_payload(ctx, a)?, struct_payload(ctx, b)?) {
         (Some(pa), Some(pb)) => (pa, pb),
         _ => return Ok(false),
     };
-    Ok(pa.name == pb.name && pa.bytes == pb.bytes && pa.refs == pb.refs)
+    Ok(pa.0 == pb.0 && pa.1 == pb.1 && pa.2 == pb.2)
 }
 
 /// Default equality when invoked directly on the ValueType declaration. Ordinary
@@ -252,17 +271,18 @@ pub fn value_type_equals(ctx: &VmContext, a: &Value, b: &Value) -> Result<bool> 
     {
         return Ok(a == b);
     }
-    let (Some(lhs), Some(rhs)) = (struct_payload::<false>(ctx, a)?, struct_payload::<false>(ctx, b)?)
+    let (Some((name, lhs, lhs_refs)), Some((other, rhs, rhs_refs))) =
+        (struct_payload(ctx, a)?, struct_payload(ctx, b)?)
     else {
         return Ok(false);
     };
-    if lhs.name != rhs.name || lhs.refs != rhs.refs || lhs.bytes.len() != rhs.bytes.len() {
+    if name != other || lhs_refs != rhs_refs || lhs.len() != rhs.len() {
         return Ok(false);
     }
-    if lhs.bytes.is_empty() {
+    if lhs.is_empty() {
         return Ok(true);
     }
-    equal_scalar_fields(&|n| ctx.loader().try_lookup_type(n), &lhs.name, &lhs.bytes, &rhs.bytes)
+    equal_scalar_fields(&|n| ctx.loader().try_lookup_type(n), &name, &lhs, &rhs)
 }
 
 fn equal_scalar_fields(

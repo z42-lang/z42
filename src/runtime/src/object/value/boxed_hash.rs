@@ -19,6 +19,19 @@ pub fn normalize_signed_zero(
     Ok(())
 }
 
+/// Hash borrowed arena storage. A float layout uses a scratch copy for zero normalization.
+#[inline]
+pub fn hash_struct_with_floats(
+    bytes: &[u8], refs: &[Value], float_fields: &[std::ops::Range<usize>],
+) -> anyhow::Result<i64> {
+    if float_fields.is_empty() {
+        return Ok(hash_struct_payload(bytes, refs));
+    }
+    let mut copy = bytes.to_vec();
+    normalize_signed_zero(&mut copy, float_fields)?;
+    Ok(hash_struct_payload(&copy, refs))
+}
+
 /// add-struct-value-eq-fastpath：payload 级哈希——boxed、frame arena `StructRef`、
 /// `struct[]` 元素三种表示共用同一实现，同值 struct 无论从哪种表示进来哈希都相同
 /// （值相等 ⇒ 哈希相等这条契约跨表示成立）。

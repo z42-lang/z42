@@ -346,8 +346,9 @@ struct 的完整对象协议。unboxed struct 仍无 vtable（这些方法经装
   FNV-1a，并混入引用叶子哈希（string 内容；object/array 叶子走地址身份哈希 `identity_hash`（GC 不移动
   对象 ⇒ 稳定；add-value-hash-ref-leaves——此前贡献常量 0，引用叶子互异的 struct 全落同一桶）；null/委托
   叶子保持常量贡献，Equals 按身份比较的语义下 collisions 合法）。
-  `& 0x7fffffff` 保证结果非负。每种布局按需缓存嵌套浮点字段的字节位置，哈希前在快照中
-  将这些字段的负零归一为正零，使默认相等的值得到相同哈希。
+  `& 0x7fffffff` 保证结果非负。每种布局按需缓存嵌套浮点字段的字节位置，哈希前在临时副本中
+  将这些字段的负零归一为正零，使默认相等的值得到相同哈希。无浮点字段的局部 struct 直接对已有
+  字段数据计算哈希。
 - **`ToString()`**：VM boxed-vcall 臂直接返回**短类型名**（C# `ValueType.ToString` 默认；字段 dump 留后续）。
 - **`GetType()`**：`builtin_obj_get_type`（PR2a）。
 
