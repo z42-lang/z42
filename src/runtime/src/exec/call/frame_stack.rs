@@ -22,7 +22,7 @@ use crate::exec::call::frames::VmFrame;
 use crate::object::Value;
 
 /// See the module docs.
-pub struct FrameStack {
+pub(in crate::exec) struct FrameStack {
     frames: UnsafeCell<Vec<VmFrame>>,
     /// `frames.len()`, republished after every push / pop for readers that may
     /// not touch `frames` (the signal handler, for other threads' contexts).
