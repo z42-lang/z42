@@ -48,10 +48,14 @@ pub(crate) fn iface_slot_method(method: &str) -> Option<&str> {
 }
 
 /// An interface slot whose concrete argument is carried by the caller's frame.
-pub(crate) fn iface_slot_method_template(key: &str) -> Option<(&str, &str, &str)> {
-    let (interface, tail) = key.split_once("<@$mta:")?;
-    let (index, method) = tail.split_once(">#")?;
-    Some((interface, index, method))
+pub(crate) fn iface_slot_method_template(
+    key: &str,
+) -> Option<(&str, crate::zpkg::index::type_param_markers::Marker<'_>, &str)> {
+    use crate::zpkg::index::type_param_markers::parse_marker;
+    let (interface, tail) = key.split_once("<@")?;
+    let (argument, method) = tail.split_once(">#")?;
+    let (marker, len) = parse_marker(argument)?;
+    (len == argument.len()).then_some((interface, marker, method))
 }
 
 /// The erased form of an interface-slot key: type arguments dropped from the interface part

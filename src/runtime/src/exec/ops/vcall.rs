@@ -85,18 +85,18 @@ pub fn assert_pic_target(
 ) {}
 
 /// Resolve a VCall miss using the caller's activation when the slot has a
-/// method type parameter. Ordinary call sites need no name allocation.
+/// class or method type parameter. Ordinary call sites need no name allocation.
 pub fn resolve_frame_vcall<'a>(
     ctx: &'a VmContext, module: &'a Module, obj_val: &Value, method: &str, arity: usize,
-    ic: Option<&VCallIC>, caller_type_args: &[String],
+    ic: Option<&VCallIC>, caller_type_args: &[String], caller_this: Option<&Value>,
 ) -> Result<ResolvedVCall<'a>> {
-    if let Some((interface, index, member)) =
+    if let Some((interface, marker, member)) =
         crate::metadata::dispatch::vcall::iface_slot_method_template(method)
     {
-        let index = index.parse::<usize>().ok();
-        let key = match index.and_then(|i| caller_type_args.get(i)) {
+        let env = crate::exec::type_param_env::TypeParamEnv::new(caller_type_args, caller_this);
+        let key = match env.resolve(ctx, marker) {
             Some(name) => {
-                let name = crate::zpkg::index::type_names::canonical_arg(name);
+                let name = crate::zpkg::index::type_names::canonical_arg(&name);
                 format!("{interface}<@{name}>#{member}")
             }
             None => format!("{interface}#{member}"),

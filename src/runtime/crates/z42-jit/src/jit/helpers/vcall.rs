@@ -116,7 +116,7 @@ unsafe fn vcall_impl(
     // ── PIC miss: decode the name now (only the slow path needs it), resolve, invoke ──
     let method = std::str::from_utf8(std::slice::from_raw_parts(method_ptr, method_len))
         .unwrap_or("<invalid>");
-    let resolved = match resolve_frame_vcall(vm_ctx, module, &obj_val, method, argc, ic, frame_ref.method_type_args) {
+    let resolved = match resolve_frame_vcall(vm_ctx, module, &obj_val, method, argc, ic, frame_ref.method_type_args, frame_ref.regs.first()) {
         Ok(r) => r,
         Err(e) => { set_exception(vm_ctx, Value::Str(e.to_string().into())); return 1; }
     };

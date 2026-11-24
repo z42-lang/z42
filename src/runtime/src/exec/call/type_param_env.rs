@@ -15,6 +15,7 @@ use crate::zpkg::index::type_param_markers::{self, Marker};
 use crate::object::TypeArgs;
 use crate::object::Value;
 use crate::vm::VmContext;
+use std::borrow::Cow;
 
 /// Read a method parameter as a reflection Type. Missing arguments retain the
 /// synthetic T used by older bytecode.
@@ -45,17 +46,18 @@ impl<'a> TypeParamEnv<'a> {
 
     /// The concrete argument a marker stands for here; `None` = not bound in this activation
     /// (a lifted lambda has no method arguments, a static method no receiver).
-    fn resolve(&self, ctx: &VmContext, m: Marker<'_>) -> Option<String> {
+    pub(crate) fn resolve(&self, ctx: &VmContext, m: Marker<'_>) -> Option<Cow<'a, str>> {
         match m {
-            Marker::Method(i) => self.method_args.get(i).cloned(),
-            Marker::Class { index, owner } => class_type_arg(ctx, self.this?, index, Some(owner)),
+            Marker::Method(i) => self.method_args.get(i).map(|arg| Cow::Borrowed(arg.as_str())),
+            Marker::Class { index, owner } =>
+                class_type_arg(ctx, self.this?, index, Some(owner)).map(Cow::Owned),
         }
     }
 
     /// `name` with every bound marker replaced by its argument — the spelling `ObjNew` records
     /// for an instantiation written with concrete arguments.
     pub fn substitute(&self, ctx: &VmContext, name: &str) -> String {
-        type_param_markers::substitute(name, |m| self.resolve(ctx, m))
+        type_param_markers::substitute(name, |m| self.resolve(ctx, m).map(Cow::into_owned))
     }
 
     /// A type-test target (`is` / `as` / cast / `catch`) with its markers substituted. A target

@@ -213,6 +213,7 @@ public static class CompilerFingerprint {
         "retain-closed-interface-metadata",
         "bind-interface-implementation-templates",
         "unify-value-type-object-methods",
+        "bind-class-parameter-interface-slots"
         "preserve-struct-equals-operand-effects"
     };
 

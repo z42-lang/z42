@@ -1,0 +1,27 @@
+using Std;
+using Std.Collections;
+
+class Dog {}
+class Cat {}
+
+void Main() {
+    object dogs = new List<Dog>();
+    object nested = new List<List<Dog>>();
+
+    Assert.True(dogs is List<Dog>);
+    Assert.False(dogs is List<Cat>);
+    Assert.True((dogs as List<Cat>) == null);
+    Assert.Throws("InvalidCastException", () => { var wrong = (List<Cat>)dogs; });
+    Assert.True(typeof(List<Dog>).IsAssignableFrom(dogs.GetType()));
+    Assert.False(typeof(List<Cat>).IsAssignableFrom(dogs.GetType()));
+
+    Assert.True(nested is List<List<Dog>>);
+    Assert.False(nested is List<List<Cat>>);
+    Assert.True(typeof(List<List<Dog>>).IsAssignableFrom(nested.GetType()));
+    Assert.False(typeof(List<List<Cat>>).IsAssignableFrom(nested.GetType()));
+
+    var original = new List<Cat>();
+    var targets = new List<Cat>[] { original };
+    Assert.Throws("InvalidCastException", () => targets.SetValue(dogs, 0));
+    Assert.True(Object.ReferenceEquals(original, targets[0]));
+}
