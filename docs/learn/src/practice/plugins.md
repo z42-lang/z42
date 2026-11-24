@@ -9,7 +9,7 @@
 
 > 更简单的形态：零依赖的插件连工程清单都不用写——消费方 `[plugins]` 条目用**源集**写法
 > （`"demo.hook" = { include = ["hooks/**/*.z42"] }`，键名与语义和 `[tests]` 一样，可加 exclude），
-> 工具链合成最小清单后照常代建。本章示例要调规则级别，仍用工程形态（条目写法见参考手册
+> 工具链合成最小清单后照常代建。本章示例要调规则级别，仍用工程形态（条目写法见语言参考
 > z42-toml 页的 `[plugins]` 节）。
 >
 > 两个更早的写法已删除（现在写了直接构建报错）：`[plugins]` 里**按名**或指 `.zpkg` 产物的条目，
@@ -109,10 +109,10 @@
 - ⚠️ analyzer 能观察的语法节点目前只有 6 种（catch 子句、try 语句、类声明、方法声明、
   `while`、`for`）。想对表达式、字段、属性做检查，现在还挂不上去。
 - ⚠️ 插件分**按名**与**按路径**两种引用；本章用的按路径是自己写插件时的推荐写法。按名引用要先单独构建
-  插件并把产物放进插件目录，细节见参考手册。
+  插件并把产物放进插件目录，细节见语言参考。
 
 插件还有另外两类——**generator**（构建期生成源码）和 **hook**（接进 `z42b` 的构建相位）——
-写法与打包方式和 analyzer 同一套，见[参考手册 · 插件](https://z42-lang.github.io/z42/reference/toolchain/compile-time-extensions.html)。
+写法与打包方式和 analyzer 同一套，见[语言参考 · 插件](https://z42-lang.github.io/z42/reference/toolchain/compile-time-extensions.html)。
 
 ## 小结
 

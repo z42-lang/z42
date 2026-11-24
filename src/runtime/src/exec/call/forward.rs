@@ -283,7 +283,7 @@ fn run_framed<'m>(
     this: Option<Value>, regs: &[Value], args: &[u32],
     module: impl FnOnce() -> &'m Module,
 ) -> Result<Option<Value>, FoldFault> {
-    ctx.exec().push_frame(&ctx, VmFrame::new(wrapper, &NO_REGS));
+    crate::exec::push_frame(ctx, VmFrame::new(wrapper, &NO_REGS));
     let _frame = LightFrame(ctx);
     match crate::exec::call::builtins::invoke_builtin_id(ctx, id, this, regs, args) {
         Ok(v) => Ok(v),

@@ -124,7 +124,7 @@
 > 熟悉 C# 的读者请注意：z42 **没有 `new` 方法隐藏**（method hiding）。要么 `virtual` +
 > `override` 真改写，要么就是两个不相干的方法——不存在「同名但不多态」的中间状态。
 
-完整规则见参考手册的
+完整规则见语言参考的
 [继承与多态](https://z42-lang.github.io/z42/reference/language/inheritance.html)。
 
 ## 小结

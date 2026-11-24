@@ -15,7 +15,7 @@
 //!
 //! # Coverage
 //!
-//! - **Bottom frame**: `ThreadExecState::push_frame` installs a guard when a context's
+//! - **Bottom frame**: `exec::push_frame` installs a guard when a context's
 //!   frame stack goes 0 → 1 and drops it when the stack is empty again
 //!   (`exec/call/engine_guards.rs`). Every nested interp / JIT frame on that
 //!   context runs under it and touches no thread-local.

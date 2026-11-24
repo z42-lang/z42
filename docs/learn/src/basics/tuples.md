@@ -84,7 +84,7 @@
 ```
 
 `_` 表示「这一位不关心」。模式的完整规则（类型模式、关系模式、守卫）留到「枚举与模式匹配」
-那一章，也可查参考手册的
+那一章，也可查语言参考的
 [模式匹配](https://z42-lang.github.io/z42/reference/language/pattern-matching.html)。
 
 ## 什么时候别用元组

@@ -6,7 +6,7 @@
 > **相关**: [泛型类型实参推断](generic-inference.md) · [架构总览](architecture.md) ·
 > [源代码编译流程](source-compile.md)
 >
-> 用户视角（`where` 能写什么、报什么错、`Self` 怎么用）在参考手册的「泛型约束」与
+> 用户视角（`where` 能写什么、报什么错、`Self` 怎么用）在语言参考的「泛型约束」与
 > 「泛型方法」两页 —— **那里是语义 SoT**，本页不重复规则，只讲实现。
 >
 > 类型实参推断三节见独立的 [generic-inference.md](generic-inference.md)。

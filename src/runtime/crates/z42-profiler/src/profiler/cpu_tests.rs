@@ -64,8 +64,8 @@ fn maybe_sample_snapshots_call_stack() {
     main.frame_meta = Some((Arc::from("Main"), Arc::from("t.z42")));
     let mut foo = test_function("foo");
     foo.frame_meta = Some((Arc::from("foo"), Arc::from("t.z42")));
-    ctx.exec().push_frame(&ctx, VmFrame::new(&main, std::ptr::null()));
-    ctx.exec().push_frame(&ctx, VmFrame::new(&foo, std::ptr::null()));
+    crate::exec::push_frame(&ctx, VmFrame::new(&main, std::ptr::null()));
+    crate::exec::push_frame(&ctx, VmFrame::new(&foo, std::ptr::null()));
     let s = Sampler::for_test(false);
     // No pending flag yet → no sample.
     s.maybe_sample(&ctx);

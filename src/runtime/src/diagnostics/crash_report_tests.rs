@@ -66,7 +66,7 @@ fn walk_prints_frames_only_for_the_calling_thread() {
     let mut main = crate::exec::stack::stack_tests::test_function("Main", &[], Vec::new());
     main.frame_meta = Some(("Main".into(), "t.z42".into()));
     let ctx = crate::vm::VmContext::new();
-    ctx.exec().push_frame(&ctx, VmFrame::new(&main, std::ptr::null()));
+    crate::exec::push_frame(&ctx, VmFrame::new(&main, std::ptr::null()));
     let mine = walk();
     assert!(mine.contains("#0  Main at t.z42:0:0"), "own frames printed; got:\n{mine}");
     let ctx_ref: &crate::vm::VmContext = &ctx;

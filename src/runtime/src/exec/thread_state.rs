@@ -12,7 +12,7 @@ pub struct ThreadExecState {
     pub call_stack: super::call::frame_stack::FrameStack,
     pub reg_pool: super::call::reg_pool::RegPool,
     /// Installed at the bottom push and restored after the last pop.
-    pub engine_guards: super::call::engine_guards::EngineGuards,
+    engine_guards: super::call::engine_guards::EngineGuards,
     /// LIFO frame-scoped payloads, scanned under each arena lock during a pause.
     pub stack_arena: Arc<Mutex<super::call::stack_alloc::StackArena>>,
     pub struct_arena: Arc<Mutex<super::call::struct_arena::StructArena>>,
@@ -29,7 +29,7 @@ pub struct ThreadExecState {
 }
 
 impl ThreadExecState {
-    pub fn new(cctors: &Arc<crate::metadata::statics::CctorRegistry>, engines: &super::engine::EngineRegistry) -> Self {
+    pub(crate) fn new(cctors: &Arc<crate::metadata::statics::CctorRegistry>, engines: &super::engine::EngineRegistry) -> Self {
         Self {
             pending_exception: Arc::new(Mutex::new(None)),
             pending_thrown: Mutex::new(None),
@@ -81,9 +81,9 @@ pub struct JitHead {
     /// taken at construction, published by the tier installer for the
     /// installing context, and refreshed at the bottom frame push for a context
     /// that existed before the install. Points into the core this context keeps
-    /// alive. Written and read by the owner thread only.
+    /// alive. Published with release ordering and borrowed with acquire ordering.
     #[cfg(feature = "jit")]
-    pub(crate) jit: std::sync::atomic::AtomicPtr<crate::exec::engine::TierApi>,
+    pub(super) jit: std::sync::atomic::AtomicPtr<crate::exec::engine::TierApi>,
 }
 
 // SAFETY: `cctors` points into the `Arc<CctorRegistry>` the context's own core
@@ -92,7 +92,7 @@ unsafe impl Send for JitHead {}
 unsafe impl Sync for JitHead {}
 
 impl JitHead {
-    pub fn new(cctors: &Arc<crate::metadata::statics::CctorRegistry>, engines: &super::engine::EngineRegistry) -> Self {
+    fn new(cctors: &Arc<crate::metadata::statics::CctorRegistry>, engines: &super::engine::EngineRegistry) -> Self {
         #[cfg(not(feature = "jit"))]
         let _ = engines;
         JitHead {
@@ -214,25 +214,6 @@ impl ThreadExecState {
         idx
     }
 
-    pub fn push_frame(&self, ctx: &crate::vm::VmContext, mut frame: crate::exec::frames::VmFrame) {
-        use std::sync::atomic::Ordering::Relaxed;
-        // perf interp-frame-lock-slim: capture each arena's truncation base from its
-        // published-length atomic — a lock-free `Relaxed` load — instead of locking
-        // the three arenas. This is the mutator thread (the sole writer of these
-        // atomics), so the load observes its own latest publish; `pop_frame`
-        // LIFO-truncates each arena back to the base captured here.
-        frame.stack_obj_base = arena_base(self.stack_obj_len.load(Relaxed));
-        frame.stack_arr_base = arena_base(self.stack_arr_len.load(Relaxed));
-        frame.struct_base = arena_base(self.struct_len.load(Relaxed));
-        frame.transient_base = arena_base(self.transient_len.load(Relaxed));
-        if self.call_stack.push(frame) {
-            // Bottom frame: a new activation chain on this thread. Scope this
-            // context's VM / heap into the thread-locals until the stack is empty
-            // again; nested frames run under them (see `engine_guards`).
-            self.engine_guards.install(ctx);
-        }
-    }
-
     /// Pop the most recently pushed frame. No-op when empty (defensive).
     pub fn pop_frame(&self) {
         use std::sync::atomic::Ordering::Relaxed;
@@ -350,26 +331,57 @@ fn arena_base(len: usize) -> u32 {
     len as u32
 }
 
-impl crate::exec::ThreadExecState {
-    #[inline]
-    pub fn tier<'a>(&'a self, engines: &'a crate::exec::engine::EngineRegistry) -> Option<&'a crate::exec::engine::TierApi> {
-        #[cfg(feature = "jit")]
-        {
-            let _ = engines;
-            let p = self.jit_head.jit.load(std::sync::atomic::Ordering::Relaxed);
-            // Only the owner thread refreshes this pointer. Publication came through
-            // OnceLock, and this context keeps the owning core (and tier) alive.
-            unsafe { p.as_ref() }
-        }
-        #[cfg(not(feature = "jit"))]
-        { engines.tier() }
+/// Register a frame in the running context and install its guards at the bottom frame.
+pub fn push_frame(ctx: &crate::vm::VmContext, mut frame: crate::exec::frames::VmFrame) {
+    use std::sync::atomic::Ordering::Relaxed;
+    // perf interp-frame-lock-slim: capture each arena's truncation base from its
+    // published-length atomic — a lock-free `Relaxed` load — instead of locking
+    // the three arenas. This is the mutator thread (the sole writer of these
+    // atomics), so the load observes its own latest publish; `pop_frame`
+    // LIFO-truncates each arena back to the base captured here.
+    let state = ctx.exec();
+    frame.stack_obj_base = arena_base(state.stack_obj_len.load(Relaxed));
+    frame.stack_arr_base = arena_base(state.stack_arr_len.load(Relaxed));
+    frame.struct_base = arena_base(state.struct_len.load(Relaxed));
+    frame.transient_base = arena_base(state.transient_len.load(Relaxed));
+    if state.call_stack.push(frame) {
+        // Bottom frame: a new activation chain on this thread. Scope this
+        // context's VM / heap into the thread-locals until the stack is empty
+        // again; nested frames run under them (see `engine_guards`).
+        state.engine_guards.install(ctx);
     }
-    pub fn publish_tier(&self, engines: &crate::exec::engine::EngineRegistry) {
-        #[cfg(not(feature = "jit"))]
-        let _ = engines;
-        #[cfg(feature = "jit")]
-        if let Some(tier) = engines.tier() {
-            self.jit_head.jit.store(tier as *const crate::exec::engine::TierApi as *mut crate::exec::engine::TierApi, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Borrow the active tier from the running context.
+#[inline]
+pub fn current_tier(ctx: &crate::vm::VmContext) -> Option<&super::engine::TierApi> {
+    #[cfg(feature = "jit")]
+    {
+        let pointer = ctx.exec().jit_head.jit.load(std::sync::atomic::Ordering::Acquire);
+        // SAFETY: construction and refresh only cache tiers from the core the
+        // context owns. The registry retains the installed tier for its lifetime.
+        unsafe { pointer.as_ref() }
+    }
+    #[cfg(not(feature = "jit"))]
+    {
+        ctx.core().exec().engines.tier()
+    }
+}
+
+/// Cache the tier from this context's own Core after attachment or at frame entry.
+#[inline]
+pub fn refresh_tier(ctx: &crate::vm::VmContext) {
+    #[cfg(feature = "jit")]
+    {
+        use std::sync::atomic::Ordering::{Relaxed, Release};
+
+        let slot = &ctx.exec().jit_head.jit;
+        if slot.load(Relaxed).is_null() {
+            if let Some(tier) = ctx.core().exec().engines.tier() {
+                slot.store(std::ptr::from_ref(tier).cast_mut(), Release);
+            }
         }
     }
+    #[cfg(not(feature = "jit"))]
+    let _ = ctx;
 }

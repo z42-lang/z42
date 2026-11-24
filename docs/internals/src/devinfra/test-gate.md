@@ -2,7 +2,7 @@
 
 > 代码：`scripts/src/test/gate.z42`（gate 编排 + stage 清单）、`scripts/src/test/` 下按被测对象分的子目录（各 stage）
 >
-> 怎么写 `[Test]`、`z42 test` 怎么用 → 参考手册；本页写 gate 的编排机制、各类检查的职责与 CI 分工。
+> 怎么写 `[Test]`、`z42 test` 怎么用 → 语言参考；本页写 gate 的编排机制、各类检查的职责与 CI 分工。
 
 裸 `xtask test` 就是提交门禁：串联全部必跑 stage，任一失败即停；全绿是 commit / push 的先决条件。
 

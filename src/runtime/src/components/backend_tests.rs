@@ -15,10 +15,10 @@ fn failure(mode: ExecMode, options: BackendOptions) -> String {
 fn interpreter_mode_installs_only_the_baseline_and_workers_share_it() {
     let program = load(ExecMode::Interp, BackendOptions::default()).unwrap();
     assert_eq!(component_ids(program.context()), [INTERP_COMPONENT]);
-    assert!(program.context().exec().tier(&program.context().core().exec().engines).is_none());
+    assert!(crate::exec::current_tier(program.context()).is_none());
     let worker = VmContext::new_with_core(program.context().core_arc());
     assert_eq!(component_ids(&worker), [INTERP_COMPONENT]);
-    assert!(worker.exec().tier(&worker.core().exec().engines).is_none());
+    assert!(crate::exec::current_tier(&worker).is_none());
 }
 #[test]
 fn explicit_disable_and_missing_dynamic_library_fail() {

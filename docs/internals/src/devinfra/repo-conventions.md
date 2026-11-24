@@ -1,6 +1,6 @@
 # 本仓命名与目录约定
 
-> 面向**改 z42 本身**的人。用户代码的命名规则在参考手册的
+> 面向**改 z42 本身**的人。用户代码的命名规则在语言参考的
 > [命名约定](https://z42-lang.github.io/z42/reference/conventions/naming.html)——那是 SoT，本页只补
 > "这个仓库自己额外遵守什么、以及它是怎么实现的"。
 
@@ -152,7 +152,7 @@ git show c2396a46f^:<上一步的路径>                                     # �
 ### `Async` 后缀决策
 
 L3 async/await 引入时确定 `Async` 后缀策略（C# 风格的 `LoadAsync()` 还是 Swift / Rust 的
-无后缀）。当前 stdlib 无 async 代码，参考手册已写明"目前不要主动加 `Async` 后缀"。
+无后缀）。当前 stdlib 无 async 代码，语言参考已写明"目前不要主动加 `Async` 后缀"。
 
 ### `z42-fmt` 自动 enforce
 
@@ -161,6 +161,6 @@ L3 async/await 引入时确定 `Async` 后缀策略（C# 风格的 `LoadAsync()`
 
 ## 关联文档
 
-- [命名约定](https://z42-lang.github.io/z42/reference/conventions/naming.html)（参考手册）—— 用户代码命名规则的 SoT
+- [命名约定](https://z42-lang.github.io/z42/reference/conventions/naming.html)（语言参考）—— 用户代码命名规则的 SoT
 - [源代码编译流程](../compiler/source-compile.md) —— `PrimModel` 所在的 TypeCheck 阶段
 - [错误码体系](../compiler/error-codes.md) —— E0444 / E0445 / E0447 的发射点与"怎么加一个码"

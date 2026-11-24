@@ -115,7 +115,7 @@
 
 ### 2.3 `Value::Ref` —— `ref`/`out`/`in` 的运行期表示
 
-用户侧规则见参考手册 [参数修饰符](https://z42-lang.github.io/z42/reference/language/parameter-modifiers.html)。本节讲**为什么这样表示**
+用户侧规则见语言参考 [参数修饰符](https://z42-lang.github.io/z42/reference/language/parameter-modifiers.html)。本节讲**为什么这样表示**
 以及它带来的约束。
 
 #### 设计约束：引用永远不离开调用栈帧
@@ -368,7 +368,7 @@ MIXED 的零种类（3 位）：读写元素、求长度、JIT 取元素基址�
 - **SATB 删除屏障**要的是被覆盖的真旧值：major 标记进行中（`satb::marking_any()`），引用字的写是 `swap`，
   旧字交给 `record_overwrite`；不在标记期就是普通 release store。这样屏障不需要锁，并发写也不会漏记。
 - **跨字段没有一致性**：两个字段之间、读改写之间都没有原子性，用户侧需要组合一致时用 `Mutex<T>` / `Channel<T>`
-  （参考手册 threading 页「线程之间怎么传值」写了这份契约）。
+  （语言参考 threading 页「线程之间怎么传值」写了这份契约）。
 
 - **型参单元**：标签字 release 写 / acquire 读，负载字 relaxed；负载字只在标签字为 `PRIM(k)` 时才被读，
   而它一生只装 `k` 种位（见上「型参单元」），所以两个字分开读写也不会读到「一半标签 + 一半负载」。

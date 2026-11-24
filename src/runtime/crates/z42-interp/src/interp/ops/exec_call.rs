@@ -30,7 +30,7 @@ fn try_native_static_call(
     ctx: &VmContext, frame: &mut Frame, dst: u32, id: usize, args: &[u32],
     method_type_args: &[String],
 ) -> Option<Result<Option<Value>>> {
-    let tier = ctx.exec().tier(&ctx.core().exec().engines)?;
+    let tier = crate::exec::current_tier(ctx)?;
     if args.iter().any(|&r| matches!(frame.regs.get(r as usize), Some(Value::Ref { .. }))) { return None; }
     tier.invoke(ctx, crate::exec::TierTarget::Site(id),
         crate::exec::args::CallArgs::Registers { regs: &frame.regs, indices: args }, method_type_args)
@@ -256,7 +256,7 @@ pub(super) fn load_fn(
 fn try_native_indirect_call(
     ctx: &VmContext, frame: &mut Frame, dst: u32, id: usize, env: Option<Value>, args: &[u32],
 ) -> Option<Result<Option<Value>>> {
-    let tier = ctx.exec().tier(&ctx.core().exec().engines)?;
+    let tier = crate::exec::current_tier(ctx)?;
     if args.iter().any(|&r| matches!(frame.regs.get(r as usize), Some(Value::Ref { .. }))) { return None; }
     let view = match env {
         Some(receiver) => crate::exec::args::CallArgs::Receiver { receiver, regs: &frame.regs, indices: args },

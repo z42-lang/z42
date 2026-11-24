@@ -5,7 +5,7 @@
 //! `gc::ambient`'s heap (heap-less `Str::new` / `.into()` allocate from it) and,
 //! with `native-interop`, `exec::active_vm`'s `CURRENT_VM` (`z42_*` exports find
 //! the VM through it). Both stay the same for a whole activation chain, so they
-//! are installed when the **bottom** frame is pushed (`ThreadExecState::push_frame`,
+//! are installed when the **bottom** frame is pushed (`crate::exec::push_frame`,
 //! frame-stack depth 0 → 1) and restored when the stack is empty again
 //! (`pop_frame`). A nested call costs no thread-local access.
 //!
@@ -40,7 +40,7 @@ struct Installed {
 
 /// See the module docs.
 #[derive(Default)]
-pub struct EngineGuards {
+pub(in crate::exec) struct EngineGuards {
     installed: UnsafeCell<Option<Installed>>,
 }
 
@@ -55,12 +55,9 @@ impl EngineGuards {
     /// Owner only, at the bottom frame's push.
     #[cold]
     #[inline(never)]
-    pub fn install(&self, ctx: &VmContext) {
+    pub(in crate::exec) fn install(&self, ctx: &VmContext) {
         ctx.exec.jit_head.stack_limit.store(crate::exec::stack_guard::limit(), std::sync::atomic::Ordering::Relaxed);
-        #[cfg(feature = "jit")]
-        if ctx.exec.jit_head.jit.load(std::sync::atomic::Ordering::Relaxed).is_null() {
-            ctx.exec().publish_tier(&ctx.core().exec().engines);
-        }
+        crate::exec::refresh_tier(ctx);
         // SAFETY: the context outlives its guards — they are dropped at the
         // last pop or, at the latest, with the context itself.
         #[cfg(feature = "native-interop")]
@@ -80,7 +77,7 @@ impl EngineGuards {
     /// [`install`](Self::install) replaced.
     #[cold]
     #[inline(never)]
-    pub fn release(&self) {
+    pub(in crate::exec) fn release(&self) {
         // SAFETY: owner-thread access; the guards drop after the borrow ends.
         let installed = unsafe { &mut *self.installed.get() }.take();
         drop(installed);

@@ -39,7 +39,7 @@ impl Drop for FrameGuard<'_> {
 /// is reported with the frame already on the stack — and recycles its registers.
 /// The frame's arena id is taken lazily (`Frame::frame_id`), not here; the
 /// bottom frame's push also installs the context's engine guards
-/// (`ThreadExecState::push_frame`).
+/// (`crate::exec::push_frame`).
 ///
 /// Must not reach a safepoint before the push: until then the callee's
 /// arguments are reachable only from `frame` (see `exec_function_body`).
@@ -48,7 +48,7 @@ impl Drop for FrameGuard<'_> {
 /// the Rust call stack, and `func` is borrowed by the caller for the whole
 /// activation — both outlive the guard.
 pub(super) fn enter_frame<'a>(ctx: &'a VmContext, func: &Function, frame: &mut Frame) -> Result<FrameGuard<'a>> {
-    ctx.exec().push_frame(&ctx, crate::exec::frames::VmFrame::new(
+    crate::exec::push_frame(ctx, crate::exec::frames::VmFrame::new(
         func as *const Function,
         &frame.regs as *const Vec<Value>,
     ));
@@ -136,7 +136,7 @@ pub(crate) fn exec_function_with_type_args(
 /// `ExecOutcome`, mirroring `try_native_static_call`.
 #[cfg(feature = "jit")]
 pub(super) fn try_native_exec(ctx: &VmContext, func: &Function, args: &[Value], method_type_args: &[String]) -> Option<Result<ExecOutcome>> {
-    let tier = ctx.exec().tier(&ctx.core().exec().engines)?;
+    let tier = crate::exec::current_tier(ctx)?;
     if args.iter().any(|a| matches!(a, Value::Ref { .. })) { return None; }
     tier.invoke(ctx, crate::exec::TierTarget::Existing(func),
         crate::exec::args::CallArgs::Values(args), method_type_args)
@@ -167,7 +167,7 @@ pub(super) fn try_native_exec(_ctx: &VmContext, _func: &Function, _args: &[Value
 pub(super) fn try_osr(ctx: &VmContext, frame: &mut Frame, func: &Function, loop_header: usize)
     -> Option<Result<ExecOutcome>>
 {
-    let tier = ctx.exec().tier(&ctx.core().exec().engines)?;
+    let tier = crate::exec::current_tier(ctx)?;
     frame.back_edge_count = frame.back_edge_count.wrapping_add(1);
     if frame.back_edge_count != tier.osr_threshold { return None; }
     tier.osr(ctx, func, loop_header, crate::exec::OsrState {
