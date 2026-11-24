@@ -7,9 +7,13 @@ void Main() {
     Sink sink = new Sink();
     ISink<Animal> animals = ForAnimals(sink);
     ISink<Cat> cats = ForCats(sink);
+    var animalRelay = new Relay<Animal>();
+    var catRelay = new Relay<Cat>();
     for (int i = 0; i < 20; i = i + 1) {
         Assert.Equal("animal", Send<Animal>(animals, new Cat()));
         Assert.Equal("cat", Send<Cat>(cats, new Cat()));
+        Assert.Equal("animal", animalRelay.Send(animals, new Cat()));
+        Assert.Equal("cat", catRelay.Send(cats, new Cat()));
     }
     Console.WriteLine("OK");
 }

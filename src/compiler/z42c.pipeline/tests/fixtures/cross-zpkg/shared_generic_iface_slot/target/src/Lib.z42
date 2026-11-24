@@ -15,3 +15,7 @@ public ISink<Cat> ForCats(Sink sink) { return sink; }
 
 // An external caller cannot specialize this body.
 public string Send<T>(ISink<T> sink, T value) { return sink.Put(value); }
+
+public class Relay<T> {
+    public string Send(ISink<T> sink, T value) { return sink.Put(value); }
+}
