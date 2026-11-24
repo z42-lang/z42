@@ -17,12 +17,12 @@ fn bottom_frame_scopes_the_context_until_the_stack_is_empty() {
     let epoch = ctx.heap().heap_epoch();
     assert_eq!(current_heap_epoch(), 0, "no engine entry yet");
 
-    ctx.exec().push_frame(&ctx, frame());
+    crate::exec::push_frame(&ctx, frame());
     assert_eq!(current_heap_epoch(), epoch, "the bottom push installs the heap");
     #[cfg(feature = "native-interop")]
     assert_eq!(current_vm_ptr(), &*ctx as *const VmContext);
 
-    ctx.exec().push_frame(&ctx, frame());
+    crate::exec::push_frame(&ctx, frame());
     ctx.exec().pop_frame();
     assert_eq!(current_heap_epoch(), epoch, "a nested pop leaves the guards in place");
 
@@ -36,12 +36,18 @@ fn bottom_frame_scopes_the_context_until_the_stack_is_empty() {
 fn a_second_context_on_the_same_thread_nests_and_restores() {
     let a = VmContext::new();
     let b = VmContext::new();
-    a.exec().push_frame(&a, frame());
-    b.exec().push_frame(&b, frame());
+    crate::exec::push_frame(&a, frame());
+    assert_eq!(a.exec().frame_stack_depth(), 1);
+    assert_eq!(b.exec().frame_stack_depth(), 0);
+    crate::exec::push_frame(&b, frame());
+    assert_eq!(a.exec().frame_stack_depth(), 1);
+    assert_eq!(b.exec().frame_stack_depth(), 1);
     assert_eq!(current_heap_epoch(), b.heap().heap_epoch());
     #[cfg(feature = "native-interop")]
     assert_eq!(current_vm_ptr(), &*b as *const VmContext);
     b.exec().pop_frame();
+    assert_eq!(b.exec().frame_stack_depth(), 0);
+    assert_eq!(a.exec().frame_stack_depth(), 1);
     assert_eq!(current_heap_epoch(), a.heap().heap_epoch(), "b's last pop restores a's");
     #[cfg(feature = "native-interop")]
     assert_eq!(current_vm_ptr(), &*a as *const VmContext);

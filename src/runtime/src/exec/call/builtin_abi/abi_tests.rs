@@ -121,7 +121,7 @@ fn ref_arguments_are_stored_through() {
     let ctx = VmContext::new();
     // A `ref` to slot 0 of a frame on the stack (what `LoadLocalAddr` makes).
     let target: Vec<Value> = vec![Value::I64(0)];
-    ctx.exec().push_frame(&ctx, crate::exec::call::frames::VmFrame::new(std::ptr::null(), &target));
+    crate::exec::push_frame(&ctx, crate::exec::call::frames::VmFrame::new(std::ptr::null(), &target));
     let frame_id = ctx.exec().next_frame_id();
     let h = ctx.exec().transient_alloc(frame_id, TransientPayload::Ref(RefKind::Stack { frame_idx: 0, slot: 0 }));
     let r = Value::Ref { idx: h, frame_id };

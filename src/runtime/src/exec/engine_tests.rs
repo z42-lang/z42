@@ -103,7 +103,7 @@ fn worker_contexts_share_their_vm_tier_and_refresh_only_at_entry() {
         current_tier(&ctx).unwrap().backend::<ProbeTier>().unwrap().id
     }).join().unwrap();
     assert_eq!(id, 5);
-    worker.exec().push_frame(&worker, VmFrame::new(std::ptr::null(), std::ptr::null()));
+    crate::exec::push_frame(&worker, VmFrame::new(std::ptr::null(), std::ptr::null()));
     assert!(std::ptr::eq(current_tier(&a).unwrap(), current_tier(&worker).unwrap()));
     assert_eq!(current_tier(&worker).unwrap().osr_threshold, 77);
     worker.exec().pop_frame();

@@ -12,7 +12,7 @@ pub struct ThreadExecState {
     pub call_stack: super::call::frame_stack::FrameStack,
     pub reg_pool: super::call::reg_pool::RegPool,
     /// Installed at the bottom push and restored after the last pop.
-    pub engine_guards: super::call::engine_guards::EngineGuards,
+    engine_guards: super::call::engine_guards::EngineGuards,
     /// LIFO frame-scoped payloads, scanned under each arena lock during a pause.
     pub stack_arena: Arc<Mutex<super::call::stack_alloc::StackArena>>,
     pub struct_arena: Arc<Mutex<super::call::struct_arena::StructArena>>,
@@ -214,25 +214,6 @@ impl ThreadExecState {
         idx
     }
 
-    pub fn push_frame(&self, ctx: &crate::vm::VmContext, mut frame: crate::exec::frames::VmFrame) {
-        use std::sync::atomic::Ordering::Relaxed;
-        // perf interp-frame-lock-slim: capture each arena's truncation base from its
-        // published-length atomic — a lock-free `Relaxed` load — instead of locking
-        // the three arenas. This is the mutator thread (the sole writer of these
-        // atomics), so the load observes its own latest publish; `pop_frame`
-        // LIFO-truncates each arena back to the base captured here.
-        frame.stack_obj_base = arena_base(self.stack_obj_len.load(Relaxed));
-        frame.stack_arr_base = arena_base(self.stack_arr_len.load(Relaxed));
-        frame.struct_base = arena_base(self.struct_len.load(Relaxed));
-        frame.transient_base = arena_base(self.transient_len.load(Relaxed));
-        if self.call_stack.push(frame) {
-            // Bottom frame: a new activation chain on this thread. Scope this
-            // context's VM / heap into the thread-locals until the stack is empty
-            // again; nested frames run under them (see `engine_guards`).
-            self.engine_guards.install(ctx);
-        }
-    }
-
     /// Pop the most recently pushed frame. No-op when empty (defensive).
     pub fn pop_frame(&self) {
         use std::sync::atomic::Ordering::Relaxed;
@@ -348,6 +329,27 @@ impl ThreadExecState {
 fn arena_base(len: usize) -> u32 {
     debug_assert!(len <= u32::MAX as usize, "arena length {len} exceeds u32");
     len as u32
+}
+
+/// Register a frame in the running context and install its guards at the bottom frame.
+pub fn push_frame(ctx: &crate::vm::VmContext, mut frame: crate::exec::frames::VmFrame) {
+    use std::sync::atomic::Ordering::Relaxed;
+    // perf interp-frame-lock-slim: capture each arena's truncation base from its
+    // published-length atomic — a lock-free `Relaxed` load — instead of locking
+    // the three arenas. This is the mutator thread (the sole writer of these
+    // atomics), so the load observes its own latest publish; `pop_frame`
+    // LIFO-truncates each arena back to the base captured here.
+    let state = ctx.exec();
+    frame.stack_obj_base = arena_base(state.stack_obj_len.load(Relaxed));
+    frame.stack_arr_base = arena_base(state.stack_arr_len.load(Relaxed));
+    frame.struct_base = arena_base(state.struct_len.load(Relaxed));
+    frame.transient_base = arena_base(state.transient_len.load(Relaxed));
+    if state.call_stack.push(frame) {
+        // Bottom frame: a new activation chain on this thread. Scope this
+        // context's VM / heap into the thread-locals until the stack is empty
+        // again; nested frames run under them (see `engine_guards`).
+        state.engine_guards.install(ctx);
+    }
 }
 
 /// Borrow the active tier from the running context.

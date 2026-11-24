@@ -39,7 +39,7 @@ impl Drop for FrameGuard<'_> {
 /// is reported with the frame already on the stack — and recycles its registers.
 /// The frame's arena id is taken lazily (`Frame::frame_id`), not here; the
 /// bottom frame's push also installs the context's engine guards
-/// (`ThreadExecState::push_frame`).
+/// (`crate::exec::push_frame`).
 ///
 /// Must not reach a safepoint before the push: until then the callee's
 /// arguments are reachable only from `frame` (see `exec_function_body`).
@@ -48,7 +48,7 @@ impl Drop for FrameGuard<'_> {
 /// the Rust call stack, and `func` is borrowed by the caller for the whole
 /// activation — both outlive the guard.
 pub(super) fn enter_frame<'a>(ctx: &'a VmContext, func: &Function, frame: &mut Frame) -> Result<FrameGuard<'a>> {
-    ctx.exec().push_frame(&ctx, crate::exec::frames::VmFrame::new(
+    crate::exec::push_frame(ctx, crate::exec::frames::VmFrame::new(
         func as *const Function,
         &frame.regs as *const Vec<Value>,
     ));

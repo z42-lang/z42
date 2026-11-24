@@ -101,7 +101,7 @@ fn a_context_older_than_the_install_picks_the_jit_up_at_its_next_entry() {
     install(&vm, &module, z42::config::runtime_config().jit_config()).expect("install");
     assert!(crate::jit::compile::state::runtime(&w).is_none(), "not until its next bottom frame push");
     let regs: Vec<Value> = Vec::new();
-    w.exec().push_frame(&w, VmFrame::new(&module.functions[0], &regs));
+    crate::exec::push_frame(&w, VmFrame::new(&module.functions[0], &regs));
     w.exec().pop_frame();
     assert!(std::ptr::eq(crate::jit::compile::state::runtime(&w).expect("picked up"), crate::jit::compile::state::runtime(&vm).unwrap()));
 }
@@ -198,7 +198,7 @@ fn compiled_prologue_checks_the_running_threads_stack_limit() {
             // stack address makes the prologue report an overflow: it reads the
             // context's own head.
             let regs: Vec<Value> = Vec::new();
-            w.exec().push_frame(&w, VmFrame::new(f.func, &regs));
+            crate::exec::push_frame(&w, VmFrame::new(f.func, &regs));
             w.exec().jit_head.stack_limit.store(usize::MAX, Ordering::Relaxed);
             let forced = matches!(run(&w, f), NativeOutcome::Threw)
                 && matches!(w.exec().take_exception(), Some(Value::Str(s)) if s.as_str().contains("stack overflow"));
