@@ -44,6 +44,7 @@ use std::sync::atomic::{AtomicI32, Ordering};
 // PAL Phase 3 (add-pal-signal): OS signal primitives live in `pal::signal`;
 // the call sites below (`sigsafe::*`, `signal_name(sig)`) resolve to them via
 // these imports, so the z42 crash-report logic in this file stays unchanged.
+use crate::exec::stack::CrashFrames;
 use crate::pal::signal::{self, sigsafe, signal_name, STDERR_FD};
 
 /// File descriptor for the optional `Z42_CRASH_DIR` persistence file.
@@ -190,13 +191,10 @@ fn write_call_stacks(fd: i32) {
             // Drop). See SAFETY block at threads/state.rs::VmContextPtr.
             let ctx_ref = unsafe { &*ctx_ptr };
 
-            let stack = &ctx_ref.exec().call_stack;
-            if stack.owned_by_current_thread() {
-                // SAFETY: this thread owns the stack (it pushed the bottom
-                // frame and has not emptied it since), so this is an owner
-                // read; the handler pushes / pops nothing.
-                unsafe {
-                    stack.scan_parked(|frames| {
+            // SAFETY: the visitor only formats the view and writes it to the fd.
+            unsafe {
+                ctx_ref.exec().inspect_crash_frames(|view| match view {
+                    CrashFrames::CurrentThread(frames) => {
                         write_thread_header(fd, ctx_idx, frames.len(), true);
                         for (i, frame) in frames.iter().enumerate() {
                             sigsafe::write_str(fd, b"    #");
@@ -204,10 +202,11 @@ fn write_call_stacks(fd: i32) {
                             sigsafe::write_str(fd, b"  ");
                             write_frame(fd, frame);
                         }
-                    });
-                }
-            } else {
-                write_thread_header(fd, ctx_idx, stack.published_depth(), false);
+                    }
+                    CrashFrames::PublishedDepth(depth) => {
+                        write_thread_header(fd, ctx_idx, depth, false);
+                    }
+                });
             }
         });
         match count {

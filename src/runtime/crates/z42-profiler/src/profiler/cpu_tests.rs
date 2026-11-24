@@ -64,13 +64,20 @@ fn maybe_sample_snapshots_call_stack() {
     main.frame_meta = Some((Arc::from("Main"), Arc::from("t.z42")));
     let mut foo = test_function("foo");
     foo.frame_meta = Some((Arc::from("foo"), Arc::from("t.z42")));
-    crate::exec::push_frame(&ctx, VmFrame::new(&main, std::ptr::null()));
-    crate::exec::push_frame(&ctx, VmFrame::new(&foo, std::ptr::null()));
+    let regs = Vec::new();
+    crate::exec::push_frame(&ctx, VmFrame::new(&main, &regs));
+    crate::exec::push_frame(&ctx, VmFrame::new(&foo, &regs));
     let s = Sampler::for_test(false);
     // No pending flag yet → no sample.
     s.maybe_sample(&ctx);
     assert_eq!(s.sample_count(), 0, "no sample until timer flags one");
-    // Timer flags a sample → next safepoint snapshots the stack.
+    s.force_pending();
+    std::thread::scope(|scope| {
+        scope.spawn(|| s.maybe_sample(&ctx)).join().unwrap();
+    });
+    assert_eq!(s.sample_count(), 0, "another thread cannot sample this stack");
+
+    // Timer flags a sample → next safepoint snapshots the stack on its owner.
     s.force_pending();
     s.maybe_sample(&ctx);
     assert_eq!(s.sample_count(), 1);

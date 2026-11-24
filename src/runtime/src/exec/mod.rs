@@ -37,6 +37,14 @@
 //!     stack_owner.exec().push_frame(active_vm, frame);
 //! }
 //! ```
+//! ```compile_fail
+//! use z42::exec::frame_stack::FrameStack;
+//! ```
+//! ```compile_fail
+//! fn raw_frames(ctx: &z42::vm::VmContext) {
+//!     let _ = &ctx.exec().call_stack;
+//! }
+//! ```
 pub mod exception;
 pub mod symbol_resolution;
 pub mod stack_guard;
@@ -46,13 +54,13 @@ pub mod native;
 #[cfg(feature = "native-interop")]
 pub mod active_vm;
 /// Engine-shared activation and call machinery. The stable vocabulary is
-/// re-exported at the exec root (frames / frame_stack / reg_pool / arenas /
-/// args / outcome / forwarding / builtin ABI and dispatch); `call` itself and
-/// its remaining implementation files (engine_guards) stay crate-internal.
+/// re-exported at the exec root (frames / reg_pool / arenas / arguments /
+/// outcome / forwarding / builtin ABI and dispatch). The frame stack and its
+/// activation guards are private to execution.
 pub(crate) mod call;
 pub(crate) use call::{invoke_entry, EntryError};
 pub use call::{
-    args, builtin_abi, builtins, forward, frame_stack, frames, indirect_return,
+    args, builtin_abi, builtins, forward, frames, indirect_return,
     outcome, reg_pool, stack_alloc, struct_arena, transient_arena, type_param_env,
 };
 pub mod stack;

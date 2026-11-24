@@ -75,8 +75,13 @@ pub fn format_stack_trace(frames: &[FrameSnapshot]) -> String {
 }
 
 /// Freeze the live chain while its owner read scope is held.
-pub fn snapshots(frames: &[VmFrame]) -> Vec<FrameSnapshot> {
+pub(super) fn snapshots(frames: &[VmFrame]) -> Vec<FrameSnapshot> {
     frames.iter().map(VmFrame::snapshot).collect()
+}
+
+pub(crate) enum CrashFrames<'a> {
+    CurrentThread(&'a [VmFrame]),
+    PublishedDepth(usize),
 }
 
 /// Visit register roots without taking a lock or copying their storage.

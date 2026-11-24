@@ -125,7 +125,7 @@ fn function_compiled_on_one_thread_runs_natively_on_another() {
                 NativeOutcome::Threw => panic!("threw {:?}", w.exec().take_exception()),
             }
             assert_eq!(compiled_here(&w), 0, "nothing compiled on the worker");
-            assert_eq!(w.exec().call_stack.depth(), 0, "the native frame was pushed on and popped off the worker's stack");
+            assert_eq!(w.exec().frame_stack_depth(), 0, "the native frame was pushed on and popped off the worker's stack");
         }).join().expect("worker");
     });
     assert_eq!(vm.core().diagnostics().snapshot(vm.core().threads()).jit_methods_compiled, 1, "compiled exactly once VM-wide");
@@ -169,7 +169,7 @@ fn exception_thrown_in_jit_code_on_a_worker_stays_on_the_worker() {
             let e = crate::jit::compile::state::runtime(&w).unwrap().resolve_fn_by_id(&w, 0).expect("compiled");
             assert!(matches!(run(&w, e), NativeOutcome::Threw));
             assert!(matches!(w.exec().take_exception(), Some(Value::I64(13))), "pending on the worker");
-            assert_eq!(w.exec().call_stack.depth(), 0, "unwound");
+            assert_eq!(w.exec().frame_stack_depth(), 0, "unwound");
         }).join().expect("worker");
     });
     assert!(vm.exec().peek_exception().is_none(), "the main thread's pending slot is untouched");

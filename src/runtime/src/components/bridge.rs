@@ -2,7 +2,9 @@
 //!
 //! ```
 //! use z42::components::bridge::{install_profiler_backend, register_baseline_engine, ProfilerBackend};
+//! use z42::components::bridge::sample_frame_names;
 //! use z42::exec::Engine;
+//! let _: fn(&z42::vm::VmContext) -> Vec<std::sync::Arc<str>> = sample_frame_names;
 //! let _: unsafe fn(&z42::vm::VmContext, &'static dyn Engine) -> _ = register_baseline_engine;
 //! use z42::vm::VmContext;
 //! let _: unsafe fn(&VmContext, Box<dyn ProfilerBackend>) -> _ = install_profiler_backend;
@@ -111,6 +113,12 @@ pub unsafe fn install_tier(ctx: &VmContext, backend: impl TierBackend) -> bool {
 #[doc(hidden)]
 pub fn test_engine_registered(ctx: &VmContext, mode: crate::zpkg::ExecMode) -> bool {
     crate::components::api::execution_registered(ctx, mode)
+}
+
+/// Capture the current thread's frame names, outermost first, for sampling.
+/// An empty stack or a stack owned by another thread yields no names.
+pub fn sample_frame_names(ctx: &VmContext) -> Vec<std::sync::Arc<str>> {
+    ctx.exec().sample_frame_names()
 }
 
 /// Install the backend supplied by a validated same-build profiler component.

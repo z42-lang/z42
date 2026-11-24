@@ -31,7 +31,7 @@ fn registered_engine_keeps_borrowed_argument_order_and_receiver() {
         CallArgs::Registers { regs: &regs, indices: &[1, 0] }, &[])), Value::I64(22)));
     assert!(matches!(returned(invoke_args(&ctx, &m, f,
         CallArgs::Receiver { receiver: Value::I64(33), regs: &regs, indices: &[1] }, &[])), Value::I64(33)));
-    assert_eq!(ctx.exec.call_stack.depth(), 0);
+    assert_eq!(ctx.exec().frame_stack_depth(), 0);
 }
 
 #[test]
@@ -39,7 +39,7 @@ fn registered_engine_preserves_typed_throw_channel_and_frame_exit() {
     let m = module(true); let ctx = VmContext::new();
     assert!(matches!(invoke(&ctx, &m, &m.functions[0], &[Value::I64(41)]).unwrap(),
         ExecOutcome::Thrown(Value::I64(41))));
-    assert_eq!(ctx.exec.call_stack.depth(), 0);
+    assert_eq!(ctx.exec().frame_stack_depth(), 0);
 }
 
 #[test]

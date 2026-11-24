@@ -61,7 +61,7 @@ flowchart TD
     G -->|否 (默认)| X["返回，零额外成本"]
     G -->|是| SW{"sample_pending.swap(false)?"}
     SW -->|false| X
-    SW -->|true| SN["快照 ctx.call_stack<br/>→ folded 'Main;foo;bar'"]
+    SW -->|true| SN["组件桥返回当前线程帧名<br/>→ folded 'Main;foo;bar'"]
     SN --> ACC["accum.folded[folded] += 1<br/>(+ trace: intern 帧树 + push (ts,leaf))"]
     EX["退出 (app.rs)"] --> FL["flush_folded → .folded (火焰图)<br/>flush_trace → chrome JSON (perfetto)"]
 ```
