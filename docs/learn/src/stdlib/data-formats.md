@@ -12,7 +12,7 @@
 
 三个值树的 API 长得几乎一样：`Parse` 解析、`Stringify` 写回、`Of*` 构造、`Is*` / `KindName`
 判别、`As*` 取值、`Get` / `Set` / `Keys` 访问键、`TryGetValue<T>` 取即检查。学会一个，另两个
-照着用。完整 API 见参考手册的
+照着用。完整 API 见语言参考的
 [JSON](https://z42-lang.github.io/z42/reference/stdlib/json.html)、
 [TOML](https://z42-lang.github.io/z42/reference/stdlib/toml.html)、
 [YAML](https://z42-lang.github.io/z42/reference/stdlib/yaml.html)。

@@ -88,7 +88,7 @@
 
 > `Dictionary` 也可以直接 `foreach`，每一轮拿到一个键值对（`kv.Key` / `kv.Value`），
 > 按键放进去的先后。
-> 完整规则（`foreach` 到底按什么顺序挑遍历方式）见参考手册的
+> 完整规则（`foreach` 到底按什么顺序挑遍历方式）见语言参考的
 > [迭代](https://z42-lang.github.io/z42/reference/language/iteration.html)。
 
 ## `break` 与 `continue`
@@ -172,7 +172,7 @@ z42 **没有 `goto`，也没有循环标签**。想跳出外层循环，用一�
 ### `case` 还能写得更复杂
 
 `case` 后面可以是范围、类型、带条件的模式，`switch` 也能当**表达式**用来直接产出一个值。
-这些留到「枚举与模式匹配」那一章讲；完整规则见参考手册的
+这些留到「枚举与模式匹配」那一章讲；完整规则见语言参考的
 [控制流](https://z42-lang.github.io/z42/reference/language/control-flow.html)。
 
 ## 小结

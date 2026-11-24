@@ -4,7 +4,7 @@
 > （`Infer` / `InferPreBinding` / `_unify` / `_resolvedForm`）· `MethodTypeArgSubst.z42` · `MethodTypeParamUse.z42`
 > **相关**: [源代码编译流程](source-compile.md) · [架构总览](architecture.md)
 >
-> 用户视角的「`where` 能写什么、报什么错」在参考手册的「泛型约束」页；本页只回答
+> 用户视角的「`where` 能写什么、报什么错」在语言参考的「泛型约束」页；本页只回答
 > **省略尖括号时，编译器怎么把型参绑出来**，以及为此定下的三条不变式。
 
 ## 类型实参推断

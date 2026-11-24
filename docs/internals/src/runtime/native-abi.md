@@ -3,7 +3,7 @@
 > **相关**：[对象与值表示 ABI](object-abi.md) · [嵌入宿主](embedding.md) ·
 > [Native 扩展库范式](native-extensions.md)
 >
-> 用户侧契约见参考手册 [Native 互操作（FFI）契约](https://z42-lang.github.io/z42/reference/embedding/native-interop.html)。
+> 用户侧契约见语言参考 [Native 互操作（FFI）契约](https://z42-lang.github.io/z42/reference/embedding/native-interop.html)。
 > 本页讲 VM 内部**怎么实现**它、为什么这么分层、哪些部分还没通电。
 
 ## 与邻页的边界

@@ -23,7 +23,7 @@
 
 > 工程名只能由小写字母、数字、`-`、`_`、`.` 组成，并以字母或数字开头，例如 `greeter`、`my-app`。
 
-> `z42 new` 还能建库工程等其它形态，全部选项见参考手册的
+> `z42 new` 还能建库工程等其它形态，全部选项见语言参考的
 > [`z42` 命令参考](https://z42-lang.github.io/z42/reference/toolchain/cli-z42.html)。
 
 ## 工程里有什么
@@ -46,7 +46,7 @@
 - `[sources]` 段说明哪些文件是源代码。`src/**/*.z42` 是一个**通配模式**：`src` 目录下（包括子目录）所有 `.z42` 文件。也就是说，**往 `src/` 里加文件就会被自动编译，不需要改清单**。
 
 清单能写的远不止这两段——依赖、构建选项、测试目标、各平台配置都在里面。本章只用到最少的几个字段，
-**完整字段表**见参考手册的 [工程清单 z42.toml](https://z42-lang.github.io/z42/reference/toolchain/z42-toml.html)。
+**完整字段表**见语言参考的 [工程清单 z42.toml](https://z42-lang.github.io/z42/reference/toolchain/z42-toml.html)。
 
 ## 运行
 
