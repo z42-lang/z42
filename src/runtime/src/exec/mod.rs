@@ -19,6 +19,16 @@
 //! ```compile_fail
 //! use z42::exec::call::frames::VmFrame;
 //! ```
+//! ```
+//! use z42::{exec::{current_tier, TierApi}, vm::VmContext};
+//! fn active_tier(ctx: &VmContext) -> Option<&TierApi> { current_tier(ctx) }
+//! ```
+//! ```compile_fail
+//! use z42::{exec::EngineRegistry, vm::VmContext};
+//! fn publish(ctx: &VmContext, engines: &EngineRegistry) {
+//!     ctx.exec().publish_tier(engines);
+//! }
+//! ```
 pub mod exception;
 pub mod symbol_resolution;
 pub mod stack_guard;
@@ -51,4 +61,4 @@ mod state;
 pub use state::ExecState;
 
 mod thread_state;
-pub use thread_state::ThreadExecState;
+pub use thread_state::{ThreadExecState, current_tier, refresh_tier};

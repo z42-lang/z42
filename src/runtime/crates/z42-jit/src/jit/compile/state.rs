@@ -138,7 +138,7 @@ pub fn install<'a>(vm: &'a VmContext, module: &Module, config: crate::exec::JitC
     }
     let rt = vm.core().exec().engines.tier().and_then(|tier| tier.backend::<JitRuntime>())
         .ok_or_else(|| anyhow::anyhow!("JIT: a different tier backend is installed on this VM"))?;
-    publish_to(vm, rt);
+    crate::exec::refresh_tier(vm);
     anyhow::ensure!(
         std::ptr::eq(rt.module, module),
         "JIT: this VM already runs the JIT for module `{}`",
@@ -161,15 +161,8 @@ pub(crate) fn install_tuned<'a>(
     tune(&mut rt);
     assert!(vm.core().exec().engines.install_tier(crate::exec::TierApi::new(rt)).is_ok(), "a tier is already installed on this VM");
     let rt = vm.core().exec().engines.tier().and_then(|t| t.backend::<JitRuntime>()).expect("installed");
-    publish_to(vm, rt);
+    crate::exec::refresh_tier(vm);
     rt
-}
-
-/// Cache the runtime in the installing context's head (`VmContext::jit`). Other
-/// contexts take it at construction or at their next bottom frame push.
-fn publish_to(vm: &VmContext, rt: &JitRuntime) {
-    let _ = rt;
-    vm.exec().publish_tier(&vm.core().exec().engines);
 }
 
 impl JitRuntime {
@@ -431,4 +424,4 @@ mod runtime_tests;
 
 /// Backend-local view of the neutral tier header.
 #[inline]
-pub(crate) fn runtime(ctx: &VmContext) -> Option<&JitRuntime> { ctx.exec().tier(&ctx.core().exec().engines)?.backend::<JitRuntime>() }
+pub(crate) fn runtime(ctx: &VmContext) -> Option<&JitRuntime> { crate::exec::current_tier(ctx)?.backend::<JitRuntime>() }

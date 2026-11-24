@@ -29,7 +29,7 @@ pub struct ThreadExecState {
 }
 
 impl ThreadExecState {
-    pub fn new(cctors: &Arc<crate::metadata::statics::CctorRegistry>, engines: &super::engine::EngineRegistry) -> Self {
+    pub(crate) fn new(cctors: &Arc<crate::metadata::statics::CctorRegistry>, engines: &super::engine::EngineRegistry) -> Self {
         Self {
             pending_exception: Arc::new(Mutex::new(None)),
             pending_thrown: Mutex::new(None),
@@ -81,9 +81,9 @@ pub struct JitHead {
     /// taken at construction, published by the tier installer for the
     /// installing context, and refreshed at the bottom frame push for a context
     /// that existed before the install. Points into the core this context keeps
-    /// alive. Written and read by the owner thread only.
+    /// alive. Published with release ordering and borrowed with acquire ordering.
     #[cfg(feature = "jit")]
-    pub(crate) jit: std::sync::atomic::AtomicPtr<crate::exec::engine::TierApi>,
+    pub(super) jit: std::sync::atomic::AtomicPtr<crate::exec::engine::TierApi>,
 }
 
 // SAFETY: `cctors` points into the `Arc<CctorRegistry>` the context's own core
@@ -92,7 +92,7 @@ unsafe impl Send for JitHead {}
 unsafe impl Sync for JitHead {}
 
 impl JitHead {
-    pub fn new(cctors: &Arc<crate::metadata::statics::CctorRegistry>, engines: &super::engine::EngineRegistry) -> Self {
+    fn new(cctors: &Arc<crate::metadata::statics::CctorRegistry>, engines: &super::engine::EngineRegistry) -> Self {
         #[cfg(not(feature = "jit"))]
         let _ = engines;
         JitHead {
@@ -350,26 +350,36 @@ fn arena_base(len: usize) -> u32 {
     len as u32
 }
 
-impl crate::exec::ThreadExecState {
-    #[inline]
-    pub fn tier<'a>(&'a self, engines: &'a crate::exec::engine::EngineRegistry) -> Option<&'a crate::exec::engine::TierApi> {
-        #[cfg(feature = "jit")]
-        {
-            let _ = engines;
-            let p = self.jit_head.jit.load(std::sync::atomic::Ordering::Relaxed);
-            // Only the owner thread refreshes this pointer. Publication came through
-            // OnceLock, and this context keeps the owning core (and tier) alive.
-            unsafe { p.as_ref() }
-        }
-        #[cfg(not(feature = "jit"))]
-        { engines.tier() }
+/// Borrow the active tier from the running context.
+#[inline]
+pub fn current_tier(ctx: &crate::vm::VmContext) -> Option<&super::engine::TierApi> {
+    #[cfg(feature = "jit")]
+    {
+        let pointer = ctx.exec().jit_head.jit.load(std::sync::atomic::Ordering::Acquire);
+        // SAFETY: construction and refresh only cache tiers from the core the
+        // context owns. The registry retains the installed tier for its lifetime.
+        unsafe { pointer.as_ref() }
     }
-    pub fn publish_tier(&self, engines: &crate::exec::engine::EngineRegistry) {
-        #[cfg(not(feature = "jit"))]
-        let _ = engines;
-        #[cfg(feature = "jit")]
-        if let Some(tier) = engines.tier() {
-            self.jit_head.jit.store(tier as *const crate::exec::engine::TierApi as *mut crate::exec::engine::TierApi, std::sync::atomic::Ordering::Relaxed);
+    #[cfg(not(feature = "jit"))]
+    {
+        ctx.core().exec().engines.tier()
+    }
+}
+
+/// Cache the tier from this context's own Core after attachment or at frame entry.
+#[inline]
+pub fn refresh_tier(ctx: &crate::vm::VmContext) {
+    #[cfg(feature = "jit")]
+    {
+        use std::sync::atomic::Ordering::{Relaxed, Release};
+
+        let slot = &ctx.exec().jit_head.jit;
+        if slot.load(Relaxed).is_null() {
+            if let Some(tier) = ctx.core().exec().engines.tier() {
+                slot.store(std::ptr::from_ref(tier).cast_mut(), Release);
+            }
         }
     }
+    #[cfg(not(feature = "jit"))]
+    let _ = ctx;
 }

@@ -77,7 +77,7 @@ exec 负责 IL、类型解析和帧适配。装箱与快照归 object，具体�
 
 TierApi 拥有后端实现并缓存 OSR 阈值。编译槽、编译器、OSR 入口和代码页由 JIT 自己持有；所有 worker 共享所属 core 的注册结果，其他 VM 独立。竞争安装保留首个发布实例，失败候选安全释放；所属模块校验仍由后端执行。
 
-`JitHead.jit` 缓存中立 header 指针，字段大小、对齐及编译码读取的偏移不变。构造、安装及早于安装的 context 在底帧入栈时刷新，保持 owner-thread 规则。OSR 后跳计数和阈值比较内联，实际交接才调用注册方法；ref/out 拒绝、frame_id、已有双帧记录和 jit_native_from_interp 增长条件保持。
+`JitHead.jit` 缓存中立 header 指针。`current_tier` 和 `refresh_tier` 都接收当前 `VmContext`，由它取得缓存槽和所属 Core 的注册表。发布使用 Release，读取使用 Acquire。构造、安装和已有线程进入栈底帧时更新缓存。OSR 后跳计数和阈值比较内联，实际交接才调用注册方法；ref/out 拒绝、frame_id、已有双帧记录和 jit_native_from_interp 增长条件保持。
 
 共享 Call/FnRef 的加载绑定在 `exec/ops/call.rs`；ToString 在 `exec/ops/stringify.rs` 并通过 Engine 执行；加载期 fusion 识别器及缓存形态在 `metadata/fusion.rs`。
 

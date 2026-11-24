@@ -57,7 +57,7 @@ pub fn invoke(
         arguments.push(Value::StructRef { idx: index, frame_id });
         Some(index)
     } else { None };
-    let native = ctx.exec().tier(&ctx.core().exec().engines).and_then(|tier| tier.invoke(
+    let native = crate::exec::current_tier(ctx).and_then(|tier| tier.invoke(
         ctx, crate::exec::engine::TierTarget::Site(id), CallArgs::Values(&arguments), &[],
     ));
     let outcome = match native {

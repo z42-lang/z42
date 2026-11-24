@@ -57,10 +57,7 @@ impl EngineGuards {
     #[inline(never)]
     pub fn install(&self, ctx: &VmContext) {
         ctx.exec.jit_head.stack_limit.store(crate::exec::stack_guard::limit(), std::sync::atomic::Ordering::Relaxed);
-        #[cfg(feature = "jit")]
-        if ctx.exec.jit_head.jit.load(std::sync::atomic::Ordering::Relaxed).is_null() {
-            ctx.exec().publish_tier(&ctx.core().exec().engines);
-        }
+        crate::exec::refresh_tier(ctx);
         // SAFETY: the context outlives its guards — they are dropped at the
         // last pop or, at the latest, with the context itself.
         #[cfg(feature = "native-interop")]

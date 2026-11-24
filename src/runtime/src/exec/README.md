@@ -33,7 +33,7 @@
 
 ## 基础用法
 
-跨领域与独立引擎通过 `exec::{EngineRegistry, Engine, TierBackend, Initialization}` 及 `exec::invoke` 消费契约。`engine.rs`、`init.rs` 为私有实现，移动它们不改变消费路径。
+跨领域与独立引擎通过 `exec::{EngineRegistry, Engine, TierBackend, Initialization}` 及 `exec::invoke` 消费契约。解释器和 JIT 通过 `current_tier(ctx)` 读取当前线程的 tier，附着与栈底帧入口通过 `refresh_tier(ctx)` 刷新。`engine.rs`、`init.rs` 为私有实现，移动它们不改变消费路径。
 
 解释器和 JIT helper 从 `z42::exec::ops::scalar` 调用共享函数；JIT 内联发码遵循相同规则，由双模式 golden 验证。异常对象的构造和传播由调用方处理。
 对象能力契约位于 `object/protocol.rs`；执行层借用 Core 已绑定的服务，保留托管调用、异常和文本物化。
