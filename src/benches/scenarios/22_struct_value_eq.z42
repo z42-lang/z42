@@ -6,7 +6,7 @@
 // builtins, zero boxing) — the path struct-keyed dictionaries lean on. The `==` fast
 // path must stay competitive with the boxed-blob compare; Equals must not regress to
 // the box-both-sides vcall protocol.
-// workload: 4M ==, 4M Equals, 2M GetHashCode on alternating operands (defeats
+// workload: 2M ==, 2M Equals, 2M GetHashCode on alternating operands (defeats
 // loop-invariant folding); expected output (deterministic): 2487704086000000
 namespace Bench.StructValueEq;
 
