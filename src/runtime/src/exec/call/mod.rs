@@ -3,7 +3,7 @@ mod entry;
 pub(crate) use entry::{invoke_entry, EntryError};
 
 pub mod frames;
-pub mod frame_stack;
+pub(super) mod frame_stack;
 pub mod reg_pool;
 pub mod stack_alloc;
 pub mod struct_arena;

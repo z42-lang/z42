@@ -94,7 +94,7 @@ pub fn populate_stack_trace_with(value: &Value, ctx: &VmContext, module: &Module
     if !(is_exc && is_null) { return; }
     let slot = match slot_opt { Some(s) => s, None => return };
 
-    // Step 2: snapshot stack outside the borrow (reads call_stack RefCell).
+    // Snapshot the owner thread's frames after releasing the exception borrow.
     let mut frames = ctx.exec().snapshot_call_stack();
     frames.extend_from_slice(extra);
     let trace  = format_stack_trace(&frames);

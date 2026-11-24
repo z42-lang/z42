@@ -66,10 +66,10 @@ reflection_types，object 的 types/header）收 `pub(crate)`，跨引擎词汇�
 metadata 的 ids/dispatch/resolve/statics/builtins、object 的 value/string/array 与根再导出）保持公开；
 三域各加 compile_fail doctest 门，后续新增 pub 子模块须先证明外部消费者。
 
-exec 的激活与调用机制词汇已上收到根：`exec::{frames, frame_stack, reg_pool, stack_alloc, struct_arena,
+exec 的激活与调用机制词汇从根导出：`exec::{frames, reg_pool, stack_alloc, struct_arena,
 transient_arena, args, outcome, forward, indirect_return, type_param_env, builtin_abi, builtins}` 为稳定消费契约
 （`call` 目录收 `pub(crate)`，engine_guards 等实现文件不再转出）；后端与集成测试的深路径
-`exec::call::*` 全部迁移，compile_fail doctest 锁定。
+`exec::call::*` 全部迁移，compile_fail doctest 锁定。帧栈的读写保留在执行层，采样器通过同构建桥读取所属线程的帧名，崩溃处理器通过内部入口读取所属帧或其他线程的发布深度。
 
 loader 与 interop 的双向引用已收口为单向：装载事务（Tier 1 类型库 `load_library` 与自描述模块
 `load_native_module`：开库 → 校验描述符 → 注册 → 记入每 VM 映像缓存）整体归 `interop::install`，

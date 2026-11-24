@@ -293,10 +293,11 @@ regs，interp `RefKind::Stack` 跨帧 deref 通过 `frame.regs`。
 
 | 读写者 | 线程 | 入口 | 条件 |
 |---|---|---|---|
-| 调用序列（`enter_frame` / `enter_compiled`）、`set_top_frame_pc` | 所属线程 | `push` / `pop` / `set_top_pc` | 无锁 |
-| 异常回溯、栈溢出报告、采样器、`RefKind::Stack` deref、`LoadLocalAddr` | 所属线程 | `with_frames` / `regs_at` / `depth` | 无锁；闭包里不许 push / pop |
-| GC root scanner（标记用的、retention 诊断用的分类版） | collector | `VmContext::scan_frames_parked`（`unsafe`） | 调用方是所属线程，或所属线程已 park |
-| 崩溃信号处理器 | 崩溃线程 | 自己的栈：`scan_parked`；别的线程：`published_depth` | 只读自己拥有的帧；别的线程只读深度原子 |
+| 调用序列（`enter_frame` / `enter_compiled`） | 所属线程 | `exec::push_frame` / `pop_frame` / `set_top_frame_pc` | 无锁，执行层处理栈底激活和退出清理 |
+| 异常回溯、栈溢出报告、`RefKind::Stack` 解引用、`LoadLocalAddr` | 所属线程 | 通过执行层捕获栈迹或读取帧状态 | 无锁 |
+| 采样器 | 所属线程 | `components::bridge::sample_frame_names` | 栈底到栈顶的帧名，其他线程无法读取该栈的帧名 |
+| GC root scanner（标记用的、retention 诊断用的分类版） | collector | `ThreadExecState::scan_frames_parked`（`unsafe`） | 调用方是所属线程，或所属线程已 park |
+| 崩溃信号处理器 | 崩溃线程 | `ThreadExecState::inspect_crash_frames` | 本线程读帧，其他线程只读发布的深度，回调限于读栈 |
 
 **跨线程读为什么安全**（`scan_parked` 的前提，全部在 `threads/safepoint.rs` 与 `vm/mod.rs`）：
 

@@ -14,7 +14,7 @@ crate 类型：component。VM 经内部 components::api 请求采样/堆分析�
 | `src/profiler/cpu.rs` | CPU 采样器和分析服务实现 |
 | `src/profiler/heap/` | 堆摘要、V8 快照和保留图算法 |
 
-独立实现通过 `z42::components::abi` 使用描述符和 C 布局接口，通过 `z42::components::bridge` 校验共享核心身份/布局。核心模块仅私有导入，不由本库再导出。
+独立实现通过 `z42::components::abi` 使用描述符和 C 布局接口，通过 `z42::components::bridge` 校验共享核心身份/布局。CPU 采样经同一个桥获取所属线程的帧名快照。核心模块仅私有导入，不由本库再导出。
 
 ## 基础用法
 

@@ -9,7 +9,7 @@ pub struct ThreadExecState {
     /// Callback builtins preserve the original thrown object through this root.
     pub pending_thrown: Mutex<Option<Value>>,
     /// Owner-thread only; other threads read only after the owner is parked.
-    pub call_stack: super::call::frame_stack::FrameStack,
+    call_stack: super::call::frame_stack::FrameStack,
     pub reg_pool: super::call::reg_pool::RegPool,
     /// Installed at the bottom push and restored after the last pop.
     engine_guards: super::call::engine_guards::EngineGuards,
@@ -280,6 +280,34 @@ impl ThreadExecState {
         self.call_stack.with_frames(crate::exec::stack::snapshots)
     }
 
+    /// Capture owned names for the safepoint sampler, outermost first.
+    pub(crate) fn sample_frame_names(&self) -> Vec<Arc<str>> {
+        if !self.call_stack.owned_by_current_thread() {
+            return Vec::new();
+        }
+        self.call_stack.with_frames(|frames| {
+            frames.iter().map(|frame| frame.func().frame_name_file().0).collect()
+        })
+    }
+
+    /// Supply the crashing thread's frames or the published count of another
+    /// context's frames. This takes no locks and copies no frames.
+    ///
+    /// # Safety
+    /// The visitor must only read the frame chain and must not reenter execution.
+    pub(crate) unsafe fn inspect_crash_frames(
+        &self, visit: impl FnOnce(crate::exec::stack::CrashFrames<'_>),
+    ) {
+        use crate::exec::stack::CrashFrames;
+
+        if self.call_stack.owned_by_current_thread() {
+            // SAFETY: the current thread owns this stack and the visitor only reads it.
+            unsafe { self.call_stack.scan_parked(|frames| visit(CrashFrames::CurrentThread(frames))) };
+        } else {
+            visit(CrashFrames::PublishedDepth(self.call_stack.published_depth()));
+        }
+    }
+
     /// Spec impl-ref-out-in-runtime (Decision R1): index into the frame
     /// chain and return a raw pointer to that frame's `regs` Vec.
     /// Used by `Value::Ref { kind: RefKind::Stack { frame_idx, .. } }`
@@ -290,7 +318,7 @@ impl ThreadExecState {
     /// is still alive (guaranteed by spec design Decision 9: refs never
     /// escape the call stack — popped frames cannot be referenced). Like every
     /// frame-stack accessor here, it runs on the context's owner thread.
-    pub fn frame_state_at(&self, idx: usize) -> Option<*const Vec<Value>> {
+    pub(super) fn frame_state_at(&self, idx: usize) -> Option<*const Vec<Value>> {
         self.call_stack.regs_at(idx)
     }
 
@@ -307,8 +335,8 @@ impl ThreadExecState {
     /// collection (`collector_active`).
     ///
     /// # Safety
-    /// As [`crate::exec::frame_stack::FrameStack::scan_parked`]: the caller is the
-    /// owner thread, or the owner is parked for the whole call.
+    /// The caller owns the frames, or the owner stays parked throughout the
+    /// scan. The visitor must keep the frame borrow scoped to the call.
     pub(crate) unsafe fn scan_frames_parked<R>(
         &self, collector_active: bool, f: impl FnOnce(&[crate::exec::frames::VmFrame]) -> R,
     ) -> R {
