@@ -317,13 +317,13 @@ fn json_escape(s: &str) -> String {
 #[path = "cpu_tests.rs"]
 mod cpu_tests;
 
-impl crate::diagnostics::sampling::SampleBackend for Sampler {
+impl crate::components::bridge::SampleBackend for Sampler {
     fn maybe_sample(&self, ctx: &VmContext) { Sampler::maybe_sample(self, ctx); }
     fn flush_folded(&self, path: &str) -> std::io::Result<()> { Sampler::flush_folded(self, path) }
     fn flush_trace(&self, path: &str) -> std::io::Result<()> { Sampler::flush_trace(self, path) }
 }
 
-impl crate::diagnostics::sampling::ProfilerBackend for Sampler {
+impl crate::components::bridge::ProfilerBackend for Sampler {
     fn write_heap_snapshot(&self, ctx: &VmContext, path: &str) -> anyhow::Result<i64> {
         let snapshot = super::heap::snapshot::build_graph_snapshot(ctx.heap());
         let file = std::fs::File::create(path)?;

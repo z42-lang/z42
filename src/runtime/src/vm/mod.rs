@@ -186,7 +186,7 @@ pub struct RuntimeInputs {
     pub builtins: &'static [crate::exec::builtin_abi::BuiltinDesc],
     pub catalog: &'static crate::metadata::builtins::BuiltinCatalog,
     pub fusion: crate::loader::fusion_inputs::FusionInputSource,
-    pub sampler: crate::diagnostics::sampling::Sampling,
+    pub sampler: crate::diagnostics::Sampling,
 }
 impl VmContext {
     pub fn with_runtime(
