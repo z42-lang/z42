@@ -898,9 +898,13 @@ GenericType("Foo", [T..])   → _classes["Foo$N"] first, fallback _classes["Foo"
 - stdlib `MulticastException<R>` 与 `MulticastException` 共存；generic type-param `default(R)` 解析走 `Z42InstantiatedType.Definition.IrName` 路径
 ---
 
-## Deferred / Future Work
+## 泛型父接口的声明作用域
 
-> 索引也存于 [docs/roadmap.md](https://github.com/z42-lang/z42/blob/main/docs/roadmap.md) "Deferred Backlog Index"。
+符号收集在本地类型与导入类型的骨架就绪后，逐个声明文件绑定父接口形态。每个 partial
+片段使用自己的 `using`。求父接口闭包时，`InterfaceClosure.BaseAt` 在已绑定的声明上
+替换实参。`IChild<string>` 因此能为跨文件的实现类记录 `IParent<string>`，供运行时转换和反射读取。
+
+## Deferred / Future Work
 
 ### generic-inference-future-imported-iface-args：跨包类的接口实现参与类型实参推断
 

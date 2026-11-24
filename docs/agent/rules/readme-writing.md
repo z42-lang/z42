@@ -17,8 +17,8 @@
 | Repository Structure | 顶层目录与一句话职责 |
 | License | 许可证 |
 
-- 进度详情链接 roadmap；不另复制阶段表。能力要点放 Why z42，不再另设重复清单。
-- Documentation 按用户（learn / reference）与开发者（internals / agent / roadmap）分流；一行一个意图。
+- 能力要点放 Why z42，保持与当前实现一致。
+- Documentation 按用户（learn / reference）与开发者（internals / agent）分流。
 - 不展开设计原理、完整命令面或内部文件职责表；段间使用 `---`，与现有风格一致。
 
 **维护触发：**

@@ -461,8 +461,6 @@ zbc、meta、`package.meta` 的**写盘是普通写**（`File.Write*`）：缓�
 - 工作区显式 `members` 与多 pattern 匹配。
 - `ImportedSymbolLoader` 的 `impl` 块合并、接口 / 委托 / 枚举支持。
 
-索引见 `docs/roadmap.md` Deferred Backlog。
-
 显式工作区图的 builder worker 对 hook 的 `Inputs.Deps` 采用相同成员边界：图前置成员仅取其所属目录的主产物；
 外部框架目录中与任何工作区成员同名的副本都排除。未选择成员的旧部署包不能借框架目录进入 hook 输入，
 已完成前置成员的复制品也不能覆盖本轮主产物。

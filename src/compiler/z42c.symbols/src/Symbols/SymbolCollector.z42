@@ -332,6 +332,8 @@ public sealed class SymbolCollector {
         while (c < cuCount) { this._stub._passDelegates(table, cus[c]); c = c + 1; }
         this._mergeImportedDelegates(table, imported);   // 本包 delegate 之后并（同 FQN 本包胜出），成员收集之前
         c = 0;
+        while (c < cuCount) { this._stub._passBindIfaceBases(table, cus[c]); c = c + 1; }
+        c = 0;
         while (c < cuCount) { this._member._passMembers(table, cus[c]); c = c + 1; }
         this._enforce._passResolvePartialMethods();   // add-partial-types：partial method 实现↔声明配对校验（decl-only 已在 _fillClass 擦除）
         // add-implicit-base-ctor-call：构造器继承 / 默认构造器——须在**全部** CU 的成员收集之后（基类可能在别的 CU），

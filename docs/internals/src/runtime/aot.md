@@ -13,7 +13,7 @@
 - 但 z42 **已用 cranelift 做 JIT**（codegen/frontend/jit/module/native）；`translate.rs` 把 zbc→cranelift IR。
 - cranelift 有 **`cranelift-object`（ObjectModule）**，与 `JITModule` **共用 `cranelift_module::Module` trait** → 能发 `.o`。
 
-## 2. 后端决策（D1）：cranelift-AOT，复用 JIT 翻译层（修订 M9 的 LLVM 计划）
+## 2. 后端决策（D1）：cranelift-AOT，复用 JIT 翻译层
 把 `translate_function` 从硬绑 `JITModule` **泛化为 `M: cranelift_module::Module`** → **同一份 zbc→cranelift IR 翻译,两个输出**：
 - **JIT**：`JITModule`（内存可执行页）
 - **AOT**：`ObjectModule`（`.o` 对象文件）
@@ -23,8 +23,6 @@
 - **比 LLVM 轻**：无 LLVM 工具链重依赖、编译更快。
 - **精确 GC 免费**：cranelift 支持 user stack map（[safepoint.md §7](safepoint-design.md)）→ AOT 也精确；LLVM statepoint 很痛。
 - **接组件化**：libz42_jit + libz42_aot **共享 cranelift 翻译核**。
-
-→ **roadmap M9 由 "LLVM/inkwell" 改为 cranelift-AOT**；LLVM 仅在将来追峰值性能时作第二后端。
 
 ## 3. 混合模式（D2）：AOT + JIT + interp，按平台
 
@@ -62,7 +60,7 @@ AOT 码发 **cranelift user stack map**(与 JIT 共享机制)→ AOT 路径精�
 ## 9. 决策记录
 | # | 决策 |
 |---|---|
-| D1 后端 | **cranelift-AOT**(复用 JIT 翻译,泛化 Module trait,cranelift-object 发 .o);**修订 M9 LLVM 计划**;LLVM 延后 |
+| D1 后端 | **cranelift-AOT**，复用 JIT 翻译层，通过 `cranelift-object` 生成对象文件 |
 | D2 混合 | **AOT + JIT + interp**(JIT 平台);iOS/wasm = AOT + interp。AOT baseline 与 JIT 运行时再优化共存(.NET R2R / ART 模型) |
 | D3 产出 | host build-time 交叉编译 → 链进 app/framework(iOS 必须);接 export/打包 |
 | D4 wasm | 用户码 AOT 延后,iOS 优先 |

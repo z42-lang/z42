@@ -155,7 +155,7 @@ public sealed partial class MemberResolver {
     // ── feat/static-method-group：类的静态方法取引用作 delegate 值 ─────────────────────────
     // `Func<int,int> f = Api.Twice;` 与类内裸名 `Func<int,int> f = Twice;`。此前 `C.F` 落
     // 「undefined: C」（类名不是值）、裸名落「undefined: F」——book 🔴 记载的缺口
-    // （learn/types/lambdas.md「当前实现的边界」/ roadmap support-static-method-group-conversion）。
+    // （learn/types/lambdas.md「当前实现的边界」）。
     //
     // 形态与限制对齐**实例**方法组的既有边界：v1 只认主方法（bare 注册键；重载的按目标委托
     // 消解是实例/静态共有的后续项），且沿用 reject-derived-static-access——经派生类名取基类

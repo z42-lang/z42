@@ -11,7 +11,7 @@
 | `install` | 把 SDK 自带的编辑器集成装进用户编辑器（`z42d install vscode`）|
 
 待办：`fmt`（源码格式化）、`dbg`（调试器 / DAP）、`prof`（性能剖析）、`lint`（静态检查）四个子命令已登记命令面，
-运行时只打印 "planned" 并返回 1；时点见 `docs/roadmap.md`。
+运行时只打印 "planned" 并返回 1。
 
 形态对照 z42b（builder）：**一个 exe + 一个 Std.Cli 嵌套 router**，launcher 命令分发
 （`z42 doc` → `z42d doc`，同 `z42 test` → `z42b`）。

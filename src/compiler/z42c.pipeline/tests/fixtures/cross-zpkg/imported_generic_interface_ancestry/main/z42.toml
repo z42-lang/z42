@@ -1,0 +1,8 @@
+[project]
+name = "demo.interfaceancestryapp"
+version = "0.1.0"
+kind = "exe"
+pack = true
+
+[dependencies]
+"demo.interfaceancestrytarget" = "0.1.0"

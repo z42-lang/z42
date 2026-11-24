@@ -129,7 +129,7 @@ generated_dir = "…"      # 没配置 → <output_dir>/generated；配 "" → �
 
 - **转发字段 / 属性**：v1 只转发方法。
 - **递归 / 传递转发**（S3 明确不做）。
-- **IDE 的 Find All References / rename**：依赖 roadmap 0.5.7 的 `z42-lsp` 里程碑。
+- **IDE 的 Find All References / rename**：依赖语言服务器支持。
 
 ## 为什么是生成真方法，而不是名字解析改写
 

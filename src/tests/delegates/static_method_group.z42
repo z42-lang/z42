@@ -1,5 +1,4 @@
 // feat/static-method-group 回归 golden：类静态方法取引用作 delegate 值。
-// book 🔴 记载的缺口关闭（learn「当前实现的边界」/ roadmap support-static-method-group-conversion）：
 //   ① `Func<int,int> f = Api.Twice;`（限定形态）——此前报 `E0401: undefined: Api`
 //   ② `Func<int,int> f = Demo.Api.Twice;`（ns 全限定形态）
 //   ③ 类内裸名 `return Twice;`——此前报 `E0401: undefined: Twice`

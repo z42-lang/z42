@@ -40,8 +40,7 @@ C 声明在能力所有者的模块或 crate 内维护；共享协议头随拥�
 
 新增模块、跨模块引用、公开类型或组件能力时，先列出状态所有者、消费者和接口类别，再选文件位置与可见性。
 VM 上下文只组合领域状态并管理生命周期；执行、对象、加载、诊断等机制归各自模块，不以通用 context 目录承接跨领域代码。
-当前实现与目标边界见[运行时模块边界](../../internals/src/runtime/module-boundaries.md)，实施顺序只在
-[roadmap](../../roadmap.md#runtime-module-boundaries运行时模块边界收口)维护。
+当前实现、目标与待收口事项见[运行时模块边界](../../internals/src/runtime/module-boundaries.md)。
 
 1. **区分宿主接口、VM 内部接口、同构建跨库协议。** 默认使用私有、`pub(super)` 或 `pub(crate)`；
    `host` 只提供宿主确实需要的加载、调用、配置及功能级诊断请求，不因为内部模块已有 `pub` 就转出。

@@ -1,0 +1,24 @@
+namespace DemoInterfaceAncestryApp;
+
+using Std.IO;
+using DemoInterfaceChildren;
+
+void Main() {
+    object source = new Source();
+
+    Assert.True(source is IChild<string>);
+    Assert.False(source is IChild<int>);
+    Assert.True(source is DemoInterfaceParents.IMarker<string>);
+    Assert.False(source is DemoInterfaceParents.IMarker<int>);
+    Assert.False(source is DemoOtherInterfaces.IMarker<string>);
+
+    var actual = source.GetType();
+    Assert.True(typeof(DemoInterfaceParents.IMarker<string>).IsAssignableFrom(actual));
+    Assert.False(typeof(DemoInterfaceParents.IMarker<int>).IsAssignableFrom(actual));
+    Assert.False(typeof(DemoOtherInterfaces.IMarker<string>).IsAssignableFrom(actual));
+    var implemented = actual.GetInterfaces();
+    Assert.Equal(2, implemented.Length);
+    Assert.Equal(typeof(IChild<string>), implemented[0]);
+    Assert.Equal(typeof(DemoInterfaceParents.IMarker<string>), implemented[1]);
+    Console.WriteLine("OK");
+}

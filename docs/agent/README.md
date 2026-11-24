@@ -4,7 +4,7 @@
 都从这里读同一份规范。这里只有规范；系统知识在三本书，目录说明在各级 README——下面「开工」一节告诉你怎么找到它们。
 
 > z42 是一门融合 C#、Rust、Python 优点的系统编程语言：编译器 z42c 用 z42 自举（`src/compiler`，编译为 zpkg），
-> 虚拟机用 Rust（Interpreter / JIT / AOT）。当前计划与焦点只看 [docs/roadmap.md](../roadmap.md)，不在别处复制。
+> 虚拟机用 Rust（Interpreter / JIT / AOT）。当前迭代的范围与进度记在对应 PR。
 
 **每次会话先读**：本文件 · [workflow.md](rules/workflow.md)（流程主线）· [philosophy.md](rules/philosophy.md)（判断准则）·
 [doc-system.md](rules/doc-system.md)（文档规则）。其余按下方索引「什么时候读」进。

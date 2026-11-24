@@ -300,7 +300,6 @@ reference 那条「循环变量每次迭代是新绑定」的语义**由值快�
 - **标量替换**（把对象炸成寄存器彻底消除分配）作第二种 lowering。
 - **JIT 侧 arena 落地**。
 
-延后条目登记见 `docs/roadmap.md` Deferred Backlog Index（`escape-stack-future-*`）。
 
 ## 关联文档
 - 开关 / 管线位置：[optimization-pipeline](optimization-pipeline.md)

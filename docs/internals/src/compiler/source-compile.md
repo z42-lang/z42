@@ -1114,7 +1114,7 @@ z42 无独立的 finally 执行机制——`StmtEmitter._emitTry`（语句 & 控
 
 ## Deferred
 
-- 统一的 AST 脱糖阶段：目前少量 AST 改写分散在各处，尚未提取为独立 pass。索引见 `docs/roadmap.md` Deferred Backlog。
+- 统一的 AST 脱糖阶段：目前少量 AST 改写分散在各处，尚未提取为独立 pass。
 
 - **协议豁免方法无法承载「行为发散」的重载**：对象协议方法
   （`ToString` / `Equals` / `GetHashCode` / `GetType` / `get_Item` / `set_Item`，见
@@ -1129,7 +1129,7 @@ z42 无独立的 finally 执行机制——`StmtEmitter._emitTry`（语句 & 控
     解析、运行时多态走规范槽。属 VM + 编译器（可能连带 vtable 布局 / DepIndex / zbc·zpkg 格式）工程，非局部改动。
   - **触发条件**：出现真实需要「行为发散的协议重载」的用例（罕见——对象协议契约本就要求
     `Equals(object)` 与 `Equals(T)` **一致**，此限制大体与契约同向）。
-  - partial 的跨碎片重复成员检测按完整签名判重（按 RegKey 判重会把协议重载误报成 E0433），但底层单槽塌缩仍在。索引见 `docs/roadmap.md` Deferred Backlog。
+  - partial 的跨碎片重复成员检测按完整签名判重（按 RegKey 判重会把协议重载误报成 E0433），但底层单槽塌缩仍在。
 
 ## 泛型实例化的单调化：工作表与判据
 

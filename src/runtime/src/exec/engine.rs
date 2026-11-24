@@ -106,8 +106,7 @@ impl EngineRegistry {
                 .run(ctx, module, entry),
             ExecMode::Jit => self.jit_engine.get().ok_or_else(|| anyhow::anyhow!("JIT backend unavailable on this VM"))?
                 .run(ctx, module, entry),
-            ExecMode::Aot => bail!("AOT mode is not implemented yet (planned: roadmap M9 — L3 \
-                phase, LLVM/inkwell). Switch to `--mode interp` or `--mode jit`."),
+            ExecMode::Aot => bail!("AOT mode is not implemented yet. Switch to `--mode interp` or `--mode jit`."),
         }
     }
 }
