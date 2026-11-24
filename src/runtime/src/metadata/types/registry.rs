@@ -229,13 +229,12 @@ pub fn build_type_registry(module: &mut Module) {
                      plausible-looking wrong offset.",
                     class_name, desc.struct_field_table.len(), desc.fields.len(),
                 );
-                std::sync::Arc::new(crate::object::StructTypeLayout {
+                std::sync::Arc::new(crate::object::StructTypeLayout { float_field_ranges: Default::default(),
                     size:        l.size as usize,
                     ref_offsets: l.ref_offsets.clone(),
                     ref_kinds:   l.ref_kinds.clone(),
                     // symbolic-struct-field-access P0：逐字段表来自 zbc 1.45 的 TYPE 段
                     // （`class_flags2` bit0 门控，#903 落地）。没带表的类型 ⇒ 空。
-                    // **休眠元数据**：目前无消费方，接通是 P2。
                     fields:      desc.struct_field_table.iter()
                         .map(|e| crate::object::StructFieldLayout {
                             offset: e.offset, size: e.size, kind: e.kind,
@@ -246,7 +245,7 @@ pub fn build_type_registry(module: &mut Module) {
             // add-struct-heap-inline (P3b): the class's composed inline-struct layout
             // (zbc 1.32 inline block). `map` → shared `Arc`, same as struct_layout.
             inline_layout:          desc.inline_layout.as_ref().map(|l| {
-                std::sync::Arc::new(crate::object::StructTypeLayout {
+                std::sync::Arc::new(crate::object::StructTypeLayout { float_field_ranges: Default::default(),
                     size:        l.size as usize,
                     ref_offsets: l.ref_offsets.clone(),
                     ref_kinds:   l.ref_kinds.clone(),

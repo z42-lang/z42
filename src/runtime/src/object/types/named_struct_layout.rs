@@ -20,6 +20,7 @@
 
 use crate::object::{self as ty, StructTypeLayout, TypeDesc};
 use anyhow::{bail, Result};
+use std::ops::Range;
 use std::sync::Arc;
 
 /// Resolves a type name to its `TypeDesc` (for nested-struct recursion + is-struct checks).
@@ -260,6 +261,76 @@ pub fn compute_class_inline(resolve: &TypeResolver, class_name: &str) -> Result<
         size: align_up(offset, max_align),
         align: max_align,
     })
+}
+
+/// Get the float leaf ranges once per concrete blob layout. Resolve outside of arena borrows:
+/// loading a nested type can publish runtime events and drain pending type loads.
+pub fn float_field_ranges<'a>(
+    layout: &'a StructTypeLayout, resolve: &TypeResolver<'_>, name: &str,
+) -> Result<&'a [Range<usize>]> {
+    if let Some(ranges) = layout.float_field_ranges.get() {
+        return Ok(ranges);
+    }
+    let mut ranges = Vec::new();
+    collect_float_fields(resolve, name, layout, 0, 0, &mut ranges)?;
+    Ok(layout.float_field_ranges.get_or_init(|| ranges.into_boxed_slice()))
+}
+
+fn collect_float_fields(
+    resolve: &TypeResolver<'_>, name: &str, layout: &StructTypeLayout,
+    base: usize, depth: usize, ranges: &mut Vec<Range<usize>>,
+) -> Result<()> {
+    if depth > 64 {
+        bail!("struct hash: nesting too deep / cyclic value struct `{name}`");
+    }
+    if layout.size == 0 {
+        return Ok(());
+    }
+    let td = resolve(name).ok_or_else(|| anyhow::anyhow!("struct hash: unknown type `{name}`"))?;
+    if layout.fields.is_empty() && !td.fields.is_empty() {
+        let computed = compute(resolve, name)?;
+        computed.validate_against(layout, name)?;
+        for field in &computed.leaves {
+            add_float_field(
+                resolve, name, &field.type_name, field.is_struct,
+                base + field.byte_off as usize, field.size as usize, depth, ranges,
+            )?;
+        }
+        return Ok(());
+    }
+    if layout.fields.len() != td.fields.len() {
+        bail!("struct hash: field table does not match type `{name}`");
+    }
+    for (field, slot) in layout.fields.iter().zip(&td.fields) {
+        // The field table marks inline struct fields with StructLeafKind.Struct.
+        add_float_field(
+            resolve, name, &slot.type_tag, field.kind == 3,
+            base + field.offset as usize, field.size as usize, depth, ranges,
+        )?;
+    }
+    Ok(())
+}
+
+fn add_float_field(
+    resolve: &TypeResolver<'_>, owner: &str, name: &str, nested: bool, offset: usize,
+    size: usize, depth: usize, ranges: &mut Vec<Range<usize>>,
+) -> Result<()> {
+    if size == 0 {
+        return Ok(());
+    }
+    if nested {
+        let (td, fq) = resolve_named(resolve, owner, name)
+            .ok_or_else(|| anyhow::anyhow!("struct hash: unknown field type `{name}` in `{owner}`"))?;
+        let layout = td.struct_layout_ref()
+            .ok_or_else(|| anyhow::anyhow!("struct hash: missing layout for `{fq}`"))?;
+        if layout.size != size {
+            bail!("struct hash: mismatched nested layout for `{fq}` in `{owner}`");
+        }
+        collect_float_fields(resolve, &fq, layout, offset, depth + 1, ranges)?;
+    } else if matches!((name, size), ("float" | "Std.Single", 4) | ("double" | "Std.Double", 8)) {
+        ranges.push(offset..offset + size);
+    }
+    Ok(())
 }
 
 /// If `field_name` on class `owner_fq` is a value-struct field, return its fully-qualified

@@ -593,7 +593,7 @@ public sealed class CallEmitter {
     // 实参先于 receiver 发射（match _emitBoxedStructObjectCall 的发射序，保副作用顺序不变）：
     //   · x 静态即同型 struct（binder 包了 BoundBox）→ 剥壳拿裸 StructRef——float-free 走 `__struct_eq`
     //     单指令；含浮点走逐叶（语义与 `a == x` 脱糖一致）
-    //   · x 静态为其他值类型（struct/enum/基元）→ `x is P` 编译期恒假 → ConstBool(false)
+    //   · x 静态为其他值类型（struct/enum/基元）→ 求值两侧后发射 ConstBool(false)
     //   · x 为 object/接口/型参 → 运行期同名判定：float-free 走 `__struct_eq`（非 struct 侧答 false）；
     //     含浮点内联 `is`+AsCast+逐叶
     private TypedReg _emitStructEqualsFast(BoundCall c) {
@@ -612,6 +612,8 @@ public sealed class CallEmitter {
         if (sameStatic) {
             arg = this._ee.Emit(inner);          // 裸 StructRef（剥壳：不装箱、不 copy-in——比较只读）
         } else if (inner != null && Z42.Symbols.TypeFacts.IsNonNullableValueType(inner.Type())) {
+            this._ee.Emit(inner);
+            this._ee.Emit(c.Receiver);
             TypedReg f = this._ctx.Alloc(IrType.Bool);
             this._ctx.Emit(new ConstBoolInstr(f, false));
             return f;
