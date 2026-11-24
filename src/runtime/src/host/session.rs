@@ -8,6 +8,7 @@ use super::abi_config::Z42ExecMode;
 use super::error::Z42HostStatus as Status;
 use super::{LoadedProgram, ZpkgResolver};
 use crate::corelib::io::{self, HostSinks, OutputSink};
+use crate::exec::EntryError;
 use crate::loader::ImageCache;
 use crate::object::Value;
 use crate::pal::fs::Vfs;
@@ -253,18 +254,16 @@ pub(super) fn invoke(
     let args = arguments()?;
     let _sink = io::HostSinkGuard::enter();
     program.invoke_index(function, &args).map_err(|error| {
-        let message = format!("{error:#}");
-        let status = if message.starts_with(crate::exec::stack_guard::FATAL_PREFIX) {
-            let _ = crate::exec::stack_guard::take_report();
-            Status::Fatal
-        } else if message.contains("arg-count-mismatch:") {
-            Status::ArgMismatch
-        } else if message.contains("uncaught exception") || message.contains("undefined function") {
-            Status::VmException
-        } else {
-            Status::Internal
+        let status = match &error {
+            EntryError::ArgMismatch(_) => Status::ArgMismatch,
+            EntryError::Uncaught(_) => Status::VmException,
+            EntryError::Fatal(_) => {
+                let _ = crate::exec::stack_guard::take_report();
+                Status::Fatal
+            }
+            EntryError::Internal(_) => Status::Internal,
         };
-        Failure::new(status, message)
+        Failure::new(status, format!("{:#}", error.into_diagnostic()))
     })
 }
 

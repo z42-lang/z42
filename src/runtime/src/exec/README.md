@@ -19,7 +19,7 @@
 | `active_vm.rs` | native-interop 回调的活动 VM TLS 与激活 guard；底帧与宿主重入共用，退出时恢复前一上下文 |
 | `engine.rs` | Engine / TierApi 注册、共享调用边界和 OSR 交接；门面按 feature 装配，后端持有代码及激活；corelib 的反射、attribute 和线程回调也经此入口 |
 | `ops/call.rs` / `ops/stringify.rs` | 冷 Call/FnRef 绑定及 ToString 协议执行，调用经已注册 Engine |
-| `call/entry.rs` | 程序入口参数校验、GC 根保护、引擎派发与错误映射 |
+| `call/entry.rs` | 程序入口参数校验、GC 根保护、引擎派发与类型化调用失败 |
 | `call/engine_guards.rs` | 栈底激活安装 VM / heap TLS，最后一帧退出恢复；支持嵌套宿主重入 |
 | `call/`（经 exec 根再导出） | 统一 VmFrame / FrameStack、寄存器池和三种帧作用域 arena；消费路径为 `exec::{frames, frame_stack, reg_pool, ...}`，`call` 本身 crate 内可见 |
 | `call/builtins.rs` | 按 ID / 名称派发 builtin，按 `(provider, export)` 派发模块函数；共享计数、异常与 void 语义，门面提供 callable 表 |

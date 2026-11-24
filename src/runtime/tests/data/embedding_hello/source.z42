@@ -33,7 +33,7 @@ void MultiLine() {
 }
 
 void Boom() {
-    throw new Exception("intentional embedding-test failure");
+    throw new Exception("intentional embedding-test failure: arg-count-mismatch: from managed code");
 }
 
 // fix-host-static-init: the host path never ran `__static_init__`, so every static field

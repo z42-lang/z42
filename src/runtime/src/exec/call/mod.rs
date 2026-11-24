@@ -1,6 +1,6 @@
 //! Activation records and storage shared by all execution engines.
 mod entry;
-pub(crate) use entry::invoke_entry;
+pub(crate) use entry::{invoke_entry, EntryError};
 
 pub mod frames;
 pub mod frame_stack;
