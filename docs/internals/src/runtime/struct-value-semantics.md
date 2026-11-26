@@ -348,9 +348,9 @@ struct 的完整对象协议。unboxed struct 仍无 vtable（这些方法经装
   叶子保持常量贡献，Equals 按身份比较的语义下 collisions 合法）。接口投影保留派发槽信息；
   默认值比较和引用叶子哈希使用投影的底层接收者，同一对象经不同接口视图进入 struct 仍有相同哈希。
   装箱载荷不超过 64 字节且没有引用叶子时，通过原子读取复制到栈缓冲，再规范化浮点负零并计算哈希。
-  `& 0x7fffffff` 保证结果非负。每种布局按需缓存嵌套浮点字段的字节位置，哈希前在临时副本中
-  将这些字段的负零归一为正零，使默认相等的值得到相同哈希。无浮点字段的局部 struct 直接对已有
-  字段数据计算哈希。
+  `& 0x7fffffff` 保证结果非负。每种布局按需缓存按偏移排序的浮点叶子范围。帧内 struct 直接借用
+  字段数据计算哈希，遇到负零时把符号字节按零混入。装箱和数组元素在快照中归一负零。
+  三种表示按相同顺序混入原始字节和引用叶子，使默认相等的值得到相同哈希。
 - **`ToString()`**：VM boxed-vcall 臂直接返回**短类型名**（C# `ValueType.ToString` 默认；字段 dump 留后续）。
 - **`GetType()`**：`builtin_obj_get_type`（PR2a）。
 
@@ -370,8 +370,8 @@ struct 的完整对象协议。unboxed struct 仍无 vtable（这些方法经装
   保留实参和接收者的求值，再发射 `ConstBool(false)`；x 为 object/接口/型参 → `__struct_eq`（builtin 内
   运行期同名判定，非 struct 侧答 false；含浮点布局内联 `is`+`AsCast`+逐叶）。
 - **`a.GetHashCode()`**（未自声明）：`__struct_hash_code` 直呼——builtin 已扩为收**任意表示**
-  （`StructRef` / `StructRefHeap` / `BoxedStruct`），哈希走
-  payload 级 `boxed_hash::hash_struct_payload`（boxed 臂同一实现 ⇒ 跨表示同哈希）。
+  （`StructRef` / `StructRefHeap` / `BoxedStruct`），由 `struct_value_hash` 按表示读取字段，
+  再使用 `boxed_hash` 中共用的 FNV-1a 字节与引用叶子混合逻辑。
 
 `__struct_eq` 由编译器直接发射。`__struct_hash_code` 同时服务具体类型调用和 `Std.ValueType.GetHashCode()`。
 

@@ -13,26 +13,17 @@
 use crate::object::Value;
 use crate::object::RefKind;
 use crate::components::bridge::VmContext;
-use crate::exec::transient_arena::TransientPayload;
 use crate::exec::type_param_env::{method_default_value, method_type_value};
 use anyhow::Result;
 
 use super::Frame;
-
-/// make-value-copy: allocate a `RefKind` into the per-context transient arena and
-/// return the `Value::Ref { idx, frame_id }` handle (payload lives in the arena, so
-/// `Value` stays `Copy`). LIFO-freed when the creating frame pops.
-fn mk_ref(ctx: &VmContext, frame_id: u32, kind: RefKind) -> Value {
-    let idx = ctx.exec().transient_alloc(frame_id, TransientPayload::Ref(kind));
-    Value::Ref { idx, frame_id }
-}
 
 #[inline(never)] // 热循环布局：留在 exec_function_body 之外（见 exec_instr.rs 模块注释）
 pub(super) fn load_local_addr(ctx: &VmContext, frame: &mut Frame, dst: u32, slot: u32) {
     let depth = ctx.exec().frame_stack_depth();
     // Current frame is the most recent push (depth - 1).
     let frame_idx = (depth.saturating_sub(1)) as u32;
-    let r = mk_ref(ctx, frame.frame_id(ctx), RefKind::Stack { frame_idx, slot });
+    let r = ctx.exec().alloc_ref(frame.frame_id(ctx), RefKind::Stack { frame_idx, slot });
     frame.set(dst, r);
 }
 
@@ -44,7 +35,7 @@ pub(super) fn load_elem_addr(
 ) -> Result<Option<Value>> {
     match crate::exec::ops::object::array::check_elem_addr(frame.get(arr)?, frame.get(idx)?) {
         Ok((gc_ref, idx)) => {
-            let r = mk_ref(ctx, frame.frame_id(ctx), RefKind::Array { gc_ref, idx });
+            let r = ctx.exec().alloc_ref(frame.frame_id(ctx), RefKind::Array { gc_ref, idx });
             frame.set(dst, r);
             Ok(None)
         }
@@ -59,7 +50,7 @@ pub(super) fn load_field_addr(
 ) -> Result<Option<Value>> {
     match crate::exec::ops::object::field::check_field_addr(frame.get(obj)?, field_name) {
         Ok(gc_ref) => {
-            let r = mk_ref(ctx, frame.frame_id(ctx), RefKind::Field {
+            let r = ctx.exec().alloc_ref(frame.frame_id(ctx), RefKind::Field {
                 gc_ref, field_name: field_name.to_string(),
             });
             frame.set(dst, r);

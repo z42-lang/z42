@@ -54,3 +54,23 @@ fn string_leaf_hashes_content_null_leaf_contributes_nothing() {
     assert_ne!(hash_struct_payload(&[], &[Value::Null]), hash_struct_payload(&[], &[]));
     assert_eq!(hash_struct_payload(&[1], &[Value::Null]), hash_struct_payload(&[1], &[Value::Null]));
 }
+
+#[test]
+fn borrowed_float_hash_matches_normalized_snapshot() {
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(&i32::MIN.to_le_bytes());
+    bytes.extend_from_slice(&(-0.0_f32).to_le_bytes());
+    bytes.extend_from_slice(&(-2.5_f64).to_le_bytes());
+    bytes.extend_from_slice(&(-0.0_f64).to_le_bytes());
+    bytes.push(17);
+    let ranges = [4..8, 8..16, 16..24];
+    let refs = [Value::Str("field".into()), Value::Null];
+    let mut normalized = bytes.clone();
+    normalize_signed_zero(&mut normalized, &ranges).unwrap();
+
+    assert_eq!(normalized[7], 0);
+    assert_eq!(normalized[15], 0xc0);
+    assert_eq!(normalized[23], 0);
+    assert_eq!(hash_struct_with_floats(&bytes, &refs, &ranges).unwrap(),
+               hash_struct_payload(&normalized, &refs));
+}
