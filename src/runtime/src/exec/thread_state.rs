@@ -15,13 +15,13 @@ pub struct ThreadExecState {
     /// Installed at the bottom push and restored after the last pop.
     engine_guards: super::call::engine_guards::EngineGuards,
     /// LIFO frame-scoped payloads, scanned under each arena lock during a pause.
-    pub stack_arena: Arc<Mutex<super::call::stack_alloc::StackArena>>,
+    stack_arena: Arc<Mutex<super::call::stack_alloc::StackArena>>,
     pub struct_arena: Arc<Mutex<super::call::struct_arena::StructArena>>,
     transient_arena: Arc<Mutex<TransientArena>>,
     /// Single-mutator published lengths; GC reads arena data under its locks.
     /// Relaxed reads let push/pop skip locks for unchanged arena lengths.
-    pub stack_obj_len: AtomicUsize,
-    pub stack_arr_len: AtomicUsize,
+    stack_obj_len: AtomicUsize,
+    stack_arr_len: AtomicUsize,
     pub struct_len: AtomicUsize,
     transient_len: AtomicUsize,
     /// Owner-thread source; zero is reserved for a frame that has taken no id.
@@ -166,36 +166,50 @@ mod tests;
 
 
 impl ThreadExecState {
-    // ── Frame chain (unify-frame-chain) ────────────────────────
-    //
-    // Single push_frame / pop_frame replaces the previously-separate
-    // (push_frame_state / pop_frame_regs) + (push_call_frame / pop_call_frame)
-    // pairs. Atomic push of one VmFrame holds GC roots + trace metadata
-    // together — caller cannot "forget half".
-
-    /// Push one [`crate::exec::frames::VmFrame`] onto the active script frame
-    /// chain. Pop is the caller's responsibility (typically via the
-    /// interp `FrameGuard` RAII or the explicit pair in JIT helpers).
     // Allocations and truncation publish the new length under the arena lock.
     // Frame entry reads these lengths to stamp its bases, and frame exit skips
     // locking arenas whose lengths did not change.
 
-    /// Allocate a stack object; publishes the new `objs` length. See `stack_obj_len`.
-    pub fn stack_alloc_obj(&self, frame_id: u32, obj: crate::object::OwnedObject) -> u32 {
+    /// Allocate a non-escaping object for the lifetime of its creating frame.
+    pub fn alloc_stack_object(&self, frame_id: u32, obj: crate::object::OwnedObject) -> Value {
         use std::sync::atomic::Ordering::Relaxed;
         let mut a = self.stack_arena.lock();
         let idx = a.alloc_obj(frame_id, obj);
         self.stack_obj_len.store(idx as usize + 1, Relaxed);
-        idx
+        Value::StackObject { idx, frame_id }
     }
 
-    /// Allocate a stack array; publishes the new `arrs` length. See `stack_arr_len`.
-    pub fn stack_alloc_arr(&self, frame_id: u32, arr: crate::exec::stack_alloc::StackArray) -> u32 {
+    pub(super) fn alloc_stack_array(&self, frame_id: u32, elems: Vec<Value>) -> Value {
         use std::sync::atomic::Ordering::Relaxed;
         let mut a = self.stack_arena.lock();
-        let idx = a.alloc_arr(frame_id, arr);
+        let idx = a.alloc_arr(frame_id, elems);
         self.stack_arr_len.store(idx as usize + 1, Relaxed);
-        idx
+        Value::StackArray { idx, frame_id }
+    }
+
+    /// Borrow the stack object under the arena lock. The callback must not
+    /// reenter the arena or trigger GC.
+    pub(super) fn with_stack_object<R>(
+        &self, idx: u32, frame_id: u32, f: impl FnOnce(&crate::object::ScriptObject) -> R,
+    ) -> anyhow::Result<R> {
+        self.stack_arena.lock().with_obj(idx, frame_id, f)
+    }
+
+    pub(super) fn with_stack_array<R>(
+        &self, idx: u32, frame_id: u32, f: impl FnOnce(&[Value]) -> R,
+    ) -> anyhow::Result<R> {
+        self.stack_arena.lock().with_arr(idx, frame_id, f)
+    }
+
+    pub(super) fn with_stack_array_mut<R>(
+        &self, idx: u32, frame_id: u32, f: impl FnOnce(&mut [Value]) -> R,
+    ) -> anyhow::Result<R> {
+        self.stack_arena.lock().with_arr_mut(idx, frame_id, f)
+    }
+
+    /// Visit heap values reachable from the live stack objects and arrays.
+    pub(crate) fn scan_stack_alloc_roots(&self, visit: &mut dyn FnMut(&Value)) {
+        self.stack_arena.lock().scan_roots(visit);
     }
 
     /// Allocate a value-struct blob; publishes the new length. See `struct_len`.
@@ -393,7 +407,7 @@ impl ThreadExecState {
 }
 
 /// An arena length as a frame's `u32` truncation base. Arena slot indices are
-/// `u32` (`stack_alloc_obj` & co. return one), so a published length always fits.
+/// `u32` (each frame-owned handle carries one), so a published length always fits.
 #[inline]
 fn arena_base(len: usize) -> u32 {
     debug_assert!(len <= u32::MAX as usize, "arena length {len} exceeds u32");

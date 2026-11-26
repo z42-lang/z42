@@ -95,10 +95,10 @@ fn field_get_rare(ctx: &VmContext, recv: &Value, name: &str, ic: Option<&FieldIC
         Value::Array(rc) => array_len_field(name, rc.borrow().len()),
         Value::Null => Err(OpError::null_field_read(name)),
         Value::StackObject { idx, frame_id } => {
-            Ok(ctx.exec.stack_arena.lock().with_obj(*idx, *frame_id, |o| load(o, name, ic))?)
+            Ok(ctx.exec().with_stack_object(*idx, *frame_id, |o| load(o, name, ic))?)
         }
         Value::StackArray { idx, frame_id } => {
-            let len = ctx.exec.stack_arena.lock().with_arr(*idx, *frame_id, |a| a.len())?;
+            let len = ctx.exec().with_stack_array(*idx, *frame_id, |a| a.len())?;
             array_len_field(name, len)
         }
         Value::PinnedView { idx, frame_id } => {
@@ -151,7 +151,7 @@ pub fn field_set(ctx: &VmContext, recv: &Value, name: &str, v: &Value, ic: Optio
 fn field_set_rare(ctx: &VmContext, recv: &Value, name: &str, v: &Value, ic: Option<&FieldIC>) -> OpResult<()> {
     match recv {
         Value::StackObject { idx, frame_id } => {
-            ctx.exec.stack_arena.lock().with_obj_mut(*idx, *frame_id, |o| store(o, name, v, ic))??;
+            ctx.exec().with_stack_object(*idx, *frame_id, |o| store(o, name, v, ic))??;
             Ok(())
         }
         Value::Null => Err(OpError::null_field_write(name)),

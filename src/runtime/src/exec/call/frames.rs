@@ -50,9 +50,9 @@ pub struct VmFrame {
     /// bulk-freeing this frame's stack-allocated objects/arrays (LIFO). Stamped
     /// by `push_frame` (not the `new()` call sites) → all frame kinds get it for
     /// free; JIT frames never stack-allocate so their truncate is a no-op.
-    /// Arena slot indices are `u32` (`stack_alloc_obj` etc.), so a length fits.
-    pub stack_obj_base: u32,
-    pub stack_arr_base: u32,
+    /// Arena slot indices are `u32`, so a length fits.
+    pub(in crate::exec) stack_obj_base: u32,
+    pub(in crate::exec) stack_arr_base: u32,
     /// add-struct-value-semantics: value-struct byte-arena length when this frame
     /// was pushed; `pop_frame` truncates back to it (LIFO-frees this frame's blobs).
     /// Stamped by `push_frame`.

@@ -2,13 +2,13 @@
 //! stack-alloc). These exercise the arena's core logic — allocation, validated
 //! access, frame_id staleness diagnostics, and LIFO truncation — directly,
 //! without needing full z42 e2e (which is CI-gated behind the format bump).
-//! Arrays (`StackArray`) suffice: the arena logic is element-type-agnostic.
+//! Array slots are independent of the element type.
 
-use super::{StackArena, StackArray};
+use super::StackArena;
 use crate::object::Value;
 
-fn arr(vals: &[i64]) -> StackArray {
-    StackArray::new(vals.iter().map(|&n| Value::I64(n)).collect())
+fn arr(vals: &[i64]) -> Vec<Value> {
+    vals.iter().copied().map(Value::I64).collect()
 }
 
 #[test]
@@ -18,7 +18,7 @@ fn alloc_and_read_back() {
     assert_eq!(idx, 0);
     let len = a.with_arr(idx, 7, |x| x.len()).unwrap();
     assert_eq!(len, 3);
-    let v = a.with_arr(idx, 7, |x| x.get_boxed(1)).unwrap();
+    let v = a.with_arr(idx, 7, |x| x[1]).unwrap();
     assert_eq!(v, Value::I64(20));
     assert_eq!(a.arr_allocs, 1);
 }
@@ -27,8 +27,8 @@ fn alloc_and_read_back() {
 fn mutate_through_arena() {
     let mut a = StackArena::default();
     let idx = a.alloc_arr(3, arr(&[1, 2, 3]));
-    a.with_arr_mut(idx, 3, |x| x.set(0, Value::I64(99))).unwrap();
-    let v = a.with_arr(idx, 3, |x| x.get_boxed(0)).unwrap();
+    a.with_arr_mut(idx, 3, |x| x[0] = Value::I64(99)).unwrap();
+    let v = a.with_arr(idx, 3, |x| x[0]).unwrap();
     assert_eq!(v, Value::I64(99));
 }
 
@@ -78,7 +78,7 @@ fn lifo_nested_frames() {
     // frame B exits → truncate to B's base
     a.truncate(b_obj_base, b_arr_base);
     // A's allocation still valid; B's gone.
-    assert_eq!(a.with_arr(a_idx, 100, |x| x.get_boxed(0)).unwrap(), Value::I64(7));
+    assert_eq!(a.with_arr(a_idx, 100, |x| x[0]).unwrap(), Value::I64(7));
     assert!(a.with_arr(b_idx, 200, |x| x.len()).is_err());
 }
 
@@ -93,29 +93,20 @@ fn reused_slot_rejects_old_handle() {
     let idx_c = a.alloc_arr(2, arr(&[222]));
     assert_eq!(idx_a, idx_c); // slot reused
     // fresh handle (frame_id 2) works:
-    assert_eq!(a.with_arr(idx_c, 2, |x| x.get_boxed(0)).unwrap(), Value::I64(222));
+    assert_eq!(a.with_arr(idx_c, 2, |x| x[0]).unwrap(), Value::I64(222));
     // stale handle (frame_id 1) is rejected, NOT silently reading 222:
-    assert!(a.with_arr(idx_a, 1, |x| x.get_boxed(0)).is_err());
+    assert!(a.with_arr(idx_a, 1, |x| x[0]).is_err());
 }
 
-/// **fix-stackalloc-misses-inlined-refs **: the object half of the root scan.
-///
-/// `scan_roots_visits_elements` below covers stack *arrays* and has since the arena landed;
-/// stack **objects** had no root-scan test at all, which is why the gap survived
-/// `unify-object-byte-layout` PR-3 chunk 2b. That chunk moved every direct object/array
-/// field out of the `refs` side-table and into an 8B inlined pointer in `bytes`; the heap
-/// traversal learned to read both halves, this arena's did not — so a non-escaping object's
-/// array fields were reachable from no GC root and got swept while their owner was live.
-///
-/// The assertion is deliberately about the **reference-word** half only (`refs` is left
-/// empty), so a `scan_roots` that walks only the side table turns it red rather than merely
-/// weakening the count.
 #[test]
-fn scan_roots_visits_object_inlined_refs() {
-    use std::sync::Arc;
+fn stack_roots_are_scoped_to_their_creating_frames() {
+    use crate::exec::{frames::VmFrame, push_frame, stack::stack_tests::test_function};
     use crate::object::{
-        FieldAccess, ObjectLayout, TypeDesc, TypeDescCold, STRUCT_LEAF_GCREF, TAG_OBJECT,
+        FieldAccess, ObjectLayout, OwnedObject, TypeDesc, TypeDescCold, STRUCT_LEAF_GCREF,
+        TAG_OBJECT,
     };
+    use crate::vm::VmContext;
+    use std::sync::Arc;
 
     // `class Holder { object child; }` — the one field is byte-inlined, side-table empty.
     let layout = Arc::new(ObjectLayout {
@@ -145,17 +136,40 @@ fn scan_roots_visits_object_inlined_refs() {
         vtable_index: crate::zpkg::NameIndex::new(), cold: None,
         class_flags: 0, visibility: 0, id: crate::metadata::ids::tokens::TypeId::UNRESOLVED,
     });
-    let leaf = Value::Object(crate::object::ObjRef::leak(crate::object::OwnedObject::new(leafless, 0)));
+    let ctx = VmContext::new();
+    let func = test_function("stack_allocations", &[], Vec::new());
+    let regs = Vec::new();
+    let collect = || {
+        let _pause = crate::threads::safepoint::request_gc_pause(&ctx).unwrap();
+        ctx.heap().collect_full();
+    };
 
-    let holder = crate::object::OwnedObject::new(holder_td, 8);
+    push_frame(&ctx, VmFrame::new(&func, &regs));
+    let leaf = ctx.heap().alloc_script_object(OwnedObject::new(leafless, 0));
+    let leaf_weak = ctx.heap().make_weak(&leaf).unwrap();
+    let holder = OwnedObject::new(holder_td, 8);
     assert!(holder.set_field_value(0, &leaf), "the inlined field is a reference slot");
+    let parent_id = ctx.exec().next_frame_id();
+    ctx.exec().alloc_stack_object(parent_id, holder);
 
-    let mut a = StackArena::default();
-    a.alloc_obj(1, holder);
+    push_frame(&ctx, VmFrame::new(&func, &regs));
+    let element = ctx.heap().alloc_array(Vec::new());
+    let element_weak = ctx.heap().make_weak(&element).unwrap();
+    let child_id = ctx.exec().next_frame_id();
+    let array = ctx.exec().alloc_stack_array(child_id, vec![element]);
+    collect();
+    assert!(ctx.heap().upgrade_weak(&leaf_weak).is_some());
+    assert!(ctx.heap().upgrade_weak(&element_weak).is_some());
 
-    let mut seen = 0usize;
-    a.scan_roots(&mut |v| if matches!(v, Value::Object(_)) { seen += 1 });
-    assert_eq!(seen, 1, "the byte-inlined object field must be a GC root of the arena");
+    ctx.exec().pop_frame();
+    assert!(crate::exec::ops::object::array::array_len(&ctx, &array).is_err());
+    collect();
+    assert!(ctx.heap().upgrade_weak(&leaf_weak).is_some());
+    assert!(ctx.heap().upgrade_weak(&element_weak).is_none());
+
+    ctx.exec().pop_frame();
+    collect();
+    assert!(ctx.heap().upgrade_weak(&leaf_weak).is_none());
 }
 
 #[test]

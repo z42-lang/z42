@@ -295,8 +295,7 @@ fn stack_object_inline_struct_field_roundtrips() {
     let ctx = VmContext::new();
     let mut frame = Frame::new(&ctx, &[], 8);
     let obj = crate::object::OwnedObject::of_type(td);
-    let idx = ctx.exec().stack_alloc_obj(frame.frame_id(&ctx), obj);
-    let base = Value::StackObject { idx, frame_id: frame.frame_id(&ctx) };
+    let base = ctx.exec().alloc_stack_object(frame.frame_id(&ctx), obj);
 
     frame.set(0, base);
     frame.set(1, Value::I64(42));

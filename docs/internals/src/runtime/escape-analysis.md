@@ -190,15 +190,13 @@ toml `[optimize] stack-alloc`。**dump/golden 路径排除**（`Opt.All - Opt.In
 ### 运行时：per-context 栈 arena（interp）
 
 **为什么 per-context 而非 per-frame**：`new Foo` 的 ctor 在**子帧**执行、`this` 作 `Value` 传入；per-frame
-arena 索引在子帧里无意义。**per-thread（per-`VmContext`）arena** 任何帧都能经 `ctx` 直取 → ctor 子帧天然
-可解 `this`，无需跨帧机制。
+arena 索引在子帧里无意义。每个线程的 `ThreadExecState` 持有自己的 arena，构造器的子帧也能经同一执行状态
+解析 `this`。
 
 - **句柄**：`Value::StackObject { idx, frame_id }` / `Value::StackArray { idx, frame_id }`（各 8B 内联，
-  不撑大 24B `Value`）。`idx` 索引 `VmContext.exec.stack_arena`（`Mutex<StackArena>`：owner 无竞争、GC 扫描在
-  safepoint）。
-- **分配**：`obj_new`/`array_new`(stack) 构造 `OwnedObject`（与堆对象同形的脱离块）/ `StackArray`（`Vec<Value>`，堆数组的块表示不用于栈数组）push 进 arena、返回句柄。ctor 照常在
-  栈对象上跑（`this` = 句柄，FieldGet/Set 经 arena 解）。
-- **访问**：FieldGet/Set、ArrayGet/Set/Len 识别栈句柄 → `ctx.stack_arena` 校验访问。栈对象字段存堆引用
+  不撑大 24B `Value`）。`idx` 指向执行状态中的私有 arena 槽。
+- **分配**：解释器构造 `OwnedObject`，共享数组操作收集元素值。执行状态将数据写进对应槽，在锁内发布长度并返回句柄。
+- **访问**：FieldGet/Set、ArrayGet/Set/Len 识别栈句柄，经执行状态校验槽与创建帧号。栈对象字段存堆引用
   **不发 GC 写屏障**（栈对象非堆槽；其堆字段由根扫描保活）。
   > ⚠️ **「识别栈句柄」必须覆盖每一个接受堆对象 base 的处理器，不只是 FieldGet/Set**
   > ——这是本页同一条不变量的**第三例**
@@ -227,8 +225,8 @@ arena 索引在子帧里无意义。**per-thread（per-`VmContext`）arena** 任
   > 不受影响——JIT 忽略 flag、对象走堆、本就用堆 IC）。
 - **生命期（LIFO 截断）**：帧入栈 `push_frame` 记录 arena 长度基线（`VmFrame::stack_obj_base/arr_base`）；
   帧退出 `pop_frame` 截断回基线，bulk-free 该帧的栈分配。嵌套（对象 ctor 里再 `new`）自然 LIFO 正确。
-- **GC**：`Value` 的 `trace_children` 视栈句柄为叶；外部根扫描器在 safepoint 扫 `ctx.stack_arena` 每个栈
-  对象的字段 / 栈数组的元素作根（它们可能持堆句柄，必须保活）。arena 锁从不跨 GC 触发持有 → 不死锁。
+- **GC**：`Value` 的 `trace_children` 视栈句柄为叶。根扫描器在 safepoint 经执行状态访问栈对象的引用字段
+  和栈数组元素。访问者在 arena 锁内运行，访问期间不能触发回收或重入 arena。
   > ⚠️ **「栈对象的字段」是两半，缺一即悬垂**：
   > **引用字段**（含内联 struct 的引用叶子）存在 `bytes` 里的 8 B 引用字或型参单元的标签字。堆一侧与 `StackArena::scan_roots` 都经
   > `ScriptObject::visit_refs` 同时读两半；若某处只读 `refs`——**一个不逃逸对象的数组字段
@@ -245,7 +243,7 @@ arena 索引在子帧里无意义。**per-thread（per-`VmContext`）arena** 任
   `frame.regs`），回边 OSR 进 JIT 后 JIT 代码会**继承并访问**该句柄。故 JIT 的字段/元素 helper
   **必须**镜像 interp 处理栈句柄：`jit_field_get`/`jit_field_set`（对象，复用 FieldIC、栈槽无 write
   barrier）与 `jit_array_get`/`jit_array_set`/`jit_array_len`（数组）各带一条 `StackObject`/`StackArray`
-  臂，经 `ctx.stack_arena` 解析。原生字段 IC 的守卫（接收者不是 `Value::Object` → 慢路）与元素快路径的 hoist
+  臂，经执行层的共享字段和数组操作解析。原生字段 IC 的守卫（接收者不是 `Value::Object` → 慢路）与元素快路径的 hoist
   （`jit_array_data_opt`，对非堆 receiver 返回 `ptr=null`）都把栈句柄路由到冷 helper，故修 helper 即全覆盖。**漏这条 = OSR 下 `FieldGet/FieldSet/ArraySet…: expected object/array, got Stack*`
   崩**（默认 OSR 阈值高、`--release` 才开逃逸分析 → 平时 latent）。
 

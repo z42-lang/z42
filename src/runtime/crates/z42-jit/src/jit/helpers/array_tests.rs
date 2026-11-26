@@ -16,9 +16,10 @@ use crate::components::bridge::VmContext;
 
 /// 在 ctx 的栈 arena 里放一个 `int[]`，返回对应的 `Value::StackArray` 句柄。
 fn stack_int_array(vm: &VmContext, frame_id: u32, elems: Vec<i64>) -> Value {
-    let arr = crate::exec::stack_alloc::StackArray::new(elems.into_iter().map(Value::I64).collect());
-    let idx = vm.exec().stack_alloc_arr(frame_id, arr);
-    Value::StackArray { idx, frame_id }
+    crate::exec::ops::object::array::array_new_lit(
+        vm, elems.into_iter().map(Value::I64), crate::object::ElemType::intern("int"),
+        Some(|| frame_id),
+    ).unwrap()
 }
 
 fn data(frame: &mut JitFrame, ctx: &VmContext) -> (*const Value, i64, i64) {

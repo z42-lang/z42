@@ -396,7 +396,7 @@ MIXED 的零种类（3 位）：读写元素、求长度、JIT 取元素基址�
     `Heap::alloc_script_object` 整块拷进新块。`set_native` / `set_type_args` 只在构造期（`&mut self`）。发布之后对象的 `meta` 字
     （`NativeData`、驻留的泛型实参句柄）不再变。
   - 数组同样在发布之前建好：所有构造器经 `Heap::alloc_array_with`，在未发布的块上写描述符与元素再发布。
-  - 栈数组（逃逸分析）不是 `ArrayObj`：`exec::call::stack_alloc::StackArray` 是 stack arena 里的一个 `Vec<Value>`，在 arena 的锁下访问（`&mut`）。
+  - 栈数组（逃逸分析）以 `Vec<Value>` 存在执行状态的私有 arena 中。执行层校验帧句柄后，在锁内借出元素切片。
   - GC：对象块被 tombstone 时由 drop glue 释放对象头（`Arc<TypeDesc>`、extras 盒子），值 struct 数组的块释放它的布局字。
     此时块已死、持 region 锁或在停顿里。
   - 原生数据自带同步：`NativeData::Monitor`（`Std.Threading.Mutex/RwLock/Channel` 的底座）用自己的内部锁，

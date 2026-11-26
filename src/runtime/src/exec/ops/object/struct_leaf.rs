@@ -91,7 +91,7 @@ pub fn struct_field_get_val(
         Value::Object(gc) | Value::BoxedStruct(gc) => gc.borrow().struct_leaf(byte_off, kind),
         // The same, for an object escape analysis put in the stack arena.
         Value::StackObject { idx, frame_id } => {
-            ctx.exec.stack_arena.lock().with_obj(*idx, *frame_id, |obj| obj.struct_leaf(byte_off, kind))?
+            ctx.exec().with_stack_object(*idx, *frame_id, |obj| obj.struct_leaf(byte_off, kind))?
         }
         // Leaf of a struct[] element `arr[index]`.
         Value::StructRefHeap { idx, frame_id } => {
@@ -130,7 +130,7 @@ pub fn struct_field_set_val(
         // 🔴 **No write barrier** for a stack object, mirroring `field_set`: it is not a heap
         // slot, its references are kept live by root-scanning the arena every cycle.
         Value::StackObject { idx, frame_id } => {
-            ctx.exec.stack_arena.lock().with_obj_mut(*idx, *frame_id, |obj| {
+            ctx.exec().with_stack_object(*idx, *frame_id, |obj| {
                 obj.store_struct_leaf(byte_off, kind, v).map(|_| ())
             })?
         }

@@ -34,64 +34,26 @@ use anyhow::Result;
 /// One stack-allocated object; `frame_id` = creating frame's id (staleness guard). The object
 /// lives in a detached block shaped exactly like a heap object's (`OwnedObject`, object model
 /// R6), so `&ScriptObject` works identically on both.
-pub struct StackObjSlot {
-    pub frame_id: u32,
-    pub obj: OwnedObject,
+struct StackObjSlot {
+    frame_id: u32,
+    obj: OwnedObject,
 }
 
-/// One stack-allocated array; `frame_id` = creating frame's id.
-pub struct StackArrSlot {
-    pub frame_id: u32,
-    pub arr: StackArray,
-}
-
-/// An escape-analysis **stack array**: its elements are plain `Value`s in an arena-owned `Vec`
-/// (not the GC heap), scanned directly as GC roots by [`StackArena::scan_roots`] and reached only
-/// under the arena's lock — so, unlike a heap array (`ArrayObj`), it needs no cell encoding and
-/// stores take `&mut`.
-pub struct StackArray {
+/// A frame-owned array can hold plain values under the arena lock.
+struct StackArrSlot {
+    frame_id: u32,
     elems: Vec<Value>,
-}
-
-impl StackArray {
-    pub fn new(elems: Vec<Value>) -> Self {
-        Self { elems }
-    }
-
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.elems.len()
-    }
-
-    /// Element `i` (caller bounds-checks).
-    #[inline]
-    pub fn get_boxed(&self, i: usize) -> Value {
-        self.elems[i]
-    }
-
-    /// Store element `i` (caller bounds-checks). No write barrier: the array is a root.
-    #[inline]
-    pub fn set(&mut self, i: usize, v: Value) {
-        self.elems[i] = v;
-    }
-
-    /// Every element (GC root scan).
-    pub fn visit_refs(&self, visit: &mut dyn FnMut(&Value)) {
-        for v in &self.elems {
-            visit(v);
-        }
-    }
 }
 
 /// Per-`VmContext` stack-allocation arena. Guarded by a `Mutex` on the context
 /// (owner-thread accesses are uncontended; the GC scanner reads it at a safepoint).
 #[derive(Default)]
-pub struct StackArena {
+pub(in crate::exec) struct StackArena {
     objs: Vec<StackObjSlot>,
     arrs: Vec<StackArrSlot>,
     /// Diagnostics: number of stack allocations this run (`Z42_STACKALLOC=stats`).
-    pub obj_allocs: u64,
-    pub arr_allocs: u64,
+    obj_allocs: u64,
+    arr_allocs: u64,
 }
 
 impl StackArena {
@@ -104,12 +66,8 @@ impl StackArena {
     /// LIFO free: drop everything a frame allocated (called by `pop_frame`).
     #[inline]
     pub fn truncate(&mut self, obj_base: usize, arr_base: usize) {
-        if obj_base < self.objs.len() {
-            self.objs.truncate(obj_base);
-        }
-        if arr_base < self.arrs.len() {
-            self.arrs.truncate(arr_base);
-        }
+        self.objs.truncate(obj_base);
+        self.arrs.truncate(arr_base);
     }
 
     /// Allocate an object; returns its arena index (paired with `frame_id` into a
@@ -123,9 +81,9 @@ impl StackArena {
     }
 
     #[inline]
-    pub fn alloc_arr(&mut self, frame_id: u32, arr: StackArray) -> u32 {
+    pub fn alloc_arr(&mut self, frame_id: u32, elems: Vec<Value>) -> u32 {
         let idx = self.arrs.len() as u32;
-        self.arrs.push(StackArrSlot { frame_id, arr });
+        self.arrs.push(StackArrSlot { frame_id, elems });
         self.arr_allocs += 1;
         idx
     }
@@ -140,32 +98,22 @@ impl StackArena {
         Ok(f(&slot.obj))
     }
 
-    /// Validated mutable access to a stack object.
-    pub fn with_obj_mut<R>(&mut self, idx: u32, frame_id: u32, f: impl FnOnce(&mut ScriptObject) -> R) -> Result<R> {
-        let slot = self.objs.get_mut(idx as usize)
-            .ok_or_else(|| stack_stale_err("object", idx, frame_id))?;
-        if slot.frame_id != frame_id {
-            return Err(stack_stale_err("object", idx, frame_id));
-        }
-        Ok(f(&mut slot.obj))
-    }
-
-    pub fn with_arr<R>(&self, idx: u32, frame_id: u32, f: impl FnOnce(&StackArray) -> R) -> Result<R> {
+    pub fn with_arr<R>(&self, idx: u32, frame_id: u32, f: impl FnOnce(&[Value]) -> R) -> Result<R> {
         let slot = self.arrs.get(idx as usize)
             .ok_or_else(|| stack_stale_err("array", idx, frame_id))?;
         if slot.frame_id != frame_id {
             return Err(stack_stale_err("array", idx, frame_id));
         }
-        Ok(f(&slot.arr))
+        Ok(f(&slot.elems))
     }
 
-    pub fn with_arr_mut<R>(&mut self, idx: u32, frame_id: u32, f: impl FnOnce(&mut StackArray) -> R) -> Result<R> {
+    pub fn with_arr_mut<R>(&mut self, idx: u32, frame_id: u32, f: impl FnOnce(&mut [Value]) -> R) -> Result<R> {
         let slot = self.arrs.get_mut(idx as usize)
             .ok_or_else(|| stack_stale_err("array", idx, frame_id))?;
         if slot.frame_id != frame_id {
             return Err(stack_stale_err("array", idx, frame_id));
         }
-        Ok(f(&mut slot.arr))
+        Ok(f(&mut slot.elems))
     }
 
     /// GC root scan: visit every heap `Value` reachable from live stack objects /
@@ -183,7 +131,9 @@ impl StackArena {
             s.obj.visit_refs(visit);
         }
         for s in &self.arrs {
-            s.arr.visit_refs(visit);
+            for value in &s.elems {
+                visit(value);
+            }
         }
     }
 }

@@ -64,8 +64,8 @@ fn struct_elem_handle(ctx: &VmContext, arr: ArrRef, i: usize, fid: u32) -> Value
 fn array_get_rare(ctx: &VmContext, arr: &Value, idx: &Value) -> OpResult<Value> {
     match arr {
         Value::StackArray { idx: aidx, frame_id: afid } => {
-            ctx.exec.stack_arena.lock().with_arr(*aidx, *afid, |a| {
-                checked_index(ArrayOp::Get, idx, a.len()).map(|i| a.get_boxed(i))
+            ctx.exec().with_stack_array(*aidx, *afid, |a| {
+                checked_index(ArrayOp::Get, idx, a.len()).map(|i| a[i])
             })?
         }
         other => Err(not_an_array(ArrayOp::Get, other)),
@@ -96,8 +96,8 @@ pub fn array_set(ctx: &VmContext, arr: &Value, idx: &Value, v: &Value) -> OpResu
 fn array_set_rare(ctx: &VmContext, arr: &Value, idx: &Value, v: &Value) -> OpResult<()> {
     match arr {
         Value::StackArray { idx: aidx, frame_id } => {
-            ctx.exec.stack_arena.lock().with_arr_mut(*aidx, *frame_id, |a| {
-                checked_index(ArrayOp::Set, idx, a.len()).map(|i| a.set(i, *v))
+            ctx.exec().with_stack_array_mut(*aidx, *frame_id, |a| {
+                checked_index(ArrayOp::Set, idx, a.len()).map(|i| a[i] = *v)
             })?
         }
         other => Err(not_an_array(ArrayOp::Set, other)),
@@ -110,7 +110,7 @@ pub fn array_len(ctx: &VmContext, arr: &Value) -> OpResult<i64> {
     match arr {
         Value::Array(rc) => Ok(rc.borrow().len() as i64),
         Value::StackArray { idx, frame_id } => {
-            Ok(ctx.exec.stack_arena.lock().with_arr(*idx, *frame_id, |a| a.len() as i64)?)
+            Ok(ctx.exec().with_stack_array(*idx, *frame_id, |a| a.len() as i64)?)
         }
         other => Err(not_an_array(ArrayOp::Len, other)),
     }
@@ -185,7 +185,7 @@ pub fn array_new<F: FnOnce() -> u32>(
     };
     let default = tp_prim.map(|p| p.zero).unwrap_or_else(|| default_value_for_tag(elem_tag));
     if let Some(frame_id) = stack {
-        return Ok(stack_array(ctx, frame_id(), vec![default; n]));
+        return Ok(ctx.exec().alloc_stack_array(frame_id(), vec![default; n]));
     }
     // 默认值直接填进 GC 块，不经 `vec![default; n]` 中转。
     alloc(ArrayObj::alloc_filled(ctx.heap(), bound.unwrap_or(element_type), kind, n, default), || format!("array[{n}]"))
@@ -223,7 +223,7 @@ pub fn class_type_param_array_args(
     let args = match receiver {
         Value::Object(rc) => own_args(&rc.borrow()),
         Value::StackObject { idx, frame_id } => {
-            ctx.exec.stack_arena.lock().with_obj(*idx, *frame_id, own_args).ok().flatten()
+            ctx.exec().with_stack_object(*idx, *frame_id, own_args).ok().flatten()
         }
         _ => return (None, None),
     };
@@ -276,7 +276,7 @@ pub fn array_new_lit<F: FnOnce() -> u32>(
         ElemMode::Kind(k) => k,
     };
     if let Some(frame_id) = stack {
-        return Ok(stack_array(ctx, frame_id(), elems.collect()));
+        return Ok(ctx.exec().alloc_stack_array(frame_id(), elems.collect()));
     }
     alloc(ArrayObj::alloc_from_iter(ctx.heap(), element_type, kind, n, elems), || format!("array literal[{n}]"))
 }
@@ -293,11 +293,6 @@ pub struct TypeParamElem {
 fn alloc(arr: Value, what: impl FnOnce() -> String) -> OpResult<Value> {
     if matches!(arr, Value::Null) { return Err(OpError::oom(what())); }
     Ok(arr)
-}
-
-fn stack_array(ctx: &VmContext, frame_id: u32, elems: Vec<Value>) -> Value {
-    let idx = ctx.exec().stack_alloc_arr(frame_id, crate::exec::stack_alloc::StackArray::new(elems));
-    Value::StackArray { idx, frame_id }
 }
 
 /// 数组的模式：STRUCT（元素布局），或交给构造器的 [`ElemKind`]。

@@ -63,7 +63,7 @@ pub(crate) fn obj_new(
     // per-context stack arena (no GC region lock / tracking / sweep). The ctor
     // runs on the stack object exactly as on a heap one — `this` is a
     // `Value::StackObject { idx, frame_id }` handle that FieldGet/FieldSet resolve
-    // through `ctx.exec.stack_arena`, so the ctor's child frame reaches it fine.
+    // through the execution state, so the ctor can access it from a child frame.
     // `Z42_STACKALLOC=off` bypasses this at runtime (heap) for triage.
     // The instance is built completely — generic arguments, type-parameter field zeros
     // (`ScriptObject::install_type_args`) — before it is published: a heap object never changes
@@ -73,8 +73,7 @@ pub(crate) fn obj_new(
     let obj_val = if stack_alloc && crate::exec::stack_alloc::stack_alloc_enabled(ctx) {
         let obj = crate::object::OwnedObject::new_instance(type_desc.clone(), inst_args);
         let frame_id = frame.frame_id(ctx);
-        let idx = ctx.exec().stack_alloc_obj(frame_id, obj);
-        Value::StackObject { idx, frame_id }
+        ctx.exec().alloc_stack_object(frame_id, obj)
     } else {
         let obj_val = ctx.heap().alloc_instance(type_desc, inst_args);
 
