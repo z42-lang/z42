@@ -1,0 +1,70 @@
+namespace EmptyStructFieldDefault;
+using Std.Reflection;
+
+class InitLog {
+    public static int Calls = 0;
+}
+
+struct Empty {
+    static Empty() { InitLog.Calls = InitLog.Calls + 1; }
+    public Empty() { InitLog.Calls = InitLog.Calls + 1; }
+}
+
+struct Marker<T> {}
+
+class Holder<T> {
+    public T Item;
+}
+
+class Host {
+    public Empty Plain;
+    public Marker<int> Closed;
+    public string Text;
+
+    public Host() {
+        object early = this.Plain;
+        Assert.Equal(typeof(Empty), early.GetType());
+    }
+}
+
+class Derived : Host {}
+
+Type ThroughRef(ref Empty value) {
+    object boxed = value;
+    return boxed.GetType();
+}
+
+Type ReadDerivedFieldByRef() {
+    Host host = new Derived();
+    return ThroughRef(ref host.Plain);
+}
+
+Type LocalField() {
+    Holder<Empty> local = new Holder<Empty>();
+    object boxed = local.Item;
+    return boxed.GetType();
+}
+
+void Main() {
+    Assert.Equal(typeof(Empty), ReadDerivedFieldByRef());
+    Assert.Equal(typeof(Empty), LocalField());
+    Host host = (Host)Activator.CreateInstance(typeof(Host));
+    object closed = host.Closed;
+    Assert.Equal(typeof(Marker<int>), closed.GetType());
+    Assert.True(host.Text == null);
+
+    bool sawPlain = false;
+    foreach (FieldInfo field in typeof(Host).GetFields()) {
+        if (field.Name == "Plain") {
+            sawPlain = true;
+            object reflected = field.GetValue(host);
+            Assert.Equal(typeof(Empty), reflected.GetType());
+            Assert.Equal(default(Empty).GetHashCode(), reflected.GetHashCode());
+        }
+    }
+    Assert.True(sawPlain);
+    Assert.Equal(0, InitLog.Calls);
+    host.Plain = new Empty();
+    Assert.Equal(2, InitLog.Calls);
+    Assert.Equal(typeof(Empty), ThroughRef(ref host.Plain));
+}

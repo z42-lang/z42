@@ -32,7 +32,7 @@ pub fn deref_ref(
         RefKind::Array { gc_ref, idx } =>
             crate::exec::ops::object::array::elem_load(ctx, gc_ref, *idx).map_err(crate::exec::ops::object::OpError::into_anyhow),
         RefKind::Field { gc_ref, field_name } =>
-            crate::exec::ops::object::field::load_named(gc_ref, field_name).map_err(crate::exec::ops::object::OpError::into_anyhow),
+            crate::exec::ops::object::field::load_named(ctx, gc_ref, field_name).map_err(crate::exec::ops::object::OpError::into_anyhow),
     }
 }
 

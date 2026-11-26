@@ -24,21 +24,10 @@ pub(crate) fn static_zero_value(ctx: &VmContext, tag: &str) -> crate::object::Va
 pub(crate) fn zero_value_for_type(ctx: &VmContext, tag: &str) -> crate::object::Value {
     let prim = crate::object::default_value_for(tag);
     if !matches!(prim, Value::Null) { return prim; }
-    if matches!(tag, "" | "unknown" | "string" | "str" | "Std.String" | "object" | "Std.Object")
-        || tag.ends_with("[]") || tag.contains('(')
-    {
-        return Value::Null;
-    }
-    // Static-field tags may have spaces between type arguments. The lookup key is canonical.
-    let name: String = tag.chars().filter(|c| !c.is_whitespace()).collect();
-    let Some(td) = lookup_type(ctx, &name) else { return Value::Null };
+    let Some((td, name)) = lookup_zero_type(ctx, tag) else { return Value::Null };
     if td.is_enum() { return Value::I64(0); }
     if is_empty_struct(&td) {
-        let args = if td.name == name {
-            td.type_args_handle()
-        } else {
-            TypeArgs::intern(&type_args_from_name(&name))
-        };
+        let args = empty_struct_args(&td, &name);
         return ctx.heap().alloc_instance(td, args);
     }
     if !td.is_struct() || !td.struct_layout_ref().is_some_and(|layout| layout.size > 0) {
@@ -49,6 +38,39 @@ pub(crate) fn zero_value_for_type(ctx: &VmContext, tag: &str) -> crate::object::
         // alloc_object 在严格 OOM 拒绝下返回 Null：不装入，照旧返回 Null。
         _ => Value::Null,
     }
+}
+
+pub(crate) fn empty_struct_type(ctx: &VmContext, tag: &str) -> Option<(std::sync::Arc<TypeDesc>, TypeArgs)> {
+    let (td, name) = lookup_zero_type(ctx, tag)?;
+    is_empty_struct(&td).then(|| {
+        let args = empty_struct_args(&td, &name);
+        (td, args)
+    })
+}
+
+fn empty_struct_args(td: &TypeDesc, name: &str) -> TypeArgs {
+    if td.name == name {
+        td.type_args_handle()
+    } else {
+        TypeArgs::intern(&type_args_from_name(name))
+    }
+}
+
+fn lookup_zero_type<'a>(ctx: &VmContext, tag: &'a str) -> Option<(std::sync::Arc<TypeDesc>, std::borrow::Cow<'a, str>)> {
+    use std::borrow::Cow;
+    if matches!(tag, "" | "unknown" | "string" | "str" | "Std.String" | "object" | "Std.Object")
+        || tag.ends_with("[]") || tag.contains('(')
+    {
+        return None;
+    }
+    // Static-field tags may have spaces between type arguments. The lookup key is canonical.
+    let name = if tag.chars().any(char::is_whitespace) {
+        Cow::Owned(tag.chars().filter(|c| !c.is_whitespace()).collect())
+    } else {
+        Cow::Borrowed(tag)
+    };
+    let td = lookup_type(ctx, &name)?;
+    Some((td, name))
 }
 
 /// Resolve a candidate zero-value type. Generic reference types only need the lookup of
