@@ -254,7 +254,7 @@ public sealed partial class StructLayout {
         FieldSymbol fs = ct.Fields.Get(fname) as FieldSymbol;
         if (fs == null && fname.StartsWith("__prop_")) { fs = ct.Fields.Get(fname.Substring(7)) as FieldSymbol; }
         if (fs != null) {
-            string tn = LayoutKey.Of(fs.FieldType);
+            string tn = LayoutKey.Of(fs.StorageType != null ? fs.StorageType : fs.FieldType);
             if (tn != "") { return tn; }
         }
         string sp = ct.OwnFieldSpellings[j];
