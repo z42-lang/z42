@@ -79,15 +79,9 @@ pub(super) fn pin_ptr(
     ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, src: u32,
 ) -> Result<Option<Value>> {
     let fid = frame.frame_id(ctx);
-    // make-value-copy: PinnedView payload lives in the per-context transient arena;
-    // the register holds only an 8B `{idx, frame_id}` handle.
-    let mk_view = |ctx: &VmContext, data: crate::object::PinnedViewData| {
-        let idx = ctx.exec().transient_arena.lock()
-            .alloc(fid, crate::exec::transient_arena::TransientPayload::PinView(data));
-        Value::PinnedView { idx, frame_id: fid }
-    };
+    let make_view = |data| ctx.exec().alloc_pinned_view(fid, data);
     let view = match frame.get(src)? {
-        Value::Str(s) => mk_view(ctx, crate::object::PinnedViewData {
+        Value::Str(s) => make_view(crate::object::PinnedViewData {
             ptr: s.as_ptr() as u64,
             len: s.len() as u64,
             kind: crate::object::PinSourceKind::Str,
@@ -122,7 +116,7 @@ pub(super) fn pin_ptr(
             let len = bytes.len() as u64;
             let buf: Box<[u8]> = bytes.into_boxed_slice();
             let ptr = (crate::exec::native::services(ctx)?.pin_owned_buffer)(ctx, buf)?;
-            mk_view(ctx, crate::object::PinnedViewData {
+            make_view(crate::object::PinnedViewData {
                 ptr,
                 len,
                 kind: crate::object::PinSourceKind::ArrayU8,
@@ -143,15 +137,11 @@ pub(super) fn pin_ptr(
 #[inline(never)] // 热循环布局：留在 exec_function_body 之外（见 exec_instr.rs 模块注释）
 pub(super) fn unpin_ptr(ctx: &VmContext, frame: &Frame, pinned: u32) -> Result<()> {
     match frame.get(pinned)? {
-        // make-value-copy: resolve the PinnedView handle → (kind, ptr) via the arena.
         &Value::PinnedView { idx, frame_id } => {
-            let (kind, ptr) = ctx.exec().transient_arena.lock().with(idx, frame_id, |p| match p {
-                crate::exec::transient_arena::TransientPayload::PinView(pv) => (pv.kind, pv.ptr),
-                _ => (crate::object::PinSourceKind::Str, 0),
-            })?;
-            if kind == crate::object::PinSourceKind::ArrayU8 {
+            let view = ctx.exec().pinned_view(idx, frame_id)?;
+            if view.kind == crate::object::PinSourceKind::ArrayU8 {
                 // Spec C10: drop the snapshot Box<[u8]> owned by the interop state since PinPtr.
-                (crate::exec::native::services(ctx)?.release_owned_buffer)(ctx, ptr)?;
+                (crate::exec::native::services(ctx)?.release_owned_buffer)(ctx, view.ptr)?;
             }
             // Str pin: borrowed from the source String — no-op (future moving GC would
             // deregister the pin-set entry here).

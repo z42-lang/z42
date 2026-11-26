@@ -33,7 +33,7 @@ use anyhow::Result;
 
 /// One transient payload. All are immutable after creation, so a `Value`
 /// handle sharing an entry (a cheap 8B copy) never observes a mutation.
-pub enum TransientPayload {
+pub(in crate::exec) enum TransientPayload {
     /// `Value::Ref` target descriptor (spec impl-ref-out-in-runtime).
     Ref(RefKind),
     /// `Value::PinnedView` FFI view (raw ptr + len; no GC leaf).
@@ -43,18 +43,18 @@ pub enum TransientPayload {
 }
 
 /// One arena entry; `frame_id` = creating frame's id (staleness guard).
-pub struct TransientSlot {
-    pub frame_id: u32,
-    pub payload: TransientPayload,
+struct TransientSlot {
+    frame_id: u32,
+    payload: TransientPayload,
 }
 
 /// Per-`VmContext` transient-value arena. Guarded by a `Mutex` on the context
 /// (owner-thread accesses uncontended; the GC scanner reads it at a safepoint).
 #[derive(Default)]
-pub struct TransientArena {
+pub(in crate::exec) struct TransientArena {
     slots: Vec<TransientSlot>,
     /// Diagnostics: number of transient allocations this run.
-    pub allocs: u64,
+    allocs: u64,
 }
 
 impl TransientArena {
@@ -83,7 +83,7 @@ impl TransientArena {
     }
 
     /// Validated shared access to a payload.
-    pub fn with<R>(&self, idx: u32, frame_id: u32, f: impl FnOnce(&TransientPayload) -> R) -> Result<R> {
+    fn with<R>(&self, idx: u32, frame_id: u32, f: impl FnOnce(&TransientPayload) -> R) -> Result<R> {
         let slot = self.slots.get(idx as usize)
             .ok_or_else(|| stale_err(idx, frame_id))?;
         if slot.frame_id != frame_id {
@@ -97,6 +97,13 @@ impl TransientArena {
     pub fn ref_kind(&self, idx: u32, frame_id: u32) -> Result<RefKind> {
         self.with(idx, frame_id, |p| match p {
             TransientPayload::Ref(k) => Ok(k.clone()),
+            _ => Err(stale_err(idx, frame_id)),
+        })?
+    }
+
+    pub fn pinned_view(&self, idx: u32, frame_id: u32) -> Result<PinnedViewData> {
+        self.with(idx, frame_id, |payload| match payload {
+            TransientPayload::PinView(view) => Ok(view.clone()),
             _ => Err(stale_err(idx, frame_id)),
         })?
     }
