@@ -49,12 +49,6 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     let inst = self.builder.ins().call(self.hr_struct_field_set_prim, &[self.frame_val, self.ctx_val, b, rp, rl, pp, pl, k, v]);
                     let ret = self.builder.inst_results(inst)[0]; self.check(ret);
                 }
-                // D-8b-3 Phase 2 + switch-multicast-funcpredicate-to-generic-exception:
-                // emit `jit_default_of(frame, ctx, dst, param_index)` helper call.
-                // JIT-allocated instances still have empty type_args (jit_obj_new
-                // doesn't propagate them yet), so the helper falls through to Null
-                // when called on a JIT-allocated generic instance — same path as
-                // method-level / free generic graceful-degradation.
                 Instruction::DefaultOf { dst, param_index } => {
                     let d  = self.ri(*dst);
                     let pi = self.builder.ins().iconst(types::I32, *param_index as i64);
@@ -83,7 +77,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                 Instruction::MethodDefault { dst, param_index } => {
                     let dst = self.ri(*dst);
                     let index = self.builder.ins().iconst(types::I32, i64::from(*param_index));
-                    self.builder.ins().call(self.hr_method_default, &[self.frame_val, dst, index]);
+                    self.builder.ins().call(self.hr_method_default, &[self.frame_val, self.ctx_val, dst, index]);
                 }
             _ => anyhow::bail!("tr_structs: unexpected opcode in category dispatch"),
         }

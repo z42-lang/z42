@@ -15,6 +15,11 @@ use crate::{vm::VmContext, object::TypeDesc};
 /// 泛型类实例化上的静态字段，`tag` 已是代换后的实参（`Demo.Holder<int>` 上 `static T V` 的 tag 是
 /// `int`），无需在这里解析型参。
 pub(crate) fn static_zero_value(ctx: &VmContext, tag: &str) -> crate::object::Value {
+    zero_value_for_type(ctx, tag)
+}
+
+/// Materialize a zero value in a dynamic register or reference-backed static slot.
+pub(crate) fn zero_value_for_type(ctx: &VmContext, tag: &str) -> crate::object::Value {
     use crate::object::Value;
     let prim = crate::object::default_value_for(tag);
     if !matches!(prim, Value::Null) { return prim; }
@@ -40,7 +45,9 @@ pub(crate) fn static_zero_value(ctx: &VmContext, tag: &str) -> crate::object::Va
 /// 字段类型拼写是源码口径，实参间带空格（`Demo.Pair<int, long>`，`ClassDescBuilder._typeSourceName`），
 /// 而类型身份名没有（`Demo.Pair<int,long>`，即 `AsCast` 拆箱时用的名字）——按身份名查。
 fn lookup_value_type(ctx: &VmContext, tag: &str) -> Option<std::sync::Arc<TypeDesc>> {
-    if tag.is_empty() || tag == "unknown" || tag.ends_with("[]") || tag.contains('(') {
+    if matches!(tag, "" | "unknown" | "string" | "str" | "Std.String" | "object" | "Std.Object")
+        || tag.ends_with("[]") || tag.contains('(')
+    {
         return None;
     }
     let name: String = tag.chars().filter(|c| !c.is_whitespace()).collect();

@@ -1,0 +1,51 @@
+namespace GenericStructDefault;
+
+class InitLog {
+    public static int Calls = 0;
+}
+
+struct Pair {
+    public int Number;
+    public string Text;
+
+    static Pair() { InitLog.Calls = InitLog.Calls + 1; }
+    public Pair() {
+        InitLog.Calls = InitLog.Calls + 1;
+        this.Number = 7;
+        this.Text = "constructor";
+    }
+}
+
+struct Cell<T> { public T Value; }
+enum Status { None = 0, Ready = 1 }
+
+T Zero<T>() { return default(T); }
+
+class Holder<T> {
+    public T Zero() { return default(T); }
+}
+
+void Main() {
+    Pair first = Zero<Pair>();
+    Holder<Pair> holder = new Holder<Pair>();
+    Pair second = holder.Zero();
+    Assert.Equal(0, first.Number);
+    Assert.True(first.Text == null);
+    Assert.Equal(0, second.Number);
+    Assert.True(second.Text == null);
+    Assert.Equal(default(Pair).GetHashCode(), first.GetHashCode());
+    first.Number = 12;
+    Assert.Equal(0, second.Number);
+    Assert.Equal(0, Zero<Pair>().Number);
+    Assert.Equal(0, InitLog.Calls);
+    Pair constructed = new Pair();
+    Assert.Equal(7, constructed.Number);
+    Assert.Equal(2, InitLog.Calls);
+
+    Cell<int> cell = Zero<Cell<int>>();
+    Assert.Equal(0, cell.Value);
+    Assert.Equal(0, Zero<int>());
+    Assert.True(Zero<Status>() == Status.None);
+    Assert.True(Zero<string>() == null);
+    Assert.True(Zero<Holder<Pair>>() == null);
+}

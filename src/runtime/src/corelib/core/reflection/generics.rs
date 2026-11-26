@@ -196,10 +196,7 @@ pub fn class_default(ctx: &VmContext, recv: &Value, idx: i64, owner: &crate::obj
         return Value::Null;
     }
     let owner = (!owner.is_empty()).then(|| owner.to_string());
-    match resolve_class_type_arg(ctx, recv, idx as usize, owner.as_deref()) {
-        Some(n) => crate::object::default_value_for(&n),
-        None => Value::Null,
-    }
+    crate::exec::type_param_env::class_default_value(ctx, recv, idx as usize, owner.as_deref())
 }
 
 #[cfg(test)]

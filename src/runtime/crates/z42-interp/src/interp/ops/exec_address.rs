@@ -13,7 +13,7 @@
 use crate::object::Value;
 use crate::object::RefKind;
 use crate::components::bridge::VmContext;
-use crate::exec::type_param_env::{method_default_value, method_type_value};
+use crate::exec::type_param_env::{class_default_value, method_default_value, method_type_value};
 use anyhow::Result;
 
 use super::Frame;
@@ -60,25 +60,12 @@ pub(super) fn load_field_addr(
     }
 }
 
-/// add-default-generic-typeparam (D-8b-3 Phase 2): runtime
-/// resolution of `default(T)` where T is a generic type-parameter of the
-/// receiver class. Reads `frame.regs[0]` (this) → `Object → instance.type_args[idx]`,
-/// looks up the resolved tag via `default_value_for(tag)`, writes result to dst.
-/// Non-Object reg 0 / OOB index / empty type_args → graceful Null.
-/// type_args is per-instance (populated by `obj.new`), not per-TypeDesc, so
-/// `Foo<int>` and `Foo<string>` instances differ at runtime despite sharing
-/// the same TypeDesc Arc (z42 erasure with per-instance type-arg view).
+/// Read the receiver's own class parameter for legacy `DefaultOf` bytecode.
 #[inline(never)] // 热循环布局：留在 exec_function_body 之外（见 exec_instr.rs 模块注释）
-pub(super) fn default_of(frame: &mut Frame, dst: u32, param_index: u8) {
-    let val = match frame.get(0) {
-        Ok(Value::Object(rc)) => {
-            let borrowed = rc.borrow();
-            borrowed.type_args().get(param_index as usize)
-                .map(|tag| crate::object::default_value_for(tag))
-                .unwrap_or(Value::Null)
-        }
-        _ => Value::Null,
-    };
+pub(super) fn default_of(ctx: &VmContext, frame: &mut Frame, dst: u32, param_index: u8) {
+    let val = frame.get(0).map_or(Value::Null, |recv| {
+        class_default_value(ctx, recv, param_index as usize, None)
+    });
     frame.set(dst, val);
 }
 
@@ -105,8 +92,8 @@ pub(super) fn type_of(ctx: &VmContext, frame: &mut Frame, insn: &crate::zpkg::ir
 /// but reads `frame.method_type_args[param_index]` instead of the receiver's instance
 /// type_args. OOB/empty → `Value::Null`.
 #[inline(never)] // 热循环布局：留在 exec_function_body 之外（见 exec_instr.rs 模块注释）
-pub(super) fn method_default(frame: &mut Frame, dst: u32, param_index: u8) {
-    let val = method_default_value(frame.method_type_args, param_index as usize);
+pub(super) fn method_default(ctx: &VmContext, frame: &mut Frame, dst: u32, param_index: u8) {
+    let val = method_default_value(ctx, frame.method_type_args, param_index as usize);
     frame.set(dst, val);
 }
 
