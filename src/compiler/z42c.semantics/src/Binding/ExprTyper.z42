@@ -198,8 +198,9 @@ public sealed partial class ExprTyper : IExprVisitor<BoundExpr, TypeEnv> {
                 // 包 BoundConvert 拆箱回值 struct（内层 call 类型 Unknown 触发 _emitConvert 的 AsCast 拆箱臂）。
                 Z42Type ubT = this._tc.StructUnboxTarget(gm.Signature.Ret, tt);
                 if (ubT != null) {
-                    BoundExpr rawGet = new BoundCall("instance", true, target, ixCls.Name(), "get_Item",
+                    BoundCall rawGet = new BoundCall("instance", true, target, ixCls.Name(), "get_Item",
                                                      ia, n, new Z42UnknownType(), ix.Span);
+                    rawGet.InstRetType = ubT;
                     return new BoundConvert(rawGet, ubT, ix.Span);
                 }
                 if (gret is Z42GenericParamType) { gret = new Z42UnknownType(); }

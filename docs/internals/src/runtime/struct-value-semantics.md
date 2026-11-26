@@ -474,8 +474,9 @@ vcall Equals，代价不值）。
 走上面的 boxed-vcall 臂。
 
 **拆箱（取出）**：取回到具体 struct 类型需拆回值 struct。`TypeChecker.StructUnboxTarget` 判「泛型返回
-（get_Item / 方法返回 T）subst 后是否 blob struct」，是则调用点把结果包 `BoundConvert(→P)`，复用
-`TypeOpEmitter._emitConvert` 的 `AsCast` 拆箱臂。`foreach (P p in list)` 在 `FunctionEmitter` 对元素发 `AsCast`。
+（方法、属性或索引器返回 T）代换后是否为 struct，包含 `Entry<int>` 这样的闭合泛型值类型。调用方用
+`BoundConvert(→P)` 触发 `AsCast` 拆箱，或在成员已特化时按 `InstRetType` 预留 sret 槽。
+`foreach (P p in list)` 在 `FunctionEmitter` 对元素发 `AsCast`。
 
 **`as_cast` 的 StructRef 恒等臂**（关键统一点）：泛型容器迭代/取值统一走 `AsCast`，但元素运行期可能是
 `BoxedStruct`（泛型容器，Add/set 装箱）**或**已是 `StructRef`（普通 `P[]`）——静态同为 `P[]` 不可辨。故 VM

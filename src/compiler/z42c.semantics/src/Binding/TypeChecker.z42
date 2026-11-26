@@ -308,7 +308,7 @@ public sealed class TypeChecker {
         if (!(rawRet is Z42GenericParamType)) { return null; }
         if (!(instRecvOrNull is Z42InstantiatedType)) { return null; }
         Z42Type s = MemberResolver._substGeneric(rawRet, instRecvOrNull as Z42InstantiatedType);
-        if ((s is Z42ClassType) && (s as Z42ClassType).IsStruct) { return s; }
+        if (GenericCallRet.IsStruct(s)) { return s; }
         return null;
     }
 

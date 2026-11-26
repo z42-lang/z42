@@ -16,7 +16,7 @@ public static class GenericCallRet {
         Z42Type r = TypeSubst.Apply(raw, m);
         if (m.Hits == 0) { return bc; }
         r = GenericCallRet._recvSubst(r, recv);
-        if ((raw is Z42GenericParamType) && GenericCallRet._isStruct(r)) {
+        if ((raw is Z42GenericParamType) && GenericCallRet.IsStruct(r)) {
             bc.Retype(new Z42UnknownType());
             return new BoundConvert(bc, r, bc.Span);
         }
@@ -34,7 +34,7 @@ public static class GenericCallRet {
         return r;
     }
 
-    private static bool _isStruct(Z42Type t) {
+    internal static bool IsStruct(Z42Type t) {
         if (t is Z42ClassType) { return (t as Z42ClassType).IsStruct; }
         if ((t is Z42InstantiatedType) && ((t as Z42InstantiatedType).Def is Z42ClassType)) {
             return (t as Z42InstantiatedType).Def.IsStruct;
