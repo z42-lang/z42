@@ -1,3 +1,4 @@
 namespace DemoInferArgs;
 
 public class Marker {}
+public class T {}
