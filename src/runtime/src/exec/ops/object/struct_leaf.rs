@@ -95,7 +95,7 @@ pub fn struct_field_get_val(
         }
         // Leaf of a struct[] element `arr[index]`.
         Value::StructRefHeap { idx, frame_id } => {
-            let e = ctx.exec.transient_arena.lock().struct_elem(*idx, *frame_id)?;
+            let e = ctx.exec().struct_elem(*idx, *frame_id)?;
             let arr = e.arr.borrow();
             let i = e.index as usize;
             if is_ref_tag(kind) {
@@ -136,7 +136,7 @@ pub fn struct_field_set_val(
         }
         // Leaf write into a struct[] element.
         Value::StructRefHeap { idx, frame_id } => {
-            let e = ctx.exec.transient_arena.lock().struct_elem(*idx, *frame_id)?;
+            let e = ctx.exec().struct_elem(*idx, *frame_id)?;
             crate::object::store_struct_element_leaf(ctx.heap(), &e, byte_off, kind, v)
         }
         _ => {
@@ -188,7 +188,7 @@ pub fn struct_value_hash(ctx: &VmContext, value: &Value) -> Result<Option<i64>> 
             }
         }
         Value::StructRefHeap { idx, frame_id } => {
-            let element = ctx.exec().transient_arena.lock().struct_elem(*idx, *frame_id)?;
+            let element = ctx.exec().struct_elem(*idx, *frame_id)?;
             let (mut bytes, refs, layout, name) = crate::object::snapshot_struct_element(&element)?;
             hash_snapshot(ctx, &name, &mut bytes, &refs, Some(&layout))?
         }
@@ -252,7 +252,7 @@ fn struct_payload(
             Ok(Some(s))
         }
         Value::StructRefHeap { idx, frame_id } => {
-            let e = ctx.exec().transient_arena.lock().struct_elem(*idx, *frame_id)?;
+            let e = ctx.exec().struct_elem(*idx, *frame_id)?;
             let (bytes, refs, _layout, type_name) = crate::object::snapshot_struct_element(&e)?;
             Ok(Some((type_name.to_string(), bytes, refs)))
         }

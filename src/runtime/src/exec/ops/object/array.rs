@@ -11,7 +11,6 @@ use crate::object::{
 };
 use crate::object::Value;
 use crate::object::ArrRef;
-use crate::exec::transient_arena::TransientPayload;
 use crate::vm::VmContext;
 
 use super::error::{ArrayOp, OpError, OpResult};
@@ -58,8 +57,7 @@ pub fn array_get<F: FnOnce() -> u32>(ctx: &VmContext, arr: &Value, idx: &Value, 
 /// 值 struct 数组元素的 `StructRefHeap` 句柄：载荷进 transient arena，盖上当前帧号。
 #[inline(never)]
 fn struct_elem_handle(ctx: &VmContext, arr: ArrRef, i: usize, fid: u32) -> Value {
-    let hidx = ctx.exec().transient_alloc(fid, TransientPayload::StructElem(StructArrayElem { arr, index: i as u32 }));
-    Value::StructRefHeap { idx: hidx, frame_id: fid }
+    ctx.exec().alloc_struct_elem(fid, StructArrayElem { arr, index: i as u32 })
 }
 
 #[inline(never)]

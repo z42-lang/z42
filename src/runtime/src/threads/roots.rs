@@ -81,7 +81,7 @@ fn scan_roots(c: &VmCore, visit: &mut (impl FnMut(&Value, RootKind) + ?Sized)) {
         // make-value-copy: transient payloads (Ref target / StructRefHeap
         // backing array) hold GcRefs that must stay marked while the handle
         // is live; the arena is the root (handles are not traced through).
-        ctx.exec.transient_arena.lock().scan_roots(&mut visit_stack);
+        ctx.exec().scan_transient_roots(&mut visit_stack);
     }
 }
 
