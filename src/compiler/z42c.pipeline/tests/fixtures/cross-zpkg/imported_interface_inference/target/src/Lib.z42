@@ -1,4 +1,5 @@
 namespace DemoInfer;
+using DemoInferArgs;
 
 public interface IValue<T> {}
 public interface IChild<T> : IValue<T> {}
@@ -12,7 +13,7 @@ public class Leaf<V> : Middle<V> {}
 public class Fixed : Leaf<int> {}
 
 public class Pair<A, B> {}
-public class Scoped<U> : Base<Pair<U, DemoInferArgs.Marker>[]> {}
+public class Scoped<U> : Base<Pair<U, Marker>[]> {}
 
 public interface IStored<T> {
     T Read();
@@ -22,6 +23,7 @@ public interface IStored<T> {
 
 public class Storage<T> : IStored<T> {
     public T Value;
+    public T Stored { get; set; }
     public T[] Items;
     public DemoInferArgs.T Qualified;
     public virtual T Read() { return this.Value; }
