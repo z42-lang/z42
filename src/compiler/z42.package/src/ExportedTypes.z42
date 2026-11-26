@@ -72,10 +72,12 @@ public sealed class ExportedFieldZ {
     // ctor 元数不变（旧种子 ABI），默认 false，TsigReconcile 构造后赋值。
     // **缺席 = 不强制**（不是「保证非空」）⇒ 旧包落成 false 恰好正确，无需完备性标记。
     public bool   IsNullable;
+    // 仅重建祖先字段时使用：投影后的 TypeName 用于类型检查，原拼写用于布局。
+    public string StorageTypeName;
     public ExportedFieldZ(string name, string typeName, string visibility, bool isStatic) {
         this.Name = name; this.TypeName = typeName; this.Visibility = visibility; this.IsStatic = isStatic;
         this.IsDeprecated = false; this.DeprecationMsg = "";
-        this.IsNullable = false;
+        this.IsNullable = false; this.StorageTypeName = "";
     }
 }
 

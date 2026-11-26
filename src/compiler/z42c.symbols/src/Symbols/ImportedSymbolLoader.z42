@@ -439,8 +439,15 @@ private static string _fqTrimTypeArgs(string fq) {
                 // 会把导入 struct 里的嵌套 struct 字段当成 8B 引用叶子：布局与生产方错位、读写静默错值
                 // （只有嵌套 struct 恰好 8B 时偏移碰巧重合——`struct_cross_pkg` 的 `Point{int,int}` 正是如此）。
                 if (!fd.IsStatic) {
-                    string fsp = (fsym.FieldType is Z42UnknownType || fsym.FieldType is Z42ErrorType)
-                        ? fd.TypeName : TypeNameResolver.SurfaceTypeName(fsym.FieldType);
+                    Z42Type storage = fsym.FieldType;
+                    string spelling = fd.TypeName;
+                    if (fd.StorageTypeName != null && fd.StorageTypeName != "") {
+                        spelling = fd.StorageTypeName;
+                        storage = ImportedSymbolLoader._resolve(r, spelling, tps, tpc);
+                        fsym.StorageType = storage;
+                    }
+                    string fsp = (storage is Z42UnknownType || storage is Z42ErrorType)
+                        ? spelling : TypeNameResolver.SurfaceTypeName(storage);
                     ct.AddOwnField(fd.Name, fsp, fd.Visibility);
                 }
             }

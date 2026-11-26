@@ -113,6 +113,8 @@ public sealed class FieldSymbol {
     public string  Name;
     public string  Visibility;
     public Z42Type FieldType;
+    // 导入字段的语义类型投影不改变生产包已有的存储布局。
+    public Z42Type StorageType;
     public bool    IsStatic;
     public string  ContainingTypeName;
     public bool    IsReadonly;   // add-readonly-fields-opt：readonly 字段（构造后不变）。默认 false；

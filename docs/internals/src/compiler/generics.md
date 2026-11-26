@@ -447,6 +447,11 @@ per-instance `type_args` 只覆盖「实例自己那一层泛型」，两种形�
 `GBox<int>` 与 `GBox<string>` 两个派生类互相污染；② 判「写没写实参」看 AST 的 `ArgCount`，
 **不看** `GenericParamCount`（后者只说基类是泛型定义，`class D : GBox` 也命中它）。
 
+导入包时，`TsigReconcile` 从 `TYPE` 重建展平的继承字段，并与继承方法共用逐层实参投影。
+例如 `Forward<U> : Storage<U>` 上的 `Storage<T>.Value` 显示为 `U`，消费方再通过
+`Forward<int>` 将其解析为 `int`。类型检查和布局分别读取投影后的类型与声明时的存储类型；
+导入不会把原有字段槽重新排布成内联值。
+
 ### 第三半：接口**身份**也要带实参
 
 上面两条修的是「沿链代换」，还剩一条**同族**的：两个接口类型算不算同一个。
