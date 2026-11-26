@@ -372,6 +372,8 @@ struct 的完整对象协议。unboxed struct 仍无 vtable（这些方法经装
 - **`a.GetHashCode()`**（未自声明）：`__struct_hash_code` 直呼——builtin 已扩为收**任意表示**
   （`StructRef` / `StructRefHeap` / `BoxedStruct`），由 `struct_value_hash` 按表示读取字段，
   再使用 `boxed_hash` 中共用的 FNV-1a 字节与引用叶子混合逻辑。
+  直接对 `arr[i]` 调用默认哈希时，编译器把 `ArrayGet` 的 `StructRefHeap` 直接交给 builtin，
+  省掉逐字段复制到帧的 IR。`ArrayGet` 检查边界，索引只求值一次。普通元素读和用户覆写仍按值复制。
 
 `__struct_eq` 由编译器直接发射。`__struct_hash_code` 同时服务具体类型调用和 `Std.ValueType.GetHashCode()`。
 

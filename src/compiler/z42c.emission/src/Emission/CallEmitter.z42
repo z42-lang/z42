@@ -208,7 +208,7 @@ public sealed class CallEmitter {
                     }
                     if (c.MethodName == "GetHashCode" && c.ArgCount == 0
                         && !this._ctx.StructDeclaresMethod(c.Receiver.Type(), "GetHashCode")) {
-                        TypedReg harg = this._ee.Emit(c.Receiver);
+                        TypedReg harg = this._ee._emitStructHashReceiver(c.Receiver);
                         TypedReg hdst = this._ctx.Alloc(this._ctx.ToIrType(c.Type()));
                         TypedReg[] ha = new TypedReg[1]; ha[0] = harg;
                         this._ctx.Emit(new BuiltinInstr(hdst, "__struct_hash_code", ha, 1));

@@ -1,0 +1,20 @@
+// tier: gate — exercises default hashing of struct array elements.
+// Alternates between two elements. The checksum is 1243852042000000.
+namespace Bench.StructArrayHash;
+
+using Std.IO;
+
+struct Point(int X, int Y, int Z);
+
+void Main() {
+    Point[] points = new Point[2];
+    points[0] = new Point(1, 2, 3);
+    points[1] = new Point(1, 2, 9);
+    long sum = 0;
+    int i = 0;
+    while (i < 1000000) {
+        sum = sum + (long)points[i & 1].GetHashCode();
+        i = i + 1;
+    }
+    Console.WriteLine(sum);
+}

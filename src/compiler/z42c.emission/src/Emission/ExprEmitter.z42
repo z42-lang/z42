@@ -101,6 +101,15 @@ public sealed partial class ExprEmitter : IBoundExprVisitor<TypedReg, Unit> {
     }
     public TypedReg VisitMember(BoundMember n, Unit d) { return this._access._emitMember(n); }
     public TypedReg VisitIndex(BoundIndex n, Unit d) { return this._access._emitIndex(n); }
+
+    internal TypedReg _emitStructHashReceiver(BoundExpr receiver) {
+        // The default hash reads the handle immediately. User calls and ordinary array reads
+        // still take a value copy so the element handle cannot escape.
+        if (receiver is BoundIndex) {
+            return this._access._emitArrayElemHandle(receiver as BoundIndex);
+        }
+        return this.Emit(receiver);
+    }
     public TypedReg VisitStaticGet(BoundStaticGet sg, Unit d) {
         // add-static-properties：静态属性读 → `call C.get_X()`（此前落到下面发 `static_get C.X`，
         // 一个根本不存在的静态字段 ⇒ 运行期 MissingSymbolException）。
