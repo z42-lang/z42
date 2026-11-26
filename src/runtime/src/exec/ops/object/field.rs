@@ -102,14 +102,11 @@ fn field_get_rare(ctx: &VmContext, recv: &Value, name: &str, ic: Option<&FieldIC
             array_len_field(name, len)
         }
         Value::PinnedView { idx, frame_id } => {
-            let (ptr, len) = ctx.exec.transient_arena.lock().with(*idx, *frame_id, |p| match p {
-                crate::exec::transient_arena::TransientPayload::PinView(pv) => (pv.ptr, pv.len),
-                _ => (0u64, 0u64),
-            })?;
+            let view = ctx.exec().pinned_view(*idx, *frame_id)?;
             match name {
                 // Spec C4 — only `ptr` / `len` are exposed; element type (kind) stays internal.
-                "ptr" => Ok(Value::I64(ptr as i64)),
-                "len" => Ok(Value::I64(len as i64)),
+                "ptr" => Ok(Value::I64(view.ptr as i64)),
+                "len" => Ok(Value::I64(view.len as i64)),
                 other => Err(OpError::internal(format!(
                     "PinnedView has no field `{other}` (only `ptr` / `len`)"))),
             }

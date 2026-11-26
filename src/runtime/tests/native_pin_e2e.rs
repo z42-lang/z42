@@ -69,6 +69,35 @@ fn pin_str_then_field_len_returns_byte_length() {
 }
 
 #[test]
+fn pin_view_slot_is_reclaimed_on_frame_exit() {
+    let ctx = VmContext::new();
+    let module = build_module(
+        "pin_frame_exit",
+        vec![
+            Instruction::ConstStr { dst: 0, idx: 0 },
+            Instruction::PinPtr { dst: 1, src: 0 },
+            Instruction::UnpinPtr { pinned: 1 },
+        ],
+        Terminator::Ret { reg: Some(1) },
+    );
+    // Returning the synthetic handle exposes its identity without reading the borrowed buffer.
+    let pin = || {
+        let value = z42_interp::interp::run_returning(&ctx, &module, &module.functions[0], &[])
+            .expect("pinned view created");
+        let Some(Value::PinnedView { idx, frame_id }) = value else {
+            panic!("expected a pinned view, got {value:?}");
+        };
+        (idx, frame_id)
+    };
+
+    let first = pin();
+    assert!(ctx.exec().pinned_view(first.0, first.1).is_err());
+    let second = pin();
+    assert_eq!(first.0, second.0, "the next frame must reuse the reclaimed slot");
+    assert_ne!(first.1, second.1, "a reused slot belongs to a new frame");
+}
+
+#[test]
 fn pin_str_then_field_ptr_returns_nonzero() {
     let m = build_module(
         "pin_field_ptr",

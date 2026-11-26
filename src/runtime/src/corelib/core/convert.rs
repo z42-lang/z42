@@ -488,7 +488,7 @@ pub mod typed {
                 super::box_struct_blob(ctx, &type_name, &bytes, &refs).map_err(|e| BuiltinError::Internal(e.to_string()))
             }
             Value::StructRefHeap { idx, frame_id } => {
-                let e = ctx.exec().transient_arena.lock().struct_elem(*idx, *frame_id)
+                let e = ctx.exec().struct_elem(*idx, *frame_id)
                     .map_err(|e| BuiltinError::Internal(e.to_string()))?;
                 let (bytes, refs, _layout, type_name) = crate::object::snapshot_struct_element(&e)
                     .map_err(|e| BuiltinError::Internal(e.to_string()))?;
