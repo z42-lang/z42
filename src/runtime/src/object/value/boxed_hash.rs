@@ -2,6 +2,15 @@
 
 use super::Value;
 
+const FNV_OFFSET: u32 = 2_166_136_261;
+const FNV_PRIME: u32 = 16_777_619;
+
+fn is_negative_zero(bytes: &[u8]) -> bool {
+    bytes.split_last().is_some_and(|(&sign, rest)| {
+        sign == 0x80 && rest.iter().all(|&byte| byte == 0)
+    })
+}
+
 /// Canonicalize negative zero in the float lanes of a value snapshot. Struct equality
 /// treats both zeros as equal, so the default hash must see the same bytes for both.
 pub fn normalize_signed_zero(
@@ -10,41 +19,51 @@ pub fn normalize_signed_zero(
     for range in float_fields {
         let field = bytes.get_mut(range.clone())
             .ok_or_else(|| anyhow::anyhow!("struct hash: invalid float field range {range:?}"))?;
-        if let Some((sign, rest)) = field.split_last_mut() {
-            if *sign == 0x80 && rest.iter().all(|&b| b == 0) {
-                *sign = 0;
-            }
+        if is_negative_zero(field) {
+            field[field.len() - 1] = 0;
         }
     }
     Ok(())
 }
 
-/// Hash borrowed arena storage. A float layout uses a scratch copy for zero normalization.
+/// Hash borrowed arena storage, substituting zero for the sign byte of each negative zero.
+/// Float ranges are cached in order of increasing offset and do not overlap.
 #[inline]
 pub fn hash_struct_with_floats(
     bytes: &[u8], refs: &[Value], float_fields: &[std::ops::Range<usize>],
 ) -> anyhow::Result<i64> {
-    if float_fields.is_empty() {
-        return Ok(hash_struct_payload(bytes, refs));
+    let mut h = FNV_OFFSET;
+    let mut start = 0;
+    for range in float_fields {
+        let field = bytes.get(range.clone())
+            .ok_or_else(|| anyhow::anyhow!("struct hash: invalid float field range {range:?}"))?;
+        if is_negative_zero(field) {
+            let sign = range.end - 1;
+            h = hash_bytes(h, &bytes[start..sign]).wrapping_mul(FNV_PRIME);
+            start = range.end;
+        }
     }
-    let mut copy = bytes.to_vec();
-    normalize_signed_zero(&mut copy, float_fields)?;
-    Ok(hash_struct_payload(&copy, refs))
+    Ok(hash_refs(hash_bytes(h, &bytes[start..]), refs))
 }
 
 /// add-struct-value-eq-fastpath：payload 级哈希——boxed、frame arena `StructRef`、
 /// `struct[]` 元素三种表示共用同一实现，同值 struct 无论从哪种表示进来哈希都相同
 /// （值相等 ⇒ 哈希相等这条契约跨表示成立）。
 pub fn hash_struct_payload(bytes: &[u8], refs: &[Value]) -> i64 {
-    let mut h: u32 = 2_166_136_261;
-    for &byte in bytes.iter() { h ^= byte as u32; h = h.wrapping_mul(16_777_619); }
-    for r in refs.iter() {
+    hash_refs(hash_bytes(FNV_OFFSET, bytes), refs)
+}
+
+fn hash_bytes(mut h: u32, bytes: &[u8]) -> u32 {
+    for &byte in bytes {
+        h = (h ^ u32::from(byte)).wrapping_mul(FNV_PRIME);
+    }
+    h
+}
+
+fn hash_refs(mut h: u32, refs: &[Value]) -> i64 {
+    for r in refs {
         let rh: u32 = match r.unproject_interface() {
-            Value::Str(s) => {
-                let mut sh: u32 = 2_166_136_261;
-                for &x in s.as_bytes() { sh ^= x as u32; sh = sh.wrapping_mul(16_777_619); }
-                sh
-            }
+            Value::Str(s) => hash_bytes(FNV_OFFSET, s.as_bytes()),
             // add-value-hash-ref-leaves：object/array 叶子此前贡献常量 0——Equals 按引用身份比较，
             // 哈希却全同 ⇒ 引用叶子互异的 struct 全部落进同一个桶（O(n) 探测链）。改贡献地址身份
             // 哈希（`identity_hash`，fmix64 混合；GC 不移动对象故稳定）：身份相等 ⇒ 哈希相等（契约
@@ -56,7 +75,7 @@ pub fn hash_struct_payload(bytes: &[u8], refs: &[Value]) -> i64 {
                 crate::object::ArrRef::as_ptr(&gc) as *const _ as *const u8 as usize) as u32,
             _ => 0,
         };
-        h ^= rh; h = h.wrapping_mul(16_777_619);
+        h = (h ^ rh).wrapping_mul(FNV_PRIME);
     }
     (h & 0x7fff_ffff) as i64
 }

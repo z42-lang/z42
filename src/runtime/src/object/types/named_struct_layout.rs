@@ -273,6 +273,10 @@ pub fn float_field_ranges<'a>(
     }
     let mut ranges = Vec::new();
     collect_float_fields(resolve, name, layout, 0, 0, &mut ranges)?;
+    ranges.sort_unstable_by_key(|range| range.start);
+    if ranges.windows(2).any(|pair| pair[0].end > pair[1].start) {
+        bail!("struct hash: overlapping float field ranges in `{name}`");
+    }
     Ok(layout.float_field_ranges.get_or_init(|| ranges.into_boxed_slice()))
 }
 

@@ -1,0 +1,19 @@
+// tier: gate — exercises the default hash for frame-local float structs.
+// Mixes ordinary values and signed zeros. The checksum is 402807975000000.
+namespace Bench.FrameFloatStructHash;
+
+using Std.IO;
+
+struct Point(float X, int Id, double Y);
+
+void Main() {
+    Point ordinary = new Point(1.25f, 13, -2.5);
+    Point signedZero = new Point(-0.0f, 19, -0.0);
+    long sum = 0;
+    int i = 0;
+    while (i < 1000000) {
+        sum = sum + ordinary.GetHashCode() + signedZero.GetHashCode();
+        i = i + 1;
+    }
+    Console.WriteLine(sum);
+}
