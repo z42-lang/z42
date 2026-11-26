@@ -257,7 +257,14 @@ fn struct_payload(
             Ok(Some((type_name.to_string(), bytes, refs)))
         }
         Value::Object(o) if o.type_desc().is_struct() && o.type_desc().fields.is_empty() => {
-            Ok(Some((o.type_desc().name.clone(), Vec::new(), Vec::new())))
+            let td = o.type_desc();
+            let args = o.type_args();
+            let name = if args.is_empty() || !td.type_args().is_empty() {
+                td.name.clone()
+            } else {
+                crate::zpkg::index::type_names::constructed(&td.name, args)
+            };
+            Ok(Some((name, Vec::new(), Vec::new())))
         }
         _ => Ok(None),
     }
