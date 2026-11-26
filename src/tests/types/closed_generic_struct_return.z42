@@ -1,0 +1,39 @@
+namespace ClosedGenericStructReturn;
+using Std.Collections;
+
+struct Entry<T> {
+    public T Value;
+    public int Stamp;
+    public Entry(T value, int stamp) { this.Value = value; this.Stamp = stamp; }
+}
+
+class Store<T> {
+    private T _value;
+    public Store(T value) { this._value = value; }
+    public T Read() { return this._value; }
+    public T Value { get { return this._value; } }
+    public T this[int index] { get { return this._value; } }
+}
+
+void Main() {
+    Entry<int> input = new Entry<int>(42, 9);
+    Store<Entry<int>> store = new Store<Entry<int>>(input);
+    input.Value = 7;
+    Entry<int> methodValue = store.Read();
+    Entry<int> propertyValue = store.Value;
+    Entry<int> indexerValue = store[0];
+    Assert.Equal(42, methodValue.Value);
+    Assert.Equal(9, methodValue.Stamp);
+    Assert.Equal(42, propertyValue.Value);
+    Assert.Equal(42, indexerValue.Value);
+    methodValue.Value = 5;
+    Assert.Equal(42, store.Read().Value);
+
+    List<Entry<int>> entries = new List<Entry<int>>();
+    entries.Add(new Entry<int>(123, 4));
+    Entry<int> fromList = entries[0];
+    Assert.Equal(123, fromList.Value);
+    Assert.Equal(4, fromList.Stamp);
+    fromList.Stamp = 8;
+    Assert.Equal(4, entries[0].Stamp);
+}
