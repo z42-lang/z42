@@ -75,8 +75,10 @@ fn load_inline(o: &ScriptObject, slot: usize) -> Result<Value, usize> {
 #[cold]
 fn materialize_empty_field(ctx: &VmContext, td: &crate::object::TypeDesc, slot: usize) -> OpResult<Value> {
     let tag = &td.fields[slot].type_tag;
-    let (class, args) = super::static_defaults::empty_struct_type(ctx, tag)
-        .ok_or_else(|| OpError::internal(format!("unknown empty struct field type `{tag}`")))?;
+    // Zero-width slots can also come from layouts that still declare fields.
+    let Some((class, args)) = super::static_defaults::empty_struct_type(ctx, tag) else {
+        return Ok(Value::Null);
+    };
     match ctx.heap().alloc_instance(class, args) {
         Value::Null => Err(OpError::oom(format!("an empty struct field of type `{tag}`"))),
         value => Ok(value),
