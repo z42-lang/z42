@@ -92,6 +92,6 @@ pub(crate) unsafe fn call_entry(vm: &VmContext, entry: &FnEntry, frame: JitFrame
     unsafe { enter_compiled(vm, entry.ptr, entry.func, frame) }
 }
 
-#[cfg(all(test, z42_test_facade))]
+#[cfg(test)]
 #[path = "invoke_tests.rs"]
 mod invoke_tests;

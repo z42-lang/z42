@@ -1,5 +1,5 @@
 use super::*;
-use crate::exec::{frames::VmFrame, stack::stack_tests::test_function};
+use crate::{exec::frames::VmFrame, zpkg::ir};
 
 unsafe extern "C" fn return_first(frame: *mut JitFrame<'_>, _: *const VmContext) -> u8 {
     // SAFETY: enter_compiled passes a live frame with at least one register.
@@ -19,7 +19,24 @@ unsafe extern "C" fn throw_first(frame: *mut JitFrame<'_>, vm: *const VmContext)
 #[test]
 fn osr_registers_are_recycled_after_return_and_throw() {
     let vm = VmContext::new();
-    let function = test_function("osr", &[], Vec::new());
+    let function = Function::new(ir::Function {
+        name: "osr".into(),
+        param_count: 0,
+        ret_type: "long".into(),
+        exec_mode: ir::ExecMode::Jit,
+        blocks: Vec::new(),
+        is_static: true,
+        visibility: 0,
+        method_flags: 0,
+        min_arg: 0,
+        params_from: 0xFF,
+        max_reg: 3,
+        cold: None,
+        reg_types: Box::new([]),
+        block_index: Default::default(),
+        branch_targets: Vec::new(),
+        frame_meta: None,
+    });
     let parent_regs = vec![Value::I64(42)];
     crate::exec::push_frame(&vm, VmFrame::new(&function, &parent_regs));
 
