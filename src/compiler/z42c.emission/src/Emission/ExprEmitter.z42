@@ -167,18 +167,22 @@ public sealed partial class ExprEmitter : IBoundExprVisitor<TypedReg, Unit> {
             this._ctx.Emit(new ConstNullInstr(dnull));
             return dnull;
         }
+        return this._emitConcreteDefault(def.Type());
+    }
+
+    private TypedReg _emitConcreteDefault(Z42Type type) {
         // fix-default-blob-struct：blob 值 struct 的 default(T) = **零初始化 blob**，不是 null。
         // 此前落到末尾的 ConstNull 兜底 ⇒ 上层 `T t = default(T)` 发 StructAlloc + StructCopy(t, null)
         // ⇒ 运行期「StructCopy src: expected a struct value (StructRef), got Null」。
         // arena 的 alloc 本就零初始化（bytes 全零 / refs 全 Null），正是 struct 的默认值定义。
-        if (this._isBlobStruct(def.Type())) {
-            string dsn = this._blobStructName(def.Type());   // 布局名（全名；命中特化闸门时是实例化名）
+        if (this._isBlobStruct(type)) {
+            string dsn = this._blobStructName(type);   // 布局名（全名；命中特化闸门时是实例化名）
             TypedReg dsr = this._ctx.Alloc(IrType.Ref);
             this._ctx.Emit(new StructAllocInstr(dsr, this._ctx.QualifyLayout(dsn),
                                                 this._ctx.Gen.Layouts.StructSize(dsn)));
             return dsr;
         }
-        int dtag = this._ctx.ToIrType(def.Type());
+        int dtag = this._ctx.ToIrType(type);
         if (dtag == IrType.Bool) {
             TypedReg drb = this._ctx.Alloc(IrType.Bool);
             this._ctx.Emit(new ConstBoolInstr(drb, false));
@@ -203,6 +207,12 @@ public sealed partial class ExprEmitter : IBoundExprVisitor<TypedReg, Unit> {
             TypedReg drc = this._ctx.Alloc(IrType.Char);
             this._ctx.Emit(new ConstCharInstr(drc, '\0'));   // default(char) = '\0'
             return drc;
+        }
+        Z42ClassType owner = this._receiverClassType(type);
+        if (owner != null && owner.IsStruct && owner.OwnFieldCount == 0) {
+            // Empty structs still have a runtime type and value methods. Bare allocation
+            // materializes a fresh value without invoking a user-defined constructor.
+            return this._call._emitNewValue(type, owner.IrName(), "", new TypedReg[0], 0);
         }
         TypedReg drn = this._ctx.Alloc(IrType.Ref);
         this._ctx.Emit(new ConstNullInstr(drn));

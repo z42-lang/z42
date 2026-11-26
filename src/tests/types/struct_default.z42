@@ -24,7 +24,39 @@ struct Mixed {
     public char   d;
 }
 
+struct Empty {}
+
+struct GenericEmpty<T> {}
+
+class ConstructorCalls {
+    public static int Count = 0;
+}
+
+struct EmptyWithConstructor {
+    public EmptyWithConstructor() { ConstructorCalls.Count = ConstructorCalls.Count + 1; }
+    public override int GetHashCode() { return 31; }
+}
+
 void Main() {
+    Empty empty = default(Empty);
+    Empty fresh = new Empty();
+    Assert.Equal(fresh.GetHashCode(), empty.GetHashCode());
+    Assert.True(empty.Equals(fresh));
+    Assert.False(Object.ReferenceEquals((object)empty, (object)default(Empty)));
+
+    GenericEmpty<int> generic = default(GenericEmpty<int>);
+    object genericBox = generic;
+    GenericEmpty<int> newGeneric = new GenericEmpty<int>();
+    Assert.Equal(newGeneric.GetHashCode(), generic.GetHashCode());
+    Assert.Equal(newGeneric.GetType().FullName, genericBox.GetType().FullName);
+
+    EmptyWithConstructor withConstructor = default(EmptyWithConstructor);
+    Assert.Equal(0, ConstructorCalls.Count);
+    Assert.Equal(31, withConstructor.GetHashCode());
+    EmptyWithConstructor constructed = new EmptyWithConstructor();
+    Assert.Equal(31, constructed.GetHashCode());
+    Assert.Equal(1, ConstructorCalls.Count);
+
     // ── 基元叶子全零 ────────────────────────────────────────────────
     Two t = default(Two);
     Assert.Equal(0, t.x);
