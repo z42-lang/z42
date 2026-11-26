@@ -222,7 +222,7 @@ pub fn struct_ref_isa(
     if class_name == "Std.Object" || class_name == "Object" {
         return true;
     }
-    let Ok(name) = ctx.exec.struct_arena.lock().with(idx, frame_id, |s| s.type_name.clone()) else { return false };
+    let Ok(name) = ctx.exec().with_struct_slot(idx, frame_id, |slot| slot.type_name.clone()) else { return false };
     &*name == class_name || is_subclass_or_eq_td(ctx, registry, &name, class_name)
 }
 

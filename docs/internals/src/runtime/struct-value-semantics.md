@@ -29,8 +29,9 @@ b.x = 99;       // 只改 b
 
 ## 运行时：per-context 字节 arena + 侧表引用叶子
 
-未装箱 struct 值 = per-`VmContext` **字节 arena**（`exec/call/struct_arena.rs`）里的一段 blob；寄存器持
-`Value::StructRef{idx, frame_id}` 句柄（仿 `StackObject`，LIFO 随帧退出截断，`frame_id` staleness 守卫）。
+未装箱 struct 值存储在 `ThreadExecState` 的私有字节 arena。寄存器持 `Value::StructRef{idx, frame_id}`，
+执行层访问时校验槽与创建帧号，退栈时截断该帧的槽。GC 通过执行层访问存活 struct 的引用叶子。
+值复制校验源和目标后在同一把锁内完成。装箱和数组元素转为帧内值时，从快照初始化目标槽后发布长度。
 
 一个 blob（`StructSlot`）= **两部分**：
 
@@ -59,7 +60,7 @@ b.x = 99;       // 只改 b
 | 指令 | `size` 的地位 | 谁说了算 |
 |---|---|---|
 | `StructAlloc` | **纯兜底** | `resolve_layout` 先查 `TypeDesc.struct_layout()`；只有**拿不到布局时**才用 `size` 造一个 size-only 布局 |
-| `StructCopy` | **完全不用** | `StructArena::copy_into` 拷 `min(src.bytes.len(), dst.bytes.len())`，即两个 arena 槽**各自的 `layout`** |
+| `StructCopy` | **debug 校验** | 复制范围由两个槽的布局决定，debug 另外核对指令编码的大小 |
 
 两个 blob 都是 arena 槽、各自带 `layout`，所以 `StructCopy` 从来不需要在指令里带类型名。
 ⇒ `StructCopy` 无需 `TypeName`、`StructAlloc.Size` 只是兜底，均不需要格式 bump；
@@ -182,7 +183,7 @@ b.x = 99;       // 只改 b
 > `xtask test`（release）对它一个字都没说。
 
 > ⚠️ **`StructCopy` 是「值语义的复制点」，它的成本被所有赋值/传参/返回摊到**——
-> `StructArena::copy_into` 用 `split_at_mut` 取两个不相交借用就地复制（src 与 dst 是同一个 `Vec` 的
+> `StructArena::copy_slots` 用 `split_at_mut` 取两个不相交借用就地复制（src 与 dst 是同一个 `Vec` 的
 > 两个下标；若为绕借用检查而 `(s.bytes.to_vec(), s.refs.to_vec())`，就是**每次复制两次无条件堆分配**，
 > 且与 struct 大小无关）。
 >

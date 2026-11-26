@@ -2,6 +2,7 @@
 use anyhow::{anyhow, Result};
 use crate::zpkg::ir::METHOD_FLAG_SRET;
 use crate::object::Value;
+use crate::exec::ops::object::struct_leaf::as_struct_ref;
 use crate::metadata::{Function, Module};
 use crate::vm::VmContext;
 use super::{args::CallArgs, outcome::ExecOutcome};
@@ -34,7 +35,7 @@ pub fn invoke(
 ) -> Result<ExecOutcome> {
     let caller_slot = if has_caller_return_slot(function, arguments.len()) {
         let value = arguments.pop().ok_or_else(|| anyhow!("indirect struct return: missing caller slot"))?;
-        crate::exec::ops::object::struct_leaf::as_struct_ref(&value, "indirect caller return slot")?;
+        as_struct_ref(&value, "indirect caller return slot")?;
         Some(value)
     } else { None };
     // The caller's registers/closure keep original arguments rooted. New struct
@@ -53,9 +54,9 @@ pub fn invoke(
             .ok_or_else(|| anyhow!("indirect struct return: unknown type `{}`", function.ret_type))?;
         let layout = descriptor.struct_layout()
             .ok_or_else(|| anyhow!("indirect struct return: `{}` has no struct layout", function.ret_type))?;
-        let index = ctx.exec().struct_alloc(frame_id, descriptor.name.clone().into(), layout);
-        arguments.push(Value::StructRef { idx: index, frame_id });
-        Some(index)
+        let slot = ctx.exec().alloc_struct(frame_id, descriptor.name.as_str().into(), layout);
+        arguments.push(slot);
+        Some(slot)
     } else { None };
     let native = crate::exec::current_tier(ctx).and_then(|tier| tier.invoke(
         ctx, crate::exec::engine::TierTarget::Site(id), CallArgs::Values(&arguments), &[],
@@ -73,14 +74,14 @@ pub fn invoke(
                 Value::StructRef { .. } => value,
                 other => return Err(anyhow!("indirect struct return: expected struct result, got {other:?}")),
             };
-            let (index, owner) = crate::exec::ops::object::struct_leaf::as_struct_ref(&destination, "indirect caller return slot")?;
-            let size = ctx.exec.struct_arena.lock().with(index, owner, |slot| slot.layout.size as u32)?;
+            let (index, owner) = as_struct_ref(&destination, "indirect caller return slot")?;
+            let size = ctx.exec().with_struct_slot(index, owner, |slot| slot.layout.size as u32)?;
             crate::exec::ops::structs::struct_copy_val(ctx, &destination, &source, size)?;
             Ok(ExecOutcome::Returned(None))
         }
-        (_, Some(index), ExecOutcome::Returned(_)) => {
-            let (name, bytes, references) = ctx.exec.struct_arena.lock()
-                .with(index, frame_id, |slot| (slot.type_name.clone(), slot.bytes.clone(), slot.refs.clone()))?;
+        (_, Some(slot), ExecOutcome::Returned(_)) => {
+            let (index, owner) = as_struct_ref(&slot, "indirect boxed return slot")?;
+            let (name, bytes, references) = ctx.exec().snapshot_struct(index, owner)?;
             let result = crate::exec::ops::object::struct_leaf::box_struct_blob(ctx, &name, &bytes, &references)?;
             Ok(ExecOutcome::Returned(Some(result)))
         }

@@ -62,10 +62,7 @@ fn scan_roots(c: &VmCore, visit: &mut (impl FnMut(&Value, RootKind) + ?Sized)) {
             });
         }
         ctx.exec().scan_stack_alloc_roots(&mut visit_stack);
-        // add-struct-value-semantics: value-struct blobs' reference
-        // leaves are GC roots too (no-op for pure-primitive structs;
-        // ref-leaf scanning by type ref-bitmap lands in A-use).
-        ctx.exec.struct_arena.lock().scan_roots(&mut visit_stack);
+        ctx.exec().scan_struct_roots(&mut visit_stack);
         // make-value-copy: transient payloads (Ref target / StructRefHeap
         // backing array) hold GcRefs that must stay marked while the handle
         // is live; the arena is the root (handles are not traced through).

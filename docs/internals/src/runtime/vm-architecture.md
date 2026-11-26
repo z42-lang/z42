@@ -388,8 +388,8 @@ blob）、`transient_arena`（`Ref`/`PinnedView`/`StructRefHeap` 的 payload）�
 - **pop_frame** 对每个 arena **仅当本帧确实增长过**（发布长度 ≠ 戳记 base）才加锁 truncate + 重发布；
   常态帧在这三个 arena 上分配为零 → 三个比较全短路 → 一次调用不加任何锁。
 
-分配必须更新发布长度，供 `pop_frame` 判断是否需要截断。栈对象和数组的 arena、临时 arena 及对应长度由
-`ThreadExecState` 私有持有。执行状态返回分配后的句柄，并为 GC 提供根扫描入口。回收后的句柄由槽索引和帧号校验拒绝。
+分配必须更新发布长度，供 `pop_frame` 判断是否需要截断。三个 arena 及对应长度都由 `ThreadExecState` 私有持有。
+执行状态返回分配后的句柄，并为 GC 提供根扫描入口。回收后的句柄由槽索引和帧号校验拒绝。
 
 **GC race**：pop 的 skip 分支对 arena 零操作 → 与 GC 扫描一致；truncate 分支在 arena `Mutex` 内 → 与
 `scan_roots` 互斥，GC 要么扫到待释放槽（仍合法存活 `Value`）要么扫到已释放，皆安全。

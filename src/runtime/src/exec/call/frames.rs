@@ -56,7 +56,7 @@ pub struct VmFrame {
     /// add-struct-value-semantics: value-struct byte-arena length when this frame
     /// was pushed; `pop_frame` truncates back to it (LIFO-frees this frame's blobs).
     /// Stamped by `push_frame`.
-    pub struct_base: u32,
+    pub(in crate::exec) struct_base: u32,
     /// make-value-copy: transient-arena length when this frame was pushed; `pop_frame`
     /// truncates back to it (LIFO-frees this frame's Ref/PinnedView/StructRefHeap
     /// payloads). Stamped by `push_frame`.

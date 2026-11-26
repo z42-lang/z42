@@ -12,8 +12,7 @@ pub fn struct_alloc_val(
     ctx: &VmContext, frame_id: u32, type_name: &str, size: u32,
 ) -> Value {
     let layout = resolve_layout(ctx, type_name, size);
-    let idx = ctx.exec().struct_alloc(frame_id, Arc::from(type_name), layout);
-    Value::StructRef { idx, frame_id }
+    ctx.exec().alloc_struct(frame_id, Arc::from(type_name), layout)
 }
 
 
@@ -28,8 +27,7 @@ pub fn method_struct_alloc(
         .ok_or_else(|| missing(format!("unknown struct type `{name}` for method type argument {param_index}")))?;
     let layout = descriptor.struct_layout().filter(|_| descriptor.is_struct())
         .ok_or_else(|| missing(format!("method type argument `{name}` has no struct layout")))?;
-    let idx = ctx.exec().struct_alloc(frame_id, Arc::from(descriptor.name.as_str()), layout);
-    Ok(Value::StructRef { idx, frame_id })
+    Ok(ctx.exec().alloc_struct(frame_id, Arc::from(descriptor.name.as_str()), layout))
 }
 
 /// Use the loaded struct layout, or the existing size-only native fallback.
@@ -59,28 +57,26 @@ pub fn unbox_struct(
     // independent of the box).
     let (type_name, bytes, refs) = crate::object::snapshot_struct_box(gc);
     let layout = resolve_layout(ctx, &type_name, bytes.len() as u32);
-    let idx = ctx.exec().struct_alloc(frame_id, type_name, layout);
-    ctx.exec.struct_arena.lock().with_mut(idx, frame_id, |s| {
-        let n = bytes.len().min(s.bytes.len());
-        s.bytes[..n].copy_from_slice(&bytes[..n]);
-        let rn = refs.len().min(s.refs.len());
-        s.refs[..rn].clone_from_slice(&refs[..rn]);
-    })?;
-    Ok(Value::StructRef { idx, frame_id })
+    Ok(alloc_from_snapshot(ctx, frame_id, type_name, layout, &bytes, &refs))
 }
 
 
 /// Snapshot a struct array element into current-frame storage by value.
 pub fn copy_array_elem_out(ctx: &VmContext, frame_id: u32, e: &ty::StructArrayElem) -> Result<Value> {
     let (src_bytes, src_refs, layout, tname) = crate::object::snapshot_struct_element(e)?;
-    let idx = ctx.exec().struct_alloc(frame_id, tname, layout);
-    ctx.exec.struct_arena.lock().with_mut(idx, frame_id, |s| {
-        let n = src_bytes.len().min(s.bytes.len());
-        s.bytes[..n].copy_from_slice(&src_bytes[..n]);
-        let rn = src_refs.len().min(s.refs.len());
-        s.refs[..rn].clone_from_slice(&src_refs[..rn]);
-    })?;
-    Ok(Value::StructRef { idx, frame_id })
+    Ok(alloc_from_snapshot(ctx, frame_id, tname, layout, &src_bytes, &src_refs))
+}
+
+fn alloc_from_snapshot(
+    ctx: &VmContext, frame_id: u32, type_name: Arc<str>, layout: Arc<StructTypeLayout>,
+    bytes: &[u8], refs: &[Value],
+) -> Value {
+    ctx.exec().alloc_initialized_struct(frame_id, type_name, layout, |out_bytes, out_refs| {
+        let byte_count = bytes.len().min(out_bytes.len());
+        out_bytes[..byte_count].copy_from_slice(&bytes[..byte_count]);
+        let ref_count = refs.len().min(out_refs.len());
+        out_refs[..ref_count].copy_from_slice(&refs[..ref_count]);
+    })
 }
 
 
@@ -88,9 +84,9 @@ pub fn copy_array_elem_out(ctx: &VmContext, frame_id: u32, e: &ty::StructArrayEl
 pub fn struct_copy_val(
     ctx: &VmContext, dst_val: &Value, src_val: &Value, size: u32,
 ) -> Result<()> {
-    let (d_idx, d_fid) = as_struct_ref(dst_val, "StructCopy dst")?;
-    let (s_idx, s_fid) = as_struct_ref(src_val, "StructCopy src")?;
-    ctx.exec.struct_arena.lock().copy_into(d_idx, d_fid, s_idx, s_fid, size as usize)
+    let dst = as_struct_ref(dst_val, "StructCopy dst")?;
+    let src = as_struct_ref(src_val, "StructCopy src")?;
+    ctx.exec().copy_struct_slots(dst, src, Some(size as usize))
 }
 
 
@@ -99,9 +95,9 @@ pub fn struct_copy_dynamic(
     ctx: &VmContext, module: &Module, dst: &Value, src: &Value,
 ) -> Result<(), Value> {
     let copy = || -> Result<()> {
-        let (dst_index, dst_frame) = as_struct_ref(dst, "StructCopyDynamic dst")?;
-        let (src_index, src_frame) = as_struct_ref(src, "StructCopyDynamic src")?;
-        ctx.exec.struct_arena.lock().copy_dynamic(dst_index, dst_frame, src_index, src_frame)
+        let dst = as_struct_ref(dst, "StructCopyDynamic dst")?;
+        let src = as_struct_ref(src, "StructCopyDynamic src")?;
+        ctx.exec().copy_struct_slots(dst, src, None)
     };
     copy().map_err(|err| {
         let message = err.to_string();

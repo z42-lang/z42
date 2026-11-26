@@ -2,14 +2,8 @@
 //! (add-struct-value-semantics Phase A).
 use super::*;
 use crate::object::Value;
-use crate::exec::struct_arena::StructArena;
 use crate::object::StructTypeLayout;
 use std::sync::Arc;
-
-/// Pure-primitive layout of `size` bytes (no reference leaves).
-fn prim_layout(size: usize) -> Arc<StructTypeLayout> {
-    Arc::new(StructTypeLayout { float_field_ranges: Default::default(), size, ref_offsets: Box::new([]), ref_kinds: Box::new([]), fields: Box::new([]) })
-}
 
 fn enc(bytes: &mut [u8], off: usize, tag: u8, v: Value) {
     let w = prim_width(tag).unwrap();
@@ -78,31 +72,20 @@ fn out_of_bounds_access_errors() {
     assert!(encode_prim(&mut m, 2, 4, ty::TAG_I32, &Value::I64(0)).is_err());
 }
 
-/// The core value-semantics property, exercised at the arena+codec layer that the
-/// interp handlers use: `var b = a; b.x = 99;` must leave `a.x` unchanged.
-/// struct P { x: int @0; y: int @4; }  (size 8)
+/// Mutating a copied struct must leave the source unchanged.
 #[test]
 fn value_semantics_copy_then_mutate_leaves_source_unchanged() {
-    let mut arena = StructArena::default();
-    let ty: Arc<str> = Arc::from("P");
-    let a = arena.alloc(1, ty.clone(), prim_layout(8));
-    let b = arena.alloc(1, ty, prim_layout(8));
+    let ctx = VmContext::new();
+    let a = struct_alloc_val(&ctx, 1, "P", 8);
+    let b = struct_alloc_val(&ctx, 1, "P", 8);
+    struct_field_set_val(&ctx, &a, 0, ty::TAG_I32, &Value::I64(1)).unwrap();
+    struct_field_set_val(&ctx, &a, 4, ty::TAG_I32, &Value::I64(7)).unwrap();
+    struct_copy_val(&ctx, &b, &a, 8).unwrap();
+    struct_field_set_val(&ctx, &b, 0, ty::TAG_I32, &Value::I64(99)).unwrap();
 
-    // a.x = 1; a.y = 7
-    arena.with_mut(a, 1, |s| { enc(&mut s.bytes, 0, ty::TAG_I32, Value::I64(1));
-                               enc(&mut s.bytes, 4, ty::TAG_I32, Value::I64(7)); }).unwrap();
-    // b = a   (StructCopy)
-    arena.copy_into(b, 1, a, 1, 8).unwrap();
-    // b.x = 99
-    arena.with_mut(b, 1, |s| enc(&mut s.bytes, 0, ty::TAG_I32, Value::I64(99))).unwrap();
-
-    // a.x still 1, a.y still 7 — the copy is independent.
-    let ax = arena.with(a, 1, |s| dec(&s.bytes, 0, ty::TAG_I32)).unwrap();
-    let ay = arena.with(a, 1, |s| dec(&s.bytes, 4, ty::TAG_I32)).unwrap();
-    let bx = arena.with(b, 1, |s| dec(&s.bytes, 0, ty::TAG_I32)).unwrap();
-    assert!(matches!(ax, Value::I64(1)), "a.x must stay 1, got {ax:?}");
-    assert!(matches!(ay, Value::I64(7)), "a.y must stay 7, got {ay:?}");
-    assert!(matches!(bx, Value::I64(99)), "b.x must be 99, got {bx:?}");
+    assert_eq!(struct_field_get_val(&ctx, &a, 0, ty::TAG_I32).unwrap(), Value::I64(1));
+    assert_eq!(struct_field_get_val(&ctx, &a, 4, ty::TAG_I32).unwrap(), Value::I64(7));
+    assert_eq!(struct_field_get_val(&ctx, &b, 0, ty::TAG_I32).unwrap(), Value::I64(99));
 }
 
 /// add-struct-heap-inline (P3b, D1-a, route α): a struct field **inlined into a heap
@@ -224,31 +207,6 @@ fn struct_array_element_leaf_access_via_handle() {
         o => panic!("arr[0].tag expected string, got {o:?}"),
     }
     assert!(matches!(frame.get(7).unwrap(), Value::I64(22)), "arr[1].x must be 22, independent of arr[0]");
-}
-
-/// add-struct-object-boxing (PR2a) / add-boxed-struct-identity (P4b): 装箱把 blob **快照拷出** arena
-/// slot → 脱离 arena 生命周期。P4b 后快照落在共享 `ScriptObject`（heap）而非 owned `BoxedStructData`，
-/// 但「装箱时从 arena slot 拷出的快照独立于 arena」这条不变量不变——`builtin_box_struct` 先从 slot 抽
-/// `(type_name, bytes, refs)`（本测试验的这步），再 `box_struct_blob` 拷进堆对象。arena truncate（模拟
-/// 创建帧退出）后原 slot 失效，但快照仍持有数据（修 `object o = struct` use-after-free 的健全性性质）。
-#[test]
-fn boxed_struct_owns_snapshot_and_survives_arena_truncate() {
-    let mut arena = StructArena::default();
-    let ty: Arc<str> = Arc::from("Demo.P");
-    let base = arena.base();
-    let a = arena.alloc(1, ty.clone(), prim_layout(8));
-    arena.with_mut(a, 1, |s| { enc(&mut s.bytes, 0, ty::TAG_I32, Value::I64(1));
-                               enc(&mut s.bytes, 4, ty::TAG_I32, Value::I64(2)); }).unwrap();
-    // box 第一步：从 slot 快照 bytes+refs+类型名（builtin_box_struct 抽取的等价逻辑，随后喂 box_struct_blob）。
-    let (snap_ty, snap_bytes, _snap_refs): (Arc<str>, Vec<u8>, Vec<Value>) =
-        arena.with(a, 1, |s| (s.type_name.clone(), s.bytes.to_vec(), s.refs.to_vec())).unwrap();
-    // 创建帧退出 → arena LIFO 截断；原 StructRef 句柄此刻应 stale。
-    arena.truncate(base);
-    assert!(arena.with(a, 1, |_| ()).is_err(), "arena slot must be stale after truncate");
-    // 快照仍持有数据（owned，无悬垂）——box_struct_blob 会把它拷进共享 ScriptObject。
-    assert_eq!(&*snap_ty, "Demo.P");
-    assert!(matches!(dec(&snap_bytes, 0, ty::TAG_I32), Value::I64(1)));
-    assert!(matches!(dec(&snap_bytes, 4, ty::TAG_I32), Value::I64(2)));
 }
 
 /// fix-stackobj-inline-struct-leaf: the same inline-struct-field round-trip as
