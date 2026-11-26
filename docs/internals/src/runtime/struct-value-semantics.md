@@ -479,6 +479,10 @@ vcall Equals，代价不值）。
 （get_Item / 方法返回 T）subst 后是否 blob struct」，是则调用点把结果包 `BoundConvert(→P)`，复用
 `TypeOpEmitter._emitConvert` 的 `AsCast` 拆箱臂。`foreach (P p in list)` 在 `FunctionEmitter` 对元素发 `AsCast`。
 
+**泛型默认值**：泛型方法的 `MethodDefault` 和泛型类的 `__class_default` 按激活中的实参解析 `default(T)`。
+实参为有字节布局的 struct 时，运行时按具体类型分配全零 `BoxedStruct`，跳过静态和实例构造器。
+调用方沿用泛型返回值的拆箱路径，得到当前帧中的独立副本。枚举返回 `I64(0)`，引用类型返回 `Null`。
+
 **`as_cast` 的 StructRef 恒等臂**（关键统一点）：泛型容器迭代/取值统一走 `AsCast`，但元素运行期可能是
 `BoxedStruct`（泛型容器，Add/set 装箱）**或**已是 `StructRef`（普通 `P[]`）——静态同为 `P[]` 不可辨。故 VM
 `as_cast`/`jit_as_cast` 加 **StructRef 源 → 原样返回**（已是值 struct，`as P` 恒等；编译器仅在静态类型即该

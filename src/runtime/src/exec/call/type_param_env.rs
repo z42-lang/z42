@@ -12,6 +12,7 @@
 //! bind class parameters until the corresponding method-level operations are supported.
 
 use crate::zpkg::index::type_param_markers::{self, Marker};
+use crate::exec::ops::object::static_defaults::zero_value_for_type;
 use crate::object::TypeArgs;
 use crate::object::Value;
 use crate::vm::VmContext;
@@ -27,10 +28,14 @@ pub fn method_type_value(ctx: &VmContext, args: &[String], index: usize) -> Valu
 }
 
 /// Read a method parameter's default value, or Null if the argument is missing.
-pub fn method_default_value(args: &[String], index: usize) -> Value {
-    args.get(index)
-        .map(|tag| crate::object::default_value_for(tag))
-        .unwrap_or(Value::Null)
+pub fn method_default_value(ctx: &VmContext, args: &[String], index: usize) -> Value {
+    args.get(index).map_or(Value::Null, |tag| zero_value_for_type(ctx, tag))
+}
+
+/// Resolve a class parameter at its declaring class before materializing its default.
+pub fn class_default_value(ctx: &VmContext, recv: &Value, index: usize, owner: Option<&str>) -> Value {
+    class_type_arg(ctx, recv, index, owner)
+        .map_or(Value::Null, |tag| zero_value_for_type(ctx, &tag))
 }
 
 #[derive(Clone, Copy)]

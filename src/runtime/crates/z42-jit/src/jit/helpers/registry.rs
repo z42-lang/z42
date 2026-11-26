@@ -295,7 +295,7 @@ pub fn declare_imports(jit: &mut JITModule) -> Result<HelperIds> {
         method_type_arg: decl!("jit_method_type_arg", [ptr, ptr, i32t, i32t], []),
         load_method_witness: decl!("jit_load_method_witness", [ptr, ptr, i32t, i32t], [i8t]),
         method_struct_alloc: decl!("jit_method_struct_alloc", [ptr, ptr, i32t, i32t], [i8t]),
-        method_default: decl!("jit_method_default", [ptr, i32t, i32t], []),
+        method_default: decl!("jit_method_default", [ptr, ptr, i32t, i32t], []),
         // jit_convert(frame, ctx, dst, src, to_tag) -> u8  (spec fix-numeric-cast-lowering)
         convert:        decl!("jit_convert",        [ptr, ptr, i32t, i32t, i32t],                [i8t]),
         // add-struct-jit-value-path (P5): blob value-type instruction helpers.

@@ -3,7 +3,7 @@
 //! generic `default(T)` runtime helper.
 
 use crate::metadata::dispatch::ctor::{site_for, instance_type_args};
-use crate::exec::type_param_env::{method_default_value, method_type_value};
+use crate::exec::type_param_env::{class_default_value, method_default_value, method_type_value};
 use crate::exec::ops::cast::isa_object;
 use crate::exec::ops::cast::isa_td;
 use crate::metadata::dispatch::ic::ObjNewSite;
@@ -122,30 +122,17 @@ pub unsafe extern "C" fn jit_typeof(
     (*frame).regs[dst as usize] = v;
 }
 
-// add-default-generic-typeparam (D-8b-3 Phase 2): JIT helper for
-// `default(T)` runtime resolution. Mirrors interp `Instruction::DefaultOf`
-// dispatch — reads `frame.regs[0]` (this) → `ScriptObject.type_args[param_index]`
-// → `default_value_for(tag)`. Non-Object reg 0 / OOB index / empty type_args
-// → graceful Null. Note: JIT-allocated objects currently have empty type_args
-// (jit_obj_new doesn't propagate them from the IR ObjNew yet), so this returns
-// Null in JIT-only data-flow; interp path is the source of truth for full
-// generic-T zero-value resolution.
+/// Read the receiver's own class parameter for legacy `DefaultOf` bytecode.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_default_of(
-    _frame: *mut JitFrame, _ctx: *const VmContext,
-    dst: u32, param_index: u32,
+    frame: *mut JitFrame, ctx: *const VmContext, dst: u32, param_index: u32,
 ) -> u8 {
-    let frame_ref = &mut *_frame;
-    let val = match frame_ref.regs.first() {
-        Some(Value::Object(rc)) => {
-            let b = rc.borrow();
-            b.type_args().get(param_index as usize)
-                .map(|tag| crate::object::default_value_for(tag))
-                .unwrap_or(Value::Null)
-        }
-        _ => Value::Null,
-    };
-    frame_ref.regs[dst as usize] = val;
+    let frame = &mut *frame;
+    let vm = vm_ctx_ref(ctx);
+    let val = frame.regs.first().map_or(Value::Null, |recv| {
+        class_default_value(vm, recv, param_index as usize, None)
+    });
+    frame.regs[dst as usize] = val;
     0
 }
 
@@ -175,10 +162,10 @@ pub unsafe extern "C" fn jit_load_method_witness(
 /// Store the method type argument's default value in the destination register.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_method_default(
-    frame: *mut JitFrame, dst: u32, param_index: u32,
+    frame: *mut JitFrame, ctx: *const VmContext, dst: u32, param_index: u32,
 ) {
     let frame = &mut *frame;
-    frame.regs[dst as usize] = method_default_value(frame.method_type_args, param_index as usize);
+    frame.regs[dst as usize] = method_default_value(vm_ctx_ref(ctx), frame.method_type_args, param_index as usize);
 }
 
 /// spec fix-numeric-cast-lowering : explicit numeric type

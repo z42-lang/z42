@@ -181,7 +181,7 @@ pub fn exec_instr(
         }
 
         // ── Generic default(T) at runtime (D-8b-3 Phase 2) ──────────────────
-        Instruction::DefaultOf { dst, param_index } => exec_address::default_of(frame, *dst, *param_index),
+        Instruction::DefaultOf { dst, param_index } => exec_address::default_of(ctx, frame, *dst, *param_index),
 
         // ── Method-level generics (add-generic-methods) ─────────────────────
         Instruction::MethodTypeArg { dst, param_index } => exec_address::method_type_arg(ctx, frame, *dst, *param_index),
@@ -198,7 +198,7 @@ pub fn exec_instr(
                 Err(thrown) => return Ok(Some(thrown)),
             }
         }
-        Instruction::MethodDefault { dst, param_index } => exec_address::method_default(frame, *dst, *param_index),
+        Instruction::MethodDefault { dst, param_index } => exec_address::method_default(ctx, frame, *dst, *param_index),
 
         // ── Numeric cast (fix-numeric-cast-lowering) ────────────
         Instruction::Convert { dst, src, to_tag } => {
