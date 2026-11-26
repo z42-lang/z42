@@ -1,0 +1,40 @@
+namespace StructArrayDefaultHash;
+
+struct Key(int Code, double Score, string Label);
+struct Custom(int Code) {
+    public int ReadCode() { return this.Code; }
+    public override int GetHashCode() {
+        this.Code = this.Code + 1;
+        return this.Code;
+    }
+}
+
+int Next(int[] calls) {
+    calls[0] = calls[0] + 1;
+    return 1;
+}
+
+void Main() {
+    Key key = new Key(1, 0.0, "key");
+    Key[] keys = new Key[2];
+    keys[0] = new Key(2, 3.5, "other");
+    keys[1] = new Key(1, -0.0, "key");
+    int[] calls = new int[1];
+    Assert.Equal(key.GetHashCode(), keys[Next(calls)].GetHashCode());
+    Assert.Equal(1, calls[0]);
+
+    bool outOfRange = false;
+    try { keys[keys.Length].GetHashCode(); }
+    catch (IndexOutOfRangeException e) { outOfRange = true; }
+    Assert.True(outOfRange);
+
+    Key copy = keys[1];
+    keys[1] = keys[0];
+    Assert.Equal(key.GetHashCode(), copy.GetHashCode());
+    Assert.Equal(keys[0].GetHashCode(), keys[1].GetHashCode());
+
+    Custom[] custom = new Custom[1];
+    custom[0] = new Custom(41);
+    Assert.Equal(42, custom[0].GetHashCode());
+    Assert.Equal(41, custom[0].ReadCode());
+}

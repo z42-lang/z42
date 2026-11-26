@@ -717,7 +717,7 @@ public sealed class AccessEmitter {
     // add-struct-array-codegen (P3b follow-up): emit `arr[i]` producing the **element
     // handle** (`StructRefHeap`, via ArrayGet on a value-struct array) with no copy. Used as
     // a struct chain root (`arr[i].x` in-place) + by `_emitIndex`'s copy-out + `arr[i] = p`.
-    private TypedReg _emitArrayElemHandle(BoundIndex idx) {
+    internal TypedReg _emitArrayElemHandle(BoundIndex idx) {
         TypedReg arr = this._ee.Emit(idx.Target);
         TypedReg i = this._ee.Emit(idx.Index);
         TypedReg h = this._ctx.Alloc(IrType.Ref);
