@@ -51,12 +51,12 @@ public sealed partial class ClassDescBuilder {
         return n;
     }
 
-    internal string _typeFieldName(TypeExpr te) {
-        if (te is ArrayType) { return this._typeFieldName((te as ArrayType).Elem) + "[]"; }
-        if (te is NullableType) { return this._typeFieldName((te as NullableType).Inner); }
+    internal string _typeFieldName(TypeExpr te, TypeParamList scope) {
+        if (te is ArrayType) { return this._typeFieldName((te as ArrayType).Elem, scope) + "[]"; }
+        if (te is NullableType) { return this._typeFieldName((te as NullableType).Inner, scope); }
         if (te is NamedType) {
             NamedType nt = te as NamedType;
-            return this._typeSourceName(nt);
+            return this._typeSourceName(nt, scope);
         }
         return "unknown";
     }
@@ -88,8 +88,14 @@ public sealed partial class ClassDescBuilder {
     //
     // 保持不变：prim 别名的源拼写（`byte[]` 非 `u8[]`，G18g）由调用方 `_typeFieldName` 的
     // `_isAliasPrim` 前置守卫拦住，不进本函数的解析路径；基元本身 PrimCode>=0 也不取 Fqn。
-    private string _typeSourceName(NamedType nt) {
+    private string _typeSourceName(NamedType nt, TypeParamList scope) {
         if (nt.ArgCount == 0) {
+            // 型参优先于同名导入类型；显式限定名不会匹配型参表。
+            int pi = 0;
+            while (pi < scope.Count) {
+                if (nt.Name == scope.Names[pi]) { return nt.Name; }
+                pi = pi + 1;
+            }
             string fq = this._fqnOf(nt);
             if (fq != "") { return fq; }
             if (this._hasDot(nt.Name)) { return "unknown"; }   // 真解析不出来的限定名 → 哨兵（消费端还原成 Z42UnknownType）
@@ -102,9 +108,9 @@ public sealed partial class ClassDescBuilder {
         while (i < nt.ArgCount) {
             if (i > 0) { s = s + ", "; }
             if (nt.Args[i] is NamedType) {
-                s = s + this._typeSourceName(nt.Args[i] as NamedType);
+                s = s + this._typeSourceName(nt.Args[i] as NamedType, scope);
             } else {
-                s = s + this._typeFieldName(nt.Args[i]);
+                s = s + this._typeFieldName(nt.Args[i], scope);
             }
             i = i + 1;
         }
@@ -269,7 +275,7 @@ public sealed partial class ClassDescBuilder {
                 FieldDecl fd = mem as FieldDecl;
                 FieldSymbol fsy = ctd.Fields.Get(fd.Name) as FieldSymbol;
                 if (fsy != null && fsy.IsConst) { j = j + 1; continue; }   // add-const-keyword：const 无字段布局（不进 zpkg 字段元数据）
-                string tn = this._typeFieldName(fd.Type);   // G18g：TYPE 段字段类型用源拼写（byte[]，非规范 u8[]）
+                string tn = this._typeFieldName(fd.Type, c.TypeParams);   // G18g：TYPE 段字段类型用源拼写（byte[]，非规范 u8[]）
                 // infer-var-field-types：var 字段源拼写「var」丢类型 → 用推断后的 fs.FieldType
                 // （VarFieldInfer 已回写）；非 var 字段保留源拼写不动（byte[] 语义）。
                 // fqn-tables 5c：推断出的类型按签名文法拼（`SigTypeNames`：类 / 接口 / enum 写 FQN）——此前 `Name()` 是短名
@@ -317,7 +323,7 @@ public sealed partial class ClassDescBuilder {
                 // add-property-custom-setter：自定义 setter（HasSetBody）同理无后备（setter 自管存储）。
                 if (!fpdExtern && !fpd.HasGetBody && !fpd.HasSetBody) {
                     string bfn = "__prop_" + fpd.Name;
-                    string bft = this._typeFieldName(fpd.Type);
+                    string bft = this._typeFieldName(fpd.Type, c.TypeParams);
                     if (fpdStatic) {
                         if (sfcount == sfields.Length) {
                             IrFieldDesc[] b3 = new IrFieldDesc[sfields.Length * 2];
@@ -602,35 +608,35 @@ public sealed partial class ClassDescBuilder {
             if (imem is MethodDecl) {
                 MethodDecl imd = imem as MethodDecl;
                 int st = 0; if (Mod.Has(imd.ModFlags, Mod.Static)) { st = 1; }
-                buf.Add(imd.Name, this._typeFieldName(imd.RetType), imd.ParamCount, st);
+                buf.Add(imd.Name, this._typeFieldName(imd.RetType, c.TypeParams), imd.ParamCount, st);
                 signatureAttrs = ClassDescBuilder._ifaceNullRef(signatureAttrs, buf.count - 1, IrIfaceNullable.RetSlot, imd.RetType);
                 signatureAttrs = ClassDescBuilder._ifaceRefAttrs(signatureAttrs, buf.count - 1, imd);
                 int pj = 0;
                 while (pj < imd.ParamCount) {
                     signatureAttrs = ClassDescBuilder._ifaceNullRef(signatureAttrs, buf.count - 1, pj.ToString(), imd.Params[pj].Type);
-                    buf.AddPt(this._typeFieldName(imd.Params[pj].Type)); pj = pj + 1;
+                    buf.AddPt(this._typeFieldName(imd.Params[pj].Type, c.TypeParams)); pj = pj + 1;
                 }
             } else if (imem is PropertyDecl) {
                 PropertyDecl ipd = imem as PropertyDecl;
                 int pst = 0; if (Mod.Has(ipd.ModFlags, Mod.Static)) { pst = 1; }
                 if (ipd.HasGet) {
-                    buf.Add("get_" + ipd.Name, this._typeFieldName(ipd.Type), 0, pst);
+                    buf.Add("get_" + ipd.Name, this._typeFieldName(ipd.Type, c.TypeParams), 0, pst);
                     signatureAttrs = ClassDescBuilder._ifaceNullRef(signatureAttrs, buf.count - 1, IrIfaceNullable.RetSlot, ipd.Type);
                 }
                 if (ipd.HasSet) {
-                    buf.Add("set_" + ipd.Name, "void", 1, pst); buf.AddPt(this._typeFieldName(ipd.Type));
+                    buf.Add("set_" + ipd.Name, "void", 1, pst); buf.AddPt(this._typeFieldName(ipd.Type, c.TypeParams));
                     // setter 的 value 参承载属性类型 ⇒ 标记落在**形参 0**（返回位是 void）。
                     signatureAttrs = ClassDescBuilder._ifaceNullRef(signatureAttrs, buf.count - 1, "0", ipd.Type);
                 }
             } else if (imem is IndexerDecl) {
                 IndexerDecl iid = imem as IndexerDecl;
                 if (iid.HasGet) {
-                    buf.Add("get_Item", this._typeFieldName(iid.RetType), iid.ParamCount, 0);
+                    buf.Add("get_Item", this._typeFieldName(iid.RetType, c.TypeParams), iid.ParamCount, 0);
                     signatureAttrs = ClassDescBuilder._ifaceNullRef(signatureAttrs, buf.count - 1, IrIfaceNullable.RetSlot, iid.RetType);
                     int qj = 0;
                     while (qj < iid.ParamCount) {
                         signatureAttrs = ClassDescBuilder._ifaceNullRef(signatureAttrs, buf.count - 1, qj.ToString(), iid.Params[qj].Type);
-                        buf.AddPt(this._typeFieldName(iid.Params[qj].Type)); qj = qj + 1;
+                        buf.AddPt(this._typeFieldName(iid.Params[qj].Type, c.TypeParams)); qj = qj + 1;
                     }
                 }
                 if (iid.HasSet) {
@@ -638,9 +644,9 @@ public sealed partial class ClassDescBuilder {
                     int qk = 0;
                     while (qk < iid.ParamCount) {
                         signatureAttrs = ClassDescBuilder._ifaceNullRef(signatureAttrs, buf.count - 1, qk.ToString(), iid.Params[qk].Type);
-                        buf.AddPt(this._typeFieldName(iid.Params[qk].Type)); qk = qk + 1;
+                        buf.AddPt(this._typeFieldName(iid.Params[qk].Type, c.TypeParams)); qk = qk + 1;
                     }
-                    buf.AddPt(this._typeFieldName(iid.RetType));
+                    buf.AddPt(this._typeFieldName(iid.RetType, c.TypeParams));
                     // 末位 value 参承载索引器类型（下标 = ParamCount）。
                     signatureAttrs = ClassDescBuilder._ifaceNullRef(signatureAttrs, buf.count - 1, iid.ParamCount.ToString(), iid.RetType);
                 }

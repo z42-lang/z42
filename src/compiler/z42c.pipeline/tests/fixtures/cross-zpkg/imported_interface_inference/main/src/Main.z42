@@ -25,6 +25,9 @@ void CheckInheritedStorage() {
     value.Value += 1;
     value.Items = new int[] { 3, 5 };
     Assert.Equal(8, value.Items[0] + value.Items[1]);
+    var direct = new Storage<int>();
+    direct.Stored = 17;
+    Assert.Equal(18, direct.Stored + 1);
     var qualified = new DemoInferArgs.T();
     value.Qualified = qualified;
     Assert.Equal(qualified, value.Qualified);

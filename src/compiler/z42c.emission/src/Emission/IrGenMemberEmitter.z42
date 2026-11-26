@@ -195,7 +195,7 @@ public sealed class IrGenMemberEmitter {
             // add-static-properties：静态后备是静态字段 → 桩发 static_get/set，须 FQ 名（同 __static_init__ 的 StaticSet）。
             if (pdStatic) { backing = this._irOwner(c) + "." + backing; }
             string getIrNm = this._irOwner(c) + ".get_" + pd.Name;
-            string retNm = g._classDescB._typeFieldName(pd.Type);
+            string retNm = g._classDescB._typeFieldName(pd.Type, c.TypeParams);
             int retTag = IrGenFacts._irTypeTag(pd.Type);
             IrFunction ag = g._stubE._emitAutoPropGetter(getIrNm, backing, retNm, retTag, pdStatic, pd.Span.Line);
             ag.MinArg = 0;   // getter 逻辑参数 0（reconcile：ctor 默认=含 this 总数，需覆盖）
