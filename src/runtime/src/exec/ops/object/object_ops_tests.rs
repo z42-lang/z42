@@ -144,8 +144,7 @@ fn stack_object_fields_go_through_the_arena() {
     let vm = VmContext::new();
     let Value::Object(rc) = holder() else { unreachable!() };
     let td = rc.type_desc_arc().clone();
-    let idx = vm.exec().stack_alloc_obj(5, crate::object::OwnedObject::new(td, 16));
-    let so = Value::StackObject { idx, frame_id: 5 };
+    let so = vm.exec().alloc_stack_object(5, crate::object::OwnedObject::new(td, 16));
     field_set(&vm, &so, "n", &Value::I64(9), None).unwrap();
     assert_eq!(field_get(&vm, &so, "n", None).unwrap(), Value::I64(9));
     // 栈对象同样拒收错类型的基元写入。

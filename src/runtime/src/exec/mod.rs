@@ -53,6 +53,14 @@
 //!     let _ = &ctx.exec().transient_arena;
 //! }
 //! ```
+//! ```compile_fail
+//! use z42::exec::stack_alloc::StackArena;
+//! ```
+//! ```compile_fail
+//! fn raw_stack_allocations(ctx: &z42::vm::VmContext) {
+//!     let _ = &ctx.exec().stack_arena;
+//! }
+//! ```
 pub mod exception;
 pub mod symbol_resolution;
 pub mod stack_guard;

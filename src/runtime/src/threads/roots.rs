@@ -67,13 +67,7 @@ fn scan_roots(c: &VmCore, visit: &mut (impl FnMut(&Value, RootKind) + ?Sized)) {
                 crate::exec::stack::visit_roots(frames, &mut visit_stack);
             });
         }
-        // add-escape-analysis-stack-alloc: stack-alloc arena roots.
-        // A stack object's slots / stack array's elements may hold heap
-        // GcRefs that must stay marked while the stack object is live.
-        // (The stack objects themselves are not GC-heap entries and are
-        // freed by frame-exit truncation, not sweep.) The arena lock is
-        // never held across a GC trigger, so this cannot deadlock.
-        ctx.exec.stack_arena.lock().scan_roots(&mut visit_stack);
+        ctx.exec().scan_stack_alloc_roots(&mut visit_stack);
         // add-struct-value-semantics: value-struct blobs' reference
         // leaves are GC roots too (no-op for pure-primitive structs;
         // ref-leaf scanning by type ref-bitmap lands in A-use).
