@@ -257,7 +257,7 @@ heap 先释放，之后才释放 loader 状态，VFS 在其加载器与上下文
 每个 OS 线程拿一个固定地址的 `VmContext`，它内联组合：
 
 - `core: Arc<VmCore>`：VM 共享状态。
-- `exec: ThreadExecState`：pending_exception / pending_thrown 异常根、FrameStack、寄存器池、激活 guard、三个 arena 及其发布长度、frame id 来源与中立 JitHead。
+- `exec: ThreadExecState`：JIT 和回调各自的异常交接槽、FrameStack、寄存器池、激活 guard、三个 arena 及其发布长度、frame id 来源与中立 JitHead。
 - `runtime: ThreadRuntimeState`：subclass_memo / IsaCache 和类型、函数前置缓存；仅缓存完整答案，显式模块重载时一同清空。
 - `diagnostics: ThreadDiagnosticsState`：独立的 RuntimeCounters 分片，销毁时在注册表锁下转入共享总数。
 - `threads: ThreadLocalState`：parked TLAB 槽与 safepoint 节流计数；collector 只在原有暂停协议下访问。
@@ -367,7 +367,7 @@ regs，interp `RefKind::Stack` 跨帧 deref 通过 `frame.regs`。
 
 Scanner closure 通过 `Weak<VmCore>` 捕获 VmCore（避免 `VmCore → heap → scanner → Arc<VmCore>` 循环引用），upgrade 失败时 silent skip。
 
-**VmContext 注册表**：VmCore 持 `vm_contexts: Mutex<Vec<VmContextPtr>>` 注册表。`VmContext::new()` 返回 `Pin<Box<VmContext>>` 以保证地址稳定（`PhantomPinned` 标 !Unpin 防 move-out），构造时 push 自身到注册表，Drop 时 retain 移除。GC scanner 改为：**1**) 上锁 vm_contexts → **2**) 遍历每个 VmContext ptr → **3**) `unsafe { &*ptr }` 扫其 `pending_exception` / `pending_thrown` / `call_stack` 帧（经 `scan_frames_parked`）。所有 VmContext 的 per-thread roots 在 mark 阶段都被看见 —— multi-thread 安全。Lock 持有期间 Drop 阻塞，无 use-after-free。
+**VmContext 注册表**：VmCore 持 `vm_contexts: Mutex<Vec<VmContextPtr>>` 注册表。`VmContext::new()` 返回 `Pin<Box<VmContext>>` 以保证地址稳定（`PhantomPinned` 标 !Unpin 防 move-out），构造时 push 自身到注册表，Drop 时 retain 移除。GC scanner 改为：**1**) 上锁 vm_contexts → **2**) 遍历每个 VmContext ptr → **3**) `unsafe { &*ptr }` 经执行层扫描异常交接槽、暂停中的帧和帧内 arena。所有 VmContext 的 per-thread roots 在 mark 阶段都被看见 —— multi-thread 安全。Lock 持有期间 Drop 阻塞，无 use-after-free。
 
 API 方法都用 `&self`（内部 Mutex/RwLock）。详见 [`object-protocol-dispatch.md`](object-protocol-dispatch.md)、[`native-abi.md`](native-abi.md)、[`concurrency.md`](concurrency.md)。
 

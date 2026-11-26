@@ -782,6 +782,6 @@ GC 成熟后，字符串可以从 `Value::Str` primitive 进一步
 ### gc-oom-jit-path: JIT 路径 OOM 检测
 
 - **触发原因**：JIT helper `jit_obj_new` / `jit_array_new` 直接调用 `heap.alloc_object` / `heap.alloc_array`，未经 interp OOM 检测分支；JIT 路径下 OOM 目前仍返回 `Value::Null` 触发 NRE
-- **前置依赖**：JIT 路径稳定后；需要 JIT helper 能安全调用 `ctx.set_exception`（当前 JIT 生成代码不访问 `VmContext` exception slot）
+- **前置依赖**：JIT 路径稳定后；需要 JIT helper 能安全调用 `ctx.exec().set_exception`（当前 JIT 生成代码不访问 `VmContext` exception slot）
 - **触发条件**：JIT 路径全面覆盖时，或首次报告 JIT 路径 OOM-related NRE 时
 - **当前 workaround**：`strict_oom` 模式下 JIT 路径 alloc 失败仍抛 `Value::Null`；interp 路径已完整处理

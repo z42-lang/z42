@@ -10,7 +10,7 @@ fn categorized_and_collector_roots_preserve_pending_exceptions() {
     let second = ctx.heap().alloc_array(vec![Value::I64(22)]);
     let first_weak = ctx.heap().make_weak(&first).unwrap();
     let second_weak = ctx.heap().make_weak(&second).unwrap();
-    *ctx.exec.pending_exception.lock() = Some(first);
+    ctx.exec().set_exception(first);
     ctx.exec().set_pending_thrown(second);
     let _pause = crate::threads::safepoint::request_gc_pause(&ctx).unwrap();
     let mut collector = Vec::new();
@@ -30,11 +30,11 @@ fn categorized_and_collector_roots_preserve_pending_exceptions() {
     ctx.heap().collect_full();
     assert!(ctx.heap().upgrade_weak(&first_weak).is_some());
     assert!(ctx.heap().upgrade_weak(&second_weak).is_some());
-    assert_eq!(*ctx.exec.pending_exception.lock(), Some(first));
+    assert_eq!(ctx.exec().peek_exception(), Some(first));
     drop(collector);
     drop(classified);
     assert_eq!(ctx.exec().take_pending_thrown(), Some(second));
-    *ctx.exec.pending_exception.lock() = None;
+    assert_eq!(ctx.exec().take_exception(), Some(first));
     ctx.heap().collect_full();
     assert!(ctx.heap().upgrade_weak(&first_weak).is_none());
     assert!(ctx.heap().upgrade_weak(&second_weak).is_none());

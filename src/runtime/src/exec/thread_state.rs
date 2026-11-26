@@ -6,9 +6,9 @@ use super::call::transient_arena::{TransientArena, TransientPayload};
 
 pub struct ThreadExecState {
     /// GC-rooted handoff across a JIT error boundary.
-    pub pending_exception: Arc<Mutex<Option<Value>>>,
+    pending_exception: Mutex<Option<Value>>,
     /// Callback builtins preserve the original thrown object through this root.
-    pub pending_thrown: Mutex<Option<Value>>,
+    pending_thrown: Mutex<Option<Value>>,
     /// Owner-thread only; other threads read only after the owner is parked.
     call_stack: super::call::frame_stack::FrameStack,
     pub reg_pool: super::call::reg_pool::RegPool,
@@ -32,7 +32,7 @@ pub struct ThreadExecState {
 impl ThreadExecState {
     pub(crate) fn new(cctors: &Arc<crate::metadata::statics::CctorRegistry>, engines: &super::engine::EngineRegistry) -> Self {
         Self {
-            pending_exception: Arc::new(Mutex::new(None)),
+            pending_exception: Mutex::new(None),
             pending_thrown: Mutex::new(None),
             call_stack: Default::default(),
             reg_pool: Default::default(),
@@ -128,7 +128,7 @@ impl ThreadExecState {
     /// handler to jump to, and a later `take_exception` (via `jit_install_catch`)
     /// hands the value to the chosen catch register.
     pub fn peek_exception(&self) -> Option<Value> {
-        self.pending_exception.lock().clone()
+        *self.pending_exception.lock()
     }
     // ── Pending reflected throw (add-method-invoke-non-generic) ──────────────
 
@@ -146,6 +146,16 @@ impl ThreadExecState {
         self.pending_thrown.lock().take()
     }
 
+    /// Visit the values held in the two exception handoffs during a root scan.
+    /// The visitor runs under each slot's lock and must not access the handoff.
+    pub(crate) fn visit_exception_roots(&self, visit: &mut dyn FnMut(&Value)) {
+        if let Some(value) = self.pending_exception.lock().as_ref() {
+            visit(value);
+        }
+        if let Some(value) = self.pending_thrown.lock().as_ref() {
+            visit(value);
+        }
+    }
 }
 
 

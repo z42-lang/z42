@@ -8,7 +8,7 @@
 
 | 入口 | 职责 |
 |---|---|
-| `exception.rs` | 异常对象构造、传播和栈迹捕获；解释器与 JIT 保持各自的传播通道 |
+| `exception.rs` | 异常对象构造、传播和栈迹捕获；执行状态保存 JIT 与回调各自的异常交接槽 |
 | `symbol_resolution.rs` | 解析穷尽后的缺符号/歧义/实参数错误裁决与托管异常，不归上下文状态模块 |
 | `ops/object/static_defaults.rs` | 静态字段声明类型的零值与值类型物化，需要加载和 GC 的执行语义 |
 | `stack_guard.rs` | 原生栈余量、致命标记与报告；两个后端共用 |
@@ -39,6 +39,9 @@
 `Ref`、`PinnedView` 和 `StructRefHeap` 的描述符通过 `ThreadExecState` 的类型化方法创建、查询和校验。执行层在创建时发布 arena 长度，退栈时回收对应槽。GC 经执行层扫描临时值的根。
 
 解释器和 JIT helper 从 `z42::exec::ops::scalar` 调用共享函数；JIT 内联发码遵循相同规则，由双模式 golden 验证。异常对象的构造和传播由调用方处理。
+
+JIT 和回调各自通过 `ThreadExecState` 交接异常。GC 经执行状态访问两类异常根，根槽与加锁方式由执行层封装。
+
 对象能力契约位于 `object/protocol.rs`；执行层借用 Core 已绑定的服务，保留托管调用、异常和文本物化。
 堆字段、数组及 struct 写入和插入屏障由 object 根接口提供；exec 负责 IL 检查、缓存、类型解析和帧适配。struct 装箱传入已解析的 TypeDesc，快照与存储地址查询直接消费 object。
 

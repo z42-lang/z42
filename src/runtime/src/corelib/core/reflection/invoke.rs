@@ -77,7 +77,7 @@ pub fn type_get_type(ctx: &VmContext, fqn: &crate::object::string::vstr::Str) ->
 /// instance methods take `obj` as receiver (reg 0); static methods ignore it.
 /// `args` (an `object[]`) maps to the remaining parameters in order. Returns the
 /// method's return value (`void` → null). A `throw` inside the invoked method is
-/// propagated with its ORIGINAL type via `ctx.set_pending_thrown` (consumed by
+/// propagated with its ORIGINAL type via `ctx.exec().set_pending_thrown` (consumed by
 /// `exec_call::builtin`), so callers can `try/catch` the real exception.
 pub fn method_invoke(ctx: &VmContext, mi: &Value, this_obj: &Value, args_arr: &Value) -> anyhow::Result<Value> {
     let mi = mi.clone();
@@ -217,7 +217,7 @@ pub fn method_make_generic(ctx: &VmContext, mi: &Value, type_args_arr: &Value) -
 /// `method_type_args` (FQ type-name strings) threads a constructed generic method's
 /// bound type arguments into the callee frame (empty for non-generic / definition).
 /// A `throw` inside the callee propagates with its ORIGINAL type via
-/// `ctx.set_pending_thrown` (consumed by `exec_call::builtin`). Shared by
+/// `ctx.exec().set_pending_thrown` (consumed by `exec_call::builtin`). Shared by
 /// `MethodInfo.Invoke` and `PropertyInfo.GetValue` / `SetValue`.
 pub(super) fn invoke_qualified(
     ctx: &VmContext,
@@ -296,7 +296,7 @@ fn invoke_qualified_with<A: AsRef<[Value]>>(
 /// `[Teardown]` methods, which the compiler emits as zero-arg free functions
 /// (`<Namespace>.<func>`) — not class instance methods. A `throw` inside the
 /// invoked function is propagated with its ORIGINAL type via
-/// `ctx.set_pending_thrown` (consumed by `exec_call::builtin` / `jit_builtin`),
+/// `ctx.exec().set_pending_thrown` (consumed by `exec_call::builtin` / `jit_builtin`),
 /// so the runner can `try/catch` the real exception. Returns the function's
 /// return value (`void` → null).
 pub fn invoke_static(ctx: &VmContext, fqn: &crate::object::string::vstr::Str) -> anyhow::Result<Value> {
@@ -380,8 +380,8 @@ fn alloc_default(ctx: &VmContext, td: &Arc<TypeDesc>, type_args: crate::object::
 /// `__activator_create(type: Type) -> object` — no-arg reflective construction.
 /// Mirrors the interpreter's `ObjNew`: alloc with per-field defaults, then run the
 /// no-arg ctor (`<Class>` bare or `<Class>$0` overload-mangled) if one exists. A
-/// ctor `throw` propagates with its original type via `ctx.exec.pending_thrown`. Only
-/// no-arg construction (test-class instantiation for the reflective test runner);
+/// ctor `throw` propagates with its original type via the callback exception handoff.
+/// Only no-arg construction (test-class instantiation for the reflective test runner);
 /// parameterised CreateInstance is deferred.
 pub fn activator_create(ctx: &VmContext, t: &Value) -> anyhow::Result<Value> {
     let args = [*t];
@@ -519,7 +519,7 @@ fn boxed_if_struct(td: &crate::object::TypeDesc, obj: Value) -> Value {
 /// last segment), allocate a default-field instance, then run the constructor with the
 /// new object as the reg-0 receiver plus the supplied arguments; return the constructed
 /// object. Arity mismatch → catchable `Std.Exception`; a ctor `throw` propagates with
-/// its original type via `ctx.set_pending_thrown`.
+/// its original type via `ctx.exec().set_pending_thrown`.
 pub fn ctor_invoke(ctx: &VmContext, ci: &Value, args_arr: &Value) -> anyhow::Result<Value> {
     let ci = ci.clone();
     let args_arr = args_arr.clone();
