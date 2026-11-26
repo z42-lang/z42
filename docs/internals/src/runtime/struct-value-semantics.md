@@ -542,16 +542,17 @@ blob 紧凑排列，每个元素就是独立 blob 的布局，引用叶子是元
 `ArrayObj::visit_refs` 逐元素解码引用叶子供扫描；元素引用叶子写触发 `write_barrier_array_elem`，
 整元素写与批量写之后按 `elem_ref_slots` 对每个引用叶子发屏障。
 
-- **创建**：`array_new`/`array_new_lit` 对 **blob 值 struct 元素**（`elem_mode` 的 STRUCT 分支：`TypeDesc.fields≥1` +
-  `struct_layout`，匹配编译期 `IsBlobStruct`）造 STRUCT 数组（`ArrayObj::alloc_struct`）；字面量经 `pack_struct_elem` 把各元素（`StructRef` 经 arena /
-  `BoxedStruct`）字节+引用叶子拷进元素槽。
+- **创建**：`array_new` 和 `array_new_lit` 通过 `elem_mode` 为有布局的普通值 struct 创建 STRUCT 数组。
+  字面量经 `pack_struct_elem` 把 `StructRef` 或 `BoxedStruct` 的字节和引用叶子拷进元素槽。
+  空 struct 每个槽保留一个填充字节，以便从块长度恢复元素个数。空槽没有字段或引用叶子。
   - **泛型值 struct 数组的类型查找按擦除裸名**：`array_new` 携带的元素类型名
     是**非擦除全名**（`Kv<string, int>`，供 `arr.GetType().GetElementType()` 反射），但泛型是**类型擦除**——
     一个泛型定义只注册**裸名** `Kv` 的单一 `TypeDesc`。故 `elem_mode` 查类型前须 `element_type.split('<')`
     剥泛型实参、用裸名 `try_lookup_type`，否则用全名查会 miss → 数组退化成**引用背衬**（元素 `Null`）→
     `StructFieldSetPrim` 崩 `expected StructRef, got Null`（`KeyValuePair<K,V>[]` = `Dictionary.Entries()` 的返回，
     正是此路径）。全名仍进数组的描述符以保元素反射。该处理覆盖 interp/jit/数组字面量三条创建路径。
-- **取值**：`array_get` 对 STRUCT 数组产 `StructRefHeap` 元素句柄（持数组的 `ArrRef`，替代 `get_boxed`）。
+- **取值**：`array_get` 对非空布局的 STRUCT 数组产 `StructRefHeap` 元素句柄。空 struct 的元素按类型物化一个独立的零值，
+  索引读取和反射读取均跳过构造器；向该类型的槽写入同型值时无需复制字段。
 - **codegen（AccessEmitter）**：`_emitArrayElemHandle`（ArrayGet 直发句柄不拷贝）；`_emitIndex` 对 struct[] 出
   `StructAlloc`+`_copyRegion` 拷出（standalone `arr[i]` 值副本）；`_structChainRoot` 对 BoundIndex struct[] 根=句柄
   （`arr[i].x` 原地叶子读写复用嵌套链发 `StructFieldGetPrim/SetPrim`）；`arr[i] = p` 走句柄+`_copyRegion` 拷入。**无新 opcode、格式中立。**
@@ -719,7 +720,7 @@ callee，零 per-site 改动。**OSR 例外**：`from_interp_regs` 续接同一�
 ### 补齐：struct[] 数组 + 装箱拆箱
 
 - **`jit_array_new`/`jit_array_new_lit`** 对 value-struct 元素造 STRUCT 数组（复用
-  `objops::array` 的 `elem_mode`/`pack_struct_elem`），**`jit_array_get`** 对 STRUCT 数组产
+  `objops::array` 的 `elem_mode`/`pack_struct_elem`），**`jit_array_get`** 对非空布局的 STRUCT 数组产
   `StructRefHeap` 句柄（非 `get_boxed` BoxedStruct 快照）——接通 JIT 下 `new Point[]` + `arr[i].x` +
   `foreach(P p in arr)`（元素拷出走 `copy_array_elem_out`）。
 - **`jit_as_cast`** 对 `BoxedStruct` 精确匹配**拆箱**到当前帧 arena `StructRef`（`(Point)o`），镜像 interp

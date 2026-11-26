@@ -210,7 +210,7 @@ impl ArrayDesc {
     /// size limit (`u32` payload length), which the allocator reports as out of memory.
     pub fn payload_bytes(&self, len: usize, layout: Option<&StructTypeLayout>) -> Option<usize> {
         let bytes = match (self.mode, layout) {
-            (ArrayMode::Struct, Some(l)) => len.checked_mul(l.size)?.checked_add(STRUCT_HEAD)?,
+            (ArrayMode::Struct, Some(l)) => len.checked_mul(l.size.max(1))?.checked_add(STRUCT_HEAD)?,
             (ArrayMode::Struct, None) => return None,
             _ => len.checked_mul(self.width())?,
         };
@@ -386,7 +386,8 @@ impl ArrayObj {
         let mode = self.mode();
         if mode == ArrayMode::Struct {
             return match self.struct_layout_ref() {
-                Some(l) if l.size != 0 => (bytes - STRUCT_HEAD) / l.size,
+                // Empty values still occupy a byte per slot so length comes from the block.
+                Some(l) => (bytes - STRUCT_HEAD) / l.size.max(1),
                 _ => 0,
             };
         }
