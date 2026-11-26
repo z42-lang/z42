@@ -1,0 +1,52 @@
+namespace ErasedEmptyStructDefault;
+
+class InitLog {
+    public static int Calls = 0;
+}
+
+struct Empty {
+    static Empty() { InitLog.Calls = InitLog.Calls + 1; }
+    public Empty() { InitLog.Calls = InitLog.Calls + 1; }
+}
+
+struct Marker<T> {}
+
+T Zero<T>() { return default(T); }
+
+class Holder<T> {
+    public T Zero() { return default(T); }
+}
+
+class Fields {
+    public static Empty Value;
+}
+
+void Main() {
+    object method = Zero<Empty>();
+    Holder<Empty> holder = new Holder<Empty>();
+    object member = holder.Zero();
+    object field = Fields.Value;
+    Type emptyType = typeof(Empty);
+    Assert.Equal(emptyType, method.GetType());
+    Assert.Equal(emptyType, member.GetType());
+    Assert.Equal(emptyType, field.GetType());
+    Assert.True(method.Equals(member));
+    Assert.Equal(default(Empty).GetHashCode(), field.GetHashCode());
+    Assert.Equal(0, InitLog.Calls);
+
+    object intMarker = Zero<Marker<int>>();
+    object stringMarker = Zero<Marker<string>>();
+    Assert.Equal(typeof(Marker<int>), intMarker.GetType());
+    Assert.Equal(typeof(Marker<string>), stringMarker.GetType());
+    Assert.False(intMarker.Equals(stringMarker));
+    object longMarker = Zero<Marker<long>>();
+    Assert.False(stringMarker.Equals(longMarker));
+    object constructedMarker = new Marker<int>();
+    Assert.True(intMarker.Equals(constructedMarker));
+    Assert.Equal(intMarker.GetHashCode(), constructedMarker.GetHashCode());
+
+    Fields.Value = new Empty();
+    Assert.Equal(2, InitLog.Calls);
+    object assigned = Fields.Value;
+    Assert.Equal(emptyType, assigned.GetType());
+}
