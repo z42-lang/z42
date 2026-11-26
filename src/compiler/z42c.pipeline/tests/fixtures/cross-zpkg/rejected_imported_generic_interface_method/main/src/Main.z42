@@ -1,0 +1,7 @@
+using ImportedGenericIface;
+
+void main() {
+    IEcho receiver = new Echoer();
+    receiver.Bounded<string>("invalid");
+    receiver.Echo<int, string>(42);
+}

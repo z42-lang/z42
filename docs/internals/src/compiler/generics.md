@@ -910,6 +910,11 @@ GenericType("Foo", [T..])   → _classes["Foo$N"] first, fallback _classes["Foo"
 片段使用自己的 `using`。求父接口闭包时，`InterfaceClosure.BaseAt` 在已绑定的声明上
 替换实参。`IChild<string>` 因此能为跨文件的实现类记录 `IParent<string>`，供运行时转换和反射读取。
 
+接口方法的元数据分别保留接口级与方法级形参。
+`TsigReconcile._rebuildInterface` 从 TYPE 属性恢复方法形参和约束，
+`ImportedSymbolLoader._fillInterfaceMethods` 用两层形参解析签名，并将方法形参单独登记到
+方法符号，供显式代换、推断和约束检查共用。接口槽的派发键保持不变。
+
 ## Deferred / Future Work
 
 ### 共享泛型体的接口槽

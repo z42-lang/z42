@@ -1,0 +1,14 @@
+using Std.IO;
+using ImportedGenericIface;
+
+void main() {
+    IEcho receiver = new Echoer();
+    int actual = receiver.Echo<int>(41);
+    Assert.Equal(42, actual + 1);
+    Assert.Equal(43, receiver.Echo(43));
+    Assert.Equal(44, receiver.Bounded<int>(44));
+    IPair<int> pair = new IntPair();
+    string picked = pair.Pick<bool, string>(5, true, "kept");
+    Assert.Equal("kept", picked);
+    Console.WriteLine("echo: ok");
+}

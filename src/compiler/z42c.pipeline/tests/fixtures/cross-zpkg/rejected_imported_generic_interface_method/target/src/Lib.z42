@@ -1,0 +1,11 @@
+namespace ImportedGenericIface;
+
+public interface IEcho {
+    T Echo<T>(T value);
+    T Bounded<T>(T value) where T : struct;
+}
+
+public class Echoer : IEcho {
+    public T Echo<T>(T value) { return value; }
+    public T Bounded<T>(T value) where T : struct { return value; }
+}

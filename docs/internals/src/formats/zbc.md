@@ -134,6 +134,11 @@ assoc_count     u16；assoc × {name u32, type u32}
 
 `visibility`：`0` public / `1` private / `2` protected。
 
+接口泛型方法的形参和约束保存在 TYPE 记录已有的类型属性块中。每个形参按声明顺序写入一条
+`$IfaceMethodGeneric` 属性，负载用换行分隔，依次为方法下标、形参名、四位约束标记（`csne`
+对应 `class`、`struct`、`new()`、`enum`，缺席用 `-`）、基类约束、形参约束、接口列表和
+关联类型绑定列表。两个列表内部用制表符分隔；绑定列表交替记录名称和类型。
+
 ### SIGS — 函数签名
 
 `u32 fn_count`，随后每函数：
