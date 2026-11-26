@@ -5,7 +5,7 @@
 //!
 //! - **interp**: exceptions flow as `ExecOutcome::Thrown(Value)`; no
 //!   thread_local intermediary.
-//! - **JIT**: in-flight exception lives in `VmContext.exec.pending_exception`,
+//! - **JIT**: in-flight exceptions pass through the execution state's JIT handoff,
 //!   reached by a JIT helper through its context parameter (the thread's `VmContext`).
 //!
 //! ## Stack-trace capture (exception-stack-trace)

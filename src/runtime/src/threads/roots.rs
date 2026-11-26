@@ -46,13 +46,7 @@ fn scan_roots(c: &VmCore, visit: &mut (impl FnMut(&Value, RootKind) + ?Sized)) {
     let mut visit_stack = |value: &Value| visit(value, RootKind::StackFrame);
     for ctx_ptr in registry.iter() {
         let ctx = unsafe { &*ctx_ptr.0 };
-        // pending_exception / pending_thrown
-        if let Some(v) = ctx.exec.pending_exception.lock().as_ref() {
-            visit_stack(v);
-        }
-        if let Some(v) = ctx.exec.pending_thrown.lock().as_ref() {
-            visit_stack(v);
-        }
+        ctx.exec().visit_exception_roots(&mut visit_stack);
         // live z42 frame state — unified VmFrame entries.
         //
         // SAFETY (frame stack): the scanner runs only inside a GC

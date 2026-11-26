@@ -11,6 +11,16 @@
 //! ```compile_fail
 //! use z42::exec::init::Initialization;
 //! ```
+//! ```compile_fail
+//! fn jit_slot(ctx: &z42::vm::VmContext) {
+//!     let _ = &ctx.exec().pending_exception;
+//! }
+//! ```
+//! ```compile_fail
+//! fn callback_slot(ctx: &z42::vm::VmContext) {
+//!     let _ = &ctx.exec().pending_thrown;
+//! }
+//! ```
 //! The activation vocabulary is reached through the exec root re-exports:
 //! ```
 //! use z42::exec::frames::VmFrame;

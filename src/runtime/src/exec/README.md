@@ -8,7 +8,7 @@
 
 | 入口 | 职责 |
 |---|---|
-| `exception.rs` | 异常对象构造、传播和栈迹捕获；解释器与 JIT 保持各自的传播通道 |
+| `exception.rs` | 异常对象构造、传播和栈迹捕获；执行状态保存 JIT 与回调各自的异常交接槽 |
 | `symbol_resolution.rs` | 解析穷尽后的缺符号/歧义/实参数错误裁决与托管异常，不归上下文状态模块 |
 | `ops/object/static_defaults.rs` | 静态字段声明类型的零值与值类型物化，需要加载和 GC 的执行语义 |
 | `stack_guard.rs` | 原生栈余量、致命标记与报告；两个后端共用 |
@@ -37,6 +37,9 @@
 两个后端通过 `current_tier(ctx)` 读取当前线程的 tier。JIT 安装后及栈底帧入口通过 `refresh_tier(ctx)` 刷新。`push_frame(ctx, frame)` 通过同一上下文压入帧并在栈底帧安装 VM 和堆的线程局部状态，`pop_frame` 在末帧退出时恢复。采样通过组件桥取得所属线程的帧名。崩溃报告只读取本线程的帧和其他线程发布的深度。
 
 解释器和 JIT helper 从 `z42::exec::ops::scalar` 调用共享函数；JIT 内联发码遵循相同规则，由双模式 golden 验证。异常对象的构造和传播由调用方处理。
+
+JIT 和回调各自通过 `ThreadExecState` 交接异常。GC 经执行状态访问两类异常根，根槽与加锁方式由执行层封装。
+
 对象能力契约位于 `object/protocol.rs`；执行层借用 Core 已绑定的服务，保留托管调用、异常和文本物化。
 堆字段、数组及 struct 写入和插入屏障由 object 根接口提供；exec 负责 IL 检查、缓存、类型解析和帧适配。struct 装箱传入已解析的 TypeDesc，快照与存储地址查询直接消费 object。
 
