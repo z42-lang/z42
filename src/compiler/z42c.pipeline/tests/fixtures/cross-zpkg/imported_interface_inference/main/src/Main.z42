@@ -13,7 +13,7 @@ class Counter : Forward<int> {
 
 class DeepCounter : Counter {}
 
-class TextSlot<T> : Forward<string> {
+class TextSlot<T> : Relay<string> {
     public T Other;
 }
 
@@ -21,7 +21,13 @@ void CheckInheritedStorage() {
     Counter value = new DeepCounter();
     IStored<int> stored = value;
     Assert.Equal(0, stored.Read());
-    stored.Write(11);
+    value.Value = 10;
+    value.Value += 1;
+    value.Items = new int[] { 3, 5 };
+    Assert.Equal(8, value.Items[0] + value.Items[1]);
+    var qualified = new DemoInferArgs.T();
+    value.Qualified = qualified;
+    Assert.Equal(qualified, value.Qualified);
     value.Middle = 22;
     value.Own = 33;
     Assert.Equal(11, stored.Read());
@@ -41,8 +47,11 @@ void CheckInheritedStorage() {
     IStored<string> storedText = text;
     Assert.Null(storedText.Read());
     Assert.Equal(0, text.Other);
-    storedText.Write("retained");
+    text.Value = "retained";
     Assert.Equal("retained", storedText.Read());
+    Assert.Equal(8, text.Value.Length);
+    storedText.Write("updated");
+    Assert.Equal("updated", text.Value);
 }
 
 

@@ -17,6 +17,18 @@ public sealed class ReconWorldPkg {
     public ReconWorldPkg(ZpkgModuleTypes[] types, ZpkgModuleSigs[] sigs) { this.Types = types; this.Sigs = sigs; }
 }
 
+// 各祖先的型参到当前导出类作用域的投影。字段和方法共用同一张表。
+internal sealed class ReconBaseArgs {
+    public string[] Names;
+    public string[] Args;
+    public int[] Start;
+    public int[] Count;
+    public ReconBaseArgs(int names, int hops) {
+        this.Names = new string[names]; this.Args = new string[names];
+        this.Start = new int[hops]; this.Count = new int[hops];
+    }
+}
+
 // 惰性跨包类型世界（lazy-type-world）：取代 BuildWorld 的一次性全量解析。Wp 按包懒填——
 // 基类链重建遇到导入祖先 FQ 时，取其命名空间路由到「声明该 ns 的所有包」，只解析那几个包
 // （spike 实证：闭包 max=3、avg=1，路由 230/230 与全量扫描一致）。首次 eval O(引用闭包)，
@@ -470,8 +482,9 @@ public static class TsigReconcile {
         bool hasBase = !isStruct;
         if (isStruct) { baseName = ""; }
         // fields / methods（链 topmost-first 语义见各函数头注）
-        ExportedFieldZ[] fields = TsigReconcile._reconFields(cd, chain, chainLen);
-        ExportedMethodZ[] methods = TsigReconcile._reconMethods(cd, chain, chainPkg, chainMod, chainLen, world, isStruct);
+        ReconBaseArgs args = TsigReconcile._reconBaseArgs(chain, chainLen);
+        ExportedFieldZ[] fields = TsigReconcile._reconFields(cd, chain, chainLen, args);
+        ExportedMethodZ[] methods = TsigReconcile._reconMethods(cd, chain, chainPkg, chainMod, chainLen, world, isStruct, args);
         ExportedClassZ ecz = new ExportedClassZ(bare, hasBase, baseName,
                                   fields, fields.Length,
                                   methods, methods.Length,
@@ -532,7 +545,7 @@ public static class TsigReconcile {
     }
 
     // ── 字段重建：链 topmost-first 实例字段，再本类 static ─────────────────────────────
-    private static ExportedFieldZ[] _reconFields(IrClassDesc cd, IrClassDesc[] chain, int chainLen) {
+    private static ExportedFieldZ[] _reconFields(IrClassDesc cd, IrClassDesc[] chain, int chainLen, ReconBaseArgs args) {
         ExportedFieldZ[] fields = new ExportedFieldZ[8]; int fldc = 0;
         int ci = chainLen - 1;
         while (ci >= 0) {
@@ -540,7 +553,10 @@ public static class TsigReconcile {
             int fi = 0;
             while (fi < anc.FieldCount) {
                 if (fldc == fields.Length) { ExportedFieldZ[] b = new ExportedFieldZ[fields.Length * 2]; int k = 0; while (k < fldc) { b[k] = fields[k]; k = k + 1; } fields = b; }
-                ExportedFieldZ efz = new ExportedFieldZ(anc.Fields[fi].Name, anc.Fields[fi].Type, TsigReconcile._visStr(anc.Fields[fi].Visibility), false);
+                string declaredType = anc.Fields[fi].Type;
+                string fieldType = TsigReconcile._renameSpellRange(declaredType, args.Names, args.Args, args.Start[ci], args.Count[ci]);
+                ExportedFieldZ efz = new ExportedFieldZ(anc.Fields[fi].Name, fieldType, TsigReconcile._visStr(anc.Fields[fi].Visibility), false);
+                if (fieldType != declaredType) { efz.StorageTypeName = declaredType; }
                 efz.IsDeprecated = IrDeprecation.Has(anc.Fields[fi].Attrs, anc.Fields[fi].AttrCount); efz.DeprecationMsg = IrDeprecation.Msg(anc.Fields[fi].Attrs, anc.Fields[fi].AttrCount);   // add-deprecated-directive（attr-ref 哨兵）
                 efz.IsNullable = IrParamDefault.IsNullable(anc.Fields[fi].Attrs, anc.Fields[fi].AttrCount);   // carry-field-null-marks（同一条 attr-ref 通道）
                 fields[fldc] = efz;
@@ -560,13 +576,51 @@ public static class TsigReconcile {
         return TsigReconcile._trimF(fields, fldc);
     }
 
+    private static ReconBaseArgs _reconBaseArgs(IrClassDesc[] chain, int chainLen) {
+        // feat/multicast-base-class（跨包段）：每跳祖先的型参改名表（祖先型参名 → 子类 $BaseRef
+        // 声明的实参拼写），沿链**复合**（上溯先建表、展平时套用）。此前祖先方法按基类自己的
+        // 型参拼写（`THandler`）混入派生导出——加载侧解析不出（松签名）且与 #1923 链上代换版
+        // 并存成伪重载（E0437/E0401）。闭合基无 $BaseRef（不改名，保持既有行为）。
+        // 平面表（无锯齿数组）：全局 names/args + 每跳 [start, start+count) 区间；复合改名为线性拼接
+        int capNames = 0;
+        int hc = 0;
+        while (hc < chainLen) { capNames = capNames + chain[hc].TypeParamCount + 1; hc = hc + 1; }
+        ReconBaseArgs args = new ReconBaseArgs(capNames, chainLen);
+        int tot = 0;
+        int hi = 1;
+        while (hi < chainLen) {
+            args.Start[hi] = tot;
+            args.Count[hi] = 0;
+            string spell = IrBaseRef.Spelling(chain[hi - 1].Attrs, chain[hi - 1].AttrCount);
+            if (spell != "" && chain[hi].TypeParamCount > 0) {
+                string[] anames = chain[hi].TypeParams;
+                string[] aargs = TsigReconcile._topLevelArgs(spell);
+                int cnt = anames.Length < aargs.Length ? anames.Length : aargs.Length;
+                int ai = 0;
+                while (ai < cnt) {
+                    string composed = aargs[ai];
+                    if (hi >= 2 && args.Count[hi - 1] > 0) {
+                        composed = TsigReconcile._renameSpellRange(composed, args.Names, args.Args, args.Start[hi - 1], args.Count[hi - 1]);
+                    }
+                    args.Names[tot] = anames[ai];
+                    args.Args[tot] = composed;
+                    tot = tot + 1;
+                    args.Count[hi] = args.Count[hi] + 1;
+                    ai = ai + 1;
+                }
+            }
+            hi = hi + 1;
+        }
+        return args;
+    }
+
     // ── 方法重建：Object 四方法（非 struct）+ 链 topmost-first SIGS 实例方法合并（override
     //    保留祖先位）+ 本类 static ─────────────────────────────────────────────────────
     // pass 1 oracle 语义：override 条目 IsVirtual=false（TSIG virtual=仅显式 virtual 关键字），abstract 同。
     // pass 2 oracle：own-class only、声明序 append、不与实例 seen 合并。
-    [Suppress("style.fnLinesHard", "展平合并 + 每跳改名表（feat/multicast-base-class 跨包段）；拆分见 code-organization.md")]
+    [Suppress("style.fnLinesHard", "方法展平和覆盖合并；拆分见 code-organization.md")]
     private static ExportedMethodZ[] _reconMethods(IrClassDesc cd, IrClassDesc[] chain, int[] chainPkg, int[] chainMod,
-                                                   int chainLen, LazyReconWorld world, bool isStruct) {
+                                                   int chainLen, LazyReconWorld world, bool isStruct, ReconBaseArgs args) {
         ExportedMethodZ[] methods = new ExportedMethodZ[16];
         string[] seenName = new string[16]; int[] seenAt = new int[16];
         int mc = 0; int seenc = 0;
@@ -576,43 +630,6 @@ public static class TsigReconcile {
             seenName[0] = "ToString"; seenName[1] = "Equals"; seenName[2] = "GetHashCode"; seenName[3] = "GetType";
             seenAt[0] = 0; seenAt[1] = 1; seenAt[2] = 2; seenAt[3] = 3;
             mc = 4; seenc = 4;
-        }
-        // feat/multicast-base-class（跨包段）：每跳祖先的型参改名表（祖先型参名 → 子类 $BaseRef
-        // 声明的实参拼写），沿链**复合**（上溯先建表、展平时套用）。此前祖先方法按基类自己的
-        // 型参拼写（`THandler`）混入派生导出——加载侧解析不出（松签名）且与 #1923 链上代换版
-        // 并存成伪重载（E0437/E0401）。闭合基无 $BaseRef（不改名，保持既有行为）。
-        // 平面表（无锯齿数组）：全局 names/args + 每跳 [start, start+count) 区间；复合改名为线性拼接
-        int capNames = 0;
-        int hc = 0;
-        while (hc < chainLen) { capNames = capNames + chain[hc].TypeParamCount + 1; hc = hc + 1; }
-        string[] allNames = new string[capNames];
-        string[] allArgs = new string[capNames];
-        int[] hopStart = new int[chainLen];
-        int[] hopCount = new int[chainLen];
-        int tot = 0;
-        int hi = 1;
-        while (hi < chainLen) {
-            hopStart[hi] = tot;
-            hopCount[hi] = 0;
-            string spell = IrBaseRef.Spelling(chain[hi - 1].Attrs, chain[hi - 1].AttrCount);
-            if (spell != "" && chain[hi].TypeParamCount > 0) {
-                string[] anames = chain[hi].TypeParams;
-                string[] aargs = TsigReconcile._topLevelArgs(spell);
-                int cnt = anames.Length < aargs.Length ? anames.Length : aargs.Length;
-                int ai = 0;
-                while (ai < cnt) {
-                    string composed = aargs[ai];
-                    if (hi >= 2 && hopCount[hi - 1] > 0) {
-                        composed = TsigReconcile._renameSpellRange(composed, allNames, allArgs, hopStart[hi - 1], hopCount[hi - 1]);
-                    }
-                    allNames[tot] = anames[ai];
-                    allArgs[tot] = composed;
-                    tot = tot + 1;
-                    hopCount[hi] = hopCount[hi] + 1;
-                    ai = ai + 1;
-                }
-            }
-            hi = hi + 1;
         }
         int ci = chainLen - 1;
         while (ci >= 0) {
@@ -634,8 +651,8 @@ public static class TsigReconcile {
                         string mkey = f.Name.Substring(prefix.Length);
                         if (mkey != "__static_init__" && mkey.IndexOf("__lambda") < 0 && mkey.IndexOf("__local_") < 0) {
                             ExportedMethodZ em = TsigReconcile._methodFromSig(f, mkey);
-                            if (ci >= 1 && hopCount[ci] > 0) {
-                                TsigReconcile._renameMethodSpell(em, allNames, allArgs, hopStart[ci], hopCount[ci]);
+                            if (args.Count[ci] > 0) {
+                                TsigReconcile._renameMethodSpell(em, args.Names, args.Args, args.Start[ci], args.Count[ci]);
                             }
                             if (em.IsAbstract) { em.IsVirtual = false; }   // TSIG：abstract 不置 virtual
                             int at = TsigReconcile._indexOf(seenName, seenc, mkey);
@@ -730,9 +747,10 @@ public static class TsigReconcile {
                 string word = s.Substring(i, j - i);
                 int wi = start;
                 string rep = null;
-                while (wi < start + count) { if (names[wi] == word) { rep = args[wi]; break; } wi = wi + 1; }
-                if (rep != null) { rep = TsigReconcile._renameSpellRange(rep, names, args, -1, 0); }   // 替换串同样过一遍词级 prim 归一（Boolean→bool）
-                outS = outS + (rep != null ? rep : TsigReconcile._canonPrim(word));
+                // 只改裸名；FQN 中的命名空间或叶名恰好与型参同名时仍保留其身份。
+                bool qualified = (i > 0 && s[i - 1] == '.') || (j < s.Length && s[j] == '.');
+                while (!qualified && wi < start + count) { if (names[wi] == word) { rep = args[wi]; break; } wi = wi + 1; }
+                outS = outS + (rep != null ? rep : (qualified ? word : TsigReconcile._canonPrim(word)));
                 i = j;
             } else {
                 outS = outS + c.ToString();
