@@ -733,8 +733,9 @@ public sealed class CallEmitter {
         string qualCls;
         if (owner != null && owner.Namespace != "") { qualCls = owner.Fqn(); }
         else { qualCls = this._ctx.QualifyClass(className); }
-        // FQ ctor = "{qualCls}.{ctorKey}"（镜像 C# fqCtor = $"{qualCls}.{ctorName}"）
-        string fqCtor = ctorName == "" ? "" : qualCls + "." + ctorName;
+        // An empty source ctor key here comes from default(T). The VM's reserved key
+        // distinguishes zero-initialization from bare ObjNew used before constructor calls.
+        string fqCtor = ctorName == "" ? "@default" : qualCls + "." + ctorName;
         // add-struct-value-semantics A-use：blob 值 struct 构造 → StructAlloc(零初始化 blob 句柄) + ctor
         // Call(this=句柄, args)。ctor body 的 `this.f = a` 已翻转为 StructFieldSetPrim（OwnerStructName 生效），
         // 在传入句柄上**原地**填字段（句柄携创建帧 frame_id，跨 ctor 子帧仍解同一 arena 槽，同 StackObject）。
@@ -781,7 +782,7 @@ public sealed class CallEmitter {
             string cCtorOwner = cSpec != "" ? this._ee._qualifyInstName(cSpec) : qualCls;
             // ⚠️ targs 置空：ObjNewInstr 会把 targs **再渲染一遍**贴到类名后，而 cQual 已带实参
             // ⇒ 不清就成 `Demo.CBox<P2><Demo.P2>`（实测）。身份名里已含实参，这里不需要第二份。
-            this._ctx.Emit(new ObjNewInstr(dst, cQual, ctorName == "" ? "" : cCtorOwner + "." + ctorName, new string[0], 0, args, argCount));
+            this._ctx.Emit(new ObjNewInstr(dst, cQual, ctorName == "" ? "@default" : cCtorOwner + "." + ctorName, new string[0], 0, args, argCount));
             return dst;
         }
         this._ctx.Emit(new ObjNewInstr(dst, qualCls, fqCtor, targs, tcount, args, argCount));

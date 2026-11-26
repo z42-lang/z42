@@ -32,7 +32,7 @@ pub(crate) fn obj_new(
     // encode-ctorless-objnew: compile-time positive marker; see `missing_ctor_exception`.
     ctor_known: bool,
 ) -> Result<Option<Value>> {
-    use crate::exec::ops::obj_new::{resolve_class, resolve_ctor};
+    use crate::exec::ops::obj_new::{prepare_ctor, resolve_class};
     // `new List<T>()` in a shared generic body: the site's arguments carry type-parameter
     // markers, bound per activation (one flag test for every other site).
     let type_args = frame.type_param_env().instantiate(ctx, type_args);
@@ -42,22 +42,9 @@ pub(crate) fn obj_new(
         Err(exc) => return Ok(Some(exc)),
     };
 
-    // add-static-constructors：创建实例是 C# 的类型初始化触发点之一。此处 TypeDesc
-    // 已在手 → 检查代价就是一次 `Option` 判断（没有 cctor 的类型的冷区多半是 None），
-    // 不需要 `pending` 门。
-    // add-module-init-hook：跨包 `new` 同样可能刚拉进一个包 —— 其包初始化器先跑。
-    if let Err(msg) = ctx.initialization().ensure_module_inits(Some(type_desc.name.as_str())) {
-        return Ok(Some(crate::exec::make_type_init_exception(ctx, module, &msg)));
-    }
-    if let Err(msg) = ctx.initialization().ensure_type_init(&type_desc) {
-        return Ok(Some(crate::exec::make_type_init_exception(ctx, module, &msg)));
-    }
-
-    // The ctor is bound before the object exists: binding may load a package (and run its
-    // initializers), and a fresh object held only in a Rust local is not a GC root.
     let mut lazy_holder = None;
-    let ctor = match resolve_ctor(
-        ctx, module, class_name, ctor_name, args.len() + 1 /* +this */, ctor_known, site,
+    let ctor = match prepare_ctor(
+        ctx, module, &type_desc, class_name, ctor_name, args.len() + 1 /* +this */, ctor_known, site,
         &mut lazy_holder,
     ) {
         Ok(c) => c,

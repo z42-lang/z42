@@ -29,11 +29,13 @@ struct Empty {}
 struct GenericEmpty<T> {}
 
 class ConstructorCalls {
-    public static int Count = 0;
+    public static int InstanceCount = 0;
+    public static int TypeCount = 0;
 }
 
 struct EmptyWithConstructor {
-    public EmptyWithConstructor() { ConstructorCalls.Count = ConstructorCalls.Count + 1; }
+    static EmptyWithConstructor() { ConstructorCalls.TypeCount = ConstructorCalls.TypeCount + 1; }
+    public EmptyWithConstructor() { ConstructorCalls.InstanceCount = ConstructorCalls.InstanceCount + 1; }
     public override int GetHashCode() { return 31; }
 }
 
@@ -51,11 +53,13 @@ void Main() {
     Assert.Equal(newGeneric.GetType().FullName, genericBox.GetType().FullName);
 
     EmptyWithConstructor withConstructor = default(EmptyWithConstructor);
-    Assert.Equal(0, ConstructorCalls.Count);
+    Assert.Equal(0, ConstructorCalls.TypeCount);
+    Assert.Equal(0, ConstructorCalls.InstanceCount);
     Assert.Equal(31, withConstructor.GetHashCode());
     EmptyWithConstructor constructed = new EmptyWithConstructor();
     Assert.Equal(31, constructed.GetHashCode());
-    Assert.Equal(1, ConstructorCalls.Count);
+    Assert.Equal(1, ConstructorCalls.TypeCount);
+    Assert.Equal(1, ConstructorCalls.InstanceCount);
 
     // ── 基元叶子全零 ────────────────────────────────────────────────
     Two t = default(Two);
