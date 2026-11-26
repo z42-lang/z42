@@ -21,7 +21,7 @@
 | `ops/call.rs` / `ops/stringify.rs` | 冷 Call/FnRef 绑定及 ToString 协议执行，调用经已注册 Engine |
 | `call/entry.rs` | 程序入口参数校验、GC 根保护、引擎派发与类型化调用失败 |
 | `call/engine_guards.rs` | 栈底激活安装 VM / heap TLS，最后一帧退出恢复；支持嵌套宿主重入 |
-| `call/`（经 exec 根再导出） | 共享帧记录、寄存器池和栈分配策略从 `exec` 根访问。帧栈和各类帧内 arena 由执行层封装 |
+| `call/`（经 exec 根再导出） | 共享帧记录和栈分配策略从 `exec` 根访问。帧栈、寄存器池和各类帧内 arena 由执行层封装 |
 | `call/builtins.rs` | 按 ID / 名称派发 builtin，按 `(provider, export)` 派发模块函数；共享计数、异常与 void 语义，门面提供 callable 表 |
 | `call/builtin_abi/` | builtin 参数、返回值、阻塞调用协议及错误映射；corelib 与 interop 只提供实现 |
 | `call/outcome.rs` / `call/forward.rs` / `call/type_param_env.rs` | 共享执行结果、Native 桩折叠和激活类型实参 |
@@ -41,6 +41,8 @@
 解释器通过执行状态分配栈对象，共享数组操作负责分配栈数组。执行层校验槽索引和创建帧号，封装访问与退栈回收。GC 通过执行层扫描对象引用字段和数组元素。
 
 解释器和 JIT 通过共享执行操作分配、复制和访问帧内 struct。装箱从执行层取得快照，GC 通过执行层扫描 struct 的引用叶子。
+
+两个引擎通过 `ThreadExecState::take_registers` 领用全为 `Null` 的寄存器文件。帧退出根栈后，经 `recycle_registers` 归还。
 
 解释器和 JIT helper 从 `z42::exec::ops::scalar` 调用共享函数；JIT 内联发码遵循相同规则，由双模式 golden 验证。异常对象的构造和传播由调用方处理。
 

@@ -57,13 +57,13 @@ impl<'args> Frame<'args> {
     }
 
     /// A frame whose first registers are `args`. The register file comes from
-    /// the context's register pool (`VmContext.exec.reg_pool`, all `Null`); the
+    /// the context's execution state (all `Null`); the
     /// frame's [`FrameGuard`] hands it back after popping the frame. A `Frame`
     /// dropped without ever being entered just frees it.
     pub fn new(ctx: &VmContext, args: &[Value], max_reg: u32) -> Self {
         let size = if max_reg > 0 { max_reg as usize } else { args.len() };
         let need = size.max(args.len());
-        let mut regs = ctx.exec().reg_pool.take(need);
+        let mut regs = ctx.exec().take_registers(need);
         for (i, v) in args.iter().enumerate() {
             regs[i] = v.clone();
         }
@@ -86,7 +86,7 @@ impl<'args> Frame<'args> {
         let argc = arg_indices.len();
         let size = if max_reg > 0 { max_reg as usize } else { argc };
         let need = size.max(argc);
-        let mut regs = ctx.exec().reg_pool.take(need);
+        let mut regs = ctx.exec().take_registers(need);
         for (i, &r) in arg_indices.iter().enumerate() {
             let v = caller_regs.get(r as usize)
                 .ok_or_else(|| anyhow::anyhow!("undefined register %{r}"))?;
@@ -113,7 +113,7 @@ impl<'args> Frame<'args> {
         let total = argc + 1; // + receiver in slot 0
         let size = if max_reg > 0 { max_reg as usize } else { total };
         let need = size.max(total);
-        let mut regs = ctx.exec().reg_pool.take(need);
+        let mut regs = ctx.exec().take_registers(need);
         regs[0] = receiver.clone();
         for (i, &r) in arg_indices.iter().enumerate() {
             let v = caller_regs.get(r as usize)

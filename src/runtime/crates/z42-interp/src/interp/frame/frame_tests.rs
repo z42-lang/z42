@@ -25,7 +25,7 @@ fn frames_draw_registers_from_the_context_pool() {
     assert!(frame.regs[2..].iter().all(|v| matches!(v, Value::Null)));
     frame.regs[5] = Value::Bool(true);
     let ptr = frame.regs.as_ptr();
-    ctx.exec.reg_pool.give(std::mem::take(&mut frame.regs));
+    ctx.exec().recycle_registers(std::mem::take(&mut frame.regs));
 
     let again = Frame::new(&ctx, &[], 6);
     assert_eq!(again.regs.as_ptr(), ptr, "the returned file is reused");

@@ -79,6 +79,14 @@
 //!     let _ = &ctx.exec().struct_arena;
 //! }
 //! ```
+//! ```compile_fail
+//! use z42::exec::reg_pool::RegPool;
+//! ```
+//! ```compile_fail
+//! fn raw_register_pool(ctx: &z42::vm::VmContext) {
+//!     let _ = &ctx.exec().reg_pool;
+//! }
+//! ```
 pub mod exception;
 pub mod symbol_resolution;
 pub mod stack_guard;
@@ -88,14 +96,14 @@ pub mod native;
 #[cfg(feature = "native-interop")]
 pub mod active_vm;
 /// Engine-shared activation and call machinery. The stable vocabulary is
-/// re-exported at the exec root (frames / reg_pool / arenas / arguments /
-/// outcome / forwarding / builtin ABI and dispatch). The frame stack and its
-/// activation guards are private to execution.
+/// re-exported at the exec root (frames / stack allocation policy / arguments /
+/// outcome / forwarding / builtin ABI and dispatch). The frame stack, register
+/// pool, arenas and activation guards are private to execution.
 pub(crate) mod call;
 pub(crate) use call::{invoke_entry, EntryError};
 pub use call::{
     args, builtin_abi, builtins, forward, frames, indirect_return,
-    outcome, reg_pool, stack_alloc, type_param_env,
+    outcome, stack_alloc, type_param_env,
 };
 pub mod stack;
 mod engine;

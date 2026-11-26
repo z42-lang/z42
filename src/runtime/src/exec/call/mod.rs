@@ -4,7 +4,7 @@ pub(crate) use entry::{invoke_entry, EntryError};
 
 pub mod frames;
 pub(super) mod frame_stack;
-pub mod reg_pool;
+pub(super) mod reg_pool;
 pub mod stack_alloc;
 pub(super) mod struct_arena;
 pub(super) mod transient_arena;

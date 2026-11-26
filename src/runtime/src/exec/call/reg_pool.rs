@@ -27,7 +27,7 @@ const CAP: usize = 512;
 
 /// See the module docs.
 #[derive(Default)]
-pub struct RegPool {
+pub(in crate::exec) struct RegPool {
     free: UnsafeCell<Vec<Vec<Value>>>,
 }
 

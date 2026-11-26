@@ -12,7 +12,7 @@ pub struct ThreadExecState {
     pending_thrown: Mutex<Option<Value>>,
     /// Owner-thread only; other threads read only after the owner is parked.
     call_stack: super::call::frame_stack::FrameStack,
-    pub reg_pool: super::call::reg_pool::RegPool,
+    reg_pool: super::call::reg_pool::RegPool,
     /// Installed at the bottom push and restored after the last pop.
     engine_guards: super::call::engine_guards::EngineGuards,
     /// LIFO frame-scoped payloads, scanned under each arena lock during a pause.
@@ -31,6 +31,20 @@ pub struct ThreadExecState {
 }
 
 impl ThreadExecState {
+    /// Take a register file of the requested length, initialized to `Null`.
+    /// Call only from the thread driving this execution context.
+    #[inline]
+    pub fn take_registers(&self, len: usize) -> Vec<Value> {
+        self.reg_pool.take(len)
+    }
+
+    /// Recycle a register file on the thread driving this execution context
+    /// after its frame has been removed from the GC root stack.
+    #[inline]
+    pub fn recycle_registers(&self, regs: Vec<Value>) {
+        self.reg_pool.give(regs)
+    }
+
     pub(crate) fn new(cctors: &Arc<crate::metadata::statics::CctorRegistry>, engines: &super::engine::EngineRegistry) -> Self {
         Self {
             pending_exception: Mutex::new(None),
