@@ -47,7 +47,7 @@ pub struct StructTypeLayout {
     ///
     /// 字段访问和默认哈希使用同一张字段表。
     pub fields: Box<[StructFieldLayout]>,
-    /// Flattened float byte ranges used to normalize signed zero for default hashing.
+    /// Flattened, disjoint float byte ranges in offset order for signed-zero hashing.
     pub float_field_ranges: OnceLock<Box<[Range<usize>]>>,
 }
 
