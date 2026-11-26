@@ -1,7 +1,8 @@
 //! Execution state owned by one running context, independent of concrete engines.
 use std::sync::{Arc, atomic::{AtomicU32, AtomicUsize}};
 use parking_lot::Mutex;
-use crate::object::Value;
+use crate::object::{PinnedViewData, RefKind, StructArrayElem, Value};
+use super::call::transient_arena::{TransientArena, TransientPayload};
 
 pub struct ThreadExecState {
     /// GC-rooted handoff across a JIT error boundary.
@@ -16,13 +17,13 @@ pub struct ThreadExecState {
     /// LIFO frame-scoped payloads, scanned under each arena lock during a pause.
     pub stack_arena: Arc<Mutex<super::call::stack_alloc::StackArena>>,
     pub struct_arena: Arc<Mutex<super::call::struct_arena::StructArena>>,
-    pub transient_arena: Arc<Mutex<super::call::transient_arena::TransientArena>>,
+    transient_arena: Arc<Mutex<TransientArena>>,
     /// Single-mutator published lengths; GC reads arena data under its locks.
     /// Relaxed reads let push/pop skip locks for unchanged arena lengths.
     pub stack_obj_len: AtomicUsize,
     pub stack_arr_len: AtomicUsize,
     pub struct_len: AtomicUsize,
-    pub transient_len: AtomicUsize,
+    transient_len: AtomicUsize,
     /// Owner-thread source; zero is reserved for a frame that has taken no id.
     pub next_frame_id: AtomicU32,
     pub jit_head: JitHead,
@@ -175,13 +176,9 @@ impl ThreadExecState {
     /// Push one [`crate::exec::frames::VmFrame`] onto the active script frame
     /// chain. Pop is the caller's responsibility (typically via the
     /// interp `FrameGuard` RAII or the explicit pair in JIT helpers).
-    // ── perf interp-frame-lock-slim: arena-alloc funnel ─────────────────────────
-    // Every arena allocation MUST route through one of these four wrappers so the
-    // published length atomic stays in lock-step with the inner Vec. A raw
-    // `ctx.exec.stack_arena.lock().alloc_obj(..)` that bypassed the wrapper would leave
-    // `stack_obj_len` stale → `pop_frame` would wrongly skip a needed truncate (an
-    // arena leak, not a crash — the `frame_id` staleness check still guards reads).
-    // The length store happens UNDER the arena lock (single-writer publish).
+    // Allocations and truncation publish the new length under the arena lock.
+    // Frame entry reads these lengths to stamp its bases, and frame exit skips
+    // locking arenas whose lengths did not change.
 
     /// Allocate a stack object; publishes the new `objs` length. See `stack_obj_len`.
     pub fn stack_alloc_obj(&self, frame_id: u32, obj: crate::object::OwnedObject) -> u32 {
@@ -213,10 +210,44 @@ impl ThreadExecState {
         idx
     }
 
-    /// Allocate a transient payload; publishes the new length. See `transient_len`.
-    pub fn transient_alloc(
-        &self, frame_id: u32, payload: crate::exec::transient_arena::TransientPayload,
-    ) -> u32 {
+    /// Allocate the address of a location for the lifetime of its creating frame.
+    pub fn alloc_ref(&self, frame_id: u32, kind: RefKind) -> Value {
+        let idx = self.transient_alloc(frame_id, TransientPayload::Ref(kind));
+        Value::Ref { idx, frame_id }
+    }
+
+    /// Register a borrowed native view on the current frame.
+    pub fn alloc_pinned_view(&self, frame_id: u32, view: PinnedViewData) -> Value {
+        let idx = self.transient_alloc(frame_id, TransientPayload::PinView(view));
+        Value::PinnedView { idx, frame_id }
+    }
+
+    pub(crate) fn alloc_struct_elem(&self, frame_id: u32, element: StructArrayElem) -> Value {
+        let idx = self.transient_alloc(frame_id, TransientPayload::StructElem(element));
+        Value::StructRefHeap { idx, frame_id }
+    }
+
+    /// Clone the reference descriptor after validating the handle's type and frame.
+    pub fn ref_kind(&self, idx: u32, frame_id: u32) -> anyhow::Result<RefKind> {
+        self.transient_arena.lock().ref_kind(idx, frame_id)
+    }
+
+    /// Copy the pinned view after validating the handle's type and frame.
+    pub fn pinned_view(&self, idx: u32, frame_id: u32) -> anyhow::Result<PinnedViewData> {
+        self.transient_arena.lock().pinned_view(idx, frame_id)
+    }
+
+    /// Copy the backing array and index after validating the handle's type and frame.
+    pub fn struct_elem(&self, idx: u32, frame_id: u32) -> anyhow::Result<StructArrayElem> {
+        self.transient_arena.lock().struct_elem(idx, frame_id)
+    }
+
+    pub(crate) fn scan_transient_roots(&self, visit: &mut dyn FnMut(&Value)) {
+        self.transient_arena.lock().scan_roots(visit);
+    }
+
+    // Publish while holding the arena lock so frame exit sees every allocation.
+    fn transient_alloc(&self, frame_id: u32, payload: TransientPayload) -> u32 {
         use std::sync::atomic::Ordering::Relaxed;
         let mut a = self.transient_arena.lock();
         let idx = a.alloc(frame_id, payload);

@@ -55,6 +55,14 @@
 //!     let _ = &ctx.exec().call_stack;
 //! }
 //! ```
+//! ```compile_fail
+//! use z42::exec::transient_arena::TransientArena;
+//! ```
+//! ```compile_fail
+//! fn raw_transient_values(ctx: &z42::vm::VmContext) {
+//!     let _ = &ctx.exec().transient_arena;
+//! }
+//! ```
 pub mod exception;
 pub mod symbol_resolution;
 pub mod stack_guard;
@@ -71,7 +79,7 @@ pub(crate) mod call;
 pub(crate) use call::{invoke_entry, EntryError};
 pub use call::{
     args, builtin_abi, builtins, forward, frames, indirect_return,
-    outcome, reg_pool, stack_alloc, struct_arena, transient_arena, type_param_env,
+    outcome, reg_pool, stack_alloc, struct_arena, type_param_env,
 };
 pub mod stack;
 mod engine;

@@ -199,7 +199,7 @@ impl<'args> Frame<'args> {
             // make-value-copy: resolve the Ref handle → RefKind via the transient arena,
             // release the arena lock (clone) before deref touches heap / other locks.
             Value::Ref { idx, frame_id } => {
-                let kind = ctx.exec().transient_arena.lock().ref_kind(*idx, *frame_id)?;
+                let kind = ctx.exec().ref_kind(*idx, *frame_id)?;
                 deref_ref(&kind, ctx)
             }
             other => Ok(other.clone()),
@@ -219,7 +219,7 @@ impl<'args> Frame<'args> {
         }
         let kind_to_store = match &self.regs[idx] {
             // make-value-copy: resolve the Ref handle → RefKind via the transient arena.
-            Value::Ref { idx: ai, frame_id } => Some(ctx.exec().transient_arena.lock().ref_kind(*ai, *frame_id)?),
+            Value::Ref { idx: ai, frame_id } => Some(ctx.exec().ref_kind(*ai, *frame_id)?),
             _ => None,
         };
         match kind_to_store {

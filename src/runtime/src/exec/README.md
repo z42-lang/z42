@@ -21,7 +21,7 @@
 | `ops/call.rs` / `ops/stringify.rs` | 冷 Call/FnRef 绑定及 ToString 协议执行，调用经已注册 Engine |
 | `call/entry.rs` | 程序入口参数校验、GC 根保护、引擎派发与类型化调用失败 |
 | `call/engine_guards.rs` | 栈底激活安装 VM / heap TLS，最后一帧退出恢复；支持嵌套宿主重入 |
-| `call/`（经 exec 根再导出） | 共享帧记录、寄存器池和三种帧作用域 arena 由 `exec` 根导出。帧栈及其原始操作保留在执行层内部 |
+| `call/`（经 exec 根再导出） | 共享帧记录、寄存器池及栈对象和 struct arena 由 `exec` 根导出。帧栈和临时值 arena 由执行层持有 |
 | `call/builtins.rs` | 按 ID / 名称派发 builtin，按 `(provider, export)` 派发模块函数；共享计数、异常与 void 语义，门面提供 callable 表 |
 | `call/builtin_abi/` | builtin 参数、返回值、阻塞调用协议及错误映射；corelib 与 interop 只提供实现 |
 | `call/outcome.rs` / `call/forward.rs` / `call/type_param_env.rs` | 共享执行结果、Native 桩折叠和激活类型实参 |
@@ -35,6 +35,8 @@
 
 执行消费者通过 `exec::invoke` 调用基线引擎，通过 `exec::invoke_mode` 按显式模式调用所属 VM 的引擎。`Engine`、`TierBackend` 和 `Initialization` 是共享执行契约。解释器和 JIT 通过 `components::bridge` 登记引擎和 tier，执行层持有注册表和后端代码租约。
 两个后端通过 `current_tier(ctx)` 读取当前线程的 tier。JIT 安装后及栈底帧入口通过 `refresh_tier(ctx)` 刷新。`push_frame(ctx, frame)` 通过同一上下文压入帧并在栈底帧安装 VM 和堆的线程局部状态，`pop_frame` 在末帧退出时恢复。采样通过组件桥取得所属线程的帧名。崩溃报告只读取本线程的帧和其他线程发布的深度。
+
+`Ref`、`PinnedView` 和 `StructRefHeap` 的描述符通过 `ThreadExecState` 的类型化方法创建、查询和校验。执行层在创建时发布 arena 长度，退栈时回收对应槽。GC 经执行层扫描临时值的根。
 
 解释器和 JIT helper 从 `z42::exec::ops::scalar` 调用共享函数；JIT 内联发码遵循相同规则，由双模式 golden 验证。异常对象的构造和传播由调用方处理。
 

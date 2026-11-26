@@ -200,15 +200,7 @@ fn struct_array_element_leaf_access_via_handle() {
     let mut frame = Frame::new(&ctx, &[], 8);
     // make-value-copy: StructRefHeap payload lives in the per-context transient arena; the
     // register holds an 8B handle. Alloc both element handles into `ctx`'s arena (frame_id 7).
-    let mk_sr = |idx: u32| {
-        let hidx = ctx.exec().transient_alloc(
-            7,
-            crate::exec::transient_arena::TransientPayload::StructElem(
-                StructArrayElem { arr: arr_gc, index: idx },
-            ),
-        );
-        Value::StructRefHeap { idx: hidx, frame_id: 7 }
-    };
+    let mk_sr = |index| ctx.exec().alloc_struct_elem(7, StructArrayElem { arr: arr_gc, index });
     // reg0 = handle to arr[0], reg1 = handle to arr[1]
     frame.set(0, mk_sr(0));
     frame.set(1, mk_sr(1));

@@ -382,17 +382,14 @@ blob）、`transient_arena`（`Ref`/`PinnedView`/`StructRefHeap` 的 payload）�
 **关键观察：这三个 arena 只有 mutator 线程写，GC 线程只读。** 于是给每个 arena 加一个**发布长度**
 `AtomicUsize`（挂 `VmContext`、在 `Mutex` 之外；`stack_arena` 两个 Vec → 两个原子）：
 
-- **单写者**：mutator 在 arena 锁内、于每个 alloc（经 `stack_alloc_obj`/`stack_alloc_arr`/`struct_alloc`/
-  `transient_alloc` 四个包装）与 `pop_frame` 的 truncate 后 `store(len, Relaxed)`。GC 从不碰这些原子
-  （它在 `Mutex` 下读 arena **数据**）。⇒ `Relaxed` 足够（线程观察自己的写按程序序）。
+- **单写者**：mutator 在 arena 的分配与退出截断时持锁发布长度。临时 arena 的三种类型化分配入口共用同一发布操作。
+  GC 在 `Mutex` 下扫描 arena 数据。发布长度只用于所属线程的帧进出，由该线程按程序序读写，使用 `Relaxed`。
 - **push_frame** 从原子 `Relaxed` load 取 base（**无锁**），不锁三个 arena；`call_stack` 本身是所属线程独占的，也不加锁。
 - **pop_frame** 对每个 arena **仅当本帧确实增长过**（发布长度 ≠ 戳记 base）才加锁 truncate + 重发布；
   常态帧在这三个 arena 上分配为零 → 三个比较全短路 → 一次调用不加任何锁。
 
-**alloc 漏斗铁律**：所有 arena 分配必须经四个包装之一。绕过的裸 `arena.lock().alloc(..)` 会让原子失准 →
-`pop_frame` 误跳 truncate → arena **泄漏**（非崩溃——`frame_id` staleness 守卫仍保护读；失败模式是内存
-泄漏 + 性能退化，不是读到错值）。长度只在 alloc（增）/ truncate（减）改变，truncate 生产代码里只在
-`pop_frame`——两者全仓核对无遗漏。
+分配必须更新发布长度，供 `pop_frame` 判断是否需要截断。临时 arena 及其长度字段由 `ThreadExecState`
+私有持有，`PinPtr`、ref 和 struct 数组元素描述符均通过类型化方法分配。回收后的句柄由槽索引和帧号校验拒绝。
 
 **GC race**：pop 的 skip 分支对 arena 零操作 → 与 GC 扫描一致；truncate 分支在 arena `Mutex` 内 → 与
 `scan_roots` 互斥，GC 要么扫到待释放槽（仍合法存活 `Value`）要么扫到已释放，皆安全。
