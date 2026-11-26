@@ -162,9 +162,9 @@ public sealed class AccessEmitter {
             // add-struct-array-codegen (P3b follow-up)：`arr[i] = p`（value-struct 数组整元素写）→ 取元素
             // 句柄（StructRefHeap）逐叶子把 p 拷进元素字节区（值语义）。ArraySet 的 set_boxed 收不了 arena
             // StructRef 源。叶子写 `arr[i].x=v` 走上面 BoundMember 分支（_emitBlobFieldSet + 句柄根）。
-            if (this._ee._isBlobStruct(ti.Type())) {
+            string fs = this._ee._arrayElementBlobName(ti.Type());
+            if (fs != "") {
                 TypedReg h = this._emitArrayElemHandle(ti);
-                string fs = this._ee._blobStructName(ti.Type());
                 this._copyRegion(val, this._ctx.QualifyLayout(fs), new int[0], h, this._ctx.QualifyLayout(fs), new int[0], fs);
                 return val;
             }
@@ -698,9 +698,9 @@ public sealed class AccessEmitter {
         // local blob (value semantics: the read is an independent snapshot, not an alias into
         // the array). Leaf access `arr[i].x` instead roots the chain at the handle (see
         // `_structChainRoot`), so it reads/writes in place.
-        if (this._ee._isBlobStruct(idx.Type())) {
+        string fs = this._ee._arrayElementBlobName(idx.Type());
+        if (fs != "") {
             TypedReg h = this._emitArrayElemHandle(idx);
-            string fs = this._ee._blobStructName(idx.Type());
             int sz = this._ctx.Gen.Layouts.StructSize(fs);
             TypedReg cp = this._ctx.Alloc(IrType.Ref);
             this._ctx.Emit(new StructAllocInstr(cp, this._ctx.QualifyLayout(fs), sz));

@@ -915,6 +915,10 @@ GenericType("Foo", [T..])   → _classes["Foo$N"] first, fallback _classes["Foo"
 `ImportedSymbolLoader._fillInterfaceMethods` 用两层形参解析签名，并将方法形参单独登记到
 方法符号，供显式代换、推断和约束检查共用。接口槽的派发键保持不变。
 
+在类级泛型特化体中，数组元素若是已代换为值 struct 的类形参，分配使用具体布局名，整元素
+读写复用值 struct 数组的复制路径。类形参和同名方法形参保持各自作用域；未特化的代码仍由
+运行时从当前激活解析实参。
+
 ## Deferred / Future Work
 
 ### 共享泛型体的接口槽
@@ -927,16 +931,6 @@ GenericType("Foo", [T..])   → _classes["Foo$N"] first, fallback _classes["Foo"
 
 复杂类型实参、多个接口实参和缺少限定槽的接收类型仍可走现有的擦除槽。普通闭合调用沿用原有接口槽。
 详见[接口槽派发](../runtime/vm-architecture.md#接口调用接口槽)。
-
-### generic-class-tarray-struct-escape：泛型类特化体里 `new T[n]` 存 struct 元素后出帧悬垂
-
-- **来源**：subst-generic-return 实施期发现，main 上即存在（与方法级代换无关）
-- **触发原因**：`class Holder<T> { T[] Twice() { T[] r = new T[2]; r[0] = this.Item; … return r; } }`，
-  `Holder<Vec2>` 调 `Twice()[1].Y` 报 `struct-value handle used after its creating frame exited`。泛型**类**的
-  blob struct 实例化走特化体，问题在特化体里 `T[]` 元素的存取，不在调用点
-- **前置依赖**：查清特化体里 `new T[n]` / 元素存的表示（struct 承载数组 vs 句柄数组）
-- **触发条件**：泛型容器类自己分配 `T[]` 并以 struct 实例化时（stdlib `List<T>` 的扩容路径值得先验证）
-- **当前 workaround**：无（避免在泛型类里自建 `T[]` 存 struct）
 
 ### D-4: 协变 / 逆变（`<in T, out R>` 等）
 

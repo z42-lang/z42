@@ -1,0 +1,39 @@
+struct Vec2 {
+    public int X;
+    public int Y;
+    public string Label;
+    public Vec2(int x, int y) { this.X = x; this.Y = y; this.Label = "retained"; }
+}
+
+class Holder<T> {
+    public T Item;
+    public Holder(T item) { this.Item = item; }
+    public T[] Twice() {
+        T[] result = new T[2];
+        result[0] = this.Item;
+        result[1] = this.Item;
+        return result;
+    }
+    public T[] Literal() { return new T[] { this.Item }; }
+    public T First(T[] values) { return values[0]; }
+}
+
+void main() {
+    var holder = new Holder<Vec2>(new Vec2(3, 7));
+    Vec2[] values = holder.Twice();
+    Assert.Equal(7, values[1].Y);
+    Assert.Equal("retained", values[1].Label);
+    Vec2 snapshot = values[0];
+    snapshot.Y = 99;
+    Assert.Equal(7, values[0].Y);
+    values[0].Y = 10;
+    Assert.Equal(7, values[1].Y);
+    Assert.Equal(7, holder.Item.Y);
+    Assert.Equal(typeof(Vec2[]), values.GetType());
+    Vec2[] literal = holder.Literal();
+    Assert.Equal(typeof(Vec2[]), literal.GetType());
+    Assert.Equal("retained", literal[0].Label);
+    Vec2 fromGeneric = holder.First(values);
+    fromGeneric.Y = 42;
+    Assert.Equal(10, values[0].Y);
+}
