@@ -440,6 +440,7 @@ public static class TsigReconcile {
             // 由 `$RetNullable` 填的位——消费侧 `ImportedSymbolLoader._fillParamMeta` 是同一个漏斗）。
             methods[mi].RetIsNullable = IrIfaceNullable.Has(cd.Attrs, cd.AttrCount, mi, IrIfaceNullable.RetSlot);
             methods[mi].RefInfoKnown = IrIfaceRef.Has(cd.Attrs, cd.AttrCount, IrIfaceRef.SignatureSentinel, mi.ToString());
+            IrIfaceMethodGenerics.Restore(cd.Attrs, cd.AttrCount, mi, methods[mi]);
             ipbase = ipbase + ipc;
             mi = mi + 1;
         }

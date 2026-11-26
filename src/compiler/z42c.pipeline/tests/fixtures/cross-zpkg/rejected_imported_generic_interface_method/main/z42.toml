@@ -1,0 +1,8 @@
+[project]
+name = "demo.rejected_imported_iface_main"
+version = "0.1.0"
+kind = "exe"
+pack = true
+
+[dependencies]
+"demo.rejected_imported_iface_lib" = "0.1.0"

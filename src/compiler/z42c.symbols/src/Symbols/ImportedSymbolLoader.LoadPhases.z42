@@ -348,7 +348,11 @@ public static partial class ImportedSymbolLoader {
                         // 「imported 类型保真度」同族：元数据带着信息，导入侧把它抹平了。
                         // （`IsAbstract` 没有对应槽——`MethodSymbol` 无该字段，抽象性一律靠
                         //  `Decl.Mods` 嗅探，而导入符号 `HasDecl=false`；故只还原 IsStatic。）
-                        it2.Methods.Put(mz.Name, new MethodSymbol(mz.Name, "public", msig, mz.IsStatic, iz2.Name, false, null));
+                        MethodSymbol sym = new MethodSymbol(mz.Name, "public", msig, mz.IsStatic, iz2.Name, false, null);
+                        sym.TypeParamCount = mz.TypeParamCount;
+                        sym.TypeParamNames = ImportedSymbolLoader._tpNames(mz.TypeParams);
+                        sym.TypeParamConstraints = ImportedSymbolLoader._methodConstraints(sym, mz.TypeParamConstraints);
+                        it2.Methods.Put(mz.Name, sym);
                     }
                     im2 = im2 + 1;
                 }

@@ -17,7 +17,7 @@ var z = Zero<int>();              // 0
 var p = New<Point>();             // new Point()
 ```
 
-自由函数与静态/实例方法都支持；这是 0.5.x serde 招牌 `JsonSerializer.Deserialize<T>(json)` 的语言前置。
+自由函数与静态/实例方法都支持。通过接口调用泛型方法时，跨包也能显式传入或推断方法类型实参，并检查声明上的 `where` 约束。
 
 ## 与类级泛型的关系
 

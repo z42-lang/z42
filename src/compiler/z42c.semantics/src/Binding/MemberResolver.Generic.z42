@@ -41,9 +41,11 @@ public sealed partial class MemberResolver {
         MemberResolver._setMethodTypeArgs(bc, targs, call.TypeArgCount, env);
         if (ms == null) { return bc; }
         bool local = ms.HasDecl && ms.Decl != null;
-        if (local && ms.Decl.TypeParams.Count != call.TypeArgCount) {
+        int arity = local ? ms.Decl.TypeParams.Count : ms.TypeParamCount;
+        bool knownArity = local || (instRecv is Z42InterfaceType && arity > 0);
+        if (knownArity && arity != call.TypeArgCount) {
             this._tc._diags.Error(DiagnosticCodes.GenericMethodArity,
-                "generic method `" + ms.Name + "` expects " + ms.Decl.TypeParams.Count.ToString()
+                "generic method `" + ms.Name + "` expects " + arity.ToString()
                 + " type argument(s) but got " + call.TypeArgCount.ToString(), call.Span);
             return bc;
         }
