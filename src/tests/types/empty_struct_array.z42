@@ -1,0 +1,69 @@
+namespace EmptyStructArray;
+using Std;
+using Std.Collections;
+
+class ConstructorCalls {
+    public static int Count = 0;
+}
+
+struct Empty {
+    public Empty() { ConstructorCalls.Count = ConstructorCalls.Count + 1; }
+    public override int GetHashCode() { return 31; }
+}
+
+struct Other {}
+struct GenericEmpty<T> {}
+
+int HashByRef(ref Empty value) { return value.GetHashCode(); }
+void SetByRef(ref Empty slot, Empty value) { slot = value; }
+
+void Main() {
+    Empty[] values = new Empty[3];
+    Assert.Equal(3, values.Length);
+    Assert.Equal(0, (new Empty[0]).Length);
+    Assert.Equal(31, values[0].GetHashCode());
+    Assert.Equal(31, HashByRef(ref values[1]));
+    Assert.Equal(0, ConstructorCalls.Count);
+    Assert.Throws("IndexOutOfRangeException", () => values[3].GetHashCode());
+
+    Empty original = new Empty();
+    values[2] = original;
+    SetByRef(ref values[1], original);
+    Assert.Equal(1, ConstructorCalls.Count);
+    Assert.Equal(31, values[2].GetHashCode());
+    object first = values.GetValue(2);
+    object second = values.GetValue(2);
+    Assert.True(first is Empty);
+    Assert.False(Object.ReferenceEquals(first, second));
+    Assert.Equal(31, first.GetHashCode());
+    Assert.Throws("InvalidCastException", () => values.SetValue(null, 0));
+    Assert.Throws("InvalidCastException", () => values.SetValue(new Other(), 0));
+    values.SetValue(first, 0);
+
+    Empty[] literal = new Empty[] { original, original };
+    Assert.Equal(2, literal.Length);
+    Assert.Equal(31, literal[1].GetHashCode());
+    Empty[] reflected = (Empty[])Array.CreateInstance(typeof(Empty), 2);
+    Assert.Equal(31, reflected[1].GetHashCode());
+    Assert.Equal(1, ConstructorCalls.Count);
+
+    object[] boxes = new object[3];
+    Array.CopyRange(values, 0, boxes, 0, 3);
+    Assert.Equal(31, boxes[2].GetHashCode());
+    Array.CopyRange(boxes, 0, values, 0, 3);
+    Array.CopyRange(values, 0, values, 1, 2);
+    Assert.Equal(31, values[2].GetHashCode());
+
+    GenericEmpty<int>[] generic = new GenericEmpty<int>[1];
+    object genericValue = generic.GetValue(0);
+    Assert.True(genericValue is GenericEmpty<int>);
+    Assert.False(genericValue is GenericEmpty<long>);
+    generic.SetValue(genericValue, 0);
+    GenericEmpty<long>[] other = new GenericEmpty<long>[1];
+    Assert.Throws("InvalidCastException", () => other.SetValue(genericValue, 0));
+
+    List<Empty> list = new List<Empty>();
+    for (int i = 0; i < 16; i++) { list.Add(original); }
+    Assert.Equal(16, list.Count);
+    Assert.Equal(31, list[15].GetHashCode());
+}

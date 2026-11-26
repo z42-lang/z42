@@ -327,13 +327,13 @@ MIXED 的零种类（3 位）：读写元素、求长度、JIT 取元素基址�
 |---|---|---|---|---|
 | PRIM（`Bool` / `Bytes` / `I32` / `I64` / `Chars` / `F64`） | `ArrayPrim` | 打包基元 | `int[]`、`long[]`、`double[]`、`char[]`、`byte[]`、`bool[]` … | 同宽 relaxed 原子 |
 | REF | `ArrayRef` | 8 B 引用字（`ref_word`） | `string[]`、`object[]`、类 / 接口 / 委托 / 数组元素类型 | acquire 读 / release 写，标记期 swap |
-| MIXED | `ArrayCell` | 16 B 型参单元（`tparam_cell`，元素 i 的标签字在 `16i`、负载字在 `16i+8`） | 擦除的 `T[]`、enum、非 blob struct、类型表里查不到的、Rust 合成的无类型数组 | 型参单元协议 |
-| STRUCT | `ArrayStruct` | 布局字 + 值 struct blob（引用叶子是引用字，见上） | blob 值 struct 的 `P[]` | 各叶子按自己的单元 |
+| MIXED | `ArrayCell` | 16 B 型参单元（`tparam_cell`，元素 i 的标签字在 `16i`、负载字在 `16i+8`） | 擦除的 `T[]`、enum、无有效布局的 struct、类型表里查不到的、Rust 合成的无类型数组 | 型参单元协议 |
+| STRUCT | `ArrayStruct` | 布局字 + struct blob（空 struct 每槽一个填充字节） | 有布局的值 struct 的 `P[]` | 各叶子按自己的单元 |
 | FROZEN | `ArrayValue` | 16 B `Value`，发布前写一次、之后只读 | 闭包环境、种类 7 的值盒子（里面可能是栈句柄，不能再按单元编码） | 普通读 |
 
 - **模式判定**（`objops::array::elem_mode`，`ArrayNew` / `ArrayNewLit` / `Array.CreateInstance` 共用）：
   名字就能定的先定（`ElemKind::of`：基元 → PRIM；`string` / `object` / `X[]` → REF）；元素是型参（指令的 `type_param_kind`）→ MIXED；
-  其余查类型表：blob 值 struct → STRUCT，enum 与非 blob struct → MIXED，类 / 接口 / 委托 → REF，查不到 → MIXED。
+  其余查类型表：有布局的值 struct（含空 struct）→ STRUCT，enum 与无有效布局的 struct → MIXED，类 / 接口 / 委托 → REF，查不到 → MIXED。
   这次查表本来就在建数组的路上（判 struct）。
 - **型参在运行期解析成基元实参时按该宽度打包（M13）**：`new T[n]` 的分配点先于 `elem_mode` 解析型参——
   类级（`List<T>` 的成员体）经接收者 meta 字里的驻留 `TypeArgs`（条目上预算了每个实参的打包种类，一次数组读），

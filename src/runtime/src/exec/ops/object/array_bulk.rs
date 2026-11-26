@@ -61,8 +61,8 @@ pub fn copy_range(
     // 两个数组只是逐元素竞争，没有取锁顺序问题。
     match plan(ctx, &s, &d)? {
         Plan::Direct => dst.borrow().copy_elems_from(&src.borrow(), si, di, n),
-        Plan::Box => box_into(ctx, src, &s, si, dst, di, n)?,
-        Plan::Unbox => return copy_checked(ctx, src, si, dst, di, n, |v| check_struct_box(&d.elem, v)),
+        Plan::Box => box_into(ctx, src, si, dst, di, n)?,
+        Plan::Unbox => return copy_checked(ctx, src, si, dst, di, n, |v| check_struct_box(&dst.borrow(), v)),
         Plan::CheckedPrimitive => {
             let array = dst.borrow();
             return copy_checked(ctx, src, si, dst, di, n, |v| check_untyped_store(ctx, &array, v));
@@ -82,6 +82,9 @@ pub fn copy_range(
 pub fn elem_get_boxed(ctx: &VmContext, arr: &ArrRef, i: usize) -> OpResult<Value> {
     let (et, elem) = {
         let a = arr.borrow();
+        if a.struct_layout_ref().is_some_and(|layout| layout.size == 0) {
+            return new_empty_struct(ctx, a.element_type());
+        }
         match a.struct_elem(i) {
             None => return Ok(a.get_boxed(i)),
             Some(blob) => (a.element_type(), blob),
@@ -95,7 +98,7 @@ pub fn elem_get_boxed(ctx: &VmContext, arr: &ArrRef, i: usize) -> OpResult<Value
 /// 不拓宽）；引用数组按声明的元素类型校验。
 pub fn check_untyped_store(ctx: &VmContext, arr: &ArrayObj, v: &Value) -> OpResult<()> {
     if arr.struct_layout().is_some() {
-        return check_struct_box(&arr.element_type(), v);
+        return check_struct_box(arr, v);
     }
     match arr.prim_backing_kind() {
         Some(kind) if !arr.prim_backing_accepts(v) => Err(OpError::array_elem_store_rejected(kind, v)),
@@ -243,24 +246,24 @@ fn holds_box_of(ctx: &VmContext, holder: &str, strukt: &str) -> bool {
 }
 
 /// 值必须是元素类型 `elem` 的装箱 struct。
-fn check_struct_box(elem: &str, v: &Value) -> OpResult<()> {
-    if let Value::BoxedStruct(b) = v {
-        if *b.borrow().type_desc.name == *elem {
-            return Ok(());
-        }
-    }
-    Err(OpError::array_elem_store_rejected(elem, v))
+fn check_struct_box(array: &ArrayObj, v: &Value) -> OpResult<()> {
+    let elem = array.element_type();
+    let accepts = if array.struct_layout_ref().is_some_and(|layout| layout.size == 0) {
+        array.accepts_empty_struct(v)
+    } else {
+        matches!(v, Value::BoxedStruct(b) if *b.type_desc().name == *elem)
+    };
+    if accepts { return Ok(()); }
+    Err(OpError::array_elem_store_rejected(&elem, v))
 }
 
 /// struct[] → 引用数组：逐元素装箱。
 /// 每个盒子一出生就写进目的数组（目的数组在调用方寄存器里，是根）。
 fn box_into(
-    ctx: &VmContext, src: &ArrRef, s: &Shape, si: usize, dst: &ArrRef, di: usize, n: usize,
+    ctx: &VmContext, src: &ArrRef, si: usize, dst: &ArrRef, di: usize, n: usize,
 ) -> OpResult<()> {
     for k in 0..n {
-        let (bytes, refs) = src.borrow().struct_elem(si + k)
-            .ok_or_else(|| OpError::internal("Array.CopyRange: struct[] source is not a value-struct array".into()))?;
-        let boxed = box_struct(ctx, s.elem, &bytes, &refs)?;
+        let boxed = elem_get_boxed(ctx, src, si + k)?;
         // 下一个盒子的分配可能触发回收：这一个先发屏障，不等整段写完。
         crate::object::store_array_element(ctx.heap(), dst, di + k, &boxed);
     }
@@ -305,6 +308,23 @@ fn copy_checked(
             .map_err(|e| OpError::throw(INVALID_CAST_EXC, e.to_string()))?;
     }
     Ok(())
+}
+
+/// Read an empty array slot as a fresh value, mirroring the object representation
+/// used for `new Empty()` without invoking user code.
+fn new_empty_struct(ctx: &VmContext, elem: ElemType) -> OpResult<Value> {
+    let name: &str = &elem;
+    let class = lookup_desc(ctx, name).or_else(|| lookup_desc(ctx, erased(name)))
+        .ok_or_else(|| OpError::internal(format!("unknown empty struct type `{name}`")))?;
+    let args = if class.name == name {
+        class.type_args_handle()
+    } else {
+        crate::object::TypeArgs::intern(&crate::object::type_args_from_name(name))
+    };
+    match ctx.heap().alloc_instance(class, args) {
+        Value::Null => Err(OpError::oom(format!("an empty struct `{name}`"))),
+        v => Ok(v),
+    }
 }
 
 /// 把一份 struct 元素的字节 + 引用叶子装箱。泛型 struct 实例名查不到时按擦除基名（同 `try_struct_backed`）。

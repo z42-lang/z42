@@ -37,6 +37,7 @@ fn not_an_array(op: ArrayOp, v: &Value) -> OpError {
 
 /// `ArrayGet`。值 struct 数组（STRUCT）的元素以 `StructRefHeap` 句柄返回（指向数组字节，
 /// 支持原地 `arr[i].x`），句柄载荷进 transient arena，`frame_id` 按需取（惰性分配）。
+/// 空 struct 没有可寻址字段，读取时直接物化零值。
 /// 擦除型参读取的值可以跨帧传输，返回独立装箱快照。
 #[inline(always)]
 pub fn array_get<F: FnOnce() -> u32>(ctx: &VmContext, arr: &Value, idx: &Value, erased: bool, frame_id: F) -> OpResult<Value> {
@@ -46,7 +47,7 @@ pub fn array_get<F: FnOnce() -> u32>(ctx: &VmContext, arr: &Value, idx: &Value, 
         if a.mode() != ArrayMode::Struct {
             return Ok(a.get_boxed(i));   // 打包基元在这里装回 Value
         }
-        if erased {
+        if erased || a.struct_layout_ref().is_some_and(|layout| layout.size == 0) {
             return super::array_bulk::elem_get_boxed(ctx, rc, i);
         }
         return Ok(struct_elem_handle(ctx, *rc, i, frame_id()));
@@ -128,10 +129,10 @@ pub fn check_elem_addr(arr: &Value, idx: &Value) -> OpResult<(ArrRef, usize)> {
 }
 
 /// 经 `ref` 读元素（`RefKind::Array`）。
-pub fn elem_load(gc: &ArrRef, i: usize) -> OpResult<Value> {
+pub fn elem_load(ctx: &VmContext, gc: &ArrRef, i: usize) -> OpResult<Value> {
     let a = gc.borrow();
     if i >= a.len() { return Err(OpError::index_out_of_range(i as i64, a.len())); }
-    Ok(a.get_boxed(i))
+    super::array_bulk::elem_get_boxed(ctx, gc, i)
 }
 
 /// 经 `ref` 写元素：与 `ArraySet` 同一条写入 + 写屏障规则。
@@ -156,10 +157,10 @@ pub fn array_size(len: &Value) -> OpResult<usize> {
 
 /// `ArrayNew`：`len` 个元素的数组。
 ///
-/// - 元素是 blob 值 struct → STRUCT 堆数组（不走栈分配）。
+/// - 元素是有布局的值 struct → STRUCT 堆数组（不走栈分配）。
 /// - `tp_prim`：泛型型参在运行期解析成**基元**实参时的（打包种类, 零值）——数组按该宽度打包
 ///   （M13，`List<int>` 的 backing 每元素 4 B）。方法级型参从当前激活解析。
-/// - `bound`：`new T[n]` 在运行期绑定的实参。已绑定的 blob struct 使用连续布局；
+/// - `bound`：`new T[n]` 在运行期绑定的实参。已绑定的值 struct 使用连续布局；
 ///   引用和未绑定的型参使用擦除存储。反射报告实际绑定的元素类型。
 /// - `stack`：编译器证明不逃逸且运行期允许时给出栈帧号，数组进栈 arena。
 #[allow(clippy::too_many_arguments)]
@@ -312,8 +313,8 @@ pub enum ElemMode {
 /// - 型参元素（`new T[n]`，`type_param`）→ MIXED（擦除的 `T[]`）。**例外（M13）**：分配点已把
 ///   型参解析成基元实参时（[`TypeParamElem`]），[`array_new`] 跳过这里直接按解析宽度打包，
 ///   不进本函数。
-/// - 其余查类型表：**blob 值 struct** → STRUCT；类 / 接口 / 委托 → REF；enum（值是裸整数）、
-///   非 blob 的 struct、查不到的名字 → MIXED（什么都装得下）。
+/// - 其余查类型表：**有有效布局的值 struct** → STRUCT；类 / 接口 / 委托 → REF；enum（值是裸整数）、
+///   无有效布局的 struct、查不到的名字 → MIXED（什么都装得下）。
 ///
 /// 泛型类型先按完整实例名查（编译器为特化实例交付的合成描述符），再按擦除基名查；`element_type`
 /// 原样传给 backing，反射拿到的是实例化后的元素类型。这次查表本来就在建数组的路上（判 struct）。
@@ -331,9 +332,9 @@ pub fn elem_mode(ctx: &VmContext, element_type: ElemType, type_param: bool) -> E
         },
     };
     if td.is_struct() {
-        // 闸门与编译器 `StructLayout.IsBlobStruct` 必须逐字一致（FieldCount >= 1）；全 VM 唯一一份镜像。
-        if let (false, Some(layout)) = (td.fields.is_empty(), td.struct_layout()) {
-            if layout.size != 0 {
+        if let Some(layout) = td.struct_layout() {
+            // Empty structs have no fields to address; they still need typed, zeroed slots.
+            if layout.size != 0 || td.fields.is_empty() {
                 return ElemMode::Struct(layout);
             }
         }
@@ -348,6 +349,9 @@ pub fn elem_mode(ctx: &VmContext, element_type: ElemType, type_param: bool) -> E
 /// 把一个 struct 值打包进刚分配的 `struct[]` 的第 `i` 个元素（`new P[]{ p1, p2 }`）。
 /// 源是 arena `StructRef` 或装箱 `BoxedStruct`；`Null` = 默认值（元素保持零初始化）。
 pub fn pack_struct_elem(ctx: &VmContext, arr: &ArrayObj, i: usize, v: &Value) -> OpResult<()> {
+    if arr.struct_layout_ref().is_some_and(|layout| layout.size == 0) && arr.accepts_empty_struct(v) {
+        return Ok(());
+    }
     let (src_bytes, src_refs): (Vec<u8>, Vec<Value>) = match v {
         Value::BoxedStruct(b) => b.borrow().boxed_blob(),
         Value::StructRef { idx, frame_id } =>
