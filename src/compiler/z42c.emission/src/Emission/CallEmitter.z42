@@ -686,7 +686,6 @@ public sealed class CallEmitter {
     }
 
     // new T(args) / new Box<int>(args) → obj_new（结果 ref）。泛型实例化携 resolved type-args。ctor 解析延后。
-    [Suppress("style.fnLinesHard", "61 body lines；拆分见 code-organization.md")]
     internal TypedReg _emitNew(BoundNew n) {
         // add-generic-methods：`new T()` 其中 T 为方法级泛型形参 → 物化具体 Std.Type（读 frame 槽）+
         // __activator_create（无参反射构造）。零实参已由绑定期保证。
@@ -703,12 +702,16 @@ public sealed class CallEmitter {
         int i = 0;
         while (i < n.ArgCount) { args[i] = this._ee.Emit(n.Args[i]); i = i + 1; }
         this._boxErasedCtorArgs(n, args);
+        return this._emitNewValue(n.Type(), n.TypeName, n.CtorName, args, n.ArgCount);
+    }
+
+    [Suppress("style.fnLinesHard", "构造字节码的类型身份、布局与构造器名须一致")]
+    internal TypedReg _emitNewValue(Z42Type type, string className, string ctorName, TypedReg[] args, int argCount) {
         TypedReg dst = this._ctx.Alloc(IrType.Ref);  // obj.new 结果始终 Ref（镜像 C# Alloc(IrType.Ref)）
-        string className = n.TypeName;
         string[] targs = new string[0];
         int tcount = 0;
-        if (n.Type() is Z42InstantiatedType) {           // Box<int> → class "Box" + args ["int"]
-            Z42InstantiatedType inst = n.Type() as Z42InstantiatedType;
+        if (type is Z42InstantiatedType) {           // Box<int> → class "Box" + args ["int"]
+            Z42InstantiatedType inst = type as Z42InstantiatedType;
             className = inst.Def.IrName();
             targs = new string[inst.ArgCount];
             int k = 0;
@@ -726,20 +729,19 @@ public sealed class CallEmitter {
         }
         // fix-type-ref-ns-collision：已解析到的类型直接用其 FQN 发射（曾按短名查图致 `new A.Foo` emit `B.Foo`）。
         // Namespace=="" 的类（全局 ns / 兜底合成类型）按当前 ns 限定。
-        Z42ClassType _rct = null;
-        if (n.Type() is Z42ClassType) { _rct = n.Type() as Z42ClassType; }
-        else if (n.Type() is Z42InstantiatedType) { _rct = (n.Type() as Z42InstantiatedType).Def; }
+        Z42ClassType owner = this._ee._receiverClassType(type);
         string qualCls;
-        if (_rct != null && _rct.Namespace != "") { qualCls = _rct.Fqn(); }
+        if (owner != null && owner.Namespace != "") { qualCls = owner.Fqn(); }
         else { qualCls = this._ctx.QualifyClass(className); }
-        // FQ ctor = "{qualCls}.{ctorKey}"（镜像 C# fqCtor = $"{qualCls}.{n.CtorName}"）
-        string fqCtor = qualCls + "." + n.CtorName;
+        // An empty source ctor key here comes from default(T). The VM's reserved key
+        // distinguishes zero-initialization from bare ObjNew used before constructor calls.
+        string fqCtor = ctorName == "" ? "@default" : qualCls + "." + ctorName;
         // add-struct-value-semantics A-use：blob 值 struct 构造 → StructAlloc(零初始化 blob 句柄) + ctor
         // Call(this=句柄, args)。ctor body 的 `this.f = a` 已翻转为 StructFieldSetPrim（OwnerStructName 生效），
         // 在传入句柄上**原地**填字段（句柄携创建帧 frame_id，跨 ctor 子帧仍解同一 arena 槽，同 StackObject）。
         // 结果=句柄（未装箱值以句柄流转）。ObjNew 那条（堆分配+ctor 一体）不发。
-        if (this._ee._isBlobStruct(n.Type())) {
-            string sname = this._ee._blobStructName(n.Type());
+        if (this._ee._isBlobStruct(type)) {
+            string sname = this._ee._blobStructName(type);
             int size = this._ctx.Gen.Layouts.StructSize(sname);
             // generic-struct-erased-slot-value-copy：命中闸门的实例化，StructAlloc 必须携**实例化的 FQ 名**
             // 与**实例化的 ctor**——否则运行期按定义名 resolve_layout（First 是 8B 句柄）而 size 已是实例化的，
@@ -749,23 +751,22 @@ public sealed class CallEmitter {
             //  · StructAlloc 的类型名走**身份名** —— 所有实例化一律独立，`GetType()` 才自洽；
             //  · ctor 派发走**特化名** —— 只有布局不同的才有特化 ctor，布局相同的共享定义那份
             //    （共享体按定义偏移烘焙，布局既相同则偏移对得上）。
-            string identN = this._ee._instIdentityName(n.Type());
+            string identN = this._ee._instIdentityName(type);
             string qualAlloc = identN != "" ? this._ee._qualifyInstName(identN) : qualCls;
             string ctorOwner = sname.IndexOf('<') >= 0 ? this._ee._qualifyInstName(sname) : qualCls;
             TypedReg handle = this._ctx.Alloc(IrType.Ref);   // StructRef 句柄（Ref tag）
             this._ctx.Emit(new StructAllocInstr(handle, qualAlloc, size));
-            fqCtor = ctorOwner + "." + n.CtorName;
+            fqCtor = ctorOwner + "." + ctorName;
             // 仅在 ctor **真实存在**时 Call：_ctorKey 有 ctor→"Name$arity"∈Methods、无 ctor→裸 name∉Methods。
             // 无 ctor struct（如 partial `new Vec2()`）：StructAlloc 已零初始化 blob，字段随后逐个赋值——
             // 别 Call 不存在的 `Vec2.Vec2`（undefined function 崩）。
-            Z42ClassType sctor = this._ee._receiverClassType(n.Type());
-            if (sctor != null && sctor.Methods.ContainsKey(n.CtorName)) {
-                TypedReg[] cargs = new TypedReg[n.ArgCount + 1];
+            if (owner != null && ctorName != "" && owner.Methods.ContainsKey(ctorName)) {
+                TypedReg[] cargs = new TypedReg[argCount + 1];
                 cargs[0] = handle;
                 int cai = 0;
-                while (cai < n.ArgCount) { cargs[cai + 1] = args[cai]; cai = cai + 1; }
+                while (cai < argCount) { cargs[cai + 1] = args[cai]; cai = cai + 1; }
                 TypedReg voidr = this._ctx.Alloc(IrType.Void);
-                this._ctx.Emit(new CallInstr(voidr, fqCtor, cargs, n.ArgCount + 1));
+                this._ctx.Emit(new CallInstr(voidr, fqCtor, cargs, argCount + 1));
             }
             return handle;
         }
@@ -774,17 +775,17 @@ public sealed class CallEmitter {
         //  · ctor 走**特化名**（布局不同才有特化 ctor；否则仍是定义那份）。
         // 不能沿用旧的 `qualCls + targs` 渲染：那给 `Demo.CBox<Demo.P2>`（实参 FQ），
         // 与描述符名 `Demo.CBox<P2>` 对不上 ⇒ 运行期查不到内联布局（实测形态 ② 不生效）。
-        string cIdent = this._ee._instIdentityName(n.Type());
+        string cIdent = this._ee._instIdentityName(type);
         if (cIdent != "") {
             string cQual = this._ee._qualifyInstName(cIdent);
-            string cSpec = this._ee._instLayoutName(n.Type());
+            string cSpec = this._ee._instLayoutName(type);
             string cCtorOwner = cSpec != "" ? this._ee._qualifyInstName(cSpec) : qualCls;
             // ⚠️ targs 置空：ObjNewInstr 会把 targs **再渲染一遍**贴到类名后，而 cQual 已带实参
             // ⇒ 不清就成 `Demo.CBox<P2><Demo.P2>`（实测）。身份名里已含实参，这里不需要第二份。
-            this._ctx.Emit(new ObjNewInstr(dst, cQual, cCtorOwner + "." + n.CtorName, new string[0], 0, args, n.ArgCount));
+            this._ctx.Emit(new ObjNewInstr(dst, cQual, ctorName == "" ? "@default" : cCtorOwner + "." + ctorName, new string[0], 0, args, argCount));
             return dst;
         }
-        this._ctx.Emit(new ObjNewInstr(dst, qualCls, fqCtor, targs, tcount, args, n.ArgCount));
+        this._ctx.Emit(new ObjNewInstr(dst, qualCls, fqCtor, targs, tcount, args, argCount));
         return dst;
     }
 

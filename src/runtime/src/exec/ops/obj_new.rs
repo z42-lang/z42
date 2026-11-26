@@ -83,6 +83,26 @@ fn resolve_class_slow(
     Ok(type_desc)
 }
 
+/// Resolve an `ObjNew` constructor after the initialization barriers for an ordinary `new`.
+/// The reserved compiler key for `default(T)` requests zero-initialization without either constructor.
+#[inline]
+#[allow(clippy::too_many_arguments)]
+pub fn prepare_ctor<'a>(
+    ctx: &'a VmContext, module: &'a Module, type_desc: &TypeDesc,
+    class_name: &str, ctor_name: &str, phys_argc: usize, ctor_known: bool,
+    site: Option<&ObjNewSite>, holder: &'a mut Option<Arc<Function>>,
+) -> Result<Option<(&'a Function, Option<usize>)>, Value> {
+    if ctor_name == "@default" {
+        return Ok(None);
+    }
+    ctx.initialization().ensure_module_inits(Some(type_desc.name.as_str()))
+        .and_then(|()| ctx.initialization().ensure_type_init(type_desc))
+        .map_err(|message| crate::exec::make_type_init_exception(ctx, module, &message))?;
+
+    // Binding may load another package, so complete it before allocating the unrooted object.
+    resolve_ctor(ctx, module, class_name, ctor_name, phys_argc, ctor_known, site, holder)
+}
+
 /// The constructor to run: `Ok(Some((ctor, id)))`, or `Ok(None)` for a class without one
 /// (the object stays default-initialised). `id` is the ctor's `FnId` under `module` (its
 /// JIT slot id); `None` only for a lazily loaded ctor when `module` is not the entry

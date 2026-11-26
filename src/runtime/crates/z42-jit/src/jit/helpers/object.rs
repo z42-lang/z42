@@ -38,7 +38,7 @@ pub unsafe extern "C" fn jit_obj_new(
     // encode-ctorless-objnew: compile-time positive ctor marker; see `missing_ctor_exception`.
     ctor_known: u8,
 ) -> u8 {
-    use crate::exec::ops::obj_new::{resolve_class, resolve_ctor};
+    use crate::exec::ops::obj_new::{prepare_ctor, resolve_class};
     // Baked by `TxCtx::str_val` from the IR: valid UTF-8, no re-validation per `new`.
     let class_name = super::baked_str(cls_name_ptr, cls_name_len);
     let ctor_name = super::baked_str(ctor_name_ptr, ctor_name_len);
@@ -52,20 +52,9 @@ pub unsafe extern "C" fn jit_obj_new(
         Ok(td) => td,
         Err(exc) => { set_exception(vm, exc); return 1; }
     };
-    // add-static-constructors：创建实例是 C# 的类型初始化触发点之一。TypeDesc 已在手 →
-    // 一次 `Option` 判断即可。add-module-init-hook：包级初始化先于类型初始化。与 interp 对称。
-    if let Err(msg) = vm.initialization().ensure_module_inits(Some(type_desc.name.as_str())) {
-        set_exception(vm, crate::exec::make_type_init_exception(vm, module, &msg));
-        return 1;
-    }
-    if let Err(msg) = vm.initialization().ensure_type_init(&type_desc) {
-        set_exception(vm, crate::exec::make_type_init_exception(vm, module, &msg));
-        return 1;
-    }
-    // Bound before the object exists (binding may load a package; see interp `obj_new`).
     let mut lazy_holder = None;
-    let ctor = match resolve_ctor(
-        vm, module, class_name, ctor_name, argc + 1 /* +this */, ctor_known != 0, site,
+    let ctor = match prepare_ctor(
+        vm, module, &type_desc, class_name, ctor_name, argc + 1 /* +this */, ctor_known != 0, site,
         &mut lazy_holder,
     ) {
         Ok(c) => c,

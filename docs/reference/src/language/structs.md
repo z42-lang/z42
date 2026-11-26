@@ -67,8 +67,9 @@ new Vector2(1.5, 2.5).ToString();     // Vector2 { X = 1.5, Y = 2.5 }
 
 ## 默认值
 
-`default(T)` 产出一个**所有字段都是零值**的 struct —— 基元叶子为 `0` / `false` / `'\0'`，
-引用叶子为 `null`。等价于无参 `new T()`：
+`default(T)` 产出一个**所有字段都是零值**的 struct。基元叶子为 `0`、`false` 或 `'\0'`，
+引用叶子为 `null`。即使 struct 没有实例字段，结果也有该 struct 的类型，可以调用它的方法。
+`default(T)` 跳过实例构造器，求值本身也不会触发静态构造器。
 
 ```z42
 struct Pt { public int X; public int Y; public string Tag; }
