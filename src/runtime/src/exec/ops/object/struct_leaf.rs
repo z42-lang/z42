@@ -107,11 +107,11 @@ pub fn struct_field_get_val(
         _ => {
             let (idx, fid) = as_struct_ref(base_val, "StructFieldGetPrim base")?;
             if is_ref_tag(kind) {
-                ctx.exec.struct_arena.lock().get_ref(idx, fid, byte_off)
+                ctx.exec().struct_ref_leaf(idx, fid, byte_off)
             } else {
                 let off = byte_off as usize;
                 let w = prim_width(kind)?;
-                ctx.exec.struct_arena.lock().with(idx, fid, |s| decode_prim(&s.bytes, off, w, kind))?
+                ctx.exec().with_struct_bytes(idx, fid, |bytes| decode_prim(bytes, off, w, kind))?
             }
         }
     }
@@ -142,11 +142,11 @@ pub fn struct_field_set_val(
         _ => {
             let (idx, fid) = as_struct_ref(base_val, "StructFieldSetPrim base")?;
             if is_ref_tag(kind) {
-                return ctx.exec.struct_arena.lock().set_ref(idx, fid, byte_off, *v);
+                return ctx.exec().set_struct_ref_leaf(idx, fid, byte_off, *v);
             }
             let off = byte_off as usize;
             let w = prim_width(kind)?;
-            ctx.exec.struct_arena.lock().with_mut(idx, fid, |s| encode_prim(&mut s.bytes, off, w, kind, v))?
+            ctx.exec().with_struct_bytes_mut(idx, fid, |bytes| encode_prim(bytes, off, w, kind, v))?
         }
     }
 }
@@ -200,22 +200,24 @@ pub fn struct_value_hash(ctx: &VmContext, value: &Value) -> Result<Option<i64>> 
 }
 
 fn hash_frame_struct(ctx: &VmContext, idx: u32, frame_id: u32) -> Result<i64> {
-    let arena = ctx.exec().struct_arena.lock();
-    let cached_hash = arena.with(idx, frame_id, |slot| {
-        slot.layout.float_field_ranges.get().map(|fields| {
-            crate::object::value::boxed_hash::hash_struct_with_floats(&slot.bytes, &slot.refs, fields)
-        })
+    use crate::object::value::boxed_hash::hash_struct_with_floats;
+    use std::ops::ControlFlow;
+
+    let plan = ctx.exec().with_struct_slot(idx, frame_id, |slot| {
+        match slot.layout.float_field_ranges.get() {
+            Some(fields) => ControlFlow::Break(hash_struct_with_floats(&slot.bytes, &slot.refs, fields)),
+            None => ControlFlow::Continue((slot.type_name.clone(), slot.layout.clone())),
+        }
     })?;
-    if let Some(hash) = cached_hash {
-        return hash;
-    }
+    let (name, layout) = match plan {
+        ControlFlow::Break(hash) => return hash,
+        ControlFlow::Continue(layout) => layout,
+    };
 
     // Type resolution can run loader events. Prepare the plan outside the arena lock.
-    let (name, layout) = arena.with(idx, frame_id, |slot| (slot.type_name.clone(), slot.layout.clone()))?;
-    drop(arena);
     let fields = named_struct_layout::float_field_ranges(&layout, &|n| ctx.loader().try_lookup_type(n), &name)?;
-    ctx.exec().struct_arena.lock().with(idx, frame_id, |slot| {
-        crate::object::value::boxed_hash::hash_struct_with_floats(&slot.bytes, &slot.refs, fields)
+    ctx.exec().with_struct_slot(idx, frame_id, |slot| {
+        hash_struct_with_floats(&slot.bytes, &slot.refs, fields)
     })?
 }
 
@@ -246,10 +248,8 @@ fn struct_payload(
             Ok(Some((o.type_desc.name.to_string(), bytes.to_vec(), refs.to_vec())))
         }
         Value::StructRef { idx, frame_id } => {
-            let s = ctx.exec().struct_arena.lock().with(*idx, *frame_id, |s| {
-                (s.type_name.to_string(), s.bytes.to_vec(), s.refs.to_vec())
-            })?;
-            Ok(Some(s))
+            let (name, bytes, refs) = ctx.exec().snapshot_struct(*idx, *frame_id)?;
+            Ok(Some((name.to_string(), bytes, refs)))
         }
         Value::StructRefHeap { idx, frame_id } => {
             let e = ctx.exec().struct_elem(*idx, *frame_id)?;
@@ -273,12 +273,7 @@ pub fn struct_value_eq(ctx: &VmContext, a: &Value, b: &Value) -> Result<bool> {
         Value::StructRef { idx: a_idx, frame_id: a_frame },
         Value::StructRef { idx: b_idx, frame_id: b_frame },
     ) = (a, b) {
-        let arena = ctx.exec().struct_arena.lock();
-        return arena.with(*a_idx, *a_frame, |lhs| {
-            arena.with(*b_idx, *b_frame, |rhs| {
-                lhs.type_name == rhs.type_name && lhs.bytes == rhs.bytes && lhs.refs == rhs.refs
-            })
-        })?;
+        return ctx.exec().struct_slots_equal((*a_idx, *a_frame), (*b_idx, *b_frame));
     }
 
     let (pa, pb) = match (

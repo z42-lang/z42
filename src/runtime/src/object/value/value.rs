@@ -109,7 +109,7 @@ pub enum Value {
     /// 语义同 `StackObject`。
     StackArray { idx: u32, frame_id: u32 } = 15,
     /// add-struct-value-semantics Phase A: blob 值类型（多字段 struct）句柄。`idx` 索引 per-context
-    /// 字节 arena（`VmContext.exec.struct_arena`）里的 blob 条目；`frame_id` = 创建帧单调 id（staleness
+    /// 执行层字节 arena 里的 blob 条目；`frame_id` = 创建帧单调 id（staleness
     /// guard，同 `StackObject`）。未装箱 struct 值以此句柄在寄存器间流转；字节 blob 存 arena。
     /// blob 内引用叶子由 arena 的 root scanner 按 TypeDesc 引用位图扫描（trace_children 视为叶子，
     /// 避免双计）。

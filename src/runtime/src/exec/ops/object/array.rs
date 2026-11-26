@@ -350,7 +350,7 @@ pub fn pack_struct_elem(ctx: &VmContext, arr: &ArrayObj, i: usize, v: &Value) ->
     let (src_bytes, src_refs): (Vec<u8>, Vec<Value>) = match v {
         Value::BoxedStruct(b) => b.borrow().boxed_blob(),
         Value::StructRef { idx, frame_id } =>
-            ctx.exec.struct_arena.lock().with(*idx, *frame_id, |s| (s.bytes.to_vec(), s.refs.to_vec()))?,
+            ctx.exec().with_struct_slot(*idx, *frame_id, |slot| (slot.bytes.to_vec(), slot.refs.to_vec()))?,
         Value::Null => return Ok(()),
         other => return Err(OpError::internal(format!(
             "struct array literal element must be a struct value, got {other:?}"))),

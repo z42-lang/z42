@@ -482,8 +482,7 @@ pub mod typed {
         match v {
             Value::BoxedStruct(_) => Ok(*v),
             Value::StructRef { idx, frame_id } => {
-                let (type_name, bytes, refs) = ctx.exec().struct_arena.lock()
-                    .with(*idx, *frame_id, |s| (s.type_name.clone(), s.bytes.clone(), s.refs.clone()))
+                let (type_name, bytes, refs) = ctx.exec().snapshot_struct(*idx, *frame_id)
                     .map_err(|e| BuiltinError::Internal(e.to_string()))?;
                 super::box_struct_blob(ctx, &type_name, &bytes, &refs).map_err(|e| BuiltinError::Internal(e.to_string()))
             }

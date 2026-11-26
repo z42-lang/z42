@@ -41,9 +41,8 @@ use std::sync::Arc;
 /// `type_name` = FQ value-type name (used by boxing to recover the precise type);
 /// `bytes` = byte-packed primitive leaves; `refs` = reference leaves as `Value`s
 /// (see module docs); `layout` = shared type layout (offset→ref-index + copy).
-pub struct StructSlot {
-    pub frame_id: u32,
-    #[allow(dead_code)] // consumed by boxing (A-use P4) to recover the precise type
+pub(in crate::exec) struct StructSlot {
+    frame_id: u32,
     pub type_name: Arc<str>,
     pub bytes: Box<[u8]>,
     pub refs: Box<[Value]>,
@@ -53,10 +52,10 @@ pub struct StructSlot {
 /// Per-`VmContext` value-struct byte arena. Guarded by a `Mutex` on the context
 /// (owner-thread accesses uncontended; GC scanner reads it at a safepoint).
 #[derive(Default)]
-pub struct StructArena {
+pub(in crate::exec) struct StructArena {
     slots: Vec<StructSlot>,
     /// Diagnostics: number of struct allocations this run.
-    pub allocs: u64,
+    allocs: u64,
 }
 
 impl StructArena {
@@ -74,14 +73,17 @@ impl StructArena {
         }
     }
 
-    /// Allocate a zero-initialized blob for `layout` (bytes zeroed, reference
-    /// leaves defaulted to `Null`); returns its arena index (paired with
-    /// `frame_id` into a `Value::StructRef { idx, frame_id }`).
+    /// Start from zero bytes and null reference leaves. Initialize the payload
+    /// before publishing the slot.
     #[inline]
-    pub fn alloc(&mut self, frame_id: u32, type_name: Arc<str>, layout: Arc<StructTypeLayout>) -> u32 {
+    pub fn alloc(
+        &mut self, frame_id: u32, type_name: Arc<str>, layout: Arc<StructTypeLayout>,
+        initialize: impl FnOnce(&mut [u8], &mut [Value]),
+    ) -> u32 {
         let idx = self.slots.len() as u32;
-        let bytes = vec![0u8; layout.size].into_boxed_slice();
-        let refs = vec![Value::Null; layout.ref_count()].into_boxed_slice();
+        let mut bytes = vec![0u8; layout.size].into_boxed_slice();
+        let mut refs = vec![Value::Null; layout.ref_count()].into_boxed_slice();
+        initialize(&mut bytes, &mut refs);
         self.slots.push(StructSlot { frame_id, type_name, bytes, refs, layout });
         self.allocs += 1;
         idx
@@ -138,18 +140,7 @@ impl StructArena {
     /// `size` is the **compiler-computed** blob size carried by the `StructCopy`
     /// instruction. It does not drive the copy — the two blobs' own layouts do
     /// (see [`Self::check_copy_invariant`] for why it is still worth passing).
-    pub fn copy_into(&mut self, dst_idx: u32, dst_frame_id: u32,
-                     src_idx: u32, src_frame_id: u32, size: usize) -> Result<()> {
-        self.copy_slots(dst_idx, dst_frame_id, src_idx, src_frame_id, Some(size))
-    }
-
-    /// Copy between slots whose concrete layout is only known at runtime.
-    pub fn copy_dynamic(&mut self, dst_idx: u32, dst_frame_id: u32,
-                        src_idx: u32, src_frame_id: u32) -> Result<()> {
-        self.copy_slots(dst_idx, dst_frame_id, src_idx, src_frame_id, None)
-    }
-
-    fn copy_slots(&mut self, dst_idx: u32, dst_frame_id: u32,
+    pub fn copy_slots(&mut self, dst_idx: u32, dst_frame_id: u32,
                   src_idx: u32, src_frame_id: u32, static_size: Option<usize>) -> Result<()> {
         // Two indices into the same Vec. `split_at_mut` hands out two disjoint
         // borrows, so the copy is in-place — **no allocation**.

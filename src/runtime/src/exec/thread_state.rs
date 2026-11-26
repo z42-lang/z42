@@ -2,6 +2,7 @@
 use std::sync::{Arc, atomic::{AtomicU32, AtomicUsize}};
 use parking_lot::Mutex;
 use crate::object::{PinnedViewData, RefKind, StructArrayElem, Value};
+use super::call::struct_arena::{StructArena, StructSlot};
 use super::call::transient_arena::{TransientArena, TransientPayload};
 
 pub struct ThreadExecState {
@@ -16,13 +17,13 @@ pub struct ThreadExecState {
     engine_guards: super::call::engine_guards::EngineGuards,
     /// LIFO frame-scoped payloads, scanned under each arena lock during a pause.
     stack_arena: Arc<Mutex<super::call::stack_alloc::StackArena>>,
-    pub struct_arena: Arc<Mutex<super::call::struct_arena::StructArena>>,
+    struct_arena: Arc<Mutex<StructArena>>,
     transient_arena: Arc<Mutex<TransientArena>>,
     /// Single-mutator published lengths; GC reads arena data under its locks.
     /// Relaxed reads let push/pop skip locks for unchanged arena lengths.
     stack_obj_len: AtomicUsize,
     stack_arr_len: AtomicUsize,
-    pub struct_len: AtomicUsize,
+    struct_len: AtomicUsize,
     transient_len: AtomicUsize,
     /// Owner-thread source; zero is reserved for a frame that has taken no id.
     pub next_frame_id: AtomicU32,
@@ -212,16 +213,81 @@ impl ThreadExecState {
         self.stack_arena.lock().scan_roots(visit);
     }
 
-    /// Allocate a value-struct blob; publishes the new length. See `struct_len`.
-    pub fn struct_alloc(
-        &self, frame_id: u32, type_name: std::sync::Arc<str>,
-        layout: std::sync::Arc<crate::object::StructTypeLayout>,
-    ) -> u32 {
+    /// Allocate a value-struct blob for the lifetime of its creating frame.
+    pub(super) fn alloc_struct(
+        &self, frame_id: u32, type_name: Arc<str>, layout: Arc<crate::object::StructTypeLayout>,
+    ) -> Value {
+        self.alloc_initialized_struct(frame_id, type_name, layout, |_, _| {})
+    }
+
+    pub(super) fn alloc_initialized_struct(
+        &self, frame_id: u32, type_name: Arc<str>, layout: Arc<crate::object::StructTypeLayout>,
+        initialize: impl FnOnce(&mut [u8], &mut [Value]),
+    ) -> Value {
         use std::sync::atomic::Ordering::Relaxed;
         let mut a = self.struct_arena.lock();
-        let idx = a.alloc(frame_id, type_name, layout);
+        let idx = a.alloc(frame_id, type_name, layout, initialize);
         self.struct_len.store(idx as usize + 1, Relaxed);
-        idx
+        Value::StructRef { idx, frame_id }
+    }
+
+    /// Borrow a validated slot under the arena lock. The callback must not
+    /// reenter the arena or trigger GC.
+    pub(super) fn with_struct_slot<R>(
+        &self, idx: u32, frame_id: u32, read: impl FnOnce(&StructSlot) -> R,
+    ) -> anyhow::Result<R> {
+        self.struct_arena.lock().with(idx, frame_id, read)
+    }
+
+    pub(super) fn with_struct_bytes_mut<R>(
+        &self, idx: u32, frame_id: u32, write: impl FnOnce(&mut [u8]) -> R,
+    ) -> anyhow::Result<R> {
+        self.struct_arena.lock().with_mut(idx, frame_id, |slot| write(&mut slot.bytes))
+    }
+
+    pub(super) fn struct_ref_leaf(&self, idx: u32, frame_id: u32, offset: u32) -> anyhow::Result<Value> {
+        self.struct_arena.lock().get_ref(idx, frame_id, offset)
+    }
+
+    pub(super) fn set_struct_ref_leaf(
+        &self, idx: u32, frame_id: u32, offset: u32, value: Value,
+    ) -> anyhow::Result<()> {
+        self.struct_arena.lock().set_ref(idx, frame_id, offset, value)
+    }
+
+    pub(super) fn copy_struct_slots(
+        &self, dst: (u32, u32), src: (u32, u32), size: Option<usize>,
+    ) -> anyhow::Result<()> {
+        self.struct_arena.lock().copy_slots(dst.0, dst.1, src.0, src.1, size)
+    }
+
+    pub(super) fn struct_slots_equal(&self, lhs: (u32, u32), rhs: (u32, u32)) -> anyhow::Result<bool> {
+        let arena = self.struct_arena.lock();
+        arena.with(lhs.0, lhs.1, |a| {
+            arena.with(rhs.0, rhs.1, |b| {
+                a.type_name == b.type_name && a.bytes == b.bytes && a.refs == b.refs
+            })
+        })?
+    }
+
+    /// Copy the type name, bytes and references while the source frame is live.
+    pub(crate) fn snapshot_struct(
+        &self, idx: u32, frame_id: u32,
+    ) -> anyhow::Result<(Arc<str>, Vec<u8>, Vec<Value>)> {
+        self.with_struct_slot(idx, frame_id, |slot| {
+            (slot.type_name.clone(), slot.bytes.to_vec(), slot.refs.to_vec())
+        })
+    }
+
+    /// Borrow the primitive bytes without copying. The callback runs under the arena lock.
+    pub(crate) fn with_struct_bytes<R>(
+        &self, idx: u32, frame_id: u32, read: impl FnOnce(&[u8]) -> R,
+    ) -> anyhow::Result<R> {
+        self.with_struct_slot(idx, frame_id, |slot| read(&slot.bytes))
+    }
+
+    pub(crate) fn scan_struct_roots(&self, visit: &mut dyn FnMut(&Value)) {
+        self.struct_arena.lock().scan_roots(visit);
     }
 
     /// Allocate the address of a location for the lifetime of its creating frame.

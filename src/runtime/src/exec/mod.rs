@@ -71,6 +71,14 @@
 //!     let _ = &ctx.exec().stack_arena;
 //! }
 //! ```
+//! ```compile_fail
+//! use z42::exec::struct_arena::StructArena;
+//! ```
+//! ```compile_fail
+//! fn raw_struct_allocations(ctx: &z42::vm::VmContext) {
+//!     let _ = &ctx.exec().struct_arena;
+//! }
+//! ```
 pub mod exception;
 pub mod symbol_resolution;
 pub mod stack_guard;
@@ -87,7 +95,7 @@ pub(crate) mod call;
 pub(crate) use call::{invoke_entry, EntryError};
 pub use call::{
     args, builtin_abi, builtins, forward, frames, indirect_return,
-    outcome, reg_pool, stack_alloc, struct_arena, type_param_env,
+    outcome, reg_pool, stack_alloc, type_param_env,
 };
 pub mod stack;
 mod engine;
