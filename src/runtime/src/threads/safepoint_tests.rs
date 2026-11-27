@@ -541,7 +541,7 @@ fn a_new_context_waits_out_a_stop_the_world_pause() {
     };
     std::thread::sleep(std::time::Duration::from_millis(100));
     let joined_mid_pause = registered.load(Ordering::SeqCst);
-    let contexts_mid_pause = primary.core.threads.vm_contexts.lock().len();
+    let contexts_mid_pause = primary.core.threads.registered_context_count();
 
     drop(pause);
     worker.join().expect("worker");
@@ -559,7 +559,7 @@ fn a_new_context_may_join_while_a_pause_is_only_requested() {
     let core = primary.core_arc();
     std::thread::spawn(move || {
         let ctx = VmContext::new_with_core(core);
-        assert_eq!(ctx.core.threads.vm_contexts.lock().len(), 2);
+        assert_eq!(ctx.core.threads.registered_context_count(), 2);
     })
     .join()
     .expect("registration during Requested must not block");

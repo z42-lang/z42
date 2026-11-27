@@ -34,7 +34,7 @@ const REPOKE_INTERVAL: std::time::Duration = std::time::Duration::from_millis(1)
 
 /// **P0-16 (gc-strategy-stopgap)**: send every registered mutator's **next** `check_safepoint`
 /// down the slow path, by resetting its throttle counter to 1 — the cross-thread twin of
-/// [`VmContext::force_safepoint`].
+/// [`super::ThreadLocalState::force_safepoint`].
 ///
 /// Called when a collection is requested (the auto-collect trip raises `needs_auto_collect`) and
 /// when a collector asks for the pause. Without it each mutator only looks at either after its
@@ -46,11 +46,7 @@ const REPOKE_INTERVAL: std::time::Duration = std::time::Duration::from_millis(1)
 /// before it. That is why the collector re-pokes while it waits ([`REPOKE_INTERVAL`]); a lost poke
 /// at the trip costs at most the throttle, as before, because the request itself is sticky.
 pub(crate) fn poke_safepoints(core: &VmCore) {
-    // SAFETY: see `VmContextPtr` — an entry is live while it is registered, and we hold the
-    // registry lock for the walk. The counter is an atomic.
-    for p in core.threads.vm_contexts.lock().iter() {
-        unsafe { &*p.0 }.threads.safepoint_skip.store(1, Ordering::Relaxed);
-    }
+    core.threads.visit_contexts(|ctx| ctx.threads().force_safepoint());
 }
 
 /// Resolved throttle for this VM; workers share the Core's immutable policy.
@@ -89,10 +85,10 @@ pub enum GcPhase {
 ///
 /// **inline-jit-safepoint-check **: the fast path is a plain
 /// `load + store` decrement (NOT `fetch_sub`). `safepoint_skip` is
-/// **single-writer per mutator** — only the owning thread reads/writes it in
-/// production; the sole cross-thread writer is [`VmContext::force_safepoint`],
-/// which is test/embedder-only. So the read-modify-write atomicity is
-/// unnecessary for correctness, and dropping it lets the JIT inline this fast
+/// updated by the owning mutator on the fast path. A cross-thread poke uses
+/// [`super::ThreadLocalState::force_safepoint`] to request an earlier slow-path
+/// check. The sticky request and collector re-pokes tolerate a lost poke, so
+/// the fast path needs no atomic read-modify-write. This lets the JIT inline the
 /// path as two bare `mov`s (see `jit::translate::emit_safepoint_check`) instead
 /// of a helper call — the RMW form couldn't inline (`atomic_rmw` panicked on
 /// x86_64) and cost a `LOCK`-prefixed instruction per hot-loop back-edge.
@@ -379,7 +375,7 @@ pub fn request_gc_pause(ctx: &VmContext) -> Option<GcPauseGuard<'_>> {
     // decrement, and a newcomer registers with a full throttle counter.
     let mut phase = ctx.core.threads.gc_phase.lock();
     loop {
-        let total = ctx.core.threads.vm_contexts.lock().len();
+        let total = ctx.core.threads.registered_context_count();
         let need  = total.saturating_sub(1);
         if ctx.core.threads.parked_count.load(Ordering::Acquire) >= need {
             break;
@@ -394,11 +390,9 @@ pub fn request_gc_pause(ctx: &VmContext) -> Option<GcPauseGuard<'_>> {
     // (`native_park_incr`): retire those now, before marking, as their owners would have
     // at a safepoint park. Safepoint-parked threads retired their own already (their slot
     // is empty), and none of them can unpark before the pause ends.
-    for p in ctx.core.threads.vm_contexts.lock().iter() {
-        // SAFETY: see `VmContextPtr` — live while registered; we hold the registry lock.
-        let other = unsafe { &*p.0 };
-        ctx.heap().retire_parked_tlab(&other.threads.parked_tlab);
-    }
+    ctx.core.threads.visit_contexts(|other| {
+        ctx.heap().retire_parked_tlab(&other.threads().parked_tlab);
+    });
 
     Some(GcPauseGuard { ctx })
 }

@@ -15,7 +15,6 @@
 use std::marker::PhantomPinned;
 use std::sync::{Arc, Weak};
 use crate::gc::Heap;
-use crate::threads::VmContextPtr;
 
 mod extensions;
 mod wiring;
@@ -229,11 +228,8 @@ impl VmContext {
     /// same module / static_fields / heap / lazy_loader / extension state
     /// state as the parent thread.
     ///
-    /// The new VmContext registers itself in `core.threads.vm_contexts` for GC root
-    /// scanning, so the worker's per-thread roots (`pending_exception` /
-    /// `call_stack`) are visible to the cycle collector.
-    /// On drop, the entry is removed under the same Mutex discipline as
-    /// the primary path.
+    /// Register each worker with the Core so GC can find its thread-local
+    /// roots. Drop removes the registration before deallocation.
     pub fn new_with_core(core: Arc<VmCore>) -> std::pin::Pin<Box<Self>> {
         let safepoint_throttle = core.threads.safepoint_throttle;
         let ctx = Self {
@@ -245,8 +241,9 @@ impl VmContext {
             _pin: PhantomPinned,
         };
         let boxed = Box::pin(ctx);
-        let ptr = VmContextPtr(&*boxed as *const VmContext);
-        boxed.core.threads.register_context(ptr);
+        // SAFETY: this fresh context belongs to its Core and stays pinned until
+        // its Drop removes the registration.
+        unsafe { boxed.core.threads.register_context(boxed.as_ref()) };
         // add-gc-tlab (stage 2): arm this thread for TLAB allocation (balanced
         // in Drop). A spawned worker allocates into the TLAB fast path.
         crate::gc::tlab::arm();
@@ -259,12 +256,8 @@ impl VmContext {
 }
 
 impl Drop for VmContext {
-    /// **add-vmcontext-registry **: deregister this `VmContext`
-    /// from `VmCore.threads.vm_contexts` so the GC scanner stops trying to walk a
-    /// soon-to-be-freed allocation. Runs BEFORE the underlying `Box` storage
-    /// is released (Rust drop order: contents → Box dealloc), so any GC
-    /// scan racing this Drop will block on the registry lock and see the
-    /// post-removed list.
+    /// Retire mutator resources and remove the registration before freeing
+    /// the pinned allocation.
     fn drop(&mut self) {
         // add-gc-tlab (stage 2): retire this thread's TLAB before the context
         // goes away — merge its borrowed chunks' filled objects back into the
@@ -277,10 +270,7 @@ impl Drop for VmContext {
         crate::gc::tlab::disarm();
         // add-incremental-major-gc M2a: the retire above handed this thread's SATB buffer over.
         crate::gc::satb::unbind_thread();
-        let ptr = self as *const Self;
-        self.core.threads.deregister_context(
-            ptr, &self.core.diagnostics.counters, &self.diagnostics.counters,
-        );
+        self.core.threads.deregister_context(self, &self.core.diagnostics.counters);
     }
 }
 

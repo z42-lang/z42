@@ -15,7 +15,6 @@ use crate::{
 };
 use crate::object::Value;
 use crate::vm::{VmContext, VmCore};
-use crate::threads::VmContextPtr;
 
 fn assert_send<T: Send>() {}
 fn assert_sync<T: Sync>() {}
@@ -57,12 +56,4 @@ fn dyn_magr_gc_is_send_sync() {
     // shares the heap; verify the dyn version preserves Send + Sync.
     assert_send::<Box<Heap>>();
     assert_sync::<Box<Heap>>();
-}
-
-#[test]
-fn vm_context_ptr_is_send_sync() {
-    // add-vmcontext-registry : VmContextPtr is a raw-pointer
-    // newtype with `unsafe impl Send + Sync` — pin this at compile time
-    // so removing the impl breaks the build.
-    assert_send_sync::<VmContextPtr>();
 }

@@ -18,7 +18,9 @@ GC 决定回收策略；本模块保证扫描期间其他线程不会改写根�
 
 mutator 调用 `threads::safepoint::check_safepoint`，需要原生阻塞区间的调用方使用同模块的
 `NativeParkGuard`。GC 通过 `gc::to_vm::GcToVm` 获取暂停令牌；丢弃令牌恢复线程。
-持久根提供方仅持有 Weak<VmCore>，根遍历须在暂停内进行。
+持久根提供方仅持有 `Weak<VmCore>`，根遍历须在暂停内进行。
+`ThreadState` 登记已固定地址的上下文，`VmContext::drop` 在释放前注销并汇总该线程计数。
+GC 和 safepoint 在回调期间借用存活的上下文。崩溃报告尝试加锁，遇到注册表占用时跳过该 VM 的上下文。
 
 ## 如何测试验证
 

@@ -34,18 +34,8 @@ fn scan_roots(c: &VmCore, visit: &mut (impl FnMut(&Value, RootKind) + ?Sized)) {
     // Interned `ConstStr` literals: after their instruction they live only in
     // the VM's string table (`metadata::ids::str_table`), which keeps them alive.
     c.runtime.strings.scan_roots(|s| visit(&Value::Str(s), RootKind::StaticField));
-    // 2-4. Per-thread roots, one VmContext per OS thread.
-    //
-    // SAFETY: each VmContextPtr was registered via
-    // `VmContext::new()` *after* its `Pin<Box<...>>` heap
-    // allocation, and `VmContext::drop` removes the entry
-    // BEFORE the Box is dealloc'd. We hold `vm_contexts.lock()`
-    // for the full walk, so a concurrent drop on another thread
-    // blocks until we release — no use-after-free possible.
-    let registry = c.threads.vm_contexts.lock();
     let mut visit_stack = |value: &Value| visit(value, RootKind::StackFrame);
-    for ctx_ptr in registry.iter() {
-        let ctx = unsafe { &*ctx_ptr.0 };
+    c.threads.visit_contexts(|ctx| {
         ctx.exec().visit_exception_roots(&mut visit_stack);
         // live z42 frame state — unified VmFrame entries.
         //
@@ -67,7 +57,7 @@ fn scan_roots(c: &VmCore, visit: &mut (impl FnMut(&Value, RootKind) + ?Sized)) {
         // backing array) hold GcRefs that must stay marked while the handle
         // is live; the arena is the root (handles are not traced through).
         ctx.exec().scan_transient_roots(&mut visit_stack);
-    }
+    });
 }
 
 #[cfg(test)]
