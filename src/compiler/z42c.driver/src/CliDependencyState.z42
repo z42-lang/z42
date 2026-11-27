@@ -1,0 +1,47 @@
+namespace Z42.Driver;
+
+using Std.IO;
+using Z42.Pipeline;
+using Z42.Project;
+using Std.Hashing;
+
+sealed class CliDependencyState {
+    public string Files;
+    private string _full;
+    private string _product;
+    private string _stamp;
+
+    public static CliDependencyState Observe(ProjectManifest pm, int opt, bool release, string[] dirs,
+        int count, WsTier tier, string cacheDir, string product, bool useSurface) {
+        var state = new CliDependencyState();
+        if (!useSurface) {
+            state.Files = BuildCacheIdentity.Of(pm, opt, release, dirs, count, tier);
+            return state;
+        }
+        state._full = DepIdentity.Of(dirs, count, pm.Project.Name, tier);
+        state.Files = BuildCacheIdentity.ForCliFiles(pm, opt, release, dirs, count, tier, cacheDir, state._full);
+        state._product = product;
+        state._stamp = Path.Join(cacheDir, "cli-product-deps.key");
+        return state;
+    }
+
+    public bool ProductMatches(byte[] product) {
+        if (this._stamp == null) { return true; }
+        try {
+            if (!File.Exists(this._stamp)) { return false; }
+            string[] parts = File.ReadAllText(this._stamp).Split("\n");
+            return parts.Length == 2 && parts[0] == this._full && parts[1] == Murmur3.Hash128Hex(product);
+        } catch (Exception ex) { return false; }
+    }
+
+    public void SaveProduct() {
+        if (this._stamp == null) { return; }
+        try { File.WriteAllTextAtomic(this._stamp, this._full + "\n" + this._productHash()); }
+        catch (Exception ex) { }
+    }
+
+    private string _productHash() {
+        // A failed assembly or a different build may have overwritten the output since the stamp was saved.
+        return Murmur3.Hash128Hex(File.ReadAllBytes(this._product));
+    }
+}

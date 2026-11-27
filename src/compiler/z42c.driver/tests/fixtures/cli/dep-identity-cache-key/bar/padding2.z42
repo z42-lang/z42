@@ -1,0 +1,2 @@
+namespace DepId.Padding.P2;
+int Padding() { return 2; }
