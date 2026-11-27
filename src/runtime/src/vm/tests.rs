@@ -37,11 +37,11 @@ fn registered_worker_keeps_core_alive_until_context_is_dropped() {
         drop(ctx);
     });
     ready_rx.recv().unwrap();
-    assert_eq!(parent.core().threads.vm_contexts.lock().len(), 2);
+    assert_eq!(parent.core().threads.registered_context_count(), 2);
     drop(parent);
     {
         let core = weak.upgrade().expect("worker retains the shared core");
-        assert_eq!(core.threads.vm_contexts.lock().len(), 1);
+        assert_eq!(core.threads.registered_context_count(), 1);
     }
     release_tx.send(()).unwrap();
     worker.join().unwrap();
@@ -280,28 +280,28 @@ fn a_local_fs_vm_sees_the_disk_and_a_memory_vm_does_not() {
     let _ = std::fs::remove_file(&path);
 }
 
-// ── add-vmcontext-registry  ───────────────────────────────────────
+// ── VM context registration ───────────────────────────────────────
+
+fn is_registered(ctx: &VmContext) -> bool {
+    let mut found = false;
+    ctx.core().threads().visit_contexts(|live| found |= std::ptr::eq(live, ctx));
+    found
+}
 
 #[test]
 fn vm_context_registers_self_on_new() {
     let ctx = VmContext::new();
-    let registry = ctx.core.threads.vm_contexts.lock();
-    assert_eq!(registry.len(), 1, "newly-constructed VmContext should be in registry");
-    let self_ptr = &*ctx as *const VmContext;
-    assert!(
-        registry.iter().any(|p| p.0 == self_ptr),
-        "registry should contain self-pointer"
-    );
+    assert_eq!(ctx.core().threads().registered_context_count(), 1);
+    assert!(is_registered(&ctx));
 }
 
 #[test]
 fn vm_context_drop_removes_from_registry() {
     let ctx = VmContext::new();
     let core = std::sync::Arc::clone(&ctx.core);
-    let self_ptr = &*ctx as *const VmContext;
-    assert!(core.threads.vm_contexts.lock().iter().any(|p| p.0 == self_ptr));
+    assert!(is_registered(&ctx));
     drop(ctx);
-    assert_eq!(core.threads.vm_contexts.lock().len(), 0, "drop should clear the entry");
+    assert_eq!(core.threads.registered_context_count(), 0, "drop should clear the entry");
 }
 
 #[test]
@@ -312,29 +312,25 @@ fn two_vm_contexts_both_registered_independently() {
     // affect ctx2.
     let ctx1 = VmContext::new();
     let ctx2 = VmContext::new();
-    assert_eq!(ctx1.core.threads.vm_contexts.lock().len(), 1);
-    assert_eq!(ctx2.core.threads.vm_contexts.lock().len(), 1);
+    assert_eq!(ctx1.core.threads.registered_context_count(), 1);
+    assert_eq!(ctx2.core.threads.registered_context_count(), 1);
     drop(ctx1);
-    assert_eq!(ctx2.core.threads.vm_contexts.lock().len(), 1, "ctx2 unaffected by ctx1 drop");
+    assert_eq!(ctx2.core.threads.registered_context_count(), 1, "ctx2 unaffected by ctx1 drop");
 }
 
 // ── add-threading-stdlib Phase 3  ─────────────────────────────────
 
 #[test]
 fn vm_context_new_with_core_shares_core() {
-    // Construct primary ctx; spawn-clone its core into a second ctx;
-    // verify both register self into the same `vm_contexts` registry.
+    // Both contexts register with the same Core.
     let ctx1 = VmContext::new();
     let core = std::sync::Arc::clone(&ctx1.core);
     let ctx2 = VmContext::new_with_core(core);
 
-    let registry = ctx1.core.threads.vm_contexts.lock();
-    assert_eq!(registry.len(), 2, "shared-core registry should contain both ctxs");
-
-    let p1 = &*ctx1 as *const VmContext;
-    let p2 = &*ctx2 as *const VmContext;
-    assert!(registry.iter().any(|p| p.0 == p1));
-    assert!(registry.iter().any(|p| p.0 == p2));
+    assert!(std::sync::Arc::ptr_eq(&ctx1.core, &ctx2.core));
+    assert_eq!(ctx1.core().threads().registered_context_count(), 2);
+    assert!(is_registered(&ctx1));
+    assert!(is_registered(&ctx2));
 }
 
 #[test]
@@ -342,12 +338,10 @@ fn vm_context_new_with_core_drop_only_removes_self() {
     let ctx1 = VmContext::new();
     let core = std::sync::Arc::clone(&ctx1.core);
     let ctx2 = VmContext::new_with_core(core);
-    assert_eq!(ctx1.core.threads.vm_contexts.lock().len(), 2);
-    let p1 = &*ctx1 as *const VmContext;
+    assert_eq!(ctx1.core.threads.registered_context_count(), 2);
     drop(ctx2);
-    let registry = ctx1.core.threads.vm_contexts.lock();
-    assert_eq!(registry.len(), 1, "ctx2 drop should not remove ctx1");
-    assert_eq!(registry[0].0, p1);
+    assert_eq!(ctx1.core().threads().registered_context_count(), 1);
+    assert!(is_registered(&ctx1));
 }
 
 #[test]

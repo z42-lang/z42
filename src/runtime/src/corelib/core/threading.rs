@@ -12,9 +12,8 @@
 //!
 //! The spawned worker constructs `VmContext::new_with_core(Arc::clone(core))`
 //! so it shares `static_fields` / `heap` / `lazy_loader` / `native_libs` with
-//! the parent thread. Its per-thread state (`pending_exception` / `call_stack`)
-//! is private — the worker is registered in
-//! `VmCore.threads.vm_contexts` so the GC scanner walks both threads' roots.
+//! the parent thread. The worker registers with the Core's thread state so
+//! the GC root scanner can visit its per-thread exception and call stack.
 
 #[derive(Default)]
 pub(crate) struct State {

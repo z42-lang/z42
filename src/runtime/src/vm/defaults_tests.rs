@@ -57,11 +57,11 @@ fn worker_retains_facade_resources_until_last_context_drop() {
     let primary = VmContext::with_extensions(None, vfs.clone(), extensions);
     let core = Arc::downgrade(&primary.core_arc());
     let worker = VmContext::new_with_core(primary.core_arc());
-    assert_eq!(worker.core.threads.vm_contexts.lock().len(), 2);
+    assert_eq!(worker.core.threads.registered_context_count(), 2);
     assert!(std::ptr::eq(primary.ext::<Service>().unwrap(), worker.ext::<Service>().unwrap()));
     drop(primary);
     assert!(core.upgrade().is_some());
-    assert_eq!(worker.core.threads.vm_contexts.lock().len(), 1);
+    assert_eq!(worker.core.threads.registered_context_count(), 1);
     assert!(Arc::ptr_eq(worker.vfs(), &vfs));
     assert_eq!(worker.vfs().read("/owned").unwrap(), b"shared");
     assert_eq!(drops.load(Ordering::SeqCst), 0);

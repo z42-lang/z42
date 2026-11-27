@@ -81,8 +81,8 @@ fast path（Idle）：一次 Mutex lock + 一次 enum compare。slow path（Requ
 RAII guard：
 
 1. 写 `gc_phase = Requested`
-2. 循环等 `parked_count >= vm_contexts.len() - 1`（不含 collector 自身），重新读
-   `vm_contexts.lock().len()` 每轮以容忍 mid-pause 注册的新 VmContext
+2. 每轮通过 `ThreadState::registered_context_count()` 读取注册数，等到 `parked_count`
+   达到除 collector 自身外的线程数。每次重读计入暂停请求期间新注册的上下文。
 3. 写 `gc_phase = Marking`
 4. caller 跑 mark + sweep
 5. Drop 时写 `gc_phase = Idle` + `notify_all()` 释放所有 mutator

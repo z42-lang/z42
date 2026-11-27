@@ -146,14 +146,8 @@ fn write_banner(fd: i32) {
     sigsafe::write_str(fd, b")\n");
 }
 
-/// Walk VM_CORES → vm_contexts via try_lock; on contention, write a
-/// placeholder for that scope and continue. Frames are printed only for the
-/// crashing thread's own contexts (see the module docs).
-///
-/// **Note**: VM_CORES uses `std::sync::Mutex` (const fn for static init);
-/// `core.threads.vm_contexts` uses `parking_lot::Mutex` whose `try_lock` returns
-/// `Option<MutexGuard>` (not `Result`). Each `match` arm is shaped to its
-/// mutex type.
+/// Walk live Cores and contexts without blocking. A contended registry gets
+/// a placeholder. Only the crashing thread's frames are printed.
 fn write_call_stacks(fd: i32) {
     use crate::vm::VM_CORES;
 
@@ -185,15 +179,10 @@ fn write_call_stacks(fd: i32) {
         sigsafe::write_dec_u32(fd, core_idx as u32);
         sigsafe::write_str(fd, b" --\n");
 
-        let count = core.threads().try_visit_contexts(|ctx_idx, ctx_ptr| {
-            // SAFETY: VmContextPtr.0 raw ptr stays valid for the entire
-            // lifetime of the VmContext (VmContext: !Unpin; deregistered in
-            // Drop). See SAFETY block at threads/state.rs::VmContextPtr.
-            let ctx_ref = unsafe { &*ctx_ptr };
-
+        let count = core.threads().try_visit_contexts(|ctx_idx, ctx| {
             // SAFETY: the visitor only formats the view and writes it to the fd.
             unsafe {
-                ctx_ref.exec().inspect_crash_frames(|view| match view {
+                ctx.exec().inspect_crash_frames(|view| match view {
                     CrashFrames::CurrentThread(frames) => {
                         write_thread_header(fd, ctx_idx, frames.len(), true);
                         for (i, frame) in frames.iter().enumerate() {
