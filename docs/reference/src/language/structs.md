@@ -38,6 +38,9 @@ struct 可以有字段、方法、构造器、`static` 方法、运算符重载�
 调用数组元素上的普通 struct 实例方法时，方法可以直接修改该元素。例如 `items[0].Increment()` 的字段写入
 会留在数组里。把元素赋给局部变量，或从方法按值返回该元素，都会得到独立副本。对象协议的自定义方法（如 `GetHashCode()`）接收该元素的值副本。
 
+本包类的可写内联 struct 字段也能作为普通实例方法的接收者。`host.Field.Bump()` 和
+`host.Outer.Inner.Bump()` 会把修改留在原字段。读取字段值或把它装箱时会得到独立副本。`readonly` 字段和属性值也使用副本。
+
 ## 默认对象方法
 
 `Std.ValueType` 提供按字段工作的 `Equals(object?)` 和 `GetHashCode()`。调用这两个签名时，

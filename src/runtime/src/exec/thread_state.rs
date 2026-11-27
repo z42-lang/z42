@@ -3,7 +3,7 @@ use std::sync::{Arc, atomic::{AtomicU32, AtomicUsize}};
 use parking_lot::Mutex;
 use crate::object::{PinnedViewData, RefKind, StructArrayElem, Value};
 use super::call::struct_arena::{StructArena, StructSlot};
-use super::call::transient_arena::{TransientArena, TransientPayload};
+use super::call::transient_arena::{StructView, TransientArena, TransientPayload};
 
 pub struct ThreadExecState {
     /// GC-rooted handoff across a JIT error boundary.
@@ -323,7 +323,11 @@ impl ThreadExecState {
     }
 
     pub(crate) fn alloc_struct_elem(&self, frame_id: u32, element: StructArrayElem) -> Value {
-        let idx = self.transient_alloc(frame_id, TransientPayload::StructElem(element));
+        self.alloc_struct_view(frame_id, StructView::Element(element))
+    }
+
+    pub(super) fn alloc_struct_view(&self, frame_id: u32, view: StructView) -> Value {
+        let idx = self.transient_alloc(frame_id, TransientPayload::Struct(view));
         Value::StructRefHeap { idx, frame_id }
     }
 
@@ -337,9 +341,9 @@ impl ThreadExecState {
         self.transient_arena.lock().pinned_view(idx, frame_id)
     }
 
-    /// Copy the backing array and index after validating the handle's type and frame.
-    pub fn struct_elem(&self, idx: u32, frame_id: u32) -> anyhow::Result<StructArrayElem> {
-        self.transient_arena.lock().struct_elem(idx, frame_id)
+    /// Copy the projection metadata after validating the handle's type and frame.
+    pub(super) fn struct_view(&self, idx: u32, frame_id: u32) -> anyhow::Result<StructView> {
+        self.transient_arena.lock().struct_view(idx, frame_id)
     }
 
     pub(crate) fn scan_transient_roots(&self, visit: &mut dyn FnMut(&Value)) {
