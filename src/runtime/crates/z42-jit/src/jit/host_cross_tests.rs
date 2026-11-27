@@ -78,7 +78,7 @@ fn c_host_jit_mode_uses_the_shared_engine_and_returns_values() {
     let cfg = Z42HostConfig { abi_version: Z42_HOST_ABI_VERSION, struct_size: std::mem::size_of::<Z42HostConfig>() as u32,
         exec_mode: Z42ExecMode::Jit as i32, heap_initial_bytes: 0, heap_max_bytes: 0, stdout_sink: Some(sink), stderr_sink: None,
         sink_user_data: (&output as *const Mutex<Vec<u8>>).cast_mut().cast(), search_paths: paths.as_ptr(),
-        zpkg_resolver: None, zpkg_resolver_user_data: ptr::null_mut() };
+        zpkg_resolver: None, zpkg_resolver_user_data: ptr::null_mut(), zpkg_resolver_write: None };
     unsafe {
         let mut host_ptr: *mut Z42Host = ptr::null_mut();
         assert_eq!(host::z42_host_initialize(&cfg, &mut host_ptr), Z42HostStatus::Ok);

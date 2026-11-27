@@ -66,9 +66,9 @@ public final class Z42VM {
 
         var cfg = Z42HostConfig()
         cfg.abi_version = UInt32(Z42_HOST_ABI_VERSION)
-        cfg.struct_size = UInt32(MemoryLayout<Z42HostConfig>.size)
+        cfg.struct_size = UInt32(MemoryLayout<Z42HostConfig>.stride)
         cfg.exec_mode = execMode.native
-        cfg.zpkg_resolver = zpkgResolverTrampoline
+        cfg.zpkg_resolver_write = zpkgResolverTrampoline
         cfg.zpkg_resolver_user_data = UnsafeMutableRawPointer(
             Unmanaged.passUnretained(resolverBox!).toOpaque()
         )
@@ -190,9 +190,6 @@ public final class Z42VM {
 /// `Z42VM` instance.
 final class ResolverBox {
     let resolver: ZpkgResolver
-    /// Holds the last-returned Data so the bytes pointer handed back to
-    /// the runtime stays valid until the next resolve / VM teardown.
-    var pinned: Data?
 
     init(resolver: ZpkgResolver) {
         self.resolver = resolver
@@ -207,26 +204,20 @@ final class SinkBox {
     }
 }
 
-/// Trampoline matching the C `Z42ZpkgResolverFn` signature.
+/// Trampoline matching the C `Z42ZpkgResolverWriteFn` signature.
 func zpkgResolverTrampoline(
     namespace: UnsafePointer<CChar>?,
-    outBytes: UnsafeMutablePointer<UnsafePointer<UInt8>?>?,
-    outLength: UnsafeMutablePointer<Int>?,
+    write: Z42ZpkgByteSink?,
+    writeData: UnsafeMutableRawPointer?,
     userData: UnsafeMutableRawPointer?
 ) -> Int32 {
-    guard let ns = namespace, let ud = userData else { return 0 }
+    guard let ns = namespace, let write = write, let ud = userData else { return 0 }
     let box = Unmanaged<ResolverBox>.fromOpaque(ud).takeUnretainedValue()
     let name = String(cString: ns)
     guard let data = box.resolver.resolve(namespace: name) else { return 0 }
-    // Stash so the bytes pointer stays valid for the duration of the
-    // runtime's load — runtime copies before our resolve call returns
-    // but pinning across the call is defensive.
-    box.pinned = data
-    data.withUnsafeBytes { rawBuf in
-        outBytes?.pointee = rawBuf.baseAddress?.assumingMemoryBound(to: UInt8.self)
-        outLength?.pointee = data.count
+    return data.withUnsafeBytes { rawBuf in
+        write(rawBuf.baseAddress?.assumingMemoryBound(to: UInt8.self), rawBuf.count, writeData)
     }
-    return 1
 }
 
 /// Trampoline matching the C `Z42WriteSink` signature.

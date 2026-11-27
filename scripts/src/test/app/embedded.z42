@@ -124,7 +124,7 @@ string _deviceRuntimeDir(string root, string cat) {
 }
 
 // Build the native platform runtime from source into `rt`, in the runtime-pack layout z42b beds:
-//   wasm: <rt>/pkg-web/   ios: <rt>/native/Z42VM.xcframework   android: <rt>/native/*.so (rid's ABI only)
+//   wasm: <rt>/pkg-web/   ios: <rt>/native/Z42VM.xcframework   android: <rt>/native/{*.so,include/}
 int _buildDeviceRuntime(string root, string rid, string cat, string rt) {
     if (cat == "wasm") { return _wasmPackBuild(root, "web", rt); }
     if (cat == "ios") { return _buildIosXcframework(root, rid, rt); }
@@ -141,6 +141,7 @@ int _buildDeviceRuntime(string root, string rid, string cat, string rt) {
         foreach (var f in Directory.Enumerate(built)) {
             if (f.EndsWith(".so")) { File.Copy(Path.Join(built, f), Path.Join(nat, f)); }
         }
+        _copyAbiHeaders(root, Path.Join(nat, "include"));
         Directory.Delete(ndkOut, true);
         return 0;
     }

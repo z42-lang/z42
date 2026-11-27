@@ -142,7 +142,7 @@ GC 的 chunk 分配、代数与弱句柄 epoch 校验仍由 `gc/var_region` 管�
 > apphost 的**进程外**运行时解析在桌面 apphost 桩的 `hostrun` 模块
 > （`src/toolchain/workload/desktop/platform/apphost/src/hostrun.rs`），不是本 workspace 的 crate。
 
-全部 C 头统一位于 [`include/`](include)，`z42_host.h` 为聚合发布入口；`.z42abi` manifest schema 在 [`docs/internals/src/formats/manifest-schema.json`](../../docs/internals/src/formats/manifest-schema.json)。
+全部 C 头统一位于 [`include/`](include)，`z42.h` 为聚合发布入口；`.z42abi` manifest schema 在 [`docs/internals/src/formats/manifest-schema.json`](../../docs/internals/src/formats/manifest-schema.json)。
 
 ## 构建与测试
 

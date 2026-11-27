@@ -1,0 +1,4 @@
+module Z42VMC {
+    umbrella header "z42.h"
+    export *
+}

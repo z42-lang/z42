@@ -54,7 +54,7 @@ fn reset_host() {
 fn default_config() -> Z42HostConfig {
     Z42HostConfig {
         abi_version: Z42_HOST_ABI_VERSION,
-        struct_size: abi_config::MIN_CONFIG_SIZE as u32,
+        struct_size: std::mem::size_of::<Z42HostConfig>() as u32,
         exec_mode: abi_config::Z42ExecMode::Interp as i32,
         heap_initial_bytes: 0,
         heap_max_bytes: 0,
@@ -64,6 +64,7 @@ fn default_config() -> Z42HostConfig {
         search_paths: ptr::null(),
         zpkg_resolver: None,
         zpkg_resolver_user_data: ptr::null_mut(),
+        zpkg_resolver_write: None,
     }
 }
 
@@ -250,6 +251,59 @@ fn struct_size_smaller_than_v2_returns_bad_config() {
     assert!(handle.is_null());
     let msg = unsafe { CStr::from_ptr(z42_host_last_error(ptr::null_mut()).message) }.to_string_lossy();
     assert!(msg.contains("struct_size"), "expected struct_size detail, got {msg}");
+}
+
+#[test]
+fn initialize_from_original_v2_config_buffer() {
+    use std::mem::{size_of, MaybeUninit};
+
+    let _g = test_lock();
+    reset_host();
+
+    let mut cfg = default_config();
+    cfg.struct_size = abi_config::MIN_CONFIG_SIZE as u32;
+    // Use an actual prefix-sized, pointer-aligned buffer, including its padding.
+    let mut prefix = [MaybeUninit::<usize>::uninit();
+        abi_config::MIN_CONFIG_SIZE / size_of::<usize>()];
+    let prefix_bytes = prefix.as_mut_ptr().cast::<u8>();
+    unsafe {
+        ptr::copy_nonoverlapping(
+            ptr::from_ref(&cfg).cast::<u8>(), prefix_bytes, abi_config::MIN_CONFIG_SIZE,
+        );
+    }
+    let mut handle = ptr::null_mut();
+    assert_eq!(
+        unsafe { z42_host_initialize(prefix_bytes.cast(), &mut handle) },
+        Z42HostStatus::Ok
+    );
+    assert_eq!(unsafe { z42_host_shutdown(handle) }, Z42HostStatus::Ok);
+}
+
+#[test]
+fn resolver_write_copies_before_callback_returns_and_checks_field_size() {
+    unsafe extern "C" fn write_resolver(
+        _namespace_name: *const c_char,
+        write: abi_config::Z42ZpkgByteSink,
+        write_data: *mut c_void,
+        _user_data: *mut c_void,
+    ) -> i32 {
+        let mut bytes = *b"local bytes";
+        let hit = unsafe { write(bytes.as_ptr(), bytes.len(), write_data) };
+        bytes.fill(0);
+        std::hint::black_box(bytes);
+        hit
+    }
+
+    let mut cfg = default_config();
+    cfg.zpkg_resolver_write = Some(write_resolver);
+    let (session, _) = unsafe { abi_config::validate(&cfg) }.unwrap();
+    let resolver = session.zpkg_resolver.unwrap();
+    assert_eq!(resolver.resolve("demo").as_deref(), Some(&b"local bytes"[..]));
+
+    // A caller advertising only part of the appended pointer cannot enable it.
+    cfg.struct_size -= 1;
+    let (session, _) = unsafe { abi_config::validate(&cfg) }.unwrap();
+    assert!(session.zpkg_resolver.is_none());
 }
 
 #[test]
@@ -457,6 +511,7 @@ fn load_invoke_hello_world() {
         search_paths: search_paths.as_ptr(),
         zpkg_resolver: None,
         zpkg_resolver_user_data: ptr::null_mut(),
+        zpkg_resolver_write: None,
     };
 
     let mut host: *mut Z42Host = ptr::null_mut();
@@ -553,6 +608,7 @@ fn with_hello_session_mode<R>(
         search_paths: search_paths.as_ptr(),
         zpkg_resolver: None,
         zpkg_resolver_user_data: ptr::null_mut(),
+        zpkg_resolver_write: None,
     };
     let mut host: *mut Z42Host = ptr::null_mut();
     assert_eq!(
@@ -924,6 +980,7 @@ fn resolver_via_map_resolver_loads_corelib_without_search_paths() {
         search_paths: ptr::null(),
         zpkg_resolver: None,
         zpkg_resolver_user_data: ptr::null_mut(),
+        zpkg_resolver_write: None,
     };
     let mut host: *mut Z42Host = ptr::null_mut();
     assert_eq!(
@@ -1033,6 +1090,7 @@ fn resolver_via_c_hook_loads_corelib() {
         search_paths: ptr::null(),
         zpkg_resolver: Some(c_hook_resolver_fn),
         zpkg_resolver_user_data: ptr::null_mut(),
+        zpkg_resolver_write: None,
     };
     let mut host: *mut Z42Host = ptr::null_mut();
     assert_eq!(
@@ -1099,6 +1157,7 @@ fn resolver_miss_falls_back_to_search_paths() {
         search_paths: search_paths.as_ptr(),
         zpkg_resolver: None,
         zpkg_resolver_user_data: ptr::null_mut(),
+        zpkg_resolver_write: None,
     };
     let mut host: *mut Z42Host = ptr::null_mut();
     assert_eq!(
@@ -1166,6 +1225,7 @@ fn resolver_both_unset_load_zbc_succeeds_if_zbc_self_contained() {
         search_paths: ptr::null(),
         zpkg_resolver: None,
         zpkg_resolver_user_data: ptr::null_mut(),
+        zpkg_resolver_write: None,
     };
     let mut host: *mut Z42Host = ptr::null_mut();
     assert_eq!(
@@ -1214,6 +1274,7 @@ fn resolver_corelib_miss_then_console_writeline_fails_at_invoke() {
         search_paths: ptr::null(),
         zpkg_resolver: None,
         zpkg_resolver_user_data: ptr::null_mut(),
+        zpkg_resolver_write: None,
     };
     let mut host: *mut Z42Host = ptr::null_mut();
     assert_eq!(

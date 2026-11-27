@@ -129,8 +129,7 @@ runtime pack 和工具链是**两个包**，落在两处：
 | `pkg-web/` | wasm | 把 runtime 的 `pkg-web` / `pkg-nodejs` **symlink** 进工具链根（`package.json` 的 exports 按根相对解析，无需改写） |
 | `native/libz42.so` | android | per-ABI `.so` → `z42vm/src/main/jniLibs/<abi>/`；stdlib zpkg → `z42vm/src/main/assets/stdlib/`（Gradle 把两者都烘进 AAR） |
 
-iOS 用相对路径不是风格问题：SwiftPM 的 `binaryTarget` **要求**路径相对 package root。
-`workloads/<wl>/` 在 `runtimes/` 下三层，所以是 `../../../`。
+SwiftPM 的 `binaryTarget` 要求路径相对 package root。安装器在 workload 根目录生成 `Z42VM.xcframework`，并用这个相对路径替换 `Package.swift` 的占位符。
 
 **一个 workload 多个 RID**（android 真机要全 ABI）：工具链装一次（带 `--from`），
 之后每个 RID 只带 `--runtime` / `--rid` **增量叠加**。这条顺序是强制的——
@@ -139,10 +138,7 @@ Gradle 的 `abiFilters` 要求两个 ABI 的 `.so` 同时在场才出全 ABI 的
 
 stdlib zpkg 跟着 **runtime pack** 走而不是工具链：它们与 runtime 版本锁死。
 
-**自包含头约束**：ios 的 `Z42VMC` 与 android 的 JNI bridge 用的 C 头必须是真实运行时头的**拷贝**，
-不能是 `#include "../../../runtime/include/…"` 这样的转发桩——桩的相对路径只在仓库里解析得开，
-打包之后就断了。`xtask package` 落包时直接把 `src/runtime/include/{z42_abi,z42_host}.h` 拷进
-工具链的 include 目录。
+C 头以 `src/runtime/include/` 为源，发布在 Runtime 包的 `native/include/`。iOS 组包时还将 `src/toolchain/workload/ios/module.modulemap` 放入该目录。安装器用这组头与静态库组装 SwiftPM 的 XCFramework。Android 安装器将 Runtime 的 include 路径写入 `runtime-include.txt`，Gradle 读取该路径并传给编译 JNI 桥的 CMake。
 
 ## 代码地图
 

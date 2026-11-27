@@ -2,7 +2,7 @@
 #if defined(__linux__) && !defined(_GNU_SOURCE)
 #define _GNU_SOURCE
 #endif
-#include "z42_host.h"
+#include "z42.h"
 #ifdef Z42_COMPONENT_SHARED
 #define z42_native_register_static z42_native_register_shared
 #define z42_component_register_static z42_component_register_shared

@@ -11,6 +11,7 @@
 // REQUIRES the wasm-bindgen output (pkg-web/ + pkg-nodejs/) pre-built (CI: wasm-pack).
 namespace Z42Xtask;
 
+using Std.Collections;
 using Std.IO;
 using Std.Time;
 
@@ -146,7 +147,9 @@ void _pkgEmitManifestWasm(string pkgDir, string rid, string version, string prof
     m = m + "static      = [" + staticList + "]\n";
     m = m + "dynamic     = [" + dynamicList + "]\n";
     m = m + "containers  = []\n";
-    m = m + "includes    = [\"z42_abi.h\", \"z42_host.h\", \"z42_native.h\"]\n\n";
+    List<string> headers = new List<string>();
+    foreach (var h in _runtimePublicHeaders()) { headers.Add(h); }
+    m = m + "includes    = [" + _rtQuoteJoin(headers) + "]\n\n";
     m = m + "[contents.platform]\n";
     m = m + "npm-manifest = \"package.json\"\n";
     m = m + "runtime-pack = \"z42-runtime-" + version + "-" + rid + "\"  # separate; install symlinks pkg-web/pkg-nodejs\n\n";

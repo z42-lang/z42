@@ -1,4 +1,4 @@
-# 嵌入 C ABI（`z42_host.h`）
+# 嵌入 C ABI（`z42.h`）
 
 > **代码**：`src/runtime/include/z42_host.h`、`src/runtime/src/host/`
 >
@@ -12,12 +12,14 @@ VM 内部怎么实现这套 ABI 不在本页。
 只想「跑一个打好包的 app，不要句柄」的话，直接用[一次性入口 `z42_host_run_app`](#一次性入口z42_host_run_app)。
 
 ```c
-#include "z42_host.h"   /* 自带 #include "z42_abi.h" */
+#include "z42.h"
 ```
+
+宿主 API 声明位于 `z42_host.h`，可直接包含。需要组件登记或 native 模块接口时包含 `z42.h`。
 
 头文件随 **runtime 包**（`z42-runtime-<版本>-<rid>`）分发在 `native/include/`；仓内在 `src/runtime/include/`。
 SDK 包不带嵌入件——它的 `native/` 只放 z42vm 自己加载的扩展库。
-iOS / Android 的 facade 目录下各有一个同名**转发头**，内容只是 `#include` 上面那一份。
+iOS Runtime 在 `native/include/` 同时分发 `module.modulemap`。workload 安装器使用发布头和静态库组装 XCFramework，Swift facade 从中导入 `Z42VMC`。Android JNI 的 include 路径指向 Runtime 头文件目录。
 
 
 ---
@@ -37,7 +39,7 @@ typedef struct Z42Entry*  Z42EntryRef;    /* 解析后的入口 */
 
 **ABI 演进规则**：`abi_version` 永远在偏移 0；新字段只往结构体尾部追加，不重排；主版本号变更 = 显式 break。
 调用方必须把 `struct_size` 设为 `sizeof(Z42HostConfig)`：运行时只读 `struct_size` 覆盖到的尾部字段，用老头文件编译的调用方不会被越界读，新字段对它们等于「没配置」。
-v1 没有这个字段（同一位置是 `reserved`），旧调用方在 v2 运行时上拿到 `ERR_BAD_CONFIG`（`abi_version` 不匹配），需要按新头文件重新编译。
+各平台使用同一份配置。调用方将 `abi_version` 设为头文件提供的 `Z42_HOST_ABI_VERSION`，运行时发现版本不匹配时返回 `ERR_BAD_CONFIG`。
 
 ---
 
@@ -59,6 +61,10 @@ typedef int (*Z42ZpkgResolverFn)(
     size_t*         out_length,
     void*           user_data);
 
+typedef int (*Z42ZpkgByteSink)(const uint8_t* bytes, size_t length, void* write_data);
+typedef int (*Z42ZpkgResolverWriteFn)(const char* namespace_name, Z42ZpkgByteSink write,
+                                    void* write_data, void* user_data);
+
 typedef struct Z42HostConfig {
     uint32_t      abi_version;        /* 必须 == Z42_HOST_ABI_VERSION */
     uint32_t      struct_size;        /* 必须 == sizeof(Z42HostConfig) */
@@ -75,19 +81,20 @@ typedef struct Z42HostConfig {
 
     Z42ZpkgResolverFn  zpkg_resolver;
     void*              zpkg_resolver_user_data;
+    Z42ZpkgResolverWriteFn zpkg_resolver_write;
 } Z42HostConfig;
 ```
 
 | 字段 | 语义 |
 |---|---|
 | `abi_version` | 不等于 `Z42_HOST_ABI_VERSION` → `ERR_BAD_CONFIG` |
-| `struct_size` | 调用方编译时的 `sizeof(Z42HostConfig)`；小于 v2 布局 → `ERR_BAD_CONFIG` |
+| `struct_size` | 调用方编译时的 `sizeof(Z42HostConfig)`。小于要求的前缀 `Z42_HOST_CONFIG_MIN_SIZE` 时返回 `ERR_BAD_CONFIG` |
 | `exec_mode` | 值不在 0–3 → `ERR_BAD_CONFIG`；`JIT` 未开启构建能力或平台不支持 → `ERR_FEATURE_OFF`；组件来源在加载程序时校验，缺失或不兼容返回 `ERR_BAD_ZBC`；`AOT` 未开启对应 feature 也返回此错误。`Default` 使用构建默认后端，`Interp` 使用解释器，`JIT` 使用 JIT；AOT 尚未实现，执行时明确返回错误 |
 | `heap_initial_bytes` / `heap_max_bytes` | **当前被忽略**，填 0 即可 |
 | `stdout_sink` / `stderr_sink` | 见 [stdout / stderr 重定向](#stdout--stderr-重定向) |
 | `sink_user_data` | 原样透传给上面两个回调。一份 config 只有一个，两个 sink 共用；要分开就 init 之后用 `z42_host_set_*_sink` 各设各的 |
 | `search_paths` | 每个元素是一个**目录**。`z42.core.zpkg` 在哪个目录里被找到，哪个目录就是 stdlib 的 `libs/`，`using` 到的其他 zpkg 也从那里找。数组必须 NULL 结尾，且长度不超过 4096（否则 `ERR_BAD_CONFIG`）；路径必须是合法 UTF-8 |
-| `zpkg_resolver` | 见 [zpkg resolver 回调](#zpkg-resolver-回调)。NULL = 只扫 `search_paths` |
+| `zpkg_resolver` / `zpkg_resolver_write` | 见 [zpkg resolver 回调](#zpkg-resolver-回调)。两者共用 `zpkg_resolver_user_data`，完整覆盖且非 NULL 的 `zpkg_resolver_write` 优先 |
 
 `search_paths` 为空且没给 resolver 也是合法的——只是任何用到 stdlib 的 z42 代码会在 `invoke` 时失败。
 
@@ -176,7 +183,7 @@ Z42HostStatus z42_host_load_zbc(Z42HostRef host,
 字节可以是 `.zbc`，也可以是 `.zpkg`。**`bytes` 只需在本次调用期间有效**，返回后宿主可立即释放或复用缓冲。
 
 加载时会顺带把依赖也解析进来：先请求 `z42.core`（即使用户代码一句 `using` 都没写），
-再按用户产物记录的 import namespace 逐个请求；每个 namespace 先问 `zpkg_resolver`，miss 再扫 `search_paths`。
+再按用户产物记录的 import namespace 逐个请求。每个 namespace 先问已配置的 resolver，miss 再扫 `search_paths`。
 **依赖找不到不是错误**：`load_zbc` 照样返回 `OK`，直到 `invoke` 真的用到那个符号才报 `ERR_VM_EXCEPTION`。
 
 `out_module` 可以为 NULL（只想验证字节能不能解析的话）。
@@ -277,17 +284,11 @@ typedef int (*Z42ZpkgResolverFn)(
     void*           user_data);
 ```
 
-契约：
-
-- **hit**：写 `*out_bytes` / `*out_length`，返回**非 0**。
-- **miss**：返回 **0**，`*out_bytes` / `*out_length` 会被忽略，运行时继续回落到 `search_paths`。
-  返回非 0 但 `*out_bytes == NULL` 或 `*out_length == 0` 同样按 miss 处理。
-- 返回类型是 `int` 而不是 `Z42HostStatus`，因为 resolver 只有命中/未命中两种结果，没有错误空间。
-- **字节生命周期 = 仅回调期间**。运行时在回调返回前就复制走需要的部分，所以宿主可以用栈缓冲、
-  也可以在返回后立刻释放（Android JNI 的 `GetByteArrayElements` / `ReleaseByteArrayElements` 配对就是为此）。
-- `zpkg_resolver` 与 `search_paths` **可以同时设**：resolver 优先，miss 才扫 `search_paths`。
-- resolver 命中但字节解析不了 → `load_zbc` 返回 `ERR_BAD_ZBC`，错误消息里带 namespace 名。
-- 两边都 miss 而用户代码确实引用了该 namespace → `load_zbc` 仍返回 `OK`，到 `invoke` 才报 `ERR_VM_EXCEPTION`。
+- `zpkg_resolver` 命中时填写 `*out_bytes` 和 `*out_length`，返回非 0。运行时在回调返回之后复制字节，宿主在复制完成前维持缓冲可读、内容稳定。并发和后台解析可使用会话期间一直有效的不可变缓冲。
+- 临时缓冲用 `zpkg_resolver_write`。命中时在 resolver 回调内调用 `write(bytes, length, write_data)` 并返回其结果。运行时在 `write` 返回前完成复制。宿主在调用线程内同步调用一次 `write`。`write` 和 `write_data` 的借用期是本次 resolver 回调。
+- 两种回调均用 0 表示 miss。空指针、空缓冲或未提交字节也按 miss 处理。配置了写入回调时使用该回调，miss 后搜索 `search_paths`。
+- resolver 可在装入或执行期间被调用。宿主负责共享 `user_data` 的线程安全，保存到会话关闭。
+- resolver 命中但字节解析不了时，`load_zbc` 返回 `ERR_BAD_ZBC`，错误消息带 namespace 名。两种来源都 miss 时，延迟解析的调用会在 `invoke` 抛出托管异常。
 
 ### 从 zpkg 自己读出它答应哪些名字
 
@@ -361,7 +362,7 @@ void Main() {
 编成 `hello.zbc`（入口 FQN 就是 `Hello.Main`）。C 宿主一侧：
 
 ```c
-#include "z42_host.h"
+#include "z42.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -430,7 +431,7 @@ Windows 宿主若按运行期装载（dlopen）而非直接链接：请用 `LOAD
 静态宿主可直接选择独立组件。所有库须来自同一 runtime 包；链接所需的 `libz42_interp.a`（Windows 为 `z42_interp.lib`）及 `libz42.a`，原生链接参数取包内 `manifest.toml` 的 `[components.<stem>].link_flags`（Windows 的第三方导入库由 `[assets].third_party_libs` 点名、随包提供）。加载程序前登记工厂：
 
 ```c
-#include "z42_host.h"
+#include "z42.h"
 uint32_t status = z42_component_register_static(
     Z42_COMPONENT_INTERP, z42_interp_init);
 ```
@@ -451,7 +452,7 @@ Android arm64/x64 runtime 同时发布核心、解释器、JIT 和压缩的独�
 CPU 采样与堆分析由可选 profiler 提供。原生动态部署使用同包的 `libz42_profiler.dylib` / `libz42_profiler.so` / `z42_profiler.dll`；未使用分析功能时不会装载它。静态宿主按需链接 `libz42_profiler.a`（Windows 为 `z42_profiler.lib`），在创建宿主前登记：
 
 ```c
-#include "z42_host.h"
+#include "z42.h"
 uint32_t status = z42_component_register_static(
     Z42_COMPONENT_PROFILER, z42_profiler_init);
 ```

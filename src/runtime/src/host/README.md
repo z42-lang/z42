@@ -10,7 +10,7 @@
 |---|---|
 | 一次性运行应用 | `host::run_app` 和 `RunOpts`。调用方提供 VFS、搜索目录、执行模式和应用参数 |
 | Rust 嵌入 | `host::rust::{Host, HostConfig, HostError, MapResolver, SearchPathsResolver}` |
-| C 嵌入 | [`z42_host_api.h`](../../include/z42_host_api.h) 声明会话、句柄、回调与状态码。宿主统一包含 [`z42_host.h`](../../include/z42_host.h) |
+| C 嵌入 | [`z42_host.h`](../../include/z42_host.h) 声明会话、句柄、回调与状态码。宿主统一包含 [`z42.h`](../../include/z42.h) |
 | 直接加载并持有程序 | `host::{LoadOptions, LoadedProgram, execution_available}`。程序实现见 [`vm/program.rs`](../vm/program.rs) |
 | 包解析 | `host::resolver::{ZpkgResolver, read_zpkg_namespaces}`。loader 读取解析键，C 入口负责指针、回调和线程局部错误 |
 | 崩溃报告和 profiler | `host::signal::install`。profiler 的准备、查询和快照函数由 [diagnostics](../diagnostics/README.md) 提供，经宿主根导出 |
@@ -22,7 +22,7 @@ C 和 Rust 嵌入入口共用默认路径与应用侧车的准备逻辑。各程
 
 需要多次调用时，Rust 使用 `Host::new → load_zbc → resolve_entry → invoke`，由 `Host` 的 Drop 关闭会话。C 使用 `z42_host_initialize → z42_host_load_zbc → z42_host_resolve_entry → z42_host_invoke → z42_host_shutdown`。关闭使会话发出的句柄失效，重新初始化会建立新的会话。
 
-静态宿主通过 [components](../components/README.md) 登记链接的组件工厂。分发头 `z42_host.h` 汇总宿主和其他模块的 C 声明。
+静态宿主通过 [components](../components/README.md) 登记链接的组件工厂。分发头 `z42.h` 汇总宿主和其他模块的 C 声明。
 
 ## 如何测试验证
 

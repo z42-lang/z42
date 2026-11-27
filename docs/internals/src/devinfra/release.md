@@ -78,9 +78,11 @@ Windows ZIP 的条目名统一使用 `/`，不随 PowerShell 的 .NET 目标框�
 
 ```
 desktop SDK:  z42  bin/  programs/  libs/  native/libz42_compression.<dyn>  manifest.toml
-runtime:      libs/  native/{libz42.{a,dylib,so} | z42.{lib,dll,dll.lib}, libz42_compression.<dyn>, include/{z42_abi.h,z42_host.h}}
-ios:          libs/  native/{libz42.a, z42.framework/}  Sources/{Z42VM,Z42VMC}/  Package.swift  manifest.toml
-android:      libs/  native/libz42.{a,so}  z42vm/src/main/{java,cpp}/  manifest.toml
+runtime:          libs/  native/{libz42.{a,dylib,so} | z42.{lib,dll,dll.lib}, libz42_compression.<dyn>, include/}
+iOS runtime:      libs/  native/{libz42.a, z42.framework/, include/}  manifest.toml
+iOS workload:     Sources/Z42VM/  Package.swift  manifest.toml
+Android runtime:  libs/  native/{libz42.a, libz42.so, include/}  manifest.toml
+Android workload: z42vm/src/main/{java,cpp}/  manifest.toml
 wasm:         libs/  native/{libz42.a, z42_wasm_bg.wasm}  pkg-web/  pkg-nodejs/  js/  package.json  manifest.toml
 ```
 
@@ -89,9 +91,7 @@ runtime 包另外提供静态嵌入归档与 C 头，保留各平台的链接形
 发布的动态库都是可重定位的：macOS install name 是 `@rpath/<名>`，
 Linux 带 SONAME（= 文件名），Windows 带 import lib `z42.dll.lib`（`z42.lib` 是静态库）。
 
-C ABI 头文件统一落 `native/include/`（`z42_abi.h` + `z42_host.h`，源是
-`src/runtime/include/`）；iOS 与 Android 的平台目录下还各有一份同名 include，装的也是这两个
-真头文件，源树同名目录里那些 `#include "../../.."` 转发 stub 不进包。
+Runtime 包在 `native/include/` 发布统一头 `z42.h` 与各独立协议头。iOS Runtime 在同一目录发布 `module.modulemap`。workload 安装器使用这组头与静态库组装 SwiftPM 的 XCFramework，Android 安装器将 JNI 构建指向 Runtime 的 include 目录。
 
 顶层 `manifest.toml` 由 `_pkgEmitManifest` 生成：
 
