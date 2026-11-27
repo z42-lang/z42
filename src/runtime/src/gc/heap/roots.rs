@@ -85,6 +85,9 @@ impl crate::gc::Heap {
                 visit(value, crate::gc::walk::RootKind::Pinned);
             }
         }
-        if let Some(scan) = self.categorized_root_scanner.lock().as_ref() { scan(visit); }
+        if let Some(scan) = self.external_root_scanner.lock().as_ref() {
+            // SAFETY: diagnostic walks hold the VM pause or use a standalone heap.
+            unsafe { scan.visit_categorized_roots(visit); }
+        }
     }
 }

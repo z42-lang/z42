@@ -114,13 +114,16 @@ fn frame_held_outer_with_inner_chain_protected_by_stack_scan() {
 // ── External root scanner (Phase 3d.1) ───────────────────────────────────────
 
 #[test]
-fn external_root_scanner_called_during_collect() {
+fn standalone_root_scanner_is_called_only_for_marking() {
     let heap = Heap::default();
     let calls = Arc::new(AtomicUsize::new(0));
     let c = calls.clone();
     heap.set_external_root_scanner(Box::new(move |_visit: &mut dyn FnMut(&Value)| {
         c.fetch_add(1, Ordering::SeqCst);
     }));
+
+    crate::gc::walk::roots(&heap, &mut |_, _| panic!("no diagnostic roots"));
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
 
     heap.collect_cycles();
     assert!(calls.load(Ordering::SeqCst) >= 1, "scanner invoked during mark phase");

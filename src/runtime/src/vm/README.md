@@ -9,7 +9,7 @@
 | 文件 | 职责 |
 |---|---|
 | `mod.rs` | VmCore/VmContext、布局常量、线程注册与销毁、最小状态借用入口 |
-| `wiring.rs` | Core 构造后连接 GC、根扫描、回收、观察回调与诊断登记 |
+| `wiring.rs` | Core 构造后连接 GC、上下文回收、观察回调和诊断，调用 `threads` 登记 VM 根 |
 | `program.rs` | 程序会话、入口选择与首次调用准备 |
 | `app_state.rs` | 每 VM 应用参数及其快照 |
 | `assembly.rs` | 已加载程序的统一准备顺序、内部组件输入和失败发布边界 |
