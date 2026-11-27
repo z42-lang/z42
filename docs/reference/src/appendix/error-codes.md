@@ -233,7 +233,6 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 | E0460 | `methodof` 无法唯一确定目标：给了参数类型列表却匹配到多个，或省略了参数列表而候选 ≥ 2。**绝不静默择一** | ✅ TypeOpTyper.z42（`BoundError`） | `methodof(Logger.Log)`，`Log` 有两个重载 |
 | E0461 | `methodof` 的目标是**指不了**的方法：用户定义的运算符与转换在源码里没有名字（`op_*` 是编译器内部拼写） | ✅ TypeOpTyper.z42（`_bindTypeofExpr`） | `methodof(Vec.op_Addition)` |
 | E0500 | store-meta attribute 的实参不是**编译期常量**。允许：字面量 / 常量表达式 / enum 成员 / `const` 字段 / `typeof(..)` / `methodof(..)`，以及由这些构成的数组。attribute 工厂在**首次反射查询**时才执行，依赖运行期状态会让读回的元数据取决于谁先查 | ✅ DeclEnforcer.AttrArgs.z42（`_acCheckAttrs`） | `[Tag(K.Make())]`、`[Num(K.Mutable)]` |
-| E0501 | 编译器无法为当前语法生成可执行产物 | ✅ CuCompile.z42 | 运行时布局和指令尚未支持的 union 声明 |
 | E0502 | 基类型**成环**：类直接或经若干层基类派生自己，或接口经父接口继承自己。对齐 C# CS0146 / CS0529。每个环只报一次（报在环上最先被检查的那个类型），报错后清掉它的基类型断环 | ✅ `SymbolCollector._passRejectBaseCycles` | `class A : B { }  class B : A { }`、`class A : A { }`、`interface I : J { }  interface J : I { }` |
 | E0503 | 泛型实例化**展不完**：值类型的每个实例化各有一份代码，泛型体里用到自身、且类型实参更深一层（`struct Rec<T>` 里用 `Rec<Rec<T>>`）时，编译 `Rec<int>` 需要 `Rec<Rec<int>>`，如此无穷。报在该泛型的声明处。引用类型（`class`）实例化共用代码，同样的写法不触发 | ✅ SpecializationGuard.z42（`Exceeded`） | `struct Rec<T> { public T V; public Rec<Rec<T>> Next() { return new Rec<Rec<T>>(); } }` |
 | E0504 | 禁止显式继承值类型：struct 的 `:` 后只能写接口，类不能派生自 struct、`Std.ValueType` 或 `Std.Enum`。报在派生类型的声明处，报错后按「无基类」继续检查 | ✅ `SymbolCollector._rejectStructBase` | `struct B : A { }`、`class C : SomeStruct { }` |
@@ -274,9 +273,9 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 
 ## E05xx — IR 代码生成
 
-| 码 | 含义 | 状态 |
-|---|---|---|
-| E0501 | 语法合法但尚未降解到 IR 的构造 | ⚠️ 零发射点 |
+| 码 | 含义 | 状态 | 触发示例 |
+|---|---|---|---|
+| E0501 | 编译器无法为当前语法生成可执行产物 | ✅ CuCompile.z42 | 编译含有 `union ReadResult { End, Bytes(int) }` 声明的程序 |
 
 ---
 
@@ -362,10 +361,10 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 
 | 码 | 含义 | 状态 | 触发示例 |
 |---|---|---|---|
-| E1001 | 位置实参出现在具名实参之后 | ⚠️ 零发射点 | — |
-| E1002 | 具名实参用了未知的形参名 | ⚠️ 零发射点 | — |
-| E1003 | 同一个具名实参重复出现 | ⚠️ 零发射点 | — |
-| E1004 | 同一个形参被位置实参与具名实参重复指定 | ⚠️ 零发射点 | — |
+| E1001 | union 分支构造的位置实参出现在命名实参之后 | ✅ OverloadBinder.z42 | `ReadResult.Range(start: 1, 2)` |
+| E1002 | union 分支构造的命名实参使用了未知的载荷字段名 | ✅ OverloadBinder.z42 | `ReadResult.Range(first: 1, end: 2)` |
+| E1003 | union 分支构造重复使用同一个命名实参 | ✅ OverloadBinder.z42 | `ReadResult.Range(start: 1, start: 2)` |
+| E1004 | union 分支构造的位置实参与命名实参指定了同一载荷字段 | ✅ OverloadBinder.z42 | `ReadResult.Range(1, start: 2)` |
 | E1005 | 实参太少：缺位形参没有默认值。**也覆盖函数类型值的调用**：`(int,int) -> int add; add(1)` 报本码（否则少传让形参拿到 `Null`、崩在**别处**，栈顶指 lambda 体而非调用点）。⚠️ 委托形参写了默认值**不生效**（`delegate void D(int a, int b = 5)` 调 `d(1)` 得 `b=null`），故按精确个数判；型参收者（`where T : Func<..>`）**不校验**（擦除后形参表不可信） | ✅ OverloadBinder.z42（`_withDefaults`）、`_checkFuncValueArity`（函数类型值） | `void f(int a, int b)` 调成 `f(1)`；`(int,int) -> int add; add(1)` |
 | E1006 | 实参太多（非 `params` 调用）。**也覆盖函数类型值的调用**：`(int) -> int f; f(1, 2)` 报本码（否则多余实参被**静默丢掉**，比崩溃更坏） | ✅ OverloadBinder.z42（`_withDefaults`）、`_checkFuncValueArity`（函数类型值） | `void f(int a)` 调成 `f(1, 2)`；`(int) -> int f; f(1, 2)` |
 
