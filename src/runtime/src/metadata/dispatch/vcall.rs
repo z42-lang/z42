@@ -47,15 +47,13 @@ pub(crate) fn iface_slot_method(method: &str) -> Option<&str> {
     method.rfind('#').map(|i| &method[i + 1..])
 }
 
-/// An interface slot whose concrete argument is carried by the caller's frame.
-pub(crate) fn iface_slot_method_template(
-    key: &str,
-) -> Option<(&str, crate::zpkg::index::type_param_markers::Marker<'_>, &str)> {
-    use crate::zpkg::index::type_param_markers::parse_marker;
-    let (interface, tail) = key.split_once("<@")?;
-    let (argument, method) = tail.split_once(">#")?;
-    let (marker, len) = parse_marker(argument)?;
-    (len == argument.len()).then_some((interface, marker, method))
+/// Split a qualified interface slot whose argument list depends on the caller's frame.
+pub(crate) fn iface_slot_method_template(key: &str) -> Option<(&str, &str, &str)> {
+    use crate::zpkg::index::type_param_markers::has_markers;
+
+    let (owner, method) = key.rsplit_once('#')?;
+    let (interface, arguments) = owner.strip_suffix('>')?.split_once("<@")?;
+    has_markers(arguments).then_some((interface, arguments, method))
 }
 
 /// The erased form of an interface-slot key: type arguments dropped from the interface part

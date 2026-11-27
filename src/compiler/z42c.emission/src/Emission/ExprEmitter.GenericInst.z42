@@ -311,7 +311,8 @@ public sealed partial class ExprEmitter {
     internal string _rtArgName(Z42Type a) {
         if (!this._hasTypeParam(a)) { return this._typeofArgName(a); }
         if (a is Z42GenericParamType) {
-            string sub = this._substTypeParam(a);
+            string sub = this._ctx.Gen.SpecInstName != "" && this._ctx.IsMethodTypeParam(a)
+                ? "" : this._substTypeParam(a);
             if (sub != "") { return sub; }
             return this._typeParamMarker(a);
         }
@@ -323,8 +324,29 @@ public sealed partial class ExprEmitter {
             var ii = a as Z42InstantiatedInterfaceType;
             return this._boundConstructedArgName(this._typeofName(ii), ii.TypeArgs, ii.ArgCount);
         }
+        if (a is Z42FuncType) { return this._rtFuncArgName(a as Z42FuncType); }
         var it = a as Z42InstantiatedType;
         return this._boundConstructedArgName(this._ctx.QualifyType(it, it.Def.Name()), it.TypeArgs, it.ArgCount);
+    }
+
+    private string _rtFuncArgName(Z42FuncType ft) {
+        bool isVoid = ft.Ret is Z42VoidType;
+        string name = isVoid ? "Std.Action<" : "Std.Func<";
+        int i = 0;
+        while (i < ft.ParamCount) {
+            string arg = this._rtArgName(ft.ParamTypes[i]);
+            if (arg == "") { return ""; }
+            if (i > 0) { name = name + ","; }
+            name = name + arg;
+            i = i + 1;
+        }
+        if (!isVoid) {
+            string ret = this._rtArgName(ft.Ret);
+            if (ret == "") { return ""; }
+            if (ft.ParamCount > 0) { name = name + ","; }
+            name = name + ret;
+        }
+        return name + ">";
     }
 
     private string _boundConstructedArgName(string definition, Z42Type[] args, int count) {
@@ -344,6 +366,10 @@ public sealed partial class ExprEmitter {
     private bool _hasTypeParam(Z42Type a) {
         if (a is Z42GenericParamType) { return true; }
         if (a is Z42ArrayType) { return this._hasTypeParam((a as Z42ArrayType).Elem); }
+        if (a is Z42FuncType) {
+            var ft = a as Z42FuncType;
+            return this._hasTypeParam(ft.Ret) || this._hasTypeParamInArgs(ft.ParamTypes, ft.ParamCount);
+        }
         if (a is Z42InstantiatedInterfaceType) {
             var ii = a as Z42InstantiatedInterfaceType;
             return this._hasTypeParamInArgs(ii.TypeArgs, ii.ArgCount);

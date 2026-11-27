@@ -442,13 +442,19 @@ public sealed class CallEmitter {
     // 抬头 —— 运行期经类描述符的接口槽别名按签名落到实现）；其余照旧（含实例泛型方法的特化名）。
     private string _vcallName(BoundCall c) {
         if (c.IfaceSlot != "") {
-            if (c.OpenIfaceSlotArg != null) {
-                string arg = this._ee._typeParamMarker(c.OpenIfaceSlotArg);
-                if (arg.StartsWith("$mta:") || arg.StartsWith("$cta:")) {
-                    int hash = c.IfaceSlot.IndexOf('#');
-                    return c.IfaceSlot.Substring(0, hash) + "<@" + arg + ">"
-                        + c.IfaceSlot.Substring(hash, c.IfaceSlot.Length - hash);
+            if (c.OpenIfaceSlot != null) {
+                string args = "";
+                int i = 0;
+                while (i < c.OpenIfaceSlot.ArgCount) {
+                    string arg = this._ee._rtArgName(c.OpenIfaceSlot.TypeArgs[i]);
+                    if (arg == "") { return c.IfaceSlot; }
+                    if (i > 0) { args = args + ","; }
+                    args = args + arg;
+                    i = i + 1;
                 }
+                int hash = c.IfaceSlot.IndexOf('#');
+                return c.IfaceSlot.Substring(0, hash) + "<@" + args + ">"
+                    + c.IfaceSlot.Substring(hash, c.IfaceSlot.Length - hash);
             }
             return c.IfaceSlot;
         }
