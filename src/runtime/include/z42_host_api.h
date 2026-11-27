@@ -166,8 +166,8 @@ typedef struct Z42HostConfig {
     Z42ZpkgResolverWriteFn zpkg_resolver_write;
 } Z42HostConfig;
 
-/* Size advertised by callers of the original v2 header. */
-#define Z42_HOST_CONFIG_V2_SIZE \
+/* Required configuration prefix. Callers normally advertise sizeof(Z42HostConfig). */
+#define Z42_HOST_CONFIG_MIN_SIZE \
     (offsetof(Z42HostConfig, zpkg_resolver_user_data) + sizeof(void*))
 
 /* ── Status codes ────────────────────────────────────────────────────────── */
@@ -210,7 +210,7 @@ typedef char Z42HostStatusMustBe32Bits[(sizeof(Z42HostStatus) == sizeof(int32_t)
  * Preconditions:
  *   - cfg != NULL and cfg->abi_version == Z42_HOST_ABI_VERSION
  *   - cfg->struct_size is the caller's sizeof(Z42HostConfig), at least
- *     Z42_HOST_CONFIG_V2_SIZE
+ *     Z42_HOST_CONFIG_MIN_SIZE
  *   - The process has no live VM (otherwise returns ERR_ALREADY_INIT).
  *
  * On success, *out_host is set to a non-NULL handle.

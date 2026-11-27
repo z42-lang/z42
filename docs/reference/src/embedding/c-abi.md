@@ -37,7 +37,7 @@ typedef struct Z42Entry*  Z42EntryRef;    /* 解析后的入口 */
 
 **ABI 演进规则**：`abi_version` 永远在偏移 0；新字段只往结构体尾部追加，不重排；主版本号变更 = 显式 break。
 调用方必须把 `struct_size` 设为 `sizeof(Z42HostConfig)`：运行时只读 `struct_size` 覆盖到的尾部字段，用老头文件编译的调用方不会被越界读，新字段对它们等于「没配置」。
-v1 没有这个字段（同一位置是 `reserved`），旧调用方在 v2 运行时上拿到 `ERR_BAD_CONFIG`（`abi_version` 不匹配），需要按新头文件重新编译。
+各平台使用同一份配置。调用方将 `abi_version` 设为头文件提供的 `Z42_HOST_ABI_VERSION`，运行时发现版本不匹配时返回 `ERR_BAD_CONFIG`。
 
 ---
 
@@ -86,7 +86,7 @@ typedef struct Z42HostConfig {
 | 字段 | 语义 |
 |---|---|
 | `abi_version` | 不等于 `Z42_HOST_ABI_VERSION` → `ERR_BAD_CONFIG` |
-| `struct_size` | 调用方编译时的 `sizeof(Z42HostConfig)`。小于原始 v2 前缀 `Z42_HOST_CONFIG_V2_SIZE` 时返回 `ERR_BAD_CONFIG` |
+| `struct_size` | 调用方编译时的 `sizeof(Z42HostConfig)`。小于要求的前缀 `Z42_HOST_CONFIG_MIN_SIZE` 时返回 `ERR_BAD_CONFIG` |
 | `exec_mode` | 值不在 0–3 → `ERR_BAD_CONFIG`；`JIT` 未开启构建能力或平台不支持 → `ERR_FEATURE_OFF`；组件来源在加载程序时校验，缺失或不兼容返回 `ERR_BAD_ZBC`；`AOT` 未开启对应 feature 也返回此错误。`Default` 使用构建默认后端，`Interp` 使用解释器，`JIT` 使用 JIT；AOT 尚未实现，执行时明确返回错误 |
 | `heap_initial_bytes` / `heap_max_bytes` | **当前被忽略**，填 0 即可 |
 | `stdout_sink` / `stderr_sink` | 见 [stdout / stderr 重定向](#stdout--stderr-重定向) |

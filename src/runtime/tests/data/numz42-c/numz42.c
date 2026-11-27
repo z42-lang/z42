@@ -35,7 +35,7 @@ size_t z42_host_layout(size_t index) {
     struct AlignedConfig { char pad; Z42HostConfig config; };
     const size_t fields[] = {
         sizeof(Z42HostConfig), offsetof(struct AlignedConfig, config),
-        sizeof(Z42ExecMode), sizeof(Z42HostStatus), Z42_HOST_CONFIG_V2_SIZE,
+        sizeof(Z42ExecMode), sizeof(Z42HostStatus), Z42_HOST_CONFIG_MIN_SIZE,
         offsetof(Z42HostConfig, abi_version), offsetof(Z42HostConfig, struct_size),
         offsetof(Z42HostConfig, exec_mode), offsetof(Z42HostConfig, heap_initial_bytes),
         offsetof(Z42HostConfig, heap_max_bytes), offsetof(Z42HostConfig, stdout_sink),
