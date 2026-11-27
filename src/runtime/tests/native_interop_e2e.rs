@@ -38,7 +38,7 @@ extern "C" {
 #[test]
 fn host_c_header_matches_rust_layout() {
     use std::mem::{align_of, offset_of, size_of};
-    use z42::host::{Z42ExecMode, Z42HostConfig, Z42HostStatus};
+    use z42::host::{error::Z42HostStatus, Z42ExecMode, Z42HostConfig};
 
     let fields = [
         size_of::<Z42HostConfig>(),
