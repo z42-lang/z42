@@ -1,23 +1,10 @@
 # z42 标准库 workspace
 #
-# 6 个 stdlib 包作为 workspace member 集中编译；产物与 cache 落到
-# artifacts/build/libraries/<member>/<profile>/{dist,cache}/，按 build profile 分级。
+# 每个成员的产物和缓存位于 artifacts/build/libraries/<member>/<profile>/。
+# xtask build stdlib 先自建当前 z42c，再用显式图的单进程执行方式编译标准库。
+# default_members 选择默认目标，并为相互独立的成员提供稳定顺序。
+# 成员之间的直接包依赖声明在 [workspace.build.graph]。
 #
-# 使用：
-#   cd src/libraries && z42c build --workspace --release
-#   产物：artifacts/build/libraries/z42.core/release/dist/z42.core.zpkg
-#   cache：artifacts/build/libraries/z42.core/release/cache/<file>.zbc
-#
-# stdlib 互相依赖（z42.collections → z42.core 等）通过编译器的 libsDirs
-# 自动发现：BuildLibsDirs 在 artifacts/build/libraries/ 下搜索每个 member
-# 的 dist 子目录，stdlib 编译时各 member 能找到先前编译的产物。
-#
-# 🔴 成员清单**不再声明**同 workspace 依赖（retire-member-dep-decls）：解析靠上面的 dist 自动发现，
-# 声明了只剩冗余——`z42c build --workspace` 与 z42b 会按 WS032 逐条提示删除。于是
-# **`default_members` 的声明序就是构建顺序**：某个成员 import 了谁，谁就必须排在它前面；
-# 排错了不是静默错序，而是当场「找不到依赖/命名空间」的硬错误。调整依赖结构时同步改这份序。
-#   约束（源码可见性之外仅此一条环约束）：z42.random 不得 import z42.crypto——
-#   crypto → numerics → random 成环；FromEntropy() 种子留待熵原语就位（random-future-seed-from-entropy-residual）。
 # 🔴 **本 workspace 只放用户 stdlib（`Std.*`）**。工具链/编译器域的包（`z42c.core` / `z42c.syntax` /
 # `z42.package` / `z42.project` / `z42.build` / `z42.scripting`）已挪去 `src/compiler/`
 # （relocate-compiler-domain-libs，2026-09-27）——**物理位置就是「这是编译器域」的声明**，
@@ -26,25 +13,25 @@
 [workspace]
 members = ["*"]
 default_members = [
-    "z42.core",        # ← 一切的地基；Std.Time / Std.Text 的时间与文本基元都在这
+    "z42.core",
     "z42.collections",
     "z42.encoding",
     "z42.text",
-    "z42.io",          # core / encoding / text
-    "z42.toml",        # core / io
+    "z42.io",
+    "z42.toml",
     "z42.diagnostics", # core / io
-    "z42.threading",   # core / diagnostics
-    "z42.uri",         # core / text
-    "z42.regex",       # core
-    "z42.cli",         # core / text / io
-    "z42.json",        # core / text / io
-    "z42.random",      # core
-    "z42.numerics",    # core / random
-    "z42.crypto",      # core / encoding / numerics
+    "z42.threading",
+    "z42.uri",
+    "z42.regex",
+    "z42.cli",
+    "z42.json",
+    "z42.random",
+    "z42.numerics",
+    "z42.crypto",
     "z42.compression", # core / io
-    "z42.yaml",        # core / io
-    "z42.net",         # core / io / encoding / random / crypto / threading / compression
-    "z42.harness",     # core / io
+    "z42.yaml",
+    "z42.net",
+    "z42.harness",
 ]
 
 [workspace.build]
@@ -60,3 +47,24 @@ default_members = [
 # 模板 —— 重写完整前缀会双重叠加成 .../libraries/artifacts/build/libraries/...。
 output_dir = "../../artifacts/build/libraries/${project_name}/${profile}"
 cache_dir  = "${output_dir}/cache"
+
+[workspace.build.graph]
+"z42.cli" = ["z42.core", "z42.text"]
+"z42.collections" = ["z42.core"]
+"z42.compression" = ["z42.core", "z42.io"]
+"z42.core" = []
+"z42.crypto" = ["z42.core", "z42.encoding", "z42.numerics"]
+"z42.diagnostics" = ["z42.core", "z42.io"]
+"z42.encoding" = ["z42.core"]
+"z42.harness" = ["z42.core"]
+"z42.io" = ["z42.core", "z42.text", "z42.encoding"]
+"z42.json" = ["z42.core", "z42.text", "z42.io"]
+"z42.net" = ["z42.core", "z42.text", "z42.io", "z42.encoding", "z42.crypto", "z42.compression", "z42.threading", "z42.random"]
+"z42.numerics" = ["z42.core", "z42.random"]
+"z42.random" = ["z42.core"]
+"z42.regex" = ["z42.core"]
+"z42.text" = ["z42.core"]
+"z42.threading" = ["z42.core", "z42.diagnostics"]
+"z42.toml" = ["z42.core", "z42.text", "z42.io"]
+"z42.uri" = ["z42.core", "z42.text"]
+"z42.yaml" = ["z42.core", "z42.text", "z42.io"]
