@@ -289,3 +289,14 @@ void test_array_identity_retains_closed_interface_arguments() {
         + " ISource<Dog>[][] F(ISource<Dog> source, ISource<Dog>[][] nested) {"
         + " ISource<Animal> widened = source; return nested; }"));
 }
+
+
+[Test]
+void test_interface_arguments_use_the_instantiated_parameter_type() {
+    string context = "namespace D; interface IRoute<A,B> { void Send(A a, B b); }";
+    string valid = context + " void F<T>(IRoute<T[],T> route, T[] a, T b) { route.Send(a, b); }";
+    Assert.Equal(0, SemanticDump.ErrorCount(valid));
+    string invalid = context + " void F(IRoute<int[],int> route, string[] a) { route.Send(a, 1); }";
+    Assert.Equal(1, SemanticDump.ErrorCount(invalid));
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(invalid));
+}
