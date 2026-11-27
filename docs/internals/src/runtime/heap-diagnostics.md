@@ -39,11 +39,12 @@ L2 retaining_roots(target)  = 从 target 沿 rev 反向 BFS，收集途经对象
 对象、数组和类别根原语；区域回调在锁内执行，不得重入堆。对象和数组仍分两遍枚举，
 不新增全堆临时副本。查询先在现有停世界窗口内完成全堆回收，再构图。
 
-### 分类根 scanner（L2 报根的前提）
-mark 阶段的 `external_root_scanner` 只吐**匿名** Value，报不出根类别。故新增**分类根 scanner**
-（`CategorizedRootScanner`，`VmCore` 接线捕 `Weak<VmCore>`）：按类别枚举静态字段单元（`VmCore.runtime.statics`）→ `StaticField`、
-每线程帧 regs/env/stack-arena → `StackFrame`；pinned 根（GC 内部）→
-`Pinned`。**只在诊断查询时调用**，mark 热路径不变（零回归）。
+### 分类根
+
+`threads` 为每个 VM 登记一个持有弱 Core 引用的 `GcRoots` 提供者。collector 读取根值，堆诊断
+通过同一提供者读取根值和类别。静态字段和驻留串归 `StaticField`，每线程异常、寄存器帧和 arena
+归 `StackFrame`。堆先枚举 pin 和强句柄根，类别为 `Pinned`。
+独立堆注册的普通闭包只提供标记根。
 
 ### 准确性
 先 `collect_full()` → `iterate_alive` 只见可达对象 → 反向图不含浮动垃圾。诊断非热路径，一次额外 GC 可接受。

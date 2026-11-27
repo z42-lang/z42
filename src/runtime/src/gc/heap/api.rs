@@ -7,7 +7,6 @@ use crate::object::ClosureData;
 use crate::gc::types::{AllocSamplerFn, FinalizerFn, FrameMark, GcHandleKind, GcObserver, ObserverId, RootHandle, WeakRef, WeakRefInner};
 
 use crate::gc::heap::{Heap, HandleEntry};
-use crate::gc::walk::CategorizedRootScanner;
 use crate::gc::to_vm::{ContextReclaimHook, ExternalRootScanner};
 
 impl Heap {
@@ -29,11 +28,8 @@ impl Heap {
 
     // ── 2. Roots / scanner ───────────────────────────────────────────────────
 
-    /// **Phase 3d.1** + **add-multithreading-foundation Phase 2.2**：
-    /// 注册 external root scanner 闭包。每次 cycle collection mark 阶段在
-    /// 扫完 pinned roots 后调用，把闭包 yield 的 Value 也加入 reachable BFS。
-    ///
-    /// 重复调用覆盖之前的 scanner；传 no-op 闭包等价于卸载。
+    /// Replace the external root provider used by marking and, when the
+    /// provider supplies root categories, by heap diagnostics.
     pub fn set_external_root_scanner(&self, scanner: ExternalRootScanner) {
         *self.external_root_scanner.lock() = Some(scanner);
     }
@@ -43,13 +39,6 @@ impl Heap {
     pub fn set_context_reclaimer(&self, hook: ContextReclaimHook) {
         *self.context_reclaimer.lock() = Some(hook);
     }
-
-    /// **add-heap-retention-diagnostics **: wire the categorized
-    /// root scanner (for `retention_roots` L2 category-level root reporting).
-    pub fn set_categorized_root_scanner(&self, scanner: CategorizedRootScanner) {
-        *self.categorized_root_scanner.lock() = Some(scanner);
-    }
-
 
     /// Wire the flag and wakeup together before publishing the VM.
     pub(crate) fn defer_auto_collect_until_safepoint(

@@ -196,8 +196,6 @@ impl std::fmt::Debug for RcHeapInner {
 
 use super::to_vm::{ContextReclaimHook, ExternalRootScanner};
 
-use super::walk::CategorizedRootScanner;
-
 /// The payload finalizer injected into the variable-length region (which stays a pure byte
 /// allocator with no `object` dependency), dispatched by block type, and the mask of the
 /// block types it runs for (`drop_type_bit`) — the region checks the mask before the indirect call,
@@ -275,9 +273,6 @@ pub struct Heap {
     /// **add-lazy-context-unload**: collectible-context reclaimer hook. `None`
     /// until wired by `VmCore` (tests leave it None → no context reclamation).
     context_reclaimer: Mutex<Option<ContextReclaimHook>>,
-    /// **add-heap-retention-diagnostics**: categorized root scanner for the
-    /// on-demand retention query. `None` until wired by `VmCore`.
-    categorized_root_scanner: Mutex<Option<CategorizedRootScanner>>,
     /// Selectable GC algorithm.
     /// Encoded as `u8` (`GcMode::from_u8` for round-trip). Read on the
     /// barrier-override hot path and at the entrance of
