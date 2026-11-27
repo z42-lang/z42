@@ -33,6 +33,8 @@ z42 的观测遵循**两层成本**原则（design §6）：
 
 退出时 `diagnostics/exit_report.rs` 把计数器、堆统计和并发探针合成一条 `ProfileSnapshot`。
 `--stats=json` 将单行 JSON 写到 stderr，供 `xtask profile` 读取。
+其中 `used_bytes` 是堆的存活量估计，`committed_bytes` 是已计入的堆内存。
+`pooled_bytes` 表示其中可复用的空 chunk，`occupied_bytes` 表示池外已提交字节。比较进程 RSS 时，使用操作系统采样与这些堆指标对照。
 报告配置和发出状态归 VM。一次性入口结束或托管 `Environment.Exit` 先报告当前 VM，同一 VM 的 worker 共用一次报告。
 独立或嵌套运行各自管理报告。采样输出路径来自进程配置，使用同一路径的写入串行完成，后完成的报告覆盖之前的文件。
 

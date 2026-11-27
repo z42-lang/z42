@@ -329,14 +329,16 @@ string _peakRss(ProfileCtx c) {
 
 // Scan stderr for the single-line `{"z42vm_counters":1,...}` object and reduce
 // it to a compact digest. Covers the RuntimeCounters fields plus the heap-derived
-// numbers merged in by ProfileSnapshot (allocations + GC minor/major/reclaimed).
+// numbers merged in by ProfileSnapshot, including the heap footprint.
 // Absent → "(none)".
 string _counterSummary(string stderr) {
-    // digest label → counter key (last four: safepoint park + user-lock contention).
+    // Digest label → counter key.
     string[] labels = new string[]{ "builtin", "native", "jit_compiled", "exc_thrown", "exc_caught", "alloc",
-        "gc_minor", "gc_major", "reclaimed", "park_count", "park_us", "lock_contended", "lock_wait_us" };
+        "gc_minor", "gc_major", "reclaimed", "gc_used", "gc_committed", "gc_pooled", "gc_occupied",
+        "park_count", "park_us", "lock_contended", "lock_wait_us" };
     string[] keys = new string[]{ "builtin_calls", "native_calls", "jit_methods_compiled", "exceptions_thrown",
         "exceptions_caught", "allocations", "minor_collections", "major_collections", "reclaimed_bytes",
+        "used_bytes", "committed_bytes", "pooled_bytes", "occupied_bytes",
         "park_count", "park_us_total", "lock_contentions", "lock_wait_us" };
     foreach (var line in stderr.Split("\n")) {
         string ln = line.Trim();
