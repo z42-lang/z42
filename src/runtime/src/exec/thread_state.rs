@@ -281,11 +281,13 @@ impl ThreadExecState {
         self.struct_arena.lock().copy_slots(dst.0, dst.1, src.0, src.1, size)
     }
 
-    pub(super) fn struct_slots_equal(&self, lhs: (u32, u32), rhs: (u32, u32)) -> anyhow::Result<bool> {
+    pub(super) fn struct_slots_equal(
+        &self, lhs: (u32, u32), rhs: (u32, u32), same_type: bool,
+    ) -> anyhow::Result<bool> {
         let arena = self.struct_arena.lock();
         arena.with(lhs.0, lhs.1, |a| {
             arena.with(rhs.0, rhs.1, |b| {
-                a.type_name == b.type_name && a.bytes == b.bytes && a.refs == b.refs
+                (same_type || a.type_name == b.type_name) && a.bytes == b.bytes && a.refs == b.refs
             })
         })?
     }

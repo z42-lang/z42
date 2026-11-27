@@ -584,6 +584,13 @@ pub mod typed {
         crate::exec::ops::object::struct_leaf::struct_value_eq(ctx, a, b)
             .map_err(|e| BuiltinError::Internal(e.to_string()))
     }
+
+    /// Compare payloads after the compiler proves both operands have the same closed type.
+    #[builtin(name = "__struct_eq_same_type")]
+    pub fn struct_eq_same_type(ctx: &VmContext, a: &Value, b: &Value) -> Result<bool, BuiltinError> {
+        crate::exec::ops::object::struct_leaf::same_typed_struct_value_eq(ctx, a, b)
+            .map_err(|e| BuiltinError::Internal(e.to_string()))
+    }
 }
 
 #[cfg(test)]

@@ -293,11 +293,21 @@ fn struct_payload(
 /// 成立，故编译器只对 float-free 布局把调用引到这条路（保留名 `Equals$1$synth` /
 /// builtin 发射侧的 float-free 谓词）。
 pub fn struct_value_eq(ctx: &VmContext, a: &Value, b: &Value) -> Result<bool> {
+    struct_payload_eq(ctx, a, b, false)
+}
+
+/// The caller established the exact closed type of both operands. A frame slot's
+/// storage name may use either the erased definition or a constructed descriptor.
+pub(crate) fn same_typed_struct_value_eq(ctx: &VmContext, a: &Value, b: &Value) -> Result<bool> {
+    struct_payload_eq(ctx, a, b, true)
+}
+
+fn struct_payload_eq(ctx: &VmContext, a: &Value, b: &Value, same_type: bool) -> Result<bool> {
     if let (
         Value::StructRef { idx: a_idx, frame_id: a_frame },
         Value::StructRef { idx: b_idx, frame_id: b_frame },
     ) = (a, b) {
-        return ctx.exec().struct_slots_equal((*a_idx, *a_frame), (*b_idx, *b_frame));
+        return ctx.exec().struct_slots_equal((*a_idx, *a_frame), (*b_idx, *b_frame), same_type);
     }
 
     let (pa, pb) = match (
@@ -307,7 +317,7 @@ pub fn struct_value_eq(ctx: &VmContext, a: &Value, b: &Value) -> Result<bool> {
         (Some(pa), Some(pb)) => (pa, pb),
         _ => return Ok(false),
     };
-    Ok(pa.0 == pb.0 && pa.1 == pb.1 && pa.2 == pb.2)
+    Ok((same_type || pa.0 == pb.0) && pa.1 == pb.1 && pa.2 == pb.2)
 }
 
 /// Default equality when invoked directly on the ValueType declaration. Ordinary
