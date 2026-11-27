@@ -60,8 +60,7 @@ public sealed class PatternEmitter : IBoundPatternVisitor<Unit, PatCtx> {
             string bindL = this._ctx.Fresh("pat_bind");
             this._ctx.EndBlock(new BrCondTerm(isR, bindL, d.FailL));
             this._ctx.StartBlock(bindL);
-            TypedReg vReg = this._ctx.Alloc(IrType.Ref);
-            this._ctx.Emit(new AsCastInstr(vReg, d.Subj, qn));   // 绑定用 as_cast（仅存局部，不接 field_get，安全）
+            TypedReg vReg = this._ee._emitCastWithLayout(d.Subj, tp.BoundType, qn);
             this._ctx.Locals.Put(tp.Bind, vReg);
             this._ctx.EndBlock(new BrTerm(d.MatchL));
         } else {
@@ -146,8 +145,7 @@ public sealed class PatternEmitter : IBoundPatternVisitor<Unit, PatCtx> {
             string atL = this._ctx.Fresh("pat_at");
             this.EmitMatch(d.Subj, ap.Sub, atL, d.FailL);
             this._ctx.StartBlock(atL);
-            TypedReg aReg = this._ctx.Alloc(IrType.Ref);
-            this._ctx.Emit(new AsCastInstr(aReg, d.Subj, this._qual(ap.Type, ap.TypeName)));
+            TypedReg aReg = this._ee._emitCastWithLayout(d.Subj, ap.Type, this._qual(ap.Type, ap.TypeName));
             this._ctx.Locals.Put(ap.Name, aReg);
             this._ctx.EndBlock(new BrTerm(d.MatchL));
             return Unit.Value;
@@ -261,8 +259,7 @@ public sealed class PatternEmitter : IBoundPatternVisitor<Unit, PatCtx> {
         this._ctx.Emit(new IsInstanceInstr(isR, subj, qn));
         this._ctx.EndBlock(new BrCondTerm(isR, okL, failL));
         this._ctx.StartBlock(okL);
-        TypedReg unboxed = this._ctx.Alloc(IrType.Ref);
-        this._ctx.Emit(new AsCastInstr(unboxed, subj, qn));   // 拆箱到 arena StructRef 值副本
+        TypedReg unboxed = this._ee._emitCastWithLayout(subj, container, qn);
         int i = 0;
         while (i < count) {
             TypedReg fReg = this._emitPatFieldRead(unboxed, container, fieldNames[i], fieldTypes[i]);

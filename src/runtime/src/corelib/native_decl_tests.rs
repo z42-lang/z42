@@ -38,6 +38,7 @@ const UNDECLARED_ALLOWLIST: &[(&str, &str)] = &[
     ("__box_imported_struct", "compiler-emitted: imported struct boxing with a closed identity"),
     ("__struct_field_receiver", "compiler-emitted: frame-local view of an inline struct field"),
     ("__project_interface", "compiler-emitted: implicit interface variance"),
+    ("__adapt_imported_struct", "compiler-emitted: imported struct cast layout"),
     // Emitted by the compiler for `available!(X)`. Doubly undeclarable: it is never spelled in
     // stdlib source, AND on the normal path it never *executes* — `fold_availability` replaces
     // the call with a `ConstBool` at module load. The runtime impl is a diagnostic fallback

@@ -8,6 +8,10 @@ use crate::exec::ops::object::struct_leaf::as_struct_ref;
 use anyhow::Result;
 use std::sync::Arc;
 
+#[path = "struct_relayout.rs"]
+mod relayout;
+pub(crate) use relayout::adapt_imported_struct;
+
 /// Allocate a zeroed struct blob stamped with the current activation id.
 pub fn struct_alloc_val(
     ctx: &VmContext, frame_id: u32, type_name: &str, size: u32,

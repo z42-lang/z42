@@ -35,6 +35,9 @@ public sealed partial class ExprEmitter : IBoundExprVisitor<TypedReg, Unit> {
     // （CallEmitter 直呼路由用）——委回 OperatorEmitter（struct 相等发射簇）。
     internal TypedReg _emitStructEqBuiltin(TypedReg a, TypedReg c) { return this._op._emitStructEqBuiltin(a, c); }
     internal TypedReg _emitStructBox(BoundExpr value) { return this._top._emitStructBox(value); }
+    internal TypedReg _emitCastWithLayout(TypedReg src, Z42Type type, string identity) {
+        return this._top._emitCastWithLayout(src, IrType.Ref, type, identity);
+    }
     internal TypedReg _emitEqualsRawThis(string structName, TypedReg recv, TypedReg other) {
         return this._op._emitEqualsRawThis(structName, recv, other);
     }
