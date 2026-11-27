@@ -2,13 +2,23 @@
 use crate::gc::{to_vm::GcRoots, walk::RootKind};
 use crate::object::Value;
 use crate::vm::{VmContext, VmCore};
-use std::sync::Weak;
+use std::sync::{Arc, Weak};
 
-pub struct CoreRoots(pub Weak<VmCore>);
+pub(crate) fn install_vm_roots(core: &Arc<VmCore>) {
+    core.heap().set_external_root_scanner(Box::new(CoreRoots(Arc::downgrade(core))));
+}
+
+struct CoreRoots(Weak<VmCore>);
+
 impl GcRoots for CoreRoots {
     unsafe fn visit_roots(&self, visit: &mut dyn FnMut(&Value)) {
+        // SAFETY: the caller holds the pause for the entire visit.
+        unsafe { self.visit_categorized_roots(&mut |value, _| visit(value)); }
+    }
+
+    unsafe fn visit_categorized_roots(&self, visit: &mut dyn FnMut(&Value, RootKind)) {
         if let Some(core) = self.0.upgrade() {
-            scan_roots(&core, &mut |value, _| visit(value));
+            scan_roots(&core, visit);
         }
     }
 }
@@ -17,17 +27,6 @@ impl GcRoots for VmContext {
         scan_roots(&self.core, &mut |value, _| visit(value));
     }
 }
-/// VM roots with the same coverage as the collector's unclassified view.
-/// # Safety
-/// The caller holds this VM's pause for the entire walk; callbacks do not
-/// mutate roots or re-enter the heap. Root references cannot escape the visit.
-pub(crate) unsafe fn scan_categorized_roots(
-    core: &VmCore,
-    visit: &mut dyn FnMut(&Value, RootKind),
-) {
-    scan_roots(core, visit);
-}
-
 fn scan_roots(c: &VmCore, visit: &mut (impl FnMut(&Value, RootKind) + ?Sized)) {
     // 1. Shared static fields.
     c.runtime.statics.scan_roots(&mut |value| visit(value, RootKind::StaticField));

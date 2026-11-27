@@ -12,7 +12,7 @@ observers / allocation sampling / weak refs / finalizers / strict OOM / ...）�
 |------|------|
 | `config.rs` | `GcConfig`：显式传入堆的不可变策略值，GC 不解析全局运行时设置 |
 | `ambient.rs` | 执行期当前堆 TLS、HeapGuard 嵌套恢复和堆 epoch；无堆上下文回退 |
-| `to_vm.rs` | `GcRoots` / `GcToVm` / `GcPause`，以及不透明的上下文回收快照；VM 提供实现 |
+| `to_vm.rs` | VM 提供标记与诊断共用的 `GcRoots`、暂停服务和上下文回收快照 |
 | `heap.rs` | 具体 `Heap` 的状态、身份、句柄表与 concern 声明 |
 | `mode.rs` | `GcMode`：`GenerationalMarkSweep`（默认）/ `StwMarkSweep`，`Z42_GC_MODE` 选择 |
 | `footprint.rs` | `Footprint`：堆的真实占用（committed / pooled / occupied），三个 region 共用一份、随变随记；`malloc_size` 分配器取整模型。机制见 [book: GC 调参 · 真实占用记账](../../../../docs/internals/src/runtime/gc-tuning.md#真实占用记账与软上限) |
