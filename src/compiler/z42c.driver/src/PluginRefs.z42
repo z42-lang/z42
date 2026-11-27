@@ -19,6 +19,7 @@ namespace Z42.Driver;
 
 using Std.IO;
 using Z42.Package;
+using Z42.Pipeline;
 using Z42.Project;
 
 // 解析结果：Code==0 → 编译器侧插件的 Names / Paths（并行、按清单顺序，供指纹与 CompileInputs 共用）；
@@ -183,7 +184,7 @@ bool _pluginDepZpkgs(ProjectManifest pm, string projectDir, string[] libsDirs, i
             }
             if (libsHit.Length > 0) {
                 ZpkgInfo info = null;
-                try { info = ZpkgReader.Open(File.ReadAllBytes(libsHit), libsHit); } catch (Exception ex) { info = null; }
+                try { info = DepScanCache.Get(libsHit).Z; } catch (Exception ex) { info = null; }
                 if (info != null && PkgKind.IsPluginPkg(info.PkgKind, info.PluginCaps)) {
                     ConsoleError.WriteLine("z42c build: [dependencies] `" + e.Name + "`（" + libsHit
                         + "）是插件包（" + PluginCaps.Describe(info.PluginCaps) + "）——插件包不进运行期解析域："
@@ -330,7 +331,7 @@ bool _resolveCarriedPlugins(ProjectManifest pm, string[] libsDirs, int libsDirsN
         string zpath = _findDepZpkg(dep, libsDirs, libsDirsN);
         if (zpath.Length == 0) { continue; }   // 声明了但解析不到：E0497/依赖解析的职责，不在携带层重复报
         ZpkgInfo info = null;
-        try { info = ZpkgReader.Open(File.ReadAllBytes(zpath), zpath); } catch (Exception ex) { info = null; }
+        try { info = DepScanCache.Get(zpath).Z; } catch (Exception ex) { info = null; }
         if (info == null) { continue; }
         // 传递：把该包自己的 DEPS 入队（按段序，确定性）。
         string[] trans = ZpkgReader.ReadDependencies(info);
@@ -477,7 +478,7 @@ void _carryAmbientPhase(ProjectManifest pm, string[] libsDirs, int libsDirsN,
         string zpath = _findDepZpkg(dep, libsDirs, libsDirsN);
         if (zpath.Length == 0) { continue; }
         ZpkgInfo info = null;
-        try { info = ZpkgReader.Open(File.ReadAllBytes(zpath), zpath); } catch (Exception ex) { info = null; }
+        try { info = DepScanCache.Get(zpath).Z; } catch (Exception ex) { info = null; }
         if (info == null) { continue; }
         _carryOne(pm, dep, info, libsDirs, libsDirsN, taken, ref tn, rnames, rpaths, ref rn, true);
     }

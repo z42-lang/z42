@@ -293,6 +293,7 @@ public sealed class BuildSession {
     public static string WriteZpkgDist(string outZpkg, ZpkgWriteResult wres) {
         string outDir = Path.GetDirectoryName(outZpkg);
         if (outDir.Length > 0) { Directory.Create(outDir); }
+        DepScanCache.InvalidateOutput(outZpkg);
         File.WriteAllBytes(outZpkg, wres.Main);
         string zsym = ZpkgWriterZ.SidecarPath(outZpkg);
         if (wres.HasSidecar) {
