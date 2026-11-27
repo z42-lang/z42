@@ -138,10 +138,7 @@ public static partial class ImportedSymbolLoader {
                     nct.InterfaceCount = cl.InterfaceCount;
                 }
                 r.ClassesByFqn.Put(fqnKey, nct);
-                // add-associated-types PR-1：跨包 where 约束，键与 FQN 视图同为 fqnKey —— 每个 FQN 各挂各的，
-                // 同短名不同 ns 的类不再互相覆盖、也不再只有短名赢家才有约束。
-                ConstraintSet ics = ImportedSymbolLoader._constraintSetOf(cl);
-                if (ics != null) { r.Constraints.Put(fqnKey, ics); }
+
             }
             c = c + 1;
         }
@@ -290,7 +287,7 @@ public static partial class ImportedSymbolLoader {
                 fsym.IsDeprecated = fz.IsDeprecated; fsym.DeprecationMsg = fz.DeprecationMsg;   // fix-free-function-attrs：跨包自由函数弃用
                 fsym.TypeParamCount = fz.TypeParamCount;   // 供泛型 arity 重载过滤（镜像方法侧）
                 fsym.TypeParamNames = ImportedSymbolLoader._tpNames(fz.TypeParams);
-                fsym.TypeParamConstraints = ImportedSymbolLoader._methodConstraints(fsym, fz.TypeParamConstraints);
+                fsym.TypeParamConstraints = ImportedSymbolLoader._methodConstraints(r, fsym, fz.TypeParamConstraints);
                 r.FunctionsByFqn.Put(fzFqn, fsym);   // 源 ns + RegKey 在键里；调用点解析出 ns 后随 BoundCall 带到发射端
             }
             f = f + 1;
@@ -351,7 +348,7 @@ public static partial class ImportedSymbolLoader {
                         MethodSymbol sym = new MethodSymbol(mz.Name, "public", msig, mz.IsStatic, iz2.Name, false, null);
                         sym.TypeParamCount = mz.TypeParamCount;
                         sym.TypeParamNames = ImportedSymbolLoader._tpNames(mz.TypeParams);
-                        sym.TypeParamConstraints = ImportedSymbolLoader._methodConstraints(sym, mz.TypeParamConstraints);
+                        sym.TypeParamConstraints = ImportedSymbolLoader._methodConstraints(r, sym, mz.TypeParamConstraints);
                         it2.Methods.Put(mz.Name, sym);
                     }
                     im2 = im2 + 1;

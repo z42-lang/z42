@@ -1,0 +1,29 @@
+namespace ConstructedGenericChecks;
+
+interface ITag<T> {}
+class Tagged<T> : ITag<T> {}
+class Good : Tagged<Good> {}
+class Wrong : Tagged<string> {}
+class Box<T> where T : ITag<T> {}
+
+void Read(ref int value) { value = 42; }
+void Read(ref string value) { value = "changed"; }
+
+void Main() {
+    int number = 0;
+    string text = "initial";
+    Read(ref number);
+    Read(ref text);
+    Assert.Equal(42, number);
+    Assert.Equal("changed", text);
+
+    Type box = typeof(Box<>);
+    Assert.True(box.MakeGenericType(typeof(Good)) == typeof(Box<Good>));
+    bool rejected = false;
+    try {
+        box.MakeGenericType(typeof(Wrong));
+    } catch (Exception) {
+        rejected = true;
+    }
+    Assert.True(rejected);
+}

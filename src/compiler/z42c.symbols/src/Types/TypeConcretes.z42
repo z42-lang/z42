@@ -86,7 +86,10 @@ public sealed class Z42InstantiatedType : Z42Type {
     }
     public override bool IsAssignableTo(Z42Type other) {
         if (other is Z42ErrorType) { return true; }
-        if (other is Z42InstantiatedType) { return this.Name() == other.Name(); }
+        if (other is Z42InstantiatedType) {
+            string key = LayoutKey.Of(this);
+            return key != "" && key == LayoutKey.Of(other);
+        }
         return false;
     }
 }

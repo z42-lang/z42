@@ -35,6 +35,7 @@ public sealed class ConstraintBundle {
     // （`where T : IFoo + IBar`），故用 typed array + count（类字段不能带泛型）。
     public string[] InterfaceNames;
     public int      InterfaceCount;
+    public Z42InstantiatedInterfaceType[] ConstructedInterfaces;
     // validate-func-type-constraint：函数类型约束 `where T : Func<int,R>` / `Action<int>` /
     // `Predicate<U>` / `(int) -> R` / 用户 `delegate`。存**已解析**的 `Z42FuncType`，且**可含型参**
     // （`Func<int,R>` 的 `R`、`Predicate<U>` 的 `U`）—— 调用点先按本次调用已解析的类型实参代换
@@ -52,21 +53,31 @@ public sealed class ConstraintBundle {
         this.RequiresClass = false; this.RequiresStruct = false;
         this.HasTypeParamRef = false; this.TypeParamRef = "";
         this.InterfaceNames = new string[0]; this.InterfaceCount = 0;
+        this.ConstructedInterfaces = new Z42InstantiatedInterfaceType[0];
         this.AssocBindingNames = new string[0]; this.AssocBindingTypeNames = new string[0]; this.AssocBindingCount = 0;
         this.RequiresEnum = false; this.RequiresCtor = false;
         this.HasFuncType = false; this.FuncType = null;
     }
 
     public void AddInterface(string name) {
+        this.AddInterface(name, null);
+    }
+
+    public void AddInterface(string name, Z42InstantiatedInterfaceType constructed) {
         if (this.InterfaceCount == this.InterfaceNames.Length) {
             int cap = this.InterfaceNames.Length * 2;
             if (cap < 2) { cap = 2; }
             string[] bigger = new string[cap];
-            int i = 0;
-            while (i < this.InterfaceCount) { bigger[i] = this.InterfaceNames[i]; i = i + 1; }
+            var types = new Z42InstantiatedInterfaceType[cap];
+            for (int i = 0; i < this.InterfaceCount; i = i + 1) {
+                bigger[i] = this.InterfaceNames[i];
+                types[i] = this.ConstructedInterfaces[i];
+            }
             this.InterfaceNames = bigger;
+            this.ConstructedInterfaces = types;
         }
         this.InterfaceNames[this.InterfaceCount] = name;
+        this.ConstructedInterfaces[this.InterfaceCount] = constructed;
         this.InterfaceCount = this.InterfaceCount + 1;
     }
 

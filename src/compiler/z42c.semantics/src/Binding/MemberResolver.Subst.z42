@@ -63,11 +63,6 @@ public sealed partial class MemberResolver {
         return TypeSubst.Apply(t, new IfaceArgsMap(inst));
     }
 
-    // 实例化接口的静态签名供目标类型与诊断使用；物理调用保留原签名。
-    private static Z42FuncType _substIfaceSig(Z42FuncType sig, Z42InstantiatedInterfaceType recv) {
-        return TypeSubst.ApplySig(sig, new IfaceArgsMap(recv));
-    }
-
     // self-return-type-substitution：把签名里的隐式型参 `Self` 换成 `selfT`。
     //
     // `Self` 由 MemberCollector._withSelf 作为**接口的隐式类型参数**并进 paramNames，所以它在签名里

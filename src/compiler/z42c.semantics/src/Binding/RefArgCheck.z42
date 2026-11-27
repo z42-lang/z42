@@ -22,7 +22,7 @@ public static class RefArgCheck {
         bool paramRef = sig.IsRefParam(i);
         bool argRef = args[i] is BoundRefArg;
         if (paramRef && argRef) {
-            RefArgCheck._checkClosedStorage(tc, args[i] as BoundRefArg, sig.ParamTypes[i]);
+            RefArgCheck.CheckStorage(tc, args[i] as BoundRefArg, sig.ParamTypes[i], false);
             return;
         }
         if (!paramRef && !argRef) { return; }
@@ -42,7 +42,7 @@ public static class RefArgCheck {
         int i = 0;
         while (i < args.Length && i < sig.ParamCount) {
             if (sig.IsRefParam(i) && args[i] is BoundRefArg) {
-                RefArgCheck._checkClosedStorage(tc, args[i] as BoundRefArg, sig.ParamTypes[i]);
+                RefArgCheck.CheckStorage(tc, args[i] as BoundRefArg, sig.ParamTypes[i], false);
             }
             i = i + 1;
         }
@@ -50,17 +50,38 @@ public static class RefArgCheck {
 
     // The address register is Unknown; only the lvalue identifies the writable storage.
     // Inline declarations and discards do not have a previously declared type.
-    private static void _checkClosedStorage(TypeChecker tc, BoundRefArg arg, Z42Type target) {
-        if (arg.Inner == null || arg.IsVarDecl || arg.IsDiscard) { return; }
-        Z42Type source = arg.Inner.Type();
-        if (!IfaceSlotKeys.IsClosed(source) || !IfaceSlotKeys.IsClosed(target)) { return; }
+    internal static Z42Type ArgumentType(BoundExpr arg) {
+        var address = arg as BoundRefArg;
+        if (address == null) { return arg == null ? null : arg.Type(); }
+        if (address.Inner == null || address.IsVarDecl || address.IsDiscard) { return null; }
+        return address.Inner.Type();
+    }
 
+    internal static bool MatchesStorage(Z42Type source, Z42Type target, bool sameScope) {
+        if (!sameScope && !IfaceSlotKeys.IsClosed(target)) { return true; }
         string sourceKey = LayoutKey.Of(source);
         string targetKey = LayoutKey.Of(target);
-        if (sourceKey != "" && targetKey != "" && sourceKey != targetKey) {
+        return sourceKey == "" || targetKey == "" || sourceKey == targetKey;
+    }
+
+    internal static void CheckStorage(TypeChecker tc, BoundRefArg arg, Z42Type target, bool sameScope) {
+        Z42Type source = RefArgCheck.ArgumentType(arg);
+        if (!RefArgCheck.MatchesStorage(source, target, sameScope)) {
             tc._diags.Error(DiagnosticCodes.TypeMismatch,
                 "ref argument has type " + Z42Type.DiagName(source)
                 + " but the writable parameter requires " + Z42Type.DiagName(target), arg.Span);
+        }
+    }
+
+    internal static void CheckResolvedGenericSlots(TypeChecker tc, BoundExpr[] args, int count,
+                                                    Z42FuncType raw, Z42FuncType resolved) {
+        if (raw == null || resolved == null || !raw.HasRefInfo()) { return; }
+        for (int i = 0; i < count && i < raw.ParamCount; i = i + 1) {
+            if (raw.IsRefParam(i) && args[i] is BoundRefArg
+                && Conversion._hasGenericParam(raw.ParamTypes[i])
+                && Conversion._hasGenericParam(resolved.ParamTypes[i])) {
+                RefArgCheck.CheckStorage(tc, args[i] as BoundRefArg, resolved.ParamTypes[i], true);
+            }
         }
     }
 
@@ -88,6 +109,8 @@ public static class RefArgCheck {
         int i = 0;
         while (i < count) {
             if (sig.IsRefParam(i) != (args[i] is BoundRefArg)) { return false; }
+            if (i < sig.ParamCount && sig.IsRefParam(i) && !RefArgCheck.MatchesStorage(
+                RefArgCheck.ArgumentType(args[i]), sig.ParamTypes[i], false)) { return false; }
             i = i + 1;
         }
         return true;

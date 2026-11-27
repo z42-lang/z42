@@ -497,8 +497,8 @@ new Use<IntBag>()   // ✅
 new Use<StrBag>()   // ❌ E0453：binds `Item` to `string`, but `int` is required
 ```
 
-这是关联类型相对 [已知限制 §1](#1-接口约束只比裸名不校验类型实参) 的「接口只比裸名」真正多出来的
-**判别力**：裸名匹配下 `IntBag` 与 `StrBag` 都只是「实现了 IEnum」，无法区分。
+关联类型绑定可以区分实现了同一接口的类型。例如 `IntBag` 与 `StrBag` 都实现了 `IEnum`，
+但只有关联类型 `Item` 为 `int` 的实现满足 `IEnum<Item=int>`。
 
 ### 规则
 
@@ -521,26 +521,18 @@ new Use<StrBag>()   // ❌ E0453：binds `Item` to `string`, but `int` is requir
 **`Name = Type` 只在 `where` 约束位可写。** 普通类型位 `List<Item = int>` 仍是语法错误。
 `=` 在类型位没有别的含义，一旦全局放开就再也收不回来了。
 
+## 构造接口约束
+
+`where T : IFoo<T>` 将本次类型实参代入接口约束，再检查该接口实例。
+例如 `class Foo : IFoo<string>` 无法满足 `where T : IFoo<T>`；
+`class Foo : IFoo<Foo>` 则满足。检查使用声明的接口与继承关系，以及每一步的泛型实参。
+新构建的包会保留接口实参，供跨包调用和 `Type.MakeGenericType` 使用。只记录了接口名的旧包需要重新构建才能获得此项校验。
+
 ## 已知限制（诚实标注）
 
 这些不是 bug，是当前实现的**明确边界**。踩到时不要以为约束在保护你。
 
-### 1. 接口约束只比裸名，不校验类型实参
-
-`where T : IFoo<T>` 只检查「T 实现了名为 `IFoo` 的接口」，**不检查实参是否是 T 自己**。
-故 `class Foo : IFoo<string>` 也能满足 `where T : IFoo<T>`。
-
-这与运行期行为一致（它拿到的同样是常量池里的裸名），故两边不产生分歧。裸名匹配还顺带
-消掉了 F-bounded 自引用朴素展开会无限递归的问题。
-Deferred：`where-constraint-future-type-arg-matching`。
-
-> [`Self`](#self-类型仅接口) 给了一条**绕开**这个限制的写法（`where T : IEq` 根本不写类型实参，
-> 就没有实参可以写错）。标准库的三个协议接口全部是
-> `Self` 形态，**它们自己不踩这个坑**。但这条 Deferred **仍然开着**——`Self` 是绕开、不是消除：
-> 任何**其它**带类型实参的接口约束（`IEnumerable<T>` / `IComparer<T>` / 用户自定义泛型接口）
-> 今天照旧按裸名匹配。
-
-### 2. 方法级约束：推断失败时不校验
+### 1. 方法级约束：推断失败时不校验
 
 省略类型实参时（`Max(a, b)`），从实参结构化 unify 出型参绑定后复用**同一条** `ConstraintChecker.CheckMethod` 路径校验。
 
@@ -549,7 +541,7 @@ Deferred：`where-constraint-future-type-arg-matching`。
 target-typed `new` 这类延迟位 / `params` 尾位。Deferred：`generic-inference-best-common-type`、
 `generic-inference-lambda-args`。
 
-### 3. 函数类型约束的校验
+### 2. 函数类型约束的校验
 
 判定分三步：
 
@@ -581,7 +573,7 @@ Run(g, 3);   // E0422: … parameter 1 is `String`, the constraint requires it t
 | **推断失败的调用点完全不校验** | `R Apply<T,R>(T f, int x) where T : Func<int,R>` 的 `R` 不出现在任何形参位 ⇒ `TypeArgInference` 边界 ①（任一型参未绑定即整体失败）⇒ `CheckMethod` 根本不跑 |
 | **实参是 lambda / target-typed `new`** | 延迟位类型是 Unknown ⇒ 推断跳过 ⇒ 同上 |
 
-### 4. 方法级 `where` 的声明级诊断
+### 3. 方法级 `where` 的声明级诊断
 
 **声明级**诊断（`E0401` 未知型参 / `E0443` 未知约束名 / `E0402` class·struct 互斥 / `E0423` func 约束并置 /
 `E0453` 关联类型绑定名笔误）一律在**声明期**（Pass 0.5 `Resolve`）发出，且只发一次：类级、方法级（无论被调用几次，
@@ -597,7 +589,7 @@ Run(g, 3);   // E0422: … parameter 1 is `String`, the constraint requires it t
 > **违反约束**（`E0402` 实参不满足 / `E0422` 函数签名不符）**仍然每个调用点各报一条**——那本来就是
 > per-call-site 的事实。
 
-### 5. 关联类型：同包 + 跨包均已实现（zbc 1.42）
+### 4. 关联类型：同包 + 跨包均已实现（zbc 1.42）
 
 同包（见上「关联类型」一节）与**跨包**都已完整校验。跨包由三份数据经 wire 承载打通：
 ① 接口关联类型名单（`type Item;`）+ ② 类侧绑定（`type Item = int;`）→ zbc TYPE 记录尾部**统一 assoc 块**

@@ -528,6 +528,53 @@ public sealed partial class SymbolTable {
         return this.GetClass(ct.BaseName);
     }
 
+    public bool ImplementsInterfaceType(Z42Type source, Z42InterfaceType target) {
+        var constructed = target as Z42InstantiatedInterfaceType;
+        if (source is Z42InterfaceType) {
+            if (constructed != null) {
+                return InterfaceClosure.IsExactConstructedSubtype(this, source as Z42InterfaceType, constructed);
+            }
+            return InterfaceClosure.IsInterfaceSubtype(this, source as Z42InterfaceType, target);
+        }
+        var instance = source as Z42InstantiatedType;
+        var current = instance == null ? source as Z42ClassType : instance.Def;
+        if (current == null) { return false; }
+        if (constructed == null) { return this.Implements(current.Fqn(), target.Fqn()); }
+        int hops = 0;
+        while (current != null) {
+            hops = SymbolTable.NextBaseHop(hops);
+            if (SymbolTable._declaresInterface(this, current, instance, constructed)) { return true; }
+            var parent = this.BaseOf(current);
+            if (parent != null && parent.GenericParamCount > 0) {
+                instance = this.ProjectBaseInstance(current, instance);
+                if (instance == null || instance.Def.Fqn() != parent.Fqn()
+                    || instance.ArgCount != parent.GenericParamCount) { return false; }
+            } else {
+                instance = null;
+            }
+            current = parent;
+        }
+        return false;
+    }
+
+    private static bool _declaresInterface(SymbolTable symbols, Z42ClassType current,
+                                           Z42InstantiatedType instance, Z42InstantiatedInterfaceType target) {
+        for (int i = 0; i < current.IfaceInstCount; i = i + 1) {
+            Z42InterfaceType candidate = current.IfaceInsts[i];
+            if (instance != null) { candidate = TypeSubst.Apply(candidate, new ClassArgsMap(instance)) as Z42InterfaceType; }
+            if (InterfaceClosure.IsExactConstructedSubtype(symbols, candidate, target)) { return true; }
+        }
+        if (current.InterfaceNames == null) { return false; }
+        for (int i = 0; i < current.InterfaceCount && i < current.InterfaceNames.Length; i = i + 1) {
+            string name = current.InterfaceNames[i];
+            if (name == null) { continue; }
+            var candidate = symbols.GetInterface(name);
+            if (candidate != null && candidate.TypeParamCount == 0
+                && InterfaceClosure.IsExactConstructedSubtype(symbols, candidate, target)) { return true; }
+        }
+        return false;
+    }
+
     // Project the immediate generic base into the receiver's type arguments.
     public Z42InstantiatedType ProjectBaseInstance(Z42ClassType ct, Z42InstantiatedType receiver) {
         Z42InstantiatedType instance = ct.BoundBaseInstance;

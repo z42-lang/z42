@@ -1,0 +1,6 @@
+namespace ConstructedConstraintLibrary;
+
+public interface ITag<T> {}
+public class Tagged<T> : ITag<T> {}
+public class Box<T> where T : ITag<T> {}
+public void Require<T>(T value) where T : ITag<T> {}

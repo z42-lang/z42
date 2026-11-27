@@ -273,6 +273,7 @@ public sealed partial class OverloadBinder {
             BoundExpr[] named = this._adaptArgs(ms, rawArgs, rawArgCount, env, sp);
             if (named != null) {
                 RefArgCheck.CheckAdaptedSlots(this._tc, named, ms.Signature);
+                RefArgCheck.CheckResolvedGenericSlots(this._tc, named, named.Length, ms.MethodErasedSig, ms.Signature);
                 return named;
             }
             // 适配不了（名字对不上 / 重复 / 实参多于形参）→ 落回原路，由既有诊断报。
@@ -289,6 +290,7 @@ public sealed partial class OverloadBinder {
         this._bindDeferredArgs(args, rawArgs, rawArgCount, ms.Signature, env);
         Z42FuncType checkSig = MethodTypeArgSubst.ForwardingCheckSignature(method, ms.Signature, args, rawArgCount, env);
         this.CheckArgTypes(args, rawArgs, rawArgCount, checkSig, env);
+        RefArgCheck.CheckResolvedGenericSlots(this._tc, args, rawArgCount, method.MethodErasedSig, checkSig);
         // add-primitive-value-boxing: 实参整数 → object/接口 形参 装箱（本方法是 5 处调用点的
         // 公共汇聚步——就地按 ms 形参类型逐位装箱；BoxArgs 对非整数/非 object·接口位 no-op）。
         // params 尾包（object[]/T[] 元素）不在此覆盖：ParamTypes[pf] 是数组类型 → BoxIfNeeded no-op（罕见）。
@@ -524,7 +526,7 @@ public sealed partial class OverloadBinder {
                 nm = nm + 1;
             } else {
                 Z42Type t = null;
-                if (args != null && i < args.Length && args[i] != null) { t = args[i].Type(); }
+                if (args != null && i < args.Length && args[i] != null) { t = RefArgCheck.ArgumentType(args[i]); }
                 else if (raw != null) { t = this._typeOfArgExpr(raw, env); }
                 a.PosTypes[pos] = t;
                 a.PosByRef[pos] = raw is RefArgExpr || (args != null && i < args.Length && args[i] is BoundRefArg);
@@ -540,7 +542,7 @@ public sealed partial class OverloadBinder {
         if (ExprTyper.IsTargetTypedNew(e) || ExprTyper.IsLambdaArg(e) || ExprTyper.IsOverloadedFuncRefArg(e, env)) { return null; }
         BoundExpr b = this._tc._expr._bindExpr(e, env);
         if (b == null) { return null; }
-        Z42Type t = b.Type();
+        Z42Type t = RefArgCheck.ArgumentType(b);
         if ((t is Z42ErrorType) || (t is Z42UnknownType)) { return null; }
         return t;
     }

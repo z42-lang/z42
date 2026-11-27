@@ -102,7 +102,13 @@ pub(super) fn validate_type_arg_constraint(
         }
     }
     for iface in &cb.interfaces {
-        if !constraint_satisfied_by(ctx, arg_name, iface) {
+        let satisfied = if iface.contains('<') {
+            let required = crate::zpkg::index::type_names::substitute(iface, type_params, all_arg_names);
+            type_name_assignable(ctx, arg_name, &required)
+        } else {
+            constraint_satisfied_by(ctx, arg_name, iface)
+        };
+        if !satisfied {
             bail!("MakeGenericType: `{arg_name}` for type parameter `{param_name}` must implement `{iface}`");
         }
     }

@@ -1,0 +1,11 @@
+using ConstructedConstraintLibrary;
+
+class Good : Tagged<Good> {}
+class Wrong : Tagged<string> {}
+
+void Main() {
+    var good = new Box<Good>();
+    Require<Good>(new Good());
+    var wrong = new Box<Wrong>();
+    Require<Wrong>(new Wrong());
+}

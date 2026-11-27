@@ -172,28 +172,20 @@ public sealed partial class MemberResolver {
                         + "`: a `Self` parameter has no safe bound here — use a type parameter instead, e.g. `where T : "
                         + it.Name() + "`", sp);
                 }
-                ims = MethodTypeArgSubst.ForExplicitTypeArgs(ims, call, env);   // 显式 `<T>` → 先代换签名再绑实参
                 var iRecv = iown as Z42InstantiatedInterfaceType;
+                Z42Type[] explicitArgs = MethodTypeArgSubst.ExplicitTypeArgs(call, env);
+                var declaration = ims.Signature;
+                ims = MethodTypeArgSubst.Substitute(ims, explicitArgs);
                 Z42FuncType checkSig = ims.Signature;
-                if (iRecv != null && ims.TypeParamCount == 0) {
-                    checkSig = MemberResolver._substIfaceSig(checkSig, iRecv);
+                if (iRecv != null) {
+                    checkSig = TypeSubst.ApplySig(declaration,
+                        new IfaceCallArgsMap(iRecv, ims.TypeParamNames, explicitArgs));
                 }
                 args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, checkSig, env);
-                // 实参装箱 / 表示转换：与其它调用形态同一个汇聚步（此前接口收者这条不经 `_withDefaults`，于是
-                // 整数传给 object 形参丢了宽度、struct 传给泛型方法的 T 位裸着逃出帧）。
+                RefArgCheck.CheckResolvedGenericSlots(this._tc, args, argCount, ims.MethodErasedSig, checkSig);
+                // The declaration determines boxing and the interface slot.
                 args = this._tc.BoxArgs(args, argCount, ims, env.Symbols);
-                // self-return-type-substitution：返回类型里的 `Self` 换成接收者的静态接口类型，
-                // 否则型参 `Self` 会裸奔到调用方（`var x = c.Copy()` 得到 `:Self`，不可用）。
-                Z42Type ifRet = MemberResolver._substSelf(ims.Signature.Ret, it);
-                // 泛型方法沿用方法实参绑定后的补查。普通成员已按实例化签名检查；
-                // 两者仍用声明签名决定物理调用约定。
-                if (iRecv != null) {
-                    ifRet = MemberResolver._substIfaceArgs(ifRet, iRecv);
-                    if (ims.TypeParamCount > 0) {
-                        this._tc._overload.CheckSubstitutedArgs(args, rawArgs, argCount, ims.Signature,
-                            MemberResolver._substIfaceSig(ims.Signature, iRecv), env);
-                    }
-                }
+                Z42Type ifRet = MemberResolver._substSelf(checkSig.Ret, it);
                 BoundCall ifc = BoundCall.Marked(new BoundCall("instance", true, recv, it.Name(), mem.Name, args, argCount,
                                      ifRet, sp), ims.Signature);
                 // fix-interface-overload-dispatch：按**归属接口**（继承来的成员归父接口，实参已逐层代下）发接口槽键。

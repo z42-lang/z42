@@ -723,33 +723,15 @@ public class Z42InterfaceType : Z42Type {
     // 两个接口类型是不是**同一个**接口（含类型实参）。接口身份的唯一判据；
     // `IsAssignableTo` 与 `InterfaceClosure` 的链上比较都走这里。
     //
-    // 🔴 **为什么不能只比 `Name()`**（这里此前就是）：`Z42InstantiatedInterfaceType.Name()`
-    // **刻意返回裸名**（见该类抬头：为了让既有 `is/as` 路径与元数据拼写逐字节不变）⇒ 只比名字
-    // 就把 `IBox<int>` 与 `IBox<string>` 判成同一个。实测这是条**静默错值**，不是误报：
-    //   `IBox<string> s = new SBox(); IBox<int> i = s; int bad = i.Get();`
-    // 编译期零诊断，跑出来 `bad = hello`、`bad + 1 = hello1`（exit 0）——静态类型 `int` 的变量
-    // 装着 string，加法静默变成拼接。**类那半一直是对的**（`Z42InstantiatedType.Name()` 带实参、
-    // `Conversion` H2 另有 `_sameTypeArgs`），只有接口这半漏，是不对称造成的洞。
-    //
-    // 一侧带实参、另一侧是**裸定义**时按名字放行：那表示实参**未知**（跨包声明形态尚未解析出来），
-    // 与本仓「信息不足一律放行、不叠第二条诊断」的既有口径一致（`_funcPosOk` / `_isDisposable`）。
-    // 身份用 FQ（两侧 ns 都有时才用）：短名在跨 ns 同短名时会把「没信息」变成自信的错答案。
+    // Preserve the nominal fallback for callers with a bare interface definition.
     public static bool SameInterface(Z42InterfaceType a, Z42InterfaceType b) {
         if (a == null || b == null) { return false; }
-        bool nameOk = false;
-        if (a.Namespace != "" && b.Namespace != "") { nameOk = a.Fqn() == b.Fqn(); }
-        else { nameOk = a.Name() == b.Name(); }
-        if (!nameOk) { return false; }
-        if (!(a is Z42InstantiatedInterfaceType) || !(b is Z42InstantiatedInterfaceType)) { return true; }
-        Z42InstantiatedInterfaceType ia = a as Z42InstantiatedInterfaceType;
-        Z42InstantiatedInterfaceType ib = b as Z42InstantiatedInterfaceType;
-        if (ia.ArgCount != ib.ArgCount) { return false; }
-        int i = 0;
-        while (i < ia.ArgCount) {
-            if (ia.TypeArgs[i].CanonName() != ib.TypeArgs[i].CanonName()) { return false; }
-            i = i + 1;
+        if (a is Z42InstantiatedInterfaceType && b is Z42InstantiatedInterfaceType) {
+            string key = LayoutKey.Of(a);
+            return key != "" && key == LayoutKey.Of(b);
         }
-        return true;
+        if (a.Namespace != "" && b.Namespace != "") { return a.Fqn() == b.Fqn(); }
+        return a.Name() == b.Name();
     }
 }
 
