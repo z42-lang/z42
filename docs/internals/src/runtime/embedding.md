@@ -2,7 +2,7 @@
 
 > 代码：`src/runtime/src/host/`（`ffi.rs` C 入口、`abi_config.rs` C 配置与回调适配、`error.rs` 状态码与 C 线程局部错误、
 > `session.rs` 共享嵌入会话、`marshal.rs` 值编组、`rust.rs` Rust 接口）、
-> `src/runtime/include/z42_host.h`（Tier 1 头文件）、
+> `src/runtime/include/z42_host.h`（宿主声明）、`src/runtime/include/z42.h`（统一入口）、
 > `src/runtime/src/corelib/io/mod.rs`（sink 路由）、`src/toolchain/workload/{desktop,ios,android,wasm}/`（Tier 3 facade）。
 >
 > **宿主怎么调**（函数签名、返回码、生命周期与线程约束）见
@@ -47,7 +47,7 @@ mobile 端拿到的是 host 端 `z42c` 编出来的 `.zbc` / `.zpkg`，由平台
 │  Tier 2: Rust 嵌入 API（z42::host::rust）                     │
 │    Host::new() / load_zbc / resolve_entry / invoke          │
 ├─────────────────────────────────────────────────────────────┤
-│  Tier 1: C ABI（z42_host.h）                                 │
+│  Tier 1: C ABI（z42.h）                                 │
 │    z42_host_* + z42_zpkg_read_namespaces + z42_host_run_app │
 └─────────────────────────────────────────────────────────────┘
                               ↓
@@ -56,7 +56,7 @@ mobile 端拿到的是 host 端 `z42c` 编出来的 `.zbc` / `.zpkg`，由平台
 
 | 路径 | 内容 |
 |------|------|
-| `src/runtime/include/z42_host.h` | Tier 1 C 头文件（与 `z42_abi.h` 平行）。**唯一一份**——iOS / Android facade 目录下那两个同名文件是只有一行 `#include` 的转发头 |
+| `src/runtime/include/z42_host.h` | 宿主 C ABI。统一头 `z42.h` 汇总该接口。iOS 与 Android facade 用同名转发头引用 Runtime 的定义 |
 | `src/runtime/src/host/` | Rust 宿主服务及 C ABI 适配（`ffi.rs`） |
 | `src/runtime/src/host/` | 统一宿主 z42 包及 Tier 2 Rust 接口 |
 | `src/toolchain/workload/fixtures/` | 各平台契约测试共用的 z42 夹具（`hello.z42` / `multi_line.z42`） |
@@ -290,7 +290,7 @@ wasm 是单线程、且经 `z42_wasm` 而不是这个 C 符号进来，所以那
 
 ## 改 ABI 时的检查清单
 
-1. `src/runtime/include/z42_host_api.h` 与 `src/runtime/src/host/`（`abi_config.rs` 的 `#[repr(C)]` 镜像、
+1. `src/runtime/include/z42_host.h` 与 `src/runtime/src/host/`（`abi_config.rs` 的 `#[repr(C)]` 镜像、
    `error.rs` 的 `#[repr(i32)]` 枚举）必须同步，**字段只追加不重排**。追加到 `Z42HostConfig` 的字段
    只在 `struct_size` 覆盖到时才读（`abi_config::validate`），`MIN_CONFIG_SIZE` 固定为原始 v2 前缀大小。
 2. `src/runtime/include/README.md` 的类型 / 函数清单。

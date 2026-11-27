@@ -15,7 +15,7 @@ VM。模块函数协议使用 `z42_native.h`，类型方法协议使用 `z42_abi
 | 调用 z42vm 内置的原生函数 | `extern` + `[Native("__name")]` | 只有 `z42.core` 能这样写；其余包写了报 `E0919`，改调 core 的公开 API |
 | 调用随 SDK 分发的 native 扩展库（如压缩） | `[Native(lib="z42_x", entry="__y")]` | interp/JIT 可用；按 `(lib, entry)` 精确查询，缺失抛 `MissingSymbolException` |
 | 调用**自己**用 C / Rust 写的 native 类型的方法 | `[Native(lib=, type=, entry=)]` + Tier 1 注册 | 可用，**仅解释器**；类型须由宿主或静态链接注册 |
-| 在宿主程序里启动 z42 VM | `z42_host.h` | 见 [C ABI 契约](c-abi.md) |
+| 在宿主程序里启动 z42 VM | `z42.h` | 见 [C ABI 契约](c-abi.md) |
 
 模块函数通过 C 描述符声明参数与返回类型，支持标量、字符串、字节数组和字符串数组的复制。typed native 类型方法只接收下文定义的 blittable 标量与指针；托管 class 实例不会自动转换成 C 对象。
 
@@ -159,7 +159,7 @@ typedef struct Z42Error { uint32_t code; const char* message; } Z42Error;
 tag 值已冻结，只能追加：`NULL=0` `I64=1` `F64=2` `BOOL=3` `STR=4` `OBJECT=5` `TYPEREF=6`
 `NATIVEPTR=7` `PINNED_VIEW=8`。
 
-> `Z42Value` / `Z42Args` 与[C ABI 契约](c-abi.md) 的 `z42_host.h` **是同一份定义**，两套头文件并行但不
+> `Z42Value` / `Z42Args` 与[C ABI 契约](c-abi.md) 的 `z42.h` **是同一份定义**，两套头文件并行但不
 > 重复声明。`Z42Error.message` 由 VM 拥有，**不要 free**。
 
 ### 3.3 签名串语法

@@ -183,7 +183,7 @@ zpkg 文件本身**由 `dotnet build src/compiler/z42.slnx` 编译标准库产�
 
 ## 错误码 → 平台异常映射
 
-各平台 facade 把 [`Z42HostStatus`](../../../runtime/include/z42_host.h) 翻译成本平台原生错误形式，但**保留 status code + message**，便于宿主诊断：
+各平台 facade 将 [`Z42HostStatus`](../../runtime/include/z42_host.h) 映射为本平台的错误形式，保留 status code 与 message 供宿主诊断。
 
 | Z42HostStatus | iOS `Z42VMError` | Android `Z42VMException` | WASM `Z42VMError` |
 |---------------|------------------|--------------------------|-------------------|

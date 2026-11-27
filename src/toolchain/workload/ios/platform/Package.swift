@@ -33,7 +33,7 @@ let package = Package(
             path: "Z42VM.xcframework"
         ),
 
-        // C bridge — exposes z42_host.h + z42_abi.h to Swift via a
+        // C bridge — exposes z42.h + z42_abi.h to Swift via a
         // clang module. The actual symbols are linked from
         // Z42VM.xcframework's binary library; this target only
         // contributes headers + module map.

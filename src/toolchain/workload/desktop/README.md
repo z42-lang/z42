@@ -6,7 +6,7 @@
 ## 职责
 
 桌面(host)平台的 **R1–R7 嵌入契约**测试——一个真实外部 C 消费者链接 `libz42.a`，
-经 Tier-1 C ABI（[`z42_host.h`](../../../runtime/include/z42_host.h)）跑与 wasm/iOS/Android
+经 Tier-1 C ABI（[`z42.h`](../../../runtime/include/z42.h)）跑与 wasm/iOS/Android
 facade **同一套 7 场景**。覆盖桌面 C-ABI 这条路径的「链接 libz42.a 的外部程序」端到端。
 另含 per-RID apphost stub 的 Rust 源（`platform/apphost/`）。
 

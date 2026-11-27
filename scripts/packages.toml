@@ -109,7 +109,7 @@ project = "src/toolchain/workload/desktop/platform/apphost/Cargo.toml"
 dest = "apphost-{rid}"   # per-RID；workload-desktop 每个 RID 各产一个，CI 再合并
 
 [component.native]
-kind = "cargo-native"    # 嵌入件 libz42.{a,so,dylib} / z42.{lib,dll,dll.lib} + z42_abi.h/z42_host.h
+kind = "cargo-native"    # 嵌入件 libz42.{a,so,dylib} / z42.{lib,dll,dll.lib} + z42_abi.h/z42.h
 project = "src/runtime/Cargo.toml"
 dest = "native/"
 

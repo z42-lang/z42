@@ -1,4 +1,4 @@
-# 嵌入 C ABI（`z42_host.h`）
+# 嵌入 C ABI（`z42.h`）
 
 > **代码**：`src/runtime/include/z42_host.h`、`src/runtime/src/host/`
 >
@@ -12,8 +12,10 @@ VM 内部怎么实现这套 ABI 不在本页。
 只想「跑一个打好包的 app，不要句柄」的话，直接用[一次性入口 `z42_host_run_app`](#一次性入口z42_host_run_app)。
 
 ```c
-#include "z42_host.h"   /* 自带 #include "z42_abi.h" */
+#include "z42.h"
 ```
+
+宿主 API 声明位于 `z42_host.h`，可直接包含。需要组件登记或 native 模块接口时包含 `z42.h`。
 
 头文件随 **runtime 包**（`z42-runtime-<版本>-<rid>`）分发在 `native/include/`；仓内在 `src/runtime/include/`。
 SDK 包不带嵌入件——它的 `native/` 只放 z42vm 自己加载的扩展库。
@@ -37,7 +39,7 @@ typedef struct Z42Entry*  Z42EntryRef;    /* 解析后的入口 */
 
 **ABI 演进规则**：`abi_version` 永远在偏移 0；新字段只往结构体尾部追加，不重排；主版本号变更 = 显式 break。
 调用方必须把 `struct_size` 设为 `sizeof(Z42HostConfig)`：运行时只读 `struct_size` 覆盖到的尾部字段，用老头文件编译的调用方不会被越界读，新字段对它们等于「没配置」。
-v1 没有这个字段（同一位置是 `reserved`），旧调用方在 v2 运行时上拿到 `ERR_BAD_CONFIG`（`abi_version` 不匹配），需要按新头文件重新编译。
+各平台使用同一份配置。调用方将 `abi_version` 设为头文件提供的 `Z42_HOST_ABI_VERSION`，运行时发现版本不匹配时返回 `ERR_BAD_CONFIG`。
 
 ---
 
@@ -86,7 +88,7 @@ typedef struct Z42HostConfig {
 | 字段 | 语义 |
 |---|---|
 | `abi_version` | 不等于 `Z42_HOST_ABI_VERSION` → `ERR_BAD_CONFIG` |
-| `struct_size` | 调用方编译时的 `sizeof(Z42HostConfig)`。小于原始 v2 前缀 `Z42_HOST_CONFIG_V2_SIZE` 时返回 `ERR_BAD_CONFIG` |
+| `struct_size` | 调用方编译时的 `sizeof(Z42HostConfig)`。小于要求的前缀 `Z42_HOST_CONFIG_MIN_SIZE` 时返回 `ERR_BAD_CONFIG` |
 | `exec_mode` | 值不在 0–3 → `ERR_BAD_CONFIG`；`JIT` 未开启构建能力或平台不支持 → `ERR_FEATURE_OFF`；组件来源在加载程序时校验，缺失或不兼容返回 `ERR_BAD_ZBC`；`AOT` 未开启对应 feature 也返回此错误。`Default` 使用构建默认后端，`Interp` 使用解释器，`JIT` 使用 JIT；AOT 尚未实现，执行时明确返回错误 |
 | `heap_initial_bytes` / `heap_max_bytes` | **当前被忽略**，填 0 即可 |
 | `stdout_sink` / `stderr_sink` | 见 [stdout / stderr 重定向](#stdout--stderr-重定向) |
@@ -360,7 +362,7 @@ void Main() {
 编成 `hello.zbc`（入口 FQN 就是 `Hello.Main`）。C 宿主一侧：
 
 ```c
-#include "z42_host.h"
+#include "z42.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -429,7 +431,7 @@ Windows 宿主若按运行期装载（dlopen）而非直接链接：请用 `LOAD
 静态宿主可直接选择独立组件。所有库须来自同一 runtime 包；链接所需的 `libz42_interp.a`（Windows 为 `z42_interp.lib`）及 `libz42.a`，原生链接参数取包内 `manifest.toml` 的 `[components.<stem>].link_flags`（Windows 的第三方导入库由 `[assets].third_party_libs` 点名、随包提供）。加载程序前登记工厂：
 
 ```c
-#include "z42_host.h"
+#include "z42.h"
 uint32_t status = z42_component_register_static(
     Z42_COMPONENT_INTERP, z42_interp_init);
 ```
@@ -450,7 +452,7 @@ Android arm64/x64 runtime 同时发布核心、解释器、JIT 和压缩的独�
 CPU 采样与堆分析由可选 profiler 提供。原生动态部署使用同包的 `libz42_profiler.dylib` / `libz42_profiler.so` / `z42_profiler.dll`；未使用分析功能时不会装载它。静态宿主按需链接 `libz42_profiler.a`（Windows 为 `z42_profiler.lib`），在创建宿主前登记：
 
 ```c
-#include "z42_host.h"
+#include "z42.h"
 uint32_t status = z42_component_register_static(
     Z42_COMPONENT_PROFILER, z42_profiler_init);
 ```

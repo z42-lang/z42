@@ -72,8 +72,7 @@ void _plSdk(string root, _PkgLayout L, string rid) {
 
 // 桌面 runtime 包 = 嵌入者拿 libz42 的唯一来源：静态 + 动态（Windows 另有 import lib）+ C 头。
 void _plRuntimeDesktop(string root, _PkgLayout L, string rid) {
-    L.HasFile("native/include/z42_host.h");
-    L.HasFile("native/include/z42_native.h");
+    _plRuntimeHeaders(L, "native/include");
     _plComponentLibraries(L, rid);
     L.HasFile(rid.StartsWith("windows-") ? "native/z42.lib" : "native/libz42.a");
     _plStaticComponents(L, rid);
@@ -83,6 +82,10 @@ void _plRuntimeDesktop(string root, _PkgLayout L, string rid) {
             L.HasFile("native/" + stem + ".dll.lib");
         }
     }
+}
+
+void _plRuntimeHeaders(_PkgLayout L, string directory) {
+    foreach (var h in _runtimePublicHeaders()) { L.HasFile(directory + "/" + h); }
 }
 
 void _plComponentLibraries(_PkgLayout L, string rid) {
@@ -98,7 +101,7 @@ void _plRuntimeIos(_PkgLayout L, string rid) {
     _plStaticComponents(L, rid);
     L.Expect(Path.Glob(L.P("native"), "*.dylib").Length == 0, "iOS dynamic libraries use Frameworks", "naked dylib found");
     L.HasFile("native/libz42.a");
-    L.HasDir("native/include");
+    _plRuntimeHeaders(L, "native/include");
     L.HasDir("libs");
     L.Absent("native/Z42VM.xcframework", "static archive is published directly");
     L.Absent("native/Z42VMDynamic.xcframework", "dynamic framework is published directly");
@@ -113,7 +116,7 @@ void _plRuntimeAndroid(_PkgLayout L, string rid) {
     L.Expect(Path.Glob(L.P("native"), "libstd-*.so").Length == 1, "Android matching shared std", "missing or ambiguous");
     L.HasFile("native/libz42.so");
     L.HasFile("native/libz42.a");
-    L.HasDir("native/include");
+    _plRuntimeHeaders(L, "native/include");
     L.HasDir("libs");
     string ndk = _androidNdkDir(_root());
     string[] readelf = Path.GlobRecursive(Path.Join(ndk, "toolchains/llvm/prebuilt"), "*/bin/llvm-readelf");
@@ -128,6 +131,7 @@ void _plRuntimeAndroid(_PkgLayout L, string rid) {
 
 void _plRuntimeWasm(_PkgLayout L) {
     _plStaticComponents(L, "browser-wasm");
+    _plRuntimeHeaders(L, "native/include");
     L.HasFile("native/z42_wasm_bg.wasm");
     L.HasFile("native/libz42.a");
     L.HasDir("pkg-web");
@@ -149,7 +153,7 @@ void _plRuntimeWasm(_PkgLayout L) {
 // tooling 包 = SwiftPM 源码 + 自包含的 Z42VMC 头 + 安装期才解析的 Package.swift 占位模板。
 void _plToolingIos(_PkgLayout L) {
     L.HasDir("Sources/Z42VM");
-    L.HasFile("Sources/Z42VMC/include/z42_host.h");
+    _plRuntimeHeaders(L, "Sources/Z42VMC/include");
     L.HasFile("Package.swift");
     string ps = File.Exists(L.P("Package.swift")) ? File.ReadAllText(L.P("Package.swift")) : "";
     L.Expect(ps.Contains("__Z42_RUNTIME_XCFRAMEWORK__"), "Package.swift 是安装期解析的占位模板", "缺占位符 __Z42_RUNTIME_XCFRAMEWORK__");
@@ -161,7 +165,7 @@ void _plToolingAndroid(_PkgLayout L) {
     L.HasFile("settings.gradle.kts");
     L.HasDir("z42vm/src/main/java/io/z42/vm");
     L.HasFile("z42vm/src/main/cpp/z42vm_jni.c");
-    L.HasFile("z42vm/src/main/cpp/include/z42_host.h");
+    _plRuntimeHeaders(L, "z42vm/src/main/cpp/include");
 }
 
 void _plToolingWasm(_PkgLayout L) {
@@ -242,7 +246,7 @@ void _plStaticComponents(_PkgLayout L, string rid) {
 }
 
 void _plIosDynamic(_PkgLayout L, string rid) {
-    L.HasFile("native/z42.framework/Headers/z42_host.h");
+    _plRuntimeHeaders(L, "native/z42.framework/Headers");
     foreach (var stem in _iosFrameworkStems(rid)) {
         _plIosFramework(L, rid, stem);
     }

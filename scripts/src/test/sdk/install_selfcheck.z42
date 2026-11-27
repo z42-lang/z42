@@ -103,19 +103,21 @@ int _testPackagesInstall() {
         _stgAssert("runtime link.txt not shipped " + stem, !File.Exists(Path.Join(pkgDir, "native/" + stem + "-link.txt")));
     }
     _stgAssert("native/include/z42_abi.h exists", File.Exists(Path.Join(pkgDir, "native/include/z42_abi.h")));
-    _stgAssert("native/include/z42_host.h exists", File.Exists(Path.Join(pkgDir, "native/include/z42_host.h")));
+    _stgAssert("native/include/z42.h exists", File.Exists(Path.Join(pkgDir, "native/include/z42.h")));
+    string umbrella = File.ReadAllText(Path.Join(pkgDir, "native/include/z42.h"));
     string hostHeader = File.ReadAllText(Path.Join(pkgDir, "native/include/z42_host.h"));
-    _stgAssert("native umbrella includes component linkage", hostHeader.Contains("z42_component_register_static"));
-    _stgAssert("native umbrella is standalone", !hostHeader.Contains("#include \"../"));
+    _stgAssert("native umbrella includes component linkage", umbrella.Contains("z42_component_register_static"));
+    _stgAssert("native umbrella includes the host API", umbrella.Contains("#include \"z42_host.h\""));
+    _stgAssert("host header owns host configuration", hostHeader.Contains("typedef struct Z42HostConfig"));
+    _stgAssert("host header includes shared ABI types", hostHeader.Contains("#include \"z42_abi.h\""));
     _stgAssert("no extra component header for consumers", !File.Exists(Path.Join(pkgDir, "native/include/z42_components.h")));
     string deviceHeaders = _xtaskWork(root, "device-header-selfcheck");
     _resetDir(deviceHeaders);
-    foreach (var header in new string[]{ "z42_host.h", "z42_abi.h", "z42_native.h" }) {
+    foreach (var header in _runtimePublicHeaders()) {
         string published = File.ReadAllText(Path.Join(pkgDir, "native/include/" + header));
         _stgAssert("published header is standalone " + header, !published.Contains("#include \"../"));
         _stgAssert("published header matches owner " + header,
             published == _runtimeHeaderText(Path.Join(root, "src/runtime/include/" + header)));
-        if (header == "z42_native.h") { continue; }
         foreach (var platform in new string[]{ "ios", "android" }) {
             string rel = platform == "ios" ? "Sources/Z42VMC/include/" + header : "z42vm/src/main/cpp/include/" + header;
             string source = _dhContentSource(root, platform, rel, Path.Join(_deviceHostSrc(root, platform), rel));

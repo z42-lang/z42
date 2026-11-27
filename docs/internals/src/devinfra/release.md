@@ -78,7 +78,7 @@ Windows ZIP 的条目名统一使用 `/`，不随 PowerShell 的 .NET 目标框�
 
 ```
 desktop SDK:  z42  bin/  programs/  libs/  native/libz42_compression.<dyn>  manifest.toml
-runtime:      libs/  native/{libz42.{a,dylib,so} | z42.{lib,dll,dll.lib}, libz42_compression.<dyn>, include/{z42_abi.h,z42_host.h}}
+runtime:      libs/  native/{libz42.{a,dylib,so} | z42.{lib,dll,dll.lib}, libz42_compression.<dyn>, include/{z42_abi.h,z42.h}}
 ios:          libs/  native/{libz42.a, z42.framework/}  Sources/{Z42VM,Z42VMC}/  Package.swift  manifest.toml
 android:      libs/  native/libz42.{a,so}  z42vm/src/main/{java,cpp}/  manifest.toml
 wasm:         libs/  native/{libz42.a, z42_wasm_bg.wasm}  pkg-web/  pkg-nodejs/  js/  package.json  manifest.toml
@@ -89,7 +89,7 @@ runtime 包另外提供静态嵌入归档与 C 头，保留各平台的链接形
 发布的动态库都是可重定位的：macOS install name 是 `@rpath/<名>`，
 Linux 带 SONAME（= 文件名），Windows 带 import lib `z42.dll.lib`（`z42.lib` 是静态库）。
 
-C ABI 头文件统一落 `native/include/`（`z42_abi.h` + `z42_host.h`，源是
+C ABI 头文件统一落 `native/include/`（`z42_abi.h` + `z42.h`，源是
 `src/runtime/include/`）；iOS 与 Android 的平台目录下还各有一份同名 include，装的也是这两个
 真头文件，源树同名目录里那些 `#include "../../.."` 转发 stub 不进包。
 

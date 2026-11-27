@@ -2,7 +2,7 @@ package io.z42.vm
 
 /**
  * Thrown for any non-OK status returned by the runtime. `status` is
- * the numeric [Z42HostStatus](../../../../../../../runtime/include/z42_host.h)
+ * the numeric [Z42HostStatus](../../../../../../../runtime/include/z42.h)
  * value (1..99); `message` is the runtime's diagnostic.
  *
  * Spec: 变更 add-platform-android/

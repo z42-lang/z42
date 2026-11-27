@@ -16,9 +16,8 @@
 
 /* z42_abi.h ships with the runtime. CMake / cc-rs build script adds
  * `src/runtime/include` to the include path. */
-#include "z42_abi.h"
+#include "z42_host.h"
 #include "z42_native.h"
-#include "z42_host_api.h"
 
 size_t z42_native_layout(size_t index) {
     const size_t fields[] = {
@@ -35,7 +34,7 @@ size_t z42_host_layout(size_t index) {
     struct AlignedConfig { char pad; Z42HostConfig config; };
     const size_t fields[] = {
         sizeof(Z42HostConfig), offsetof(struct AlignedConfig, config),
-        sizeof(Z42ExecMode), sizeof(Z42HostStatus), Z42_HOST_CONFIG_V2_SIZE,
+        sizeof(Z42ExecMode), sizeof(Z42HostStatus), Z42_HOST_CONFIG_MIN_SIZE,
         offsetof(Z42HostConfig, abi_version), offsetof(Z42HostConfig, struct_size),
         offsetof(Z42HostConfig, exec_mode), offsetof(Z42HostConfig, heap_initial_bytes),
         offsetof(Z42HostConfig, heap_max_bytes), offsetof(Z42HostConfig, stdout_sink),

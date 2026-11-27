@@ -1,4 +1,4 @@
-/* desktop R1–R7 — platform test harness for the Tier-1 C ABI (z42_host.h).
+/* desktop R1–R7 — platform test harness for the Tier-1 C ABI (z42.h).
  *
  * The desktop peer of the wasm Playwright / iOS XCTest / Android JUnit R1–R7
  * suites: a real external C consumer links libz42.a and exercises the same
@@ -9,7 +9,7 @@
  * Output:  one `[Rn] PASS` / `[Rn] FAIL: <msg>` line per scenario.
  * Exit:    0 iff all 7 pass, else 1 (2 = usage / setup error).
  *
- * Status-code contract (z42_host.h Z42HostStatus):
+ * Status-code contract (z42.h Z42HostStatus):
  *   R1 smoke         load+resolve+invoke hello → stdout "hello, world"
  *   R2 bad zbc       garbage bytes            → ERR_BAD_ZBC (10)
  *   R3 unknown entry resolve "Nope.Missing"   → ERR_ENTRY_NOT_FOUND (20)
@@ -23,9 +23,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "z42_host.h"
+#include "z42.h"
 
-_Static_assert(offsetof(Z42HostConfig, zpkg_resolver_write) == Z42_HOST_CONFIG_V2_SIZE,
+_Static_assert(offsetof(Z42HostConfig, zpkg_resolver_write) == Z42_HOST_CONFIG_MIN_SIZE,
                "the resolver extension follows the original v2 prefix");
 
 /* ── stdout capture sink (no prefix; raw bytes) ─────────────────────────── */
@@ -85,7 +85,7 @@ int main(int argc, char** argv) {
     /* R1 — smoke */
     {
         Z42HostConfig c = mkcfg(paths); Z42HostRef h = NULL;
-        c.struct_size = Z42_HOST_CONFIG_V2_SIZE;
+        c.struct_size = Z42_HOST_CONFIG_MIN_SIZE;
         if (z42_host_initialize(&c, &h) != Z42_HOST_OK) { fail("R1", "initialize with v2 prefix"); }
         else {
             Z42ModuleRef m = NULL; Z42EntryRef e = NULL; Z42Value r; reset_capture();

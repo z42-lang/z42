@@ -39,9 +39,9 @@ fn unified_native_header_exposes_host_and_linkage_without_extra_includes() {
         child.stdin.take().unwrap().write_all(source.as_bytes()).unwrap();
         child.wait_with_output().unwrap()
     };
-    let host = compile("#include \"z42_host.h\"\nZ42HostRef host;\n");
+    let host = compile("#include \"z42.h\"\nZ42HostRef host;\n");
     assert!(host.status.success(), "{}", String::from_utf8_lossy(&host.stderr));
-    let composition = compile("#include \"z42_host.h\"\nuint32_t init(void) { return z42_component_register_static(Z42_COMPONENT_INTERP, z42_interp_init); }\n");
+    let composition = compile("#include \"z42.h\"\nuint32_t init(void) { return z42_component_register_static(Z42_COMPONENT_INTERP, z42_interp_init); }\n");
     assert!(composition.status.success(), "{}", String::from_utf8_lossy(&composition.stderr));
 }
 
