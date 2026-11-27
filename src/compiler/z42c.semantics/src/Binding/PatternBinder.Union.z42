@@ -1,0 +1,54 @@
+namespace Z42.Semantics;
+
+using Z42.Core;
+using Z42.Syntax;
+using Z42.Symbols;
+
+public sealed partial class PatternBinder {
+    internal BoundPattern TryBindUnionCase(TypeExpr type, Pattern[] children, int count, Z42Type subject, TypeEnv env, Span span) {
+        if (env.Symbols.FirstUnionDeclaration == null) { return null; }
+        NamedType name = type as NamedType;
+        if (name == null) { return null; }
+        int dot = name.Name.LastIndexOf('.');
+        if (dot < 0) { return null; }
+        string qualifier = name.Name.Substring(0, dot);
+        Z42ClassType owner = env.Symbols.GetClass(qualifier);
+        if (owner == null || owner.UnionCases == null) { return null; }
+
+        this._tc._chkStaticOwnerQualified(env.Symbols, owner, qualifier, span);
+        this._tc.ChkAmbiguousBareName(env.Symbols, qualifier, span);
+        string caseName = name.Name.Substring(dot + 1, name.Name.Length - dot - 1);
+        UnionCaseSymbol branch = UnionCaseSymbol.Find(owner, caseName);
+        if (branch == null) {
+            this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
+                "union `" + qualifier + "` has no case `" + caseName + "`", span);
+            return new BoundWildcardPattern(span);
+        }
+        if (subject is Z42ErrorType) { return new BoundWildcardPattern(span); }
+        if (UnionCaseSymbol.UnionOf(subject) != owner) {
+            this._tc._diags.Error(DiagnosticCodes.TypeMismatch,
+                "union case `" + name.Name + "` cannot match a value of type `" + subject.Name() + "`", span);
+            return new BoundWildcardPattern(span);
+        }
+        Z42FuncType signature = branch.ForType(subject);
+        if (count != signature.ParamCount) {
+            this._tc._diags.Error(DiagnosticCodes.TypeMismatch,
+                "union case `" + name.Name + "` has " + signature.ParamCount.ToString() + " payload field(s)", span);
+            return new BoundWildcardPattern(span);
+        }
+
+        BoundPattern[] elems = new BoundPattern[count];
+        int i = 0;
+        while (i < count) {
+            elems[i] = this.Bind(children[i], signature.ParamTypes[i], env);
+            BoundConstantPattern literal = elems[i] as BoundConstantPattern;
+            if (literal != null) {
+                this._tc.CheckImplicitConvert(literal.Value, signature.ParamTypes[i], env.Symbols, literal.Span, "union payload pattern");
+            }
+            i = i + 1;
+        }
+        var pattern = new BoundPositionalPattern(name.Name, subject, signature.ParamNames, signature.ParamTypes, elems, count, span);
+        pattern.UnionCase = branch;
+        return pattern;
+    }
+}

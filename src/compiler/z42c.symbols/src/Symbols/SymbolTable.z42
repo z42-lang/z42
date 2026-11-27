@@ -17,6 +17,7 @@
 namespace Z42.Symbols;
 using Z42.IR;   // StrMap 统一到 z42c.ir（compiler-review §4.1）
 
+using Z42.Core;
 using Z42.Syntax;
 
 internal sealed class MethodConstraintEntry {
@@ -131,6 +132,7 @@ public sealed partial class SymbolTable {
     // 各算一份 ⇒ 「a.z42 的 `Foo` + b.z42 的 `Foo<T>`」两边都不 mangle、撞同一个裸键。
     // 由 SymbolCollector 在**任何** stub 注册之前一次算好，两个生产点都读这里。
     public StrMap MultiArityNames;
+    public Span FirstUnionDeclaration;
     private StrMap _firstArity;   // NoteArities 的中间态：短名 → 首次见到的 arity
     public StrMap CurrentAliases;   // add-type-alias：当前 CU 的文件级类型别名 name → TypeExpr（null=无）；per-CU 设置
     // 正在收集成员的类（展平名，嵌套为 `Outer+Inner`；"" = 不在类里）。裸类型名主解析落空时沿它的 `+` 链上溯找
@@ -227,6 +229,7 @@ public sealed partial class SymbolTable {
     // 用（预分配包级大表）——视图是 per-CU × per-pass 建的，走公开构造器会把那些表原地丢弃。
     private SymbolTable(SymbolTable parent) {
         this._methodConstraints = parent._methodConstraints;
+        this.FirstUnionDeclaration = parent.FirstUnionDeclaration;
         this.ClassesByFqn = parent.ClassesByFqn;   // fix-type-ref-ns-collision：共享 FQN 视图（并行段内只读）
         this.FunctionsByFqn = parent.FunctionsByFqn;   // 共享（并行段内只读）
         this.FuncOverloadsByFqn = parent.FuncOverloadsByFqn;   // free-function-overloads：共享（并行段内只读）
@@ -392,18 +395,26 @@ public sealed partial class SymbolTable {
             if (d is ClassDecl) {
                 ClassDecl c = d as ClassDecl;
                 if (c.Kind == "class" || c.Kind == "struct") {
-                    string ar = c.TypeParams.Count.ToString();
-                    int at = this._firstArity.Find(c.Name);
-                    if (at < 0) { this._firstArity.Put(c.Name, new StrBox(ar)); }
-                    else if ((this._firstArity.ValAt(at) as StrBox).Value != ar) {
-                        this.MultiArityNames.Put(c.Name, "1");
-                    }
+                    this._noteArity(c.Name, c.TypeParams.Count);
                 }
+            } else if (d is UnionDecl) {
+                UnionDecl unionDecl = d as UnionDecl;
+                this._noteArity(unionDecl.Name, unionDecl.TypeParams.Count);
             }
             i = i + 1;
         }
     }
 
+
+
+    private void _noteArity(string name, int count) {
+        string arity = count.ToString();
+        int at = this._firstArity.Find(name);
+        if (at < 0) { this._firstArity.Put(name, new StrBox(arity)); }
+        else if ((this._firstArity.ValAt(at) as StrBox).Value != arity) {
+            this.MultiArityNames.Put(name, "1");
+        }
+    }
 
 
     // add-type-alias：扫 CU 的 UsingAliasDecl → name → Target TypeExpr（文件级）。无别名返回 null。

@@ -24,6 +24,10 @@ public sealed partial class MemberResolver {
     }
 
     internal BoundExpr _bindMember(MemberExpr m, TypeEnv env) {
+        if (env.Symbols.FirstUnionDeclaration != null) {
+            BoundExpr unionValue = this._tryBindUnionCase(m, null, env);
+            if (unionValue != null) { return unionValue; }
+        }
         // 裸类名静态字段读（SA-2）：Sev.Error——target 是类名（非变量）→ StaticGet
         if (m.Target is IdentExpr) {
             IdentExpr tid = m.Target as IdentExpr;
@@ -621,6 +625,10 @@ public sealed partial class MemberResolver {
 
     [Suppress("style.fnLinesHard", "78 body lines；拆分见 code-organization.md")]
     internal BoundExpr _bindCall(CallExpr call, TypeEnv env) {
+        if (env.Symbols.FirstUnionDeclaration != null && call.Callee is MemberExpr) {
+            BoundExpr unionValue = this._tryBindUnionCase(call.Callee as MemberExpr, call, env);
+            if (unionValue != null) { return unionValue; }
+        }
         BoundExpr[] args = new BoundExpr[call.ArgCount];
         int i = 0;
         // add-target-typed-new：target-typed new 实参延迟绑定（留 null）——形参类型要等重载选定后才知道。

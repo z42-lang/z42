@@ -87,6 +87,7 @@ public sealed class BoundMethodGroup : BoundExpr {
 // 顶层自由函数调用（1A stub：仅 callee 名 + 实参 + 返回类型；成员/虚分派见 1C）。
 // 调用：Kind = "free"（顶层函数）/ "instance"（obj.m）/ "static"（Class.m）。
 public sealed class BoundCall : BoundExpr {
+    public UnionCaseSymbol UnionCase;
     public string      Kind;
     public bool        HasReceiver;
     public BoundExpr   Receiver;     // 仅 instance

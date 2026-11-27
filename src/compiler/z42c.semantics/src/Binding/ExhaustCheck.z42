@@ -21,6 +21,12 @@ public sealed class ExhaustChecker {
 
     // switch 语句穷尽性
     internal void CheckStmt(BoundSwitch sw, TypeEnv env) {
+        Z42Type subject = sw.Subject.Type();
+        Z42ClassType owner = UnionCaseSymbol.UnionOf(subject);
+        if (owner != null) {
+            UnionCoverage.CheckStmt(sw, owner, this._tc._diags);
+            return;
+        }
         int i = 0;
         while (i < sw.CaseCount) {
             BoundSwitchCase c = sw.Cases[i];
@@ -39,6 +45,12 @@ public sealed class ExhaustChecker {
 
     // switch 表达式穷尽性
     internal void CheckExpr(BoundSwitchExpr sw, TypeEnv env) {
+        Z42Type subject = sw.Subject.Type();
+        Z42ClassType owner = UnionCaseSymbol.UnionOf(subject);
+        if (owner != null) {
+            UnionCoverage.CheckExpr(sw, owner, this._tc._diags);
+            return;
+        }
         int i = 0;
         while (i < sw.ArmCount) {
             BoundSwitchArm a = sw.Arms[i];

@@ -335,6 +335,8 @@ public sealed class SymbolCollector {
         while (c < cuCount) { this._stub._passBindTypeBases(table, cus[c]); c = c + 1; }
         c = 0;
         while (c < cuCount) { this._member._passMembers(table, cus[c]); c = c + 1; }
+        c = 0;
+        while (c < cuCount) { this._stub._bindUnionPayloads(table, cus[c]); c = c + 1; }
         this._enforce._passResolvePartialMethods();   // add-partial-types：partial method 实现↔声明配对校验（decl-only 已在 _fillClass 擦除）
         // add-implicit-base-ctor-call：构造器继承 / 默认构造器——须在**全部** CU 的成员收集之后（基类可能在别的 CU），
         // 在 override 对齐等基链 pass 之前（合成的是普通 ctor 声明，后续 pass 与显式 ctor 一视同仁）。

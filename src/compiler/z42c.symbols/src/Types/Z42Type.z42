@@ -118,6 +118,7 @@ public sealed class Z42ClassType : Z42Type {
     // add-struct-value-semantics：值类型标志（Kind=="struct"）。SymbolCollector._putClassStub 从 ClassDecl.Kind
     // 回填。供 StructLayout 判定字段是否递归展平（值内联）+ 未来 codegen 值语义分流。record 暂不算（引用）。
     public bool IsStruct;
+    public UnionCaseSymbol[] UnionCases;
     // make-enum-distinct-type：枚举类型标志。enum 在类型位置解析成 Z42ClassType（无基类、无成员），
     // 靠本标志与普通类区分——转换格（enum ↔ 底层整数须显式 cast）、运算符表（enum 的 ==/!=/关系比较）、
     // 装箱（须保住 enum 身份，别退化成 Int32）三处据此分流。
@@ -522,6 +523,10 @@ public sealed class Z42ClassType : Z42Type {
     }
     public override bool IsAssignableTo(Z42Type other) {
         if (other is Z42ErrorType) { return true; }
+        if (this.UnionCases != null || (other is Z42ClassType && (other as Z42ClassType).UnionCases != null)) {
+            return other is Z42ClassType && this.Fqn() == (other as Z42ClassType).Fqn()
+                && this.UnionCases != null && (other as Z42ClassType).UnionCases != null;
+        }
         // 同名（1A-1 不查继承链；subclass→base 赋值在 1C，需类表走 base 链）
         // enforce-fqn-name-identity：同短名还要**同命名空间** —— `A.Base` 与 `B.Base` 是两个类型。此前只比短名 ⇒
         // 两者互相「可赋」、零诊断，运行期第一次成员访问才炸。一侧 ns 为空（合成 / 临时造的类型对象没登记 ns）时

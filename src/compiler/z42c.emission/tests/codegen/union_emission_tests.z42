@@ -1,0 +1,27 @@
+namespace Z42cEmissionUnionTests;
+
+using Std.Harness;
+using Z42.Emission;
+using Z42.IR;
+
+[Test]
+void test_single_file_union_requires_runtime_emission() {
+    var result = IrDump.BuildModuleD("union U { End } U Make() => U.End;", "union.z42", null, null);
+    Assert.Equal(1, result.ErrorCount);
+    Assert.True(result.DiagMsgs[0].Contains("E0501"));
+}
+
+[Test]
+void test_package_union_rejects_emission_before_compiling_consumers() {
+    string[] sources = new string[]{
+        "U Make() => U.End;",
+        "union U { End, Bytes(int) }",
+    };
+    string[] files = new string[]{ "consumer.z42", "union.z42" };
+    CompiledModuleZ[] result = IrDump.BuildPackage(sources, files, sources.Length, null, null, false);
+    Assert.Equal(0, result[0].ErrorCount);
+    IrModule consumer = result[0].Module;
+    Assert.Equal(0, consumer.FuncCount);
+    Assert.Equal(1, result[1].ErrorCount);
+    Assert.True(result[1].DiagMsgs[0].Contains("E0501"));
+}
