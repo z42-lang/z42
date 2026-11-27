@@ -1,0 +1,13 @@
+using PerParameterVariance;
+using Std.IO;
+
+void Main() {
+    DualSink dual = new DualSink();
+    ISink<int,Cat> exact = dual;
+    Assert.Equal("cat", exact.Put(new Cat()));
+    ISink<int,Animal> source = dual;
+    ISink<int,Cat> converted = source;
+    Assert.Equal("animal", converted.Put(new Cat()));
+    Assert.Equal(42, converted.Context());
+    Console.WriteLine("parent parameter variance: ok");
+}
