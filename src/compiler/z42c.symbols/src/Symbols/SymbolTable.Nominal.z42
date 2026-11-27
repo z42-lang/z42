@@ -540,6 +540,30 @@ public sealed partial class SymbolTable {
         return TypeSubst.Apply(instance, new ClassArgsMap(receiver)) as Z42InstantiatedType;
     }
 
+    // A constructed ancestor must match after applying the arguments at every hop.
+    // An erased or unresolved generic hop cannot establish an exact ancestor.
+    public bool HasExactConstructedBase(Z42ClassType current, Z42InstantiatedType instance,
+                                        Z42InstantiatedType target) {
+        string targetKey = LayoutKey.Of(target);
+        if (targetKey == "") { return false; }
+        int hops = 0;
+        while (current != null) {
+            hops = SymbolTable.NextBaseHop(hops);
+            var parent = this.BaseOf(current);
+            if (parent == null) { return false; }
+            if (parent.GenericParamCount > 0) {
+                instance = this.ProjectBaseInstance(current, instance);
+                if (instance == null || instance.Def.Fqn() != parent.Fqn()
+                    || instance.ArgCount != parent.GenericParamCount || !IfaceSlotKeys.IsClosed(instance)) { return false; }
+                if (parent.Fqn() == target.Def.Fqn()) { return LayoutKey.Of(instance) == targetKey; }
+            } else {
+                instance = null;
+            }
+            current = parent;
+        }
+        return false;
+    }
+
     // 基类链走查的**跳数护栏**（全部沿 base 链走的循环共用）。合法的链没有层数上限：继承环在收集期就报
     // E0502 并断开（`SymbolCollector._passRejectBaseCycles`），之后链必然有限。所以走到这么多跳只可能是
     // 编译器内部错误（某条没断的环 / 名字回落绕回自身）⇒ 抛错。不要换回「到上限就当链到头」——那正是

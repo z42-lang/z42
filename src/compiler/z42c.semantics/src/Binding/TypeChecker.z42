@@ -379,15 +379,16 @@ public sealed class TypeChecker {
         if (direction == InterfaceVariance.Invariant) { return false; }
         Z42Type derivedType = direction == InterfaceVariance.Covariant ? source : target;
         Z42Type baseArg = direction == InterfaceVariance.Covariant ? target : source;
-        var baseType = baseArg as Z42ClassType;
-        if (baseType == null || baseType.GenericParamCount > 0) { return false; }
-        var derived = derivedType as Z42ClassType;
-        if (derivedType is Z42InstantiatedType) {
-            derived = (derivedType as Z42InstantiatedType).Def;
-        }
-        if (derived == null || derived.IsStruct || baseType.IsStruct || derived.IsEnum || baseType.IsEnum
+        var targetBase = baseArg as Z42InstantiatedType;
+        var baseType = targetBase != null ? targetBase.Def : baseArg as Z42ClassType;
+        var derivedInstance = derivedType as Z42InstantiatedType;
+        var derived = derivedInstance != null ? derivedInstance.Def : derivedType as Z42ClassType;
+        if (derived == null || baseType == null || derived.IsStruct || baseType.IsStruct || derived.IsEnum || baseType.IsEnum
             || derived.IsScalarType() || baseType.IsScalarType()) { return false; }
-        // A non-generic ancestor has no type arguments to project through the base chain.
+        if (targetBase != null) {
+            return syms.HasExactConstructedBase(derived, derivedInstance, targetBase);
+        }
+        if (baseType.GenericParamCount > 0) { return false; }
         return baseType.Fqn() == "Std.Object" || baseType.Fqn() == "object" || syms.IsSubclassOfType(derived, baseType);
     }
 
