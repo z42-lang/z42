@@ -102,11 +102,14 @@ public sealed partial class ExprEmitter : IBoundExprVisitor<TypedReg, Unit> {
     public TypedReg VisitMember(BoundMember n, Unit d) { return this._access._emitMember(n); }
     public TypedReg VisitIndex(BoundIndex n, Unit d) { return this._access._emitIndex(n); }
 
-    internal TypedReg _emitStructReceiver(BoundExpr receiver) {
+    internal TypedReg _emitStructReceiver(BoundExpr receiver, bool projectFields = true) {
         // An array element used as a receiver names the element's storage.
         // Ordinary array reads still produce independent values.
         if (receiver is BoundIndex) {
             return this._access._emitArrayElemHandle(receiver as BoundIndex);
+        }
+        if (projectFields && this._access._isInlineClassReceiver(receiver)) {
+            return this._access._emitInlineStructReceiver(receiver);
         }
         return this.Emit(receiver);
     }

@@ -487,14 +487,29 @@ pub mod typed {
                 super::box_struct_blob(ctx, &type_name, &bytes, &refs).map_err(|e| BuiltinError::Internal(e.to_string()))
             }
             Value::StructRefHeap { idx, frame_id } => {
-                let e = ctx.exec().struct_elem(*idx, *frame_id)
-                    .map_err(|e| BuiltinError::Internal(e.to_string()))?;
-                let (bytes, refs, _layout, type_name) = crate::object::snapshot_struct_element(&e)
-                    .map_err(|e| BuiltinError::Internal(e.to_string()))?;
+                let (bytes, refs, _layout, type_name) =
+                    crate::exec::ops::structs::snapshot_struct_view(ctx, *idx, *frame_id)
+                        .map_err(|e| BuiltinError::Internal(e.to_string()))?;
                 super::box_struct_blob(ctx, &type_name, &bytes, &refs).map_err(|e| BuiltinError::Internal(e.to_string()))
             }
             other => Ok(*other),
         }
+    }
+
+    /// Borrow an inline struct for the current activation's instance call.
+    #[builtin(name = "__struct_field_receiver")]
+    pub fn struct_field_receiver(
+        ctx: &VmContext, owner: &Value,
+        root: &crate::object::string::vstr::Str, indices: &crate::object::string::vstr::Str,
+    ) -> Result<Value, BuiltinError> {
+        if matches!(owner, Value::Null) {
+            return Err(BuiltinError::NullReference("inline struct receiver has a null owner".into()));
+        }
+        let path = indices.to_string().split('/').map(str::parse::<u16>)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| BuiltinError::Internal(format!("invalid inline struct field path: {e}")))?;
+        crate::exec::ops::structs::project_inline_struct(ctx, owner, &root.to_string(), &path)
+            .map_err(|e| BuiltinError::Internal(e.to_string()))
     }
 
     #[builtin(name = "__value_type_equals")]

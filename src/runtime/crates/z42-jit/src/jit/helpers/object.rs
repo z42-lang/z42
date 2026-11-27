@@ -281,7 +281,7 @@ pub unsafe extern "C" fn jit_is_instance(
         Value::StructRef { idx, frame_id } =>
             crate::exec::ops::cast::struct_ref_isa(vm_ctx_ref(ctx), &module.type_registry, *idx, *frame_id, class_name),
         Value::StructRefHeap { idx, frame_id } =>
-            crate::exec::ops::cast::struct_array_elem_isa(vm_ctx_ref(ctx), &module.type_registry, *idx, *frame_id, class_name),
+            crate::exec::ops::cast::struct_view_isa(vm_ctx_ref(ctx), &module.type_registry, *idx, *frame_id, class_name),
         // add-struct-object-boxing → unify Phase 2 R3: 装箱值类型（struct 或基元）is-a 精确类型 /
         // object（镜像 interp is_instance；基元盒 type_desc.name 即精确 wrapper）。
         Value::BoxedStruct(b) => class_name == "Std.Object" || class_name == "Object"
@@ -349,17 +349,11 @@ pub unsafe extern "C" fn jit_as_cast(
         (*frame).regs[dst as usize] = val;
         return;
     }
-    // add-struct-jit-value-path (P5): struct[] 元素句柄在值上下文（foreach 循环变量等）→ 拷出到
-    // 当前帧 arena StructRef（值副本快照，镜像 interp copy_array_elem_out）。
+    // A transient struct view becomes an independent value in the current frame.
     if let Value::StructRefHeap { idx, frame_id } = &val {
-        // make-value-copy: resolve the StructRefHeap handle → StructArrayElem via the arena.
-        let e = match vm_ctx_ref(ctx).exec().struct_elem(*idx, *frame_id) {
-            Ok(e) => e,
-            Err(_) => { (*frame).regs[dst as usize] = Value::Null; return; }
-        };
         let fid = super::struct_ops::frame_id_of(frame, ctx);
         (*frame).regs[dst as usize] =
-            crate::exec::ops::structs::copy_array_elem_out(vm_ctx_ref(ctx), fid, &e)
+            crate::exec::ops::structs::copy_struct_view_out(vm_ctx_ref(ctx), fid, *idx, *frame_id)
                 .unwrap_or(Value::Null);
         return;
     }

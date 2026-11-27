@@ -1,4 +1,5 @@
 //! Engine-neutral struct allocation, copying and checked symbolic field access.
+use crate::exec::call::transient_arena::StructView;
 use crate::object as ty;
 use crate::object::{Value, StructTypeLayout};
 use crate::metadata::Module;
@@ -61,9 +62,9 @@ pub fn unbox_struct(
 }
 
 
-/// Snapshot a struct array element into current-frame storage by value.
-pub fn copy_array_elem_out(ctx: &VmContext, frame_id: u32, e: &ty::StructArrayElem) -> Result<Value> {
-    let (src_bytes, src_refs, layout, tname) = crate::object::snapshot_struct_element(e)?;
+/// Snapshot a transient struct view into current-frame storage by value.
+pub fn copy_struct_view_out(ctx: &VmContext, frame_id: u32, idx: u32, owner_frame: u32) -> Result<Value> {
+    let (src_bytes, src_refs, layout, tname) = snapshot_struct_view(ctx, idx, owner_frame)?;
     Ok(alloc_from_snapshot(ctx, frame_id, tname, layout, &src_bytes, &src_refs))
 }
 
@@ -112,8 +113,7 @@ fn copy_struct_source(
     let Value::StructRefHeap { idx, frame_id } = src else {
         return ctx.exec().copy_struct_slots(dst, as_struct_ref(src, op)?, size);
     };
-    let element = ctx.exec().struct_elem(*idx, *frame_id)?;
-    let (bytes, refs, layout, name) = ty::snapshot_struct_element(&element)?;
+    let (bytes, refs, layout, name) = snapshot_struct_view(ctx, *idx, *frame_id)?;
     ctx.exec().with_struct_slot_mut(dst.0, dst.1, |slot| {
         if bytes.len() != slot.bytes.len() || refs.len() != slot.refs.len()
             || size.is_some_and(|size| size != slot.bytes.len())
@@ -160,6 +160,12 @@ fn qualify_field_type(ctx: &VmContext, tag: &str, owner_fq: &str) -> Option<std:
 /// Resolve field indices against the root layout; later levels are inline structs.
 pub fn resolve_field_path(ctx: &VmContext, root_type: &str, path: &[u16]) -> Result<u32> {
     debug_assert!(!path.is_empty(), "decoder rejects depth 0");
+    Ok(resolve_struct_path(ctx, root_type, path, false)?.0)
+}
+
+fn resolve_struct_path(
+    ctx: &VmContext, root_type: &str, path: &[u16], project: bool,
+) -> Result<(u32, Arc<str>)> {
     let mut off: u32 = 0;
     let mut cur: std::sync::Arc<str> = root_type.into();
     for (level, &idx) in path.iter().enumerate() {
@@ -196,7 +202,7 @@ pub fn resolve_field_path(ctx: &VmContext, root_type: &str, path: &[u16]) -> Res
         off += step;
         // 下一跳的类型名走 `TypeDesc.fields[i].type_tag` —— 它与上面那张偏移表
         // **同序平行**（zbc 1.45 的约定，载入期有 `debug_assert` 守着，见 T1）。
-        if level + 1 < path.len() {
+        if project || level + 1 < path.len() {
             let next = td.fields.get(i).ok_or_else(|| {
                 anyhow::anyhow!(
                     "struct field path: `{cur}` has no field #{i} to continue the path through \
@@ -212,7 +218,71 @@ pub fn resolve_field_path(ctx: &VmContext, root_type: &str, path: &[u16]) -> Res
             })?;
         }
     }
-    Ok(off)
+    Ok((off, cur))
+}
+
+pub fn project_inline_struct(
+    ctx: &VmContext, owner: &Value, root: &str, path: &[u16],
+) -> Result<Value> {
+    let Some(&first) = path.first() else { anyhow::bail!("empty struct field path") };
+    let root_td = ctx.loader().try_lookup_type(root)
+        .filter(|td| !td.is_struct())
+        .ok_or_else(|| anyhow::anyhow!("unknown inline struct owner `{root}`"))?;
+    let field = root_td.fields.get(first as usize)
+        .ok_or_else(|| anyhow::anyhow!("inline struct field index {first} outside `{root}`"))?;
+    let (offset, type_name) = resolve_struct_path(ctx, root, path, true)?;
+    let descriptor = ctx.loader().try_lookup_type(&type_name)
+        .filter(|td| td.is_struct())
+        .ok_or_else(|| anyhow::anyhow!("inline field is not a struct: `{type_name}`"))?;
+    let layout = descriptor.struct_layout_ref()
+        .ok_or_else(|| anyhow::anyhow!("inline struct `{type_name}` has no layout"))?;
+    let validate = |object: &ty::ScriptObject| -> Result<()> {
+        let access = object.type_desc.field_index.get(&field.name)
+            .and_then(|&index| object.field_access_of(index))
+            .filter(|access| access.cell == ty::FieldCell::Struct)
+            .ok_or_else(|| anyhow::anyhow!("inline struct field `{}` is absent on the receiver", field.name))?;
+        let end = (offset as usize).checked_add(layout.size);
+        if offset < access.offset || end.is_none_or(|end| end > access.offset as usize + access.width as usize) {
+            anyhow::bail!("inline struct `{type_name}` exceeds its field's storage");
+        }
+        Ok(())
+    };
+    match owner {
+        Value::Object(object) => validate(&object.borrow())?,
+        Value::StackObject { idx, frame_id } => ctx.exec().with_stack_object(*idx, *frame_id, validate)??,
+        _ => anyhow::bail!("invalid owner for inline struct `{type_name}`"),
+    }
+    Ok(ctx.exec().alloc_struct_view(
+        ctx.exec().next_frame_id(), StructView::Inline { owner: *owner, offset, descriptor },
+    ))
+}
+
+pub(crate) fn struct_view_type_name(ctx: &VmContext, idx: u32, frame_id: u32) -> Result<Arc<str>> {
+    Ok(match ctx.exec().struct_view(idx, frame_id)? {
+        StructView::Element(element) => element.arr.borrow().element_type().arc(),
+        StructView::Inline { descriptor, .. } => Arc::from(descriptor.name.as_str()),
+    })
+}
+
+pub fn snapshot_struct_view(
+    ctx: &VmContext, idx: u32, frame_id: u32,
+) -> Result<(Vec<u8>, Vec<Value>, Arc<StructTypeLayout>, Arc<str>)> {
+    match ctx.exec().struct_view(idx, frame_id)? {
+        StructView::Element(element) => ty::snapshot_struct_element(&element),
+        StructView::Inline { owner, offset, descriptor } => {
+            let layout = descriptor.struct_layout()
+                .ok_or_else(|| anyhow::anyhow!("inline struct `{}` has no layout", descriptor.name))?;
+            let snapshot = |object: &ty::ScriptObject| {
+                object.read_blob(offset as usize, layout.size, &layout.ref_offsets)
+            };
+            let (bytes, refs) = match owner {
+                Value::Object(object) => snapshot(&object.borrow()),
+                Value::StackObject { idx, frame_id } => ctx.exec().with_stack_object(idx, frame_id, snapshot)?,
+                _ => anyhow::bail!("invalid inline struct owner"),
+            };
+            Ok((bytes, refs, layout, Arc::from(descriptor.name.as_str())))
+        }
+    }
 }
 
 

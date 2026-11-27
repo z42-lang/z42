@@ -592,6 +592,57 @@ public sealed class AccessEmitter {
         return new int[0];
     }
 
+    // Inline receiver paths require writable storage along their entire length.
+    internal bool _isInlineClassReceiver(BoundExpr receiver) {
+        if (receiver is BoundMember) {
+            BoundMember member = receiver as BoundMember;
+            if (!this._canProjectField(this._ee._receiverClassType(member.Target.Type()), member.MemberName)) { return false; }
+            return this._isInlineStructFieldRoot(member)
+                || (this._isInlineChainLink(member) && this._isInlineClassReceiver(member.Target));
+        }
+        return this._isOwnerInlineField(receiver)
+            && this._canProjectField(this._ctx.OwnerCt, (receiver as BoundIdent).Name);
+    }
+
+    private bool _canProjectField(Z42ClassType owner, string name) {
+        while (owner != null && this._ctx.IsLocalClass(owner)) {
+            int i = 0;
+            while (i < owner.OwnFieldCount) {
+                if (owner.OwnFieldNames[i] == name) {
+                    FieldSymbol field = owner.Fields.Get(name) as FieldSymbol;
+                    if (field == null || field.IsReadonly || field.IsProp) { return false; }
+                    // The symbolic path needs a loaded descriptor for every inline link.
+                    Z42Type storage = field.StorageType != null ? field.StorageType : field.FieldType;
+                    return !this._ee._hasTypeParam(storage)
+                        && (!(storage is Z42InstantiatedType) || this._ctx.IsLocalReceiver(storage));
+                }
+                i = i + 1;
+            }
+            owner = this._ctx.Symbols.BaseOf(owner);
+        }
+        // Imported field signatures do not carry readonly metadata.
+        return false;
+    }
+
+    internal TypedReg _emitInlineStructReceiver(BoundExpr receiver) {
+        TypedReg owner = this._structChainRoot(receiver);
+        string root = this._ctx.QualifyLayout(this._structChainRootType(receiver));
+        int[] path = this._structChainPath(receiver);
+        string indices = path[0].ToString();
+        int i = 1;
+        while (i < path.Length) {
+            indices = indices + "/" + path[i].ToString();
+            i = i + 1;
+        }
+        TypedReg rootReg = this._ctx.Alloc(IrType.Str);
+        this._ctx.Emit(new ConstStrInstr(rootReg, this._ctx.Gen.Intern(root)));
+        TypedReg pathReg = this._ctx.Alloc(IrType.Str);
+        this._ctx.Emit(new ConstStrInstr(pathReg, this._ctx.Gen.Intern(indices)));
+        TypedReg dst = this._ctx.Alloc(IrType.Ref);
+        this._ctx.Emit(new BuiltinInstr(dst, "__struct_field_receiver", new TypedReg[] { owner, rootReg, pathReg }, 3));
+        return dst;
+    }
+
     // 追加一级序号。⚠️ `idx < 0` 表示布局里查不到这个字段 —— 烘焙偏移的年代这会变成
     // `-1` 被求和吃掉、产出一个看起来合法的错偏移；序号不参与求和，所以这里能直接拦。
     internal static int[] _pathAppend(int[] prefix, int idx) {

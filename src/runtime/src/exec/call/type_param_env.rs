@@ -150,11 +150,9 @@ fn receiver_parts(ctx: &VmContext, recv: &Value) -> Option<(String, TypeArgs)> {
         Value::StructRef { idx, frame_id } => ctx.exec()
             .with_struct_slot(*idx, *frame_id, |slot| (slot.type_name.to_string(), TypeArgs::empty()))
             .ok(),
-        Value::StructRefHeap { idx, frame_id } => {
-            let element = ctx.exec().struct_elem(*idx, *frame_id).ok()?;
-            let name = element.arr.borrow().element_type().to_string();
-            Some((name, TypeArgs::empty()))
-        }
+        Value::StructRefHeap { idx, frame_id } =>
+            crate::exec::ops::structs::struct_view_type_name(ctx, *idx, *frame_id)
+                .ok().map(|name| (name.to_string(), TypeArgs::empty())),
         _ => None,
     }
 }
