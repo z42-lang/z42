@@ -73,54 +73,17 @@ pub unsafe extern "C" fn jit_match_catch_type(
     }
 }
 
-/// `jit_check_safepoint` (add-gc-safepoint-jit): JIT-emitted
-/// code calls this at each safepoint insertion site — function entry,
-/// backward Br terminators, BrCond terminators, and after Call /
-/// CallIndirect helpers return. Thin trampoline into the shared
-/// `threads::safepoint::check_safepoint` so the JIT path follows the same
-/// Idle / Requested / Marking protocol as interp.
+/// Slow branch of an inlined JIT safepoint poll. The VM owns the countdown
+/// reset and pause protocol after the generated code decrements the counter.
 ///
-/// `_frame` is unused (signature kept for ABI uniformity with the rest of
-/// the JIT helpers — every helper is `(frame, ctx, ...)`).
-///
-/// Safety: `ctx` must be the running thread's live `VmContext` — the context
-/// parameter every compiled function is entered with (`jit::runtime::invoke::enter_compiled`).
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn jit_check_safepoint(
-    _frame: *mut JitFrame,
-    ctx:    *const VmContext,
-) {
-    let vm_ctx = vm_ctx_ref(ctx);
-    crate::threads::safepoint::check_safepoint(vm_ctx);
-}
-
-/// `jit_check_safepoint_slow` (inline-jit-safepoint-check): the
-/// rare slow branch of the JIT-inlined safepoint fast path. When the inlined
-/// `load/store` decrement observes the throttle counter reaching 0, native code
-/// branches here to (1) reset the counter to [`throttle_n`] and (2) run the
-/// real Mutex + phase-check + auto-collect-drain via [`check_safepoint_slow`].
-///
-/// This mirrors the tail of [`crate::threads::safepoint::check_safepoint`] (the part
-/// after the `prev > 1` early return) — the fast decrement itself is emitted
-/// inline by `jit::translate::emit_safepoint_check`, so this helper is called
-/// only ~0.1% of the time (once per [`throttle_n`] back-edges).
-///
-/// `_frame` is unused (kept for ABI uniformity: every JIT helper is
-/// `(frame, ctx, ...)`).
-///
-/// Safety: same contract as [`jit_check_safepoint`] — `ctx` must point to a
-/// the running thread's live `VmContext`.
+/// # Safety
+/// `ctx` must point to the running thread's live `VmContext`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_check_safepoint_slow(
     _frame: *mut JitFrame,
-    ctx:    *const VmContext,
+    ctx: *const VmContext,
 ) {
-    let vm_ctx = vm_ctx_ref(ctx);
-    vm_ctx.threads().safepoint_skip.store(
-        crate::threads::safepoint::throttle_n(vm_ctx),
-        std::sync::atomic::Ordering::Relaxed,
-    );
-    crate::threads::safepoint::check_safepoint_slow(vm_ctx);
+    crate::components::bridge::poll_safepoint_slow(vm_ctx_ref(ctx));
 }
 
 /// Prologue slow branch: the stack pointer is below the context's `JitHead::stack_limit`.
@@ -143,55 +106,30 @@ pub unsafe extern "C" fn jit_fatal_pending(_frame: *mut JitFrame, ctx: *const Vm
 
 #[cfg(test)]
 mod check_safepoint_tests {
-    //! add-gc-safepoint-jit : inline tests for the
-    //! `jit_check_safepoint` trampoline. End-to-end JIT-compiled coverage
-    //! requires building a real JIT-compiled function via
-    //! `jit::compile_module` (heavy fixture); these tests cover the
-    //! trampoline ABI + the protocol routing.
-
     use super::*;
-    use std::sync::atomic::Ordering;
 
-    fn make_frame(vm_ctx: &VmContext) -> JitFrame<'static> {
-        JitFrame::new(vm_ctx, 0, &[])
+    #[test]
+    fn jit_safepoint_slow_is_idle_without_a_request() {
+        let ctx = VmContext::new();
+        let cycles_before = ctx.heap().stats().gc_cycles;
+        unsafe { jit_check_safepoint_slow(std::ptr::null_mut(), &*ctx); }
+        assert_eq!(ctx.heap().stats().gc_cycles, cycles_before);
     }
 
     #[test]
-    fn jit_check_safepoint_idle_is_no_op_fast_path() {
-        // Idle phase + no pending auto-collect: trampoline should return
-        // immediately without touching gc_cycles.
+    fn jit_safepoint_slow_drains_auto_collect_once() {
         let ctx = VmContext::new();
         let cycles_before = ctx.heap().stats().gc_cycles;
-        let mut frame = make_frame(&ctx);
-        unsafe {
-            jit_check_safepoint(&mut frame as *mut JitFrame, &*ctx as *const VmContext);
-        }
-        assert_eq!(ctx.heap().stats().gc_cycles, cycles_before,
-            "Idle path should be a no-op");
+        crate::components::bridge::test_request_auto_collect(&ctx);
+
+        unsafe { jit_check_safepoint_slow(std::ptr::null_mut(), &*ctx); }
+        let cycles_after = ctx.heap().stats().gc_cycles;
+        assert!(cycles_after > cycles_before, "poll should run a collection");
+
+        unsafe { jit_check_safepoint_slow(std::ptr::null_mut(), &*ctx); }
+        assert_eq!(ctx.heap().stats().gc_cycles, cycles_after, "poll should have drained the request");
     }
 
-    #[test]
-    fn jit_check_safepoint_drains_pending_auto_collect() {
-        // Pre-set the needs_auto_collect flag; trampoline should reach
-        // threads::safepoint::check_safepoint which atomically swaps it and
-        // runs a stop-the-world collect.
-        let ctx = VmContext::new();
-        // add-gc-safepoint-counter-throttling : force the
-        // first check_safepoint into the slow path (otherwise the
-        // throttle counter would skip it).
-        ctx.threads().safepoint_skip.store(1, Ordering::Relaxed);
-        let cycles_before = ctx.heap().stats().gc_cycles;
-        ctx.core().threads().needs_auto_collect.store(true, Ordering::Release);
-
-        let mut frame = make_frame(&ctx);
-        unsafe {
-            jit_check_safepoint(&mut frame as *mut JitFrame, &*ctx as *const VmContext);
-        }
-        assert!(!ctx.core().threads().needs_auto_collect.load(Ordering::Acquire),
-            "trampoline should have drained the flag");
-        assert!(ctx.heap().stats().gc_cycles > cycles_before,
-            "trampoline should have run a real collect");
-    }
     #[test]
     fn safepoint_policy_is_shared_by_worker_resets() {
         for throttle in [1, 7, 1024] {
@@ -200,9 +138,9 @@ mod check_safepoint_tests {
             let ctx = z42::components::bridge::jit_test_context(settings);
             let worker = VmContext::new_with_core(ctx.core().clone());
             for view in [&ctx, &worker] {
-                view.threads().safepoint_skip.store(1, Ordering::Relaxed);
+                view.threads().force_safepoint();
                 unsafe { jit_check_safepoint_slow(std::ptr::null_mut(), &**view); }
-                assert_eq!(view.threads().safepoint_skip.load(Ordering::Relaxed), throttle);
+                assert_eq!(crate::components::bridge::test_safepoint_counter(view), throttle);
             }
         }
     }

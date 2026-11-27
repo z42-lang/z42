@@ -12,7 +12,7 @@ GC 决定回收策略；本模块保证扫描期间其他线程不会改写根�
 | `state.rs` | `ThreadLocalState` 拥有每线程 parked TLAB 与节流计数； `ThreadState`：每 VM 注册表、暂停握手、collector 仲裁与 fatal/自动回收请求标记 |
 | `safepoint.rs` | 轮询、collector 仲裁、暂停握手、native park 与 RAII 恢复 |
 | `roots.rs` | 普通/分类扫描共用的静态值、驻留串与全部线程的异常、帧和 arena 根枚举 |
-| `gc.rs` | 将当前 VmContext 的暂停协议适配为 GcToVm |
+| `gc.rs` | 连接堆压力与 safepoint 请求，处理 mutator 分配状态的加入与退出，向 GC 提供暂停守卫 |
 
 ## 基础用法
 
@@ -41,4 +41,4 @@ GC 注册与 collector 仲裁的 loom 模型位于 `src/runtime/tests/gc_registr
 
 `mod.rs` 汇总线程协议；`safepoint_tests.rs` 保存原有暂停、仲裁和 park 测试。
 
-节流策略由门面解析后在 Core 创建时传入，每 VM 持有不可变值。Rust `safepoint::throttle_n(ctx)` 显式查询所属 VM，主线程和 worker 初值以及 interp/JIT 慢路径重置使用同一策略。暂停和自动回收请求仍按原协议强制轮询，不受普通倒计数延迟。
+主线程与 worker 从所属 VM 取得倒计数初值。解释器与 JIT 进入同一慢路径，由 `threads` 重置计数并处理暂停和自动回收请求。JIT 通过组件桥取得计数器偏移并调用慢路径。

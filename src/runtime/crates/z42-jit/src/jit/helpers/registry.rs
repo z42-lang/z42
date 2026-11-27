@@ -50,13 +50,7 @@ pub struct HelperIds {
     /// catch-by-generic-type : peek at pending exception's class +
     /// subclass walk vs `target` string. Returns 1 on match, 0 otherwise.
     pub match_catch_type: FuncId,
-    /// add-gc-safepoint-jit : cooperative GC safepoint check
-    /// trampoline. Emitted by translate.rs at function entry, backward
-    /// branches, and post-Call sites.
-    pub check_safepoint: FuncId,
-    /// inline-jit-safepoint-check : slow branch of the inlined
-    /// safepoint fast path (counter reset + Mutex/phase/auto-collect drain).
-    /// Called from native code only when the inlined decrement hits 0.
+    /// VM safepoint slow path when the native countdown expires.
     pub check_safepoint_slow: FuncId,
     /// Prologue slow branch when the native stack is used up (`stack_guard`).
     pub stack_overflow: FuncId,
@@ -137,7 +131,6 @@ pub fn register_symbols(builder: &mut JITBuilder) {
     reg!("jit_throw",         control::jit_throw);
     reg!("jit_install_catch", control::jit_install_catch);
     reg!("jit_match_catch_type", control::jit_match_catch_type);
-    reg!("jit_check_safepoint",  control::jit_check_safepoint);
     reg!("jit_check_safepoint_slow", control::jit_check_safepoint_slow);
     reg!("jit_stack_overflow",       control::jit_stack_overflow);
     reg!("jit_fatal_pending",        control::jit_fatal_pending);
@@ -277,8 +270,6 @@ pub fn declare_imports(jit: &mut JITModule) -> Result<HelperIds> {
         install_catch: decl!("jit_install_catch", [ptr, ptr, i32t],                       []),
         // jit_match_catch_type(frame, ctx, target_ptr, target_len, key) -> i8
         match_catch_type: decl!("jit_match_catch_type", [ptr, ptr, ptr, i64t, ptr],       [i8t]),
-        // add-gc-safepoint-jit : jit_check_safepoint(frame, ctx) -> void
-        check_safepoint:  decl!("jit_check_safepoint",  [ptr, ptr],                       []),
         // inline-jit-safepoint-check : jit_check_safepoint_slow(frame, ctx) -> void
         check_safepoint_slow: decl!("jit_check_safepoint_slow", [ptr, ptr],               []),
         // jit_stack_overflow(frame, ctx) -> void ; jit_fatal_pending(frame, ctx) -> i8

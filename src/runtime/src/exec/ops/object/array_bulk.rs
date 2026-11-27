@@ -321,7 +321,7 @@ fn new_empty_struct(ctx: &VmContext, elem: ElemType) -> OpResult<Value> {
     } else {
         crate::object::TypeArgs::intern(&crate::object::type_args_from_name(name))
     };
-    match ctx.heap().alloc_instance(class, args) {
+    match super::static_defaults::zero_payload_value(ctx, class, args) {
         Value::Null => Err(OpError::oom(format!("an empty struct `{name}`"))),
         v => Ok(v),
     }

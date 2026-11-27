@@ -22,22 +22,7 @@ pub(super) fn wire(core: &Arc<VmCore>, config: &crate::config::VmConfig) {
         g.push(Arc::downgrade(core));
     }
 
-    // add-gc-safepoint-auto-threshold : wire the
-    // needs_auto_collect flag into the heap so its pressure-trip
-    // path defers to the next safepoint check instead of collecting
-    // inline (the inline path has no &VmContext and would race with
-    // concurrent mutators' frame.regs writes).
-    core.heap.set_external_needs_collect_flag(Arc::clone(&core.threads.needs_auto_collect));
-    // P0-16: and let it send every mutator to the slow path when it raises that flag, so the
-    // collection does not wait out the safepoint throttle. `Weak`, like the root scanner.
-    {
-        let core_weak = Arc::downgrade(core);
-        core.heap.set_safepoint_poke(Arc::new(move || {
-            if let Some(c) = core_weak.upgrade() {
-                crate::threads::safepoint::poke_safepoints(&c);
-            }
-        }));
-    }
+    crate::threads::wire_gc_pressure(core);
 
     // add-gc-runtime-knobs : apply the process-wide GC knobs.
     //

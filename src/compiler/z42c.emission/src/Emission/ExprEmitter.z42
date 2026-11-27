@@ -179,7 +179,7 @@ public sealed partial class ExprEmitter : IBoundExprVisitor<TypedReg, Unit> {
         return this._emitConcreteDefault(def.Type());
     }
 
-    private TypedReg _emitConcreteDefault(Z42Type type) {
+    internal TypedReg _emitConcreteDefault(Z42Type type) {
         // fix-default-blob-struct：blob 值 struct 的 default(T) = **零初始化 blob**，不是 null。
         // 此前落到末尾的 ConstNull 兜底 ⇒ 上层 `T t = default(T)` 发 StructAlloc + StructCopy(t, null)
         // ⇒ 运行期「StructCopy src: expected a struct value (StructRef), got Null」。

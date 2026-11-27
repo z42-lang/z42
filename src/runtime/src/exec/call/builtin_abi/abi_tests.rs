@@ -246,7 +246,7 @@ fn io_errors_map_like_dotnet() {
 // ── Blocking ─────────────────────────────────────────────────────────────────
 
 fn parked(ctx: &VmContext) -> u64 {
-    ctx.core.threads.parked_count.load(std::sync::atomic::Ordering::Acquire) as u64
+    ctx.core.threads.parked_mutator_count() as u64
 }
 
 fn wait_until(mut cond: impl FnMut() -> bool) -> bool {
