@@ -341,6 +341,8 @@ mode = "interp"
 
 `z42vm --stats` 在程序正常退出后把运行时计数器打到 stderr：`--stats` 是人读的文本块，
 `--stats=json` 是单行 JSON（供工具抓取）。
+堆统计中的 `used_bytes` 表示存活字节估计，`committed_bytes` 表示已计入的堆内存。
+`pooled_bytes` 与 `occupied_bytes` 分别表示其中可复用的空块与池外字节。
 
 `z42vm --verbose` / `-v` 等价 `--set log=z42=info`。
 

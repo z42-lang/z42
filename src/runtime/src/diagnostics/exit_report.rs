@@ -66,7 +66,7 @@ fn emit_report(
             h.major_collections,
             h.reclaimed_bytes,
         )
-        .with_footprint(h.used_bytes, h.committed_bytes)
+        .with_heap_footprint(&h)
         .with_concurrency(
             park_count,
             park_us_total,

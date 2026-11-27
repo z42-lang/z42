@@ -181,6 +181,9 @@ fn committed_bytes_counts_the_chunks_the_regions_hold() {
     // are tombstoned), so the reading moves by a few hundred bytes; the chunks themselves stay.
     assert!(after.committed_bytes + 4096 >= full.committed_bytes,
         "but their chunks are still held ({} → {})", full.committed_bytes, after.committed_bytes);
+    assert!(after.pooled_bytes > full.pooled_bytes, "empty chunks enter the reuse pool");
+    assert!(after.occupied_bytes < full.occupied_bytes, "fewer bytes are occupied");
+    assert_eq!(after.committed_bytes, after.occupied_bytes + after.pooled_bytes);
 }
 
 /// `committed_bytes` is the true footprint. Object model R6: an object's fields live in its own

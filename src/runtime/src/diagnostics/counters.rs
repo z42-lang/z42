@@ -204,8 +204,12 @@ pub struct ProfileSnapshot {
     pub reclaimed_bytes:   u64,
     /// Live-byte estimate at exit (from `HeapStats.used_bytes`) — what the GC policy runs on.
     pub used_bytes:        u64,
-    /// Region memory held at exit (from `HeapStats.committed_bytes`) — the footprint view.
+    /// Accounted heap memory held at exit (from `HeapStats.committed_bytes`).
     pub committed_bytes:   u64,
+    /// Committed bytes in empty reusable chunks.
+    pub pooled_bytes:      u64,
+    /// Committed bytes outside the chunk pool.
+    pub occupied_bytes:    u64,
 
     // ── add-concurrency-probes (script-profiling P1b) ──
     /// Number of times a mutator parked at a GC safepoint (STW stalls).
@@ -232,17 +236,27 @@ impl ProfileSnapshot {
     ) -> Self {
         Self {
             counters, allocations, minor_collections, major_collections, reclaimed_bytes,
-            used_bytes: 0, committed_bytes: 0,
+            used_bytes: 0, committed_bytes: 0, pooled_bytes: 0, occupied_bytes: 0,
             park_count: 0, park_us_total: 0, park_max_us: 0,
             lock_contentions: 0, lock_wait_us: 0,
         }
     }
 
-    /// Attach the heap's two size views at exit: the live estimate and the committed footprint.
+    /// Attach the live estimate and committed bytes when no pool breakdown is available.
     pub fn with_footprint(mut self, used_bytes: u64, committed_bytes: u64) -> Self {
         self.used_bytes = used_bytes;
         self.committed_bytes = committed_bytes;
+        self.pooled_bytes = 0;
+        self.occupied_bytes = committed_bytes;
         self
+    }
+
+    /// Attach the breakdown already sampled by the collector.
+    pub(super) fn with_heap_footprint(self, heap: &crate::gc::HeapStats) -> Self {
+        let mut snapshot = self.with_footprint(heap.used_bytes, heap.committed_bytes);
+        snapshot.pooled_bytes = heap.pooled_bytes;
+        snapshot.occupied_bytes = heap.occupied_bytes;
+        snapshot
     }
 
     /// add-concurrency-probes (P1b): attach safepoint-park + user-lock-contention
@@ -274,11 +288,13 @@ impl ProfileSnapshot {
             "{head},\"allocations\":{},\"minor_collections\":{},\
 \"major_collections\":{},\"reclaimed_bytes\":{},\
 \"used_bytes\":{},\"committed_bytes\":{},\
+\"pooled_bytes\":{},\"occupied_bytes\":{},\
 \"park_count\":{},\"park_us_total\":{},\"park_max_us\":{},\
 \"lock_contentions\":{},\"lock_wait_us\":{}}}",
             self.allocations, self.minor_collections,
             self.major_collections, self.reclaimed_bytes,
             self.used_bytes, self.committed_bytes,
+            self.pooled_bytes, self.occupied_bytes,
             self.park_count, self.park_us_total, self.park_max_us,
             self.lock_contentions, self.lock_wait_us,
         )
@@ -295,6 +311,8 @@ impl std::fmt::Display for ProfileSnapshot {
         writeln!(f, "gc_reclaimed_bytes:   {}", self.reclaimed_bytes)?;
         writeln!(f, "gc_used_bytes:        {}", self.used_bytes)?;
         writeln!(f, "gc_committed_bytes:   {}", self.committed_bytes)?;
+        writeln!(f, "gc_pooled_bytes:      {}", self.pooled_bytes)?;
+        writeln!(f, "gc_occupied_bytes:    {}", self.occupied_bytes)?;
         writeln!(f, "park_count:           {}", self.park_count)?;
         writeln!(f, "park_us_total:        {}", self.park_us_total)?;
         writeln!(f, "park_max_us:          {}", self.park_max_us)?;
