@@ -151,6 +151,13 @@ public static class MethodTypeArgSubst {
         int i = 0;
         while (i < sig.ParamCount) {
             np[i] = MethodTypeArgSubst.ByName(sig.ParamTypes[i], names, nameCount, targs);
+            if (i < bc.ArgCount && sig.IsRefParam(i) && bc.Args[i] is BoundRefArg
+                && Conversion._hasGenericParam(sig.ParamTypes[i])) {
+                var arg = bc.Args[i] as BoundRefArg;
+                if (Conversion._hasGenericParam(np[i])) {
+                    RefArgCheck.CheckStorage(tc, arg, np[i], true);
+                }
+            }
             i = i + 1;
         }
         Z42FuncType subst = new Z42FuncType(np, sig.ParamCount,

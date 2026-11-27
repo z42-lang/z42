@@ -1,0 +1,8 @@
+[project]
+name = "demo.constructed-constraints-app"
+version = "0.1.0"
+kind = "exe"
+pack = true
+
+[dependencies]
+"demo.constructed-constraints" = "0.1.0"

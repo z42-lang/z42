@@ -1,0 +1,5 @@
+[project]
+name = "demo.iface_ref_storage_lib"
+version = "0.1.0"
+kind = "lib"
+pack = true

@@ -219,7 +219,9 @@ public sealed class OverloadResolver {
             if (sig.HasRefInfo() && sig.IsRefParam(i) != a.PosByRef[i]) { return r; }
             if (i < fixedCount) {
                 Z42Type pt = sig.ParamTypes[i];
-                if (at != null && !OverloadResolver._assignable(at, pt, symbols, !a.PosByRef[i])) { return r; }
+                if (a.PosByRef[i]) {
+                    if (!RefArgCheck.MatchesStorage(at, pt, false)) { return r; }
+                } else if (at != null && !OverloadResolver._assignable(at, pt, symbols, true)) { return r; }
                 r.PosParam[i] = pt; filled[i] = true;
             } else if (pf >= 0) {
                 Z42ArrayType arr = sig.ParamTypes[pf] as Z42ArrayType;

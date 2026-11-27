@@ -1,0 +1,5 @@
+namespace RefStorage;
+public interface IWriter<T> { void Write(ref T value); }
+public class Writer : IWriter<int> {
+    public void Write(ref int value) { value = 42; }
+}

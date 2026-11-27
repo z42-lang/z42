@@ -81,3 +81,22 @@ void test_static_witness_ref_argument_requires_exact_storage_type() {
         + "void Run<T>() where T : I { int value = 3; T.Update(ref value); }";
     Assert.Equal("E0402", SemanticDump.FirstErrorCode(src));
 }
+
+
+[Test]
+void test_instantiated_interface_ref_argument_requires_exact_storage_type() {
+    string src = "interface IWriter<T> { void Write(ref T value); }";
+    string same = src + " void Run(IWriter<int> writer, int value) { writer.Write(ref value); }";
+    Assert.Equal(0, SemanticDump.ErrorCount(same));
+    string wrong = src + " void Run(IWriter<int> writer, string value) { writer.Write(ref value); }";
+    Assert.Equal(1, SemanticDump.ErrorCount(wrong));
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(wrong));
+}
+
+[Test]
+void test_ref_storage_rejects_implicit_value_conversions() {
+    string src = "void Write(ref long value) { value = 17; } "
+        + "void Run() { int value = 3; Write(ref value); }";
+    Assert.Equal(1, SemanticDump.ErrorCount(src));
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(src));
+}

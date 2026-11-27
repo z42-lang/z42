@@ -1,0 +1,63 @@
+namespace Z42cSemanticsConstructedTypeChecks;
+
+using Std.Harness;
+using Z42.Semantics;
+
+[Test]
+void test_class_conversion_uses_declared_base_arguments() {
+    string decl = "class Base<T> {} class Mid<T> : Base<string> {} class Child<T> : Mid<T> {}";
+    Assert.Equal("", SemanticDump.FirstErrorCode(decl
+        + " Base<string> M(Child<int> child) { return child; }"));
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(decl
+        + " Base<int> M(Child<int> child) { return child; }"));
+}
+
+[Test]
+void test_class_conversion_uses_qualified_generic_identity() {
+    string[] sources = new string[] {
+        "namespace A; public class Box<T> {}",
+        "namespace B; public class Box<T> {}",
+        "A.Box<int> M(B.Box<int> value) { return value; }"
+    };
+    string[] files = new string[] { "A.z42", "B.z42", "Main.z42" };
+    Assert.Equal(1, SemanticDump.ErrorCountMulti(sources, files));
+    Assert.True(SemanticDump.HasErrorCodeMulti(sources, files, "E0402"));
+}
+
+[Test]
+void test_interface_conversion_uses_declared_interface_arguments() {
+    string decl = "interface I<T> {} interface J<T> : I<T> {}"
+        + " class Parent<T> : J<T> {} class Child : Parent<int> {} class Fixed : I<int> {}";
+    Assert.Equal("", SemanticDump.FirstErrorCode(decl + " I<int> M(Child child) { return child; }"));
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(decl + " I<string> M(Child child) { return child; }"));
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(decl + " I<string> M(Fixed value) { return value; }"));
+}
+
+[Test]
+void test_generic_interface_call_checks_instantiated_signature() {
+    string decl = "interface IWrite<A> { U Write<U>(A value, U meta); }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(decl
+        + " A Run<T,A>(IWrite<T> writer, T value, A meta) { return writer.Write<A>(value, meta); }"));
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(decl
+        + " int Run(IWrite<int> writer) { return writer.Write<int>(\"wrong\", 1); }"));
+}
+
+[Test]
+void test_ref_overload_and_forwarded_storage() {
+    string overloads = "void Use(ref int x) {} void Use(ref string x) {}";
+    Assert.Equal("", SemanticDump.FirstErrorCode(overloads
+        + " void M() { int x = 0; string s = \"\"; Use(ref x); Use(ref s); }"));
+    string take = "void Take<T>(ref T x) {}";
+    Assert.Equal("", SemanticDump.FirstErrorCode(take + " void M<A>(ref A a) { Take<A>(ref a); Take(ref a); }"));
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(take + " void M<A,B>(ref B b) { Take<A>(ref b); }"));
+}
+
+[Test]
+void test_constraint_requires_constructed_interface() {
+    string decl = "interface IFoo<T> {} class Good : IFoo<Good> {} class Bad : IFoo<string> {}"
+        + " void Use<T>(T value) where T : IFoo<T> {} class Box<T> where T : IFoo<T> {}";
+    Assert.Equal("", SemanticDump.FirstErrorCode(decl
+        + " void M() { Use<Good>(new Good()); var box = new Box<Good>(); }"));
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(decl + " void M() { Use<Bad>(new Bad()); }"));
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(decl + " void M() { var box = new Box<Bad>(); }"));
+}

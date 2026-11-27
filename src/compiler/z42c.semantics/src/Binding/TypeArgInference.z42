@@ -45,7 +45,7 @@ public static class TypeArgInference {
         int i = 0;
         while (i < fixedEnd) {
             if (args[i] != null) {
-                Z42Type at = args[i].Type();
+                Z42Type at = RefArgCheck.ArgumentType(args[i]);
                 // Boxing for a type parameter changes the ABI, not the source type being inferred.
                 if (at is Z42GenericParamType && args[i] is BoundBox) {
                     at = (args[i] as BoundBox).E.Type();
@@ -92,7 +92,7 @@ public static class TypeArgInference {
         while (i < fixedEnd) {
             if (boundArgs[i] != null) {
                 // 源①：已绑非-lambda 实参
-                Z42Type at = boundArgs[i].Type();
+                Z42Type at = RefArgCheck.ArgumentType(boundArgs[i]);
                 if (at != null && !(at is Z42UnknownType) && !(at is Z42ErrorType)) {
                     TypeArgInference._unify(symbols, sig.ParamTypes[i], at, names, nameCount, bound);
                 }

@@ -202,33 +202,7 @@ public sealed class ConstraintChecker {
                 if (this._indexOfName(pnames, pc, nt.Name) >= 0) {
                     bundle.HasTypeParamRef = true; bundle.TypeParamRef = nt.Name;
                 } else if (symbols.HasInterface(nt.Name)) {
-                    // 接口约束。**不加 ArgCount == 0 过滤**——全仓真实接口约束绝大多数是泛型接口
-                    // （IEquatable<T> / IComparable<T> / INumber<T>），此前那个过滤在接口判定
-                    // 之前就把它们整条丢弃，这才是接口约束全体静默的直接原因。
-                    // 按裸名匹配（design D1）：`nt.Name` 已是裸名（泛型实参在 nt.Args）。
-                    bundle.AddInterface(nt.Name);
-                    // add-associated-types PR-3：接口约束的类型实参位可写 `Item = int` 命名绑定。
-                    // 只收 AssocBindingType 那些实参（普通实参仍按 design D1 裸名匹配、被忽略）。
-                    int ab = 0;
-                    while (ab < nt.ArgCount) {
-                        if (nt.Args[ab] is AssocBindingType) {
-                            AssocBindingType abt = nt.Args[ab] as AssocBindingType;
-                            Z42Type abResolved = symbols.ResolveTypeP(abt.Bound, pnames, pc);
-                            bundle.AddAssocBinding(abt.Name, TypeNameResolver.SurfaceTypeName(abResolved));
-                            // 绑定的名字必须真是该接口声明过的关联类型，否则是笔误 → 早报，别静默。
-                            // assoc-type-crosspkg（zbc 1.42）：接口的 `AssocTypeNames` 现由 TYPE 统一 assoc 块
-                            // 跨包承载、导入侧 ImportedSymbolLoader.AddAssocType 恢复 ⇒ 删原 `!abIface.IsImported`
-                            // 守卫（此前导入侧恒空、绑定名合法性无从校验）。跨包 `where T:IEnum<Item=int>` 的
-                            // 绑定名现与本包一样校验：不是该接口声明的关联类型 → E0453。
-                            Z42InterfaceType abIface = symbols.GetInterface(nt.Name);
-                            if (report && abIface != null && !abIface.HasAssocType(abt.Name)) {
-                                this._diags.Error(DiagnosticCodes.AssocTypeBinding,
-                                    "interface `" + nt.Name + "` has no associated type `" + abt.Name + "`",
-                                    abt.Span);
-                            }
-                        }
-                        ab = ab + 1;
-                    }
+                    this._fillInterfaceConstraint(symbols, bundle, nt, pnames, pc, report);
                 } else if (symbols.HasClass(nt.Name)) {
                     // 泛型 base（`where T : Box<int>`）仍只记裸名——本轮不校验其类型实参
                     // （与接口的裸名匹配同口径，design D1）。
@@ -374,6 +348,27 @@ public sealed class ConstraintChecker {
         return r;
     }
 
+    private void _fillInterfaceConstraint(SymbolTable symbols, ConstraintBundle bundle, NamedType nt,
+                                          string[] pnames, int pc, bool report) {
+        Z42InstantiatedInterfaceType iface = null;
+        if (nt.ArgCount > 0 && !(nt.Args[0] is AssocBindingType)) {
+            iface = symbols.ResolveTypeP(nt, pnames, pc) as Z42InstantiatedInterfaceType;
+        }
+        bundle.AddInterface(nt.Name, iface);
+        var def = symbols.GetInterface(nt.Name);
+        for (int i = 0; i < nt.ArgCount; i = i + 1) {
+            var binding = nt.Args[i] as AssocBindingType;
+            if (binding != null) {
+                var resolved = symbols.ResolveTypeP(binding.Bound, pnames, pc);
+                bundle.AddAssocBinding(binding.Name, TypeNameResolver.SurfaceTypeName(resolved));
+                if (report && def != null && !def.HasAssocType(binding.Name)) {
+                    this._diags.Error(DiagnosticCodes.AssocTypeBinding,
+                        "interface `" + nt.Name + "` has no associated type `" + binding.Name + "`", binding.Span);
+                }
+            }
+        }
+    }
+
     // ════ Check（call-site 校验）═══════════════════════════════════════════════
     // `sp` = 实例化点（`new Box<D>()` 的类型位）。此前全程 `_noSpan()` → 诊断指向 `<sem> 0:0`，
     // 使用者拿到一条不知道该看哪一行的错误（complete-where-constraints PR-4）。
@@ -426,13 +421,7 @@ public sealed class ConstraintChecker {
                 this._err(arg, pn, b.TypeParamRef, ownerName, sp);
             }
         }
-        int ii = 0;
-        while (ii < b.InterfaceCount) {
-            if (!this._satisfiesInterface(symbols, arg, b.InterfaceNames[ii])) {
-                this._err(arg, pn, b.InterfaceNames[ii], ownerName, sp);
-            }
-            ii = ii + 1;
-        }
+        this._checkInterfaces(symbols, pnames, pc, args, b, arg, pn, ownerName, sp);
         if (b.RequiresEnum && !this._isEnumArg(symbols, arg)) {
             this._err(arg, pn, "enum", ownerName, sp);
         }
@@ -448,6 +437,23 @@ public sealed class ConstraintChecker {
         while (ai < b.AssocBindingCount) {
             this._checkAssocBinding(symbols, arg, pn, b.AssocBindingNames[ai], b.AssocBindingTypeNames[ai], ownerName, sp);
             ai = ai + 1;
+        }
+    }
+
+    private void _checkInterfaces(SymbolTable symbols, string[] pnames, int pc, Z42Type[] args,
+                                  ConstraintBundle bundle, Z42Type arg, string param, string owner, Span sp) {
+        for (int i = 0; i < bundle.InterfaceCount; i = i + 1) {
+            var template = bundle.ConstructedInterfaces[i];
+            if (template == null) {
+                string name = bundle.InterfaceNames[i];
+                if (!this._satisfiesInterface(symbols, arg, name)) { this._err(arg, param, name, owner, sp); }
+            } else {
+                var required = TypeSubst.Apply(template, new NameListMap(pnames, pc, args)) as Z42InstantiatedInterfaceType;
+                if (IfaceSlotKeys.IsClosed(arg) && IfaceSlotKeys.IsClosed(required)
+                    && !symbols.ImplementsInterfaceType(arg, required)) {
+                    this._err(arg, param, LayoutKey.Of(required), owner, sp);
+                }
+            }
         }
     }
 

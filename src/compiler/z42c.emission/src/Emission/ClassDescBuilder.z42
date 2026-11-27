@@ -510,7 +510,12 @@ public sealed partial class ClassDescBuilder {
             d.RequiresCtor = b.RequiresCtor;         // bit4
             d.RequiresEnum = b.RequiresEnum;         // bit5
             if (b.InterfaceCount > 0) {
-                d.Interfaces = b.InterfaceNames; d.InterfaceCount = b.InterfaceCount;
+                d.Interfaces = new string[b.InterfaceCount];
+                d.InterfaceCount = b.InterfaceCount;
+                for (int j = 0; j < b.InterfaceCount; j = j + 1) {
+                    var template = b.ConstructedInterfaces[j];
+                    d.Interfaces[j] = template == null ? b.InterfaceNames[j] : LayoutKey.Of(template);
+                }
             }
             // 关联类型绑定（zbc 1.42，assoc-type-crosspkg）：`where T:IEnum<Item=int>` → bit7 承载。
             if (b.AssocBindingCount > 0) {
@@ -541,7 +546,8 @@ public sealed partial class ClassDescBuilder {
             string[] interfaces = new string[desc.InterfaceCount];
             int j = 0;
             while (j < desc.InterfaceCount) {
-                interfaces[j] = SymbolTable.IfaceFqnOf(symbols, desc.Interfaces[j]);
+                string name = desc.Interfaces[j];
+                interfaces[j] = name.IndexOf('<') >= 0 ? name : SymbolTable.IfaceFqnOf(symbols, name);
                 j = j + 1;
             }
             desc.Interfaces = interfaces;

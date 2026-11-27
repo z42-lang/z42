@@ -1,0 +1,6 @@
+using RefStorage;
+void Main() {
+    IWriter<int> writer = new Writer();
+    string text = "original";
+    writer.Write(ref text);
+}

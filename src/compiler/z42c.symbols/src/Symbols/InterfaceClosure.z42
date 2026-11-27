@@ -126,10 +126,12 @@ public sealed class InterfaceClosure {
     // `StmtBinder`）：判定散成多份的代价这个子系统已经付过——那正是「接口那半其实早就有实现、
     // 只是没人用」的由来。
     public static bool IsInterfaceSubtype(SymbolTable symbols, Z42InterfaceType from, Z42InterfaceType to) {
-        if (from == null || to == null) { return false; }
-        if (Z42InterfaceType.SameInterface(from, to)) { return true; }
-        if (symbols == null) { return false; }
-        return InterfaceClosure._anyBaseIs(symbols, from, to, 0);
+        return InterfaceClosure._isSubtype(symbols, from, to, false, 0);
+    }
+
+    public static bool IsExactConstructedSubtype(SymbolTable symbols, Z42InterfaceType from,
+                                                  Z42InstantiatedInterfaceType to) {
+        return InterfaceClosure._isSubtype(symbols, from, to, true, 0);
     }
 
     // 只有接口**名**时用（`where T : IFoo` 这类）。名字解析不到就判否——解析不到意味着这个约束
@@ -141,17 +143,19 @@ public sealed class InterfaceClosure {
         return InterfaceClosure.IsInterfaceSubtype(symbols, from, symbols.GetInterface(toName));
     }
 
-    // 沿父接口链递归找 `to`。`depth` 口径同 `_walkBases`（无层数上限，只喂护栏）。
-    private static bool _anyBaseIs(SymbolTable symbols, Z42InterfaceType it, Z42InterfaceType to, int depth) {
+    private static bool _isSubtype(SymbolTable symbols, Z42InterfaceType from, Z42InterfaceType to,
+                                   bool requireConstructed, int depth) {
+        if (from == null || to == null) { return false; }
         SymbolTable.NextBaseHop(depth);
-        int i = 0;
-        while (i < it.BaseCount) {
-            Z42InterfaceType bit = InterfaceClosure.BaseAt(symbols, it, i);
-            if (bit != null) {
-                if (Z42InterfaceType.SameInterface(bit, to)) { return true; }
-                if (InterfaceClosure._anyBaseIs(symbols, bit, to, depth + 1)) { return true; }
-            }
-            i = i + 1;
+        if (requireConstructed && !(from is Z42InstantiatedInterfaceType) && from.TypeParamCount > 0) {
+            return false;
+        }
+        if ((!requireConstructed || from is Z42InstantiatedInterfaceType)
+            && Z42InterfaceType.SameInterface(from, to)) { return true; }
+        if (symbols == null) { return false; }
+        for (int i = 0; i < from.BaseCount; i = i + 1) {
+            if (InterfaceClosure._isSubtype(symbols, InterfaceClosure.BaseAt(symbols, from, i), to,
+                                            requireConstructed, depth + 1)) { return true; }
         }
         return false;
     }

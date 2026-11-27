@@ -15,7 +15,12 @@ public static class GenericCallRet {
         CountingNameMap m = new CountingNameMap(names, n, targs);
         Z42Type r = TypeSubst.Apply(raw, m);
         if (m.Hits == 0) { return bc; }
-        r = GenericCallRet._recvSubst(r, recv);
+        if (recv is Z42InstantiatedInterfaceType) {
+            r = TypeSubst.Apply(raw, new IfaceCallArgsMap(recv as Z42InstantiatedInterfaceType, names, targs));
+            r = MemberResolver._substSelf(r, recv);
+        } else {
+            r = GenericCallRet._recvSubst(r, recv);
+        }
         if ((raw is Z42GenericParamType) && GenericCallRet.IsStruct(r)) {
             bc.Retype(new Z42UnknownType());
             return new BoundConvert(bc, r, bc.Span);
@@ -27,9 +32,7 @@ public static class GenericCallRet {
     private static Z42Type _recvSubst(Z42Type r, Z42Type recv) {
         if (recv is Z42InstantiatedType) { return MemberResolver._substGeneric(r, recv as Z42InstantiatedType); }
         if (recv is Z42InterfaceType) {
-            Z42Type s = MemberResolver._substSelf(r, recv);
-            if (recv is Z42InstantiatedInterfaceType) { s = MemberResolver._substIfaceArgs(s, recv as Z42InstantiatedInterfaceType); }
-            return s;
+            return MemberResolver._substSelf(r, recv);
         }
         return r;
     }
@@ -55,5 +58,30 @@ public sealed class CountingNameMap : ITypeParamMap {
         Z42Type r = this._inner.Map(p);
         if (r != null) { this.Hits = this.Hits + 1; }
         return r;
+    }
+}
+
+// Substitute each declaration parameter once, even when the caller reuses its name.
+internal sealed class IfaceCallArgsMap : ITypeParamMap {
+    private IfaceArgsMap _receiver;
+    private string[] _methodNames;
+    private Z42Type[] _methodArgs;
+
+    public IfaceCallArgsMap(Z42InstantiatedInterfaceType receiver, string[] names, Z42Type[] args) {
+        this._receiver = new IfaceArgsMap(receiver);
+        this._methodNames = names;
+        this._methodArgs = args;
+    }
+
+    public Z42Type Map(Z42GenericParamType p) {
+        for (int i = 0; i < this._methodNames.Length; i = i + 1) {
+            if (this._methodNames[i] == p.Name()) {
+                if (this._methodArgs != null && this._methodArgs.Length == this._methodNames.Length) {
+                    return this._methodArgs[i];
+                }
+                return null;
+            }
+        }
+        return this._receiver.Map(p);
     }
 }

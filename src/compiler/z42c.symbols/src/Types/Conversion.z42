@@ -215,25 +215,10 @@ public static class Conversion {
             if (symbols.IsSubclassOfType(to as Z42ClassType, from as Z42ClassType)) { return new ConvResult(ConvKind.ExplicitRef); }
             return new ConvResult(ConvKind.None);
         }
-        // F: class → interface
-        if ((from is Z42ClassType) && (to is Z42InterfaceType)) {
-            if (symbols.Implements(from.Name(), to.Name())) { return new ConvResult(ConvKind.ImplicitRef); }
-            return new ConvResult(ConvKind.None);
-        }
-        // F2（interface-assignability）: interface → 祖先 interface。**此前没有这条分支** ——
-        // 类赋给祖先接口走 F、实例化类走 G，唯独「子接口赋给父接口」落到函数末尾的 `None`
-        // ⇒ `IBase b = derivedIface` 报 E0402（var-decl / 实参 / 返回三个位置都中）。
-        // 同一个接口（含实参相同）那格由上方分支 D（`IsAssignableTo`）先接走，这里只管真正
-        // 上溯继承链的情形。
-        if ((from is Z42InterfaceType) && (to is Z42InterfaceType)) {
-            if (InterfaceClosure.IsInterfaceSubtype(symbols, from as Z42InterfaceType, to as Z42InterfaceType)) {
+        if (to is Z42InterfaceType) {
+            if (symbols.ImplementsInterfaceType(from, to as Z42InterfaceType)) {
                 return new ConvResult(ConvKind.ImplicitRef);
             }
-            return new ConvResult(ConvKind.None);
-        }
-        // G: instantiated → interface
-        if ((from is Z42InstantiatedType) && (to is Z42InterfaceType)) {
-            if (symbols.Implements((from as Z42InstantiatedType).Def.Name(), to.Name())) { return new ConvResult(ConvKind.ImplicitRef); }
             return new ConvResult(ConvKind.None);
         }
         // H: instantiated → base class
@@ -241,25 +226,19 @@ public static class Conversion {
             if (symbols.IsSubclassOfType((from as Z42InstantiatedType).Def, to as Z42ClassType)) { return new ConvResult(ConvKind.ImplicitRef); }
             return new ConvResult(ConvKind.None);
         }
-        // H2（欠债表 bug B）: instantiated → instantiated（子类实例化 → 基类实例化）。
-        // 此前 G / H / I 覆盖了 inst→接口 / inst→裸 class / 裸 class→inst，**独缺这一条**，
-        // 而分支 D 只认同名同实参（Identity）⇒ `Bag<int> b = new SubBag<int>();` 直接 E0402。
-        // 类型实参要求逐位规范同名（C# 类不变量：`Bag<string> b = subBagOfInt` 必须继续报错）。
-        // 未覆盖：基类声明处换了实参（`class Sub<T> : Bag<string>`）——`BaseName` 只存名字不存
-        // 基类实参，无从代换，仍报 E0402（与修改前同，无回归）。
         if ((from is Z42InstantiatedType) && (to is Z42InstantiatedType)) {
-            Z42InstantiatedType fInst = from as Z42InstantiatedType;
-            Z42InstantiatedType tInst = to as Z42InstantiatedType;
-            if (Conversion._sameTypeArgs(fInst, tInst)) {
-                if (symbols.IsSubclassOfType(fInst.Def, tInst.Def)) { return new ConvResult(ConvKind.ImplicitRef); }
-                if (symbols.IsSubclassOfType(tInst.Def, fInst.Def)) { return new ConvResult(ConvKind.ExplicitRef); }
-            }
+            var source = from as Z42InstantiatedType;
+            var target = to as Z42InstantiatedType;
+            if (symbols.HasExactConstructedBase(source.Def, source, target)) { return new ConvResult(ConvKind.ImplicitRef); }
+            if (symbols.HasExactConstructedBase(target.Def, target, source)) { return new ConvResult(ConvKind.ExplicitRef); }
             return new ConvResult(ConvKind.None);
         }
-        // I: class（裸）→ instantiated（同 def，`this` → 实例化返回类型）
         if ((from is Z42ClassType) && (to is Z42InstantiatedType)) {
-            if (from.Name() == (to as Z42InstantiatedType).Def.Name()) { return new ConvResult(ConvKind.ImplicitRef); }
-            return new ConvResult(ConvKind.None);
+            var source = from as Z42ClassType;
+            var target = to as Z42InstantiatedType;
+            if (source.Fqn() == target.Def.Fqn() || symbols.HasExactConstructedBase(source, null, target)) {
+                return new ConvResult(ConvKind.ImplicitRef);
+            }
         }
         return new ConvResult(ConvKind.None);
     }
@@ -355,17 +334,6 @@ public static class Conversion {
             hops = SymbolTable.NextBaseHop(hops);
             cur = symbols.BaseOf(cur);
             if (cur == null) { return false; }
-        }
-        return true;
-    }
-
-    // 两个实例化类型的类型实参是否逐位规范同名（arity 也须一致）。供 H2 分支判定类不变量。
-    private static bool _sameTypeArgs(Z42InstantiatedType a, Z42InstantiatedType b) {
-        if (a.ArgCount != b.ArgCount) { return false; }
-        int i = 0;
-        while (i < a.ArgCount) {
-            if (a.TypeArgs[i].CanonName() != b.TypeArgs[i].CanonName()) { return false; }
-            i = i + 1;
         }
         return true;
     }
