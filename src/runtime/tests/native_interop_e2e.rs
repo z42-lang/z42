@@ -32,6 +32,36 @@ extern "C" {
     /// `CURRENT_VM` thread-local has a valid pointer.
     fn numz42_register_static();
     fn z42_native_layout(index: usize) -> usize;
+    fn z42_host_layout(index: usize) -> usize;
+}
+
+#[test]
+fn host_c_header_matches_rust_layout() {
+    use std::mem::{align_of, offset_of, size_of};
+    use z42::host::{Z42ExecMode, Z42HostConfig, Z42HostStatus};
+
+    let fields = [
+        size_of::<Z42HostConfig>(),
+        align_of::<Z42HostConfig>(),
+        size_of::<Z42ExecMode>(),
+        size_of::<Z42HostStatus>(),
+        offset_of!(Z42HostConfig, zpkg_resolver_user_data) + size_of::<*mut std::ffi::c_void>(),
+        offset_of!(Z42HostConfig, abi_version),
+        offset_of!(Z42HostConfig, struct_size),
+        offset_of!(Z42HostConfig, exec_mode),
+        offset_of!(Z42HostConfig, heap_initial_bytes),
+        offset_of!(Z42HostConfig, heap_max_bytes),
+        offset_of!(Z42HostConfig, stdout_sink),
+        offset_of!(Z42HostConfig, stderr_sink),
+        offset_of!(Z42HostConfig, sink_user_data),
+        offset_of!(Z42HostConfig, search_paths),
+        offset_of!(Z42HostConfig, zpkg_resolver),
+        offset_of!(Z42HostConfig, zpkg_resolver_user_data),
+        offset_of!(Z42HostConfig, zpkg_resolver_write),
+    ];
+    for (index, expected) in fields.into_iter().enumerate() {
+        assert_eq!(unsafe { z42_host_layout(index) }, expected, "C/Rust host layout field {index}");
+    }
 }
 
 #[test]

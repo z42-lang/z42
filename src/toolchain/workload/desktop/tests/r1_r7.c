@@ -25,6 +25,9 @@
 
 #include "z42_host.h"
 
+_Static_assert(offsetof(Z42HostConfig, zpkg_resolver_write) == Z42_HOST_CONFIG_V2_SIZE,
+               "the resolver extension follows the original v2 prefix");
+
 /* ── stdout capture sink (no prefix; raw bytes) ─────────────────────────── */
 static char   g_buf[65536];
 static size_t g_len;
@@ -82,7 +85,8 @@ int main(int argc, char** argv) {
     /* R1 — smoke */
     {
         Z42HostConfig c = mkcfg(paths); Z42HostRef h = NULL;
-        if (z42_host_initialize(&c, &h) != Z42_HOST_OK) { fail("R1", "initialize"); }
+        c.struct_size = Z42_HOST_CONFIG_V2_SIZE;
+        if (z42_host_initialize(&c, &h) != Z42_HOST_OK) { fail("R1", "initialize with v2 prefix"); }
         else {
             Z42ModuleRef m = NULL; Z42EntryRef e = NULL; Z42Value r; reset_capture();
             if      (z42_host_load_zbc(h, hb, (size_t)hl, &m)      != Z42_HOST_OK) fail("R1", "load_zbc");

@@ -41,11 +41,6 @@ typedef struct {
     jobject stderr_handler_global; /* same */
     jmethodID resolver_resolve;    /* (Ljava/lang/String;)[B */
     jmethodID function1_invoke;    /* (Ljava/lang/Object;)Ljava/lang/Object; */
-    /* Temporary byte buffer the resolver trampoline returns; freed at
-     * the start of the next resolve call or in nativeShutdown. */
-    jbyteArray last_zpkg_global;
-    void* last_zpkg_bytes;
-    jsize last_zpkg_len;
 } JniContext;
 
 /* Packed handle returned to Kotlin as `nativeHandle: Long`. Carries the
@@ -77,8 +72,8 @@ static void throw_last_error(JNIEnv* env) {
 
 static int zpkg_resolver_trampoline(
     const char* namespace_name,
-    const uint8_t** out_bytes,
-    size_t* out_length,
+    Z42ZpkgByteSink write,
+    void* write_data,
     void* user_data
 ) {
     JniContext* ctx = (JniContext*)user_data;
@@ -98,29 +93,16 @@ static int zpkg_resolver_trampoline(
     (*env)->DeleteLocalRef(env, jns);
     if (result == NULL) return 0;
 
-    /* Release any prior buffer first. */
-    if (ctx->last_zpkg_global) {
-        if (ctx->last_zpkg_bytes) {
-            (*env)->ReleaseByteArrayElements(
-                env, ctx->last_zpkg_global, (jbyte*)ctx->last_zpkg_bytes, JNI_ABORT);
-        }
-        (*env)->DeleteGlobalRef(env, ctx->last_zpkg_global);
-        ctx->last_zpkg_global = NULL;
-        ctx->last_zpkg_bytes = NULL;
-        ctx->last_zpkg_len = 0;
-    }
-
     jbyteArray arr = (jbyteArray)result;
-    ctx->last_zpkg_global = (jbyteArray)(*env)->NewGlobalRef(env, arr);
+    jsize length = (*env)->GetArrayLength(env, arr);
+    jbyte* bytes = length > 0 ? (*env)->GetByteArrayElements(env, arr, NULL) : NULL;
+    int hit = 0;
+    if (bytes) {
+        hit = write((const uint8_t*)bytes, (size_t)length, write_data);
+        (*env)->ReleaseByteArrayElements(env, arr, bytes, JNI_ABORT);
+    }
     (*env)->DeleteLocalRef(env, arr);
-
-    ctx->last_zpkg_len = (*env)->GetArrayLength(env, ctx->last_zpkg_global);
-    ctx->last_zpkg_bytes = (*env)->GetByteArrayElements(
-        env, ctx->last_zpkg_global, NULL);
-
-    *out_bytes = (const uint8_t*)ctx->last_zpkg_bytes;
-    *out_length = (size_t)ctx->last_zpkg_len;
-    return 1;
+    return hit;
 }
 
 /* ── stdout / stderr sink trampolines ──────────────────────────────────── */
@@ -186,7 +168,7 @@ Java_io_z42_vm_Z42VM_nativeInitialize(
     cfg.abi_version = Z42_HOST_ABI_VERSION;
     cfg.struct_size = sizeof cfg;
     cfg.exec_mode = (Z42ExecMode)execMode;
-    cfg.zpkg_resolver = zpkg_resolver_trampoline;
+    cfg.zpkg_resolver_write = zpkg_resolver_trampoline;
     cfg.zpkg_resolver_user_data = ctx;
     if (ctx->stdout_handler_global) {
         cfg.stdout_sink = stdout_sink_trampoline;
@@ -316,14 +298,6 @@ Java_io_z42_vm_Z42VM_nativeShutdown(JNIEnv* env, jobject self, jlong handle) {
 
     JniContext* ctx = h->ctx;
     if (ctx) {
-        if (ctx->last_zpkg_global) {
-            if (ctx->last_zpkg_bytes) {
-                (*env)->ReleaseByteArrayElements(
-                    env, ctx->last_zpkg_global,
-                    (jbyte*)ctx->last_zpkg_bytes, JNI_ABORT);
-            }
-            (*env)->DeleteGlobalRef(env, ctx->last_zpkg_global);
-        }
         if (ctx->resolver_global) (*env)->DeleteGlobalRef(env, ctx->resolver_global);
         if (ctx->stdout_handler_global) (*env)->DeleteGlobalRef(env, ctx->stdout_handler_global);
         if (ctx->stderr_handler_global) (*env)->DeleteGlobalRef(env, ctx->stderr_handler_global);

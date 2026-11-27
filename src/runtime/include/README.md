@@ -21,6 +21,8 @@ z42 runtime 对外的全部 C ABI 声明集中在本目录，供 host 应用 / n
 
 ABI 演进：`abi_version` 永远在偏移 0；新字段只追加（宿主侧另有 `struct_size` 门控）；major 版本升级 = 显式 break（详见 [native interop](../../../docs/reference/src/embedding/native-interop.md) §3.3 与 [C ABI](../../../docs/reference/src/embedding/c-abi.md)）。
 
+`z42_host_api.h` 用 `Z42_HOST_CONFIG_V2_SIZE` 标识原始 v2 前缀。可选的 `zpkg_resolver_write` 尾部字段支持在回调内同步提交临时包缓冲。
+
 ## 关联文档
 
 - 设计 / 机制：[嵌入宿主](../../../docs/internals/src/runtime/embedding.md) · [native ABI](../../../docs/internals/src/runtime/native-abi.md) · [打包机制](../../../docs/internals/src/devinfra/packaging.md)

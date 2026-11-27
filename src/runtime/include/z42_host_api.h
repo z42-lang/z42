@@ -5,7 +5,8 @@
  *
  * Sibling to z42_abi.h, which covers "native code registers types into z42".
  * This header covers the opposite direction: "host app drives the VM".
- * Published through the z42_host.h umbrella (Rust mirror: src/host/c/ffi.rs).
+ * Published through the z42_host.h umbrella (Rust mirrors: src/host/abi_config.rs
+ * and src/host/ffi.rs).
  *
  * Spec: docs/design/runtime/embedding.md (Tier 1 C ABI §4)
  *       变更 add-embedding-api/
@@ -86,15 +87,15 @@ typedef void (*Z42WriteSink)(const char* bytes, size_t length, void* user_data);
 /* ── zpkg resolver hook ──────────────────────────────────────────────────── */
 
 /*
- * Resolve a namespace to its zpkg bytes. The runtime calls this during
- * z42_host_load_zbc whenever the user .zbc imports a namespace not yet
- * loaded; "z42.core" is always probed even when the user code has no
- * `using` statements.
+ * Resolve a namespace to its zpkg bytes. The runtime can call a resolver
+ * while loading a module or resolving a lazy dependency during execution.
+ * Protect shared user_data and keep it valid until host shutdown.
  *
  * Contract:
  *   - On hit, write *out_bytes / *out_length and return non-zero.
- *     Bytes need only stay valid until this call returns — the runtime
- *     copies what it needs before returning to the host.
+ *     The runtime copies after the callback returns. The bytes must
+ *     remain readable and unchanged through that copy. Session-owned
+ *     immutable storage works with concurrent or background resolution.
  *   - On miss, return 0. The runtime ignores *out_bytes / *out_length
  *     and falls back to search_paths (if set).
  *
@@ -107,6 +108,20 @@ typedef int (*Z42ZpkgResolverFn)(
     const char*     namespace_name,
     const uint8_t** out_bytes,
     size_t*         out_length,
+    void*           user_data);
+
+/*
+ * Resolve from a temporary buffer. On hit, call write(bytes, length,
+ * write_data) with a readable buffer and return its result. The runtime
+ * copies the bytes before write returns. On miss, return 0.
+ * Call write at most once, on the invoking thread and within the resolver
+ * call. Its function pointer and write_data are borrowed for that call.
+ */
+typedef int (*Z42ZpkgByteSink)(const uint8_t* bytes, size_t length, void* write_data);
+typedef int (*Z42ZpkgResolverWriteFn)(
+    const char*     namespace_name,
+    Z42ZpkgByteSink write,
+    void*           write_data,
     void*           user_data);
 
 /* ── zpkg namespace introspection ────────────────────────────────────────── */
@@ -139,16 +154,21 @@ typedef struct Z42HostConfig {
     const char* const* search_paths;
 
     /*
-     * Optional zpkg resolver hook. When set, the runtime tries it FIRST
-     * for every namespace lookup during load_zbc; falls back to
-     * search_paths on miss. NULL = "no resolver; scan search_paths only".
+     * Optional pointer-returning resolver. The runtime tries the configured
+     * resolver for each namespace lookup and searches search_paths on miss.
      *
-     * Part of the v2 layout. Fields appended after these are gated by
-     * struct_size.
+     * Part of the original v2 prefix. Both resolver variants share user_data.
      */
     Z42ZpkgResolverFn  zpkg_resolver;
     void*              zpkg_resolver_user_data;
+    /* Optional v2 extension. When present and non-NULL, this takes
+     * precedence over zpkg_resolver. A miss proceeds to search_paths. */
+    Z42ZpkgResolverWriteFn zpkg_resolver_write;
 } Z42HostConfig;
+
+/* Size advertised by callers of the original v2 header. */
+#define Z42_HOST_CONFIG_V2_SIZE \
+    (offsetof(Z42HostConfig, zpkg_resolver_user_data) + sizeof(void*))
 
 /* ── Status codes ────────────────────────────────────────────────────────── */
 
@@ -177,6 +197,11 @@ typedef enum Z42HostStatus {
     Z42_HOST_ERR_INTERNAL        = 99
 } Z42HostStatus;
 
+/* The ABI uses 32-bit enum fields and return values. These declarations
+ * fail compilation on targets or compiler settings with shorter enums. */
+typedef char Z42ExecModeMustBe32Bits[(sizeof(Z42ExecMode) == sizeof(int32_t)) ? 1 : -1];
+typedef char Z42HostStatusMustBe32Bits[(sizeof(Z42HostStatus) == sizeof(int32_t)) ? 1 : -1];
+
 /* ── Lifecycle API ───────────────────────────────────────────────────────── */
 
 /*
@@ -184,7 +209,8 @@ typedef enum Z42HostStatus {
  *
  * Preconditions:
  *   - cfg != NULL and cfg->abi_version == Z42_HOST_ABI_VERSION
- *   - cfg->struct_size == sizeof(Z42HostConfig)
+ *   - cfg->struct_size is the caller's sizeof(Z42HostConfig), at least
+ *     Z42_HOST_CONFIG_V2_SIZE
  *   - The process has no live VM (otherwise returns ERR_ALREADY_INIT).
  *
  * On success, *out_host is set to a non-NULL handle.

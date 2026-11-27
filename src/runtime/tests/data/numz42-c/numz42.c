@@ -18,6 +18,7 @@
  * `src/runtime/include` to the include path. */
 #include "z42_abi.h"
 #include "z42_native.h"
+#include "z42_host_api.h"
 
 size_t z42_native_layout(size_t index) {
     const size_t fields[] = {
@@ -26,6 +27,21 @@ size_t z42_native_layout(size_t index) {
         offsetof(Z42NativeValue, bits), offsetof(Z42NativeValue, data),
         offsetof(Z42NativeModule, name), offsetof(Z42NativeModule, create_state),
         offsetof(Z42NativeFunction, invoke), offsetof(Z42NativeHostApi, argument)
+    };
+    return index < sizeof(fields) / sizeof(fields[0]) ? fields[index] : 0;
+}
+
+size_t z42_host_layout(size_t index) {
+    struct AlignedConfig { char pad; Z42HostConfig config; };
+    const size_t fields[] = {
+        sizeof(Z42HostConfig), offsetof(struct AlignedConfig, config),
+        sizeof(Z42ExecMode), sizeof(Z42HostStatus), Z42_HOST_CONFIG_V2_SIZE,
+        offsetof(Z42HostConfig, abi_version), offsetof(Z42HostConfig, struct_size),
+        offsetof(Z42HostConfig, exec_mode), offsetof(Z42HostConfig, heap_initial_bytes),
+        offsetof(Z42HostConfig, heap_max_bytes), offsetof(Z42HostConfig, stdout_sink),
+        offsetof(Z42HostConfig, stderr_sink), offsetof(Z42HostConfig, sink_user_data),
+        offsetof(Z42HostConfig, search_paths), offsetof(Z42HostConfig, zpkg_resolver),
+        offsetof(Z42HostConfig, zpkg_resolver_user_data), offsetof(Z42HostConfig, zpkg_resolver_write),
     };
     return index < sizeof(fields) / sizeof(fields[0]) ? fields[index] : 0;
 }

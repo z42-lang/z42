@@ -102,10 +102,14 @@ typedef int (*Z42ZpkgResolverFn)(
     size_t*      out_length,
     void*        user_data);
 
-/* Last fields of the v2 Z42HostConfig layout: */
+/* Last fields of the original v2 Z42HostConfig prefix: */
 Z42ZpkgResolverFn  zpkg_resolver;
 void*              zpkg_resolver_user_data;
+/* Optional v2 tail extension: */
+Z42ZpkgResolverWriteFn zpkg_resolver_write;
 ```
+
+iOS 和 Android 通过 `zpkg_resolver_write` 在回调内同步提交借用的包字节。完整契约见 [C ABI](../../../docs/reference/src/embedding/c-abi.md#zpkg-resolver-回调)。
 
 ### Tier 2 Rust trait
 

@@ -135,9 +135,9 @@ pub trait ZpkgResolver: Send + Sync {
 }
 ```
 
-- **C 函数指针 + user_data**（`Z42ZpkgResolverFn`，来自 `Z42HostConfig`）由 `host/abi_config.rs` 的 `CHookResolver`
-  包一层。`user_data` 存成 `usize` 以干净地继承 `Send + Sync`。回调返回后**立刻 `to_vec()` 复制**，
-  所以宿主那边「字节只需活到回调返回」的契约得以成立。
+- **C 函数指针 + user_data** 由 `host/abi_config.rs` 的 `CHookResolver` 适配到同一个 loader 接口。
+  原始指针回调在返回后复制字节，宿主持有缓冲到复制结束。写入回调在宿主提供的缓冲借用期间同步复制。
+  Swift 在 `withUnsafeBytes` 作用域内提交数据，Android JNI 在释放借用的数组元素前提交。
 - **Rust `Arc<dyn ZpkgResolver>`** 由 Tier 2 经 `host::install_zpkg_resolver()` 直接塞进
   `HostState::config`，不绕 C 回调。这个函数**不是** `extern "C"`，是 Tier 2 专用的逃生口。
 
@@ -290,9 +290,9 @@ wasm 是单线程、且经 `z42_wasm` 而不是这个 C 符号进来，所以那
 
 ## 改 ABI 时的检查清单
 
-1. `src/runtime/include/z42_host.h` 与 `src/runtime/src/host/`（`config.rs` 的 `#[repr(C)]` 镜像、
+1. `src/runtime/include/z42_host_api.h` 与 `src/runtime/src/host/`（`abi_config.rs` 的 `#[repr(C)]` 镜像、
    `error.rs` 的 `#[repr(i32)]` 枚举）必须同步，**字段只追加不重排**。追加到 `Z42HostConfig` 的字段
-   只在 `struct_size` 覆盖到时才读（`config::validate`），`MIN_CONFIG_SIZE` 保持 v2 布局大小不变。
+   只在 `struct_size` 覆盖到时才读（`abi_config::validate`），`MIN_CONFIG_SIZE` 固定为原始 v2 前缀大小。
 2. `src/runtime/include/README.md` 的类型 / 函数清单。
 3. Tier 2：`z42::host::rust` 的 `HostConfig` / `HostError` / `translate_status`。
 4. Tier 3 三家 facade 的桥接层（Swift `Z42VM.swift` 的 `cfg` 填充、
