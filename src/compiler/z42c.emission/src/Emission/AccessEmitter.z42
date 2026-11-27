@@ -610,7 +610,11 @@ public sealed class AccessEmitter {
             while (i < owner.OwnFieldCount) {
                 if (owner.OwnFieldNames[i] == name) {
                     FieldSymbol field = owner.Fields.Get(name) as FieldSymbol;
-                    return field != null && !field.IsReadonly && !field.IsProp;
+                    if (field == null || field.IsReadonly || field.IsProp) { return false; }
+                    // The symbolic path needs a loaded descriptor for every inline link.
+                    Z42Type storage = field.StorageType != null ? field.StorageType : field.FieldType;
+                    return !this._ee._hasTypeParam(storage)
+                        && (!(storage is Z42InstantiatedType) || this._ctx.IsLocalReceiver(storage));
                 }
                 i = i + 1;
             }

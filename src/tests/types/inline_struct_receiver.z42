@@ -39,6 +39,11 @@ class Host {
     public Counter<int> BumpBare() { return Direct.Bump(); }
 }
 
+class GenericHost<T> {
+    public Counter<int> Direct;
+    public int BumpBare() { return Direct.Bump().Count; }
+}
+
 class IndexLog { public static int Calls = 0; }
 
 Host Once(Host host) {
@@ -80,6 +85,11 @@ void Main() {
     Assert.Equal(0, host.Frozen.Count);
     Assert.Equal(1, host.FrozenGroup.Nested.Bump().Count);
     Assert.Equal(0, host.FrozenGroup.Nested.Count);
+
+    GenericHost<int> generic = new GenericHost<int>();
+    Assert.Equal(1, generic.Direct.Bump().Count);
+    Assert.Equal(2, generic.BumpBare());
+    Assert.Equal(2, generic.Direct.Count);
 
     Host missing = null;
     bool nullOwner = false;
