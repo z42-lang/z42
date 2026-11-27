@@ -32,6 +32,21 @@ impl<'pause> PausedHeap<'pause> {
         Self { heap, _collector_thread: PhantomData }
     }
 
+    /// Visit the values accepted by the heap's incremental liveness filter.
+    pub fn live_values(&self, visitor: &mut dyn FnMut(&Value)) {
+        self.heap.iterate_live_objects(visitor);
+    }
+
+    /// Measure an object or array visited in this heap.
+    pub fn object_size_bytes(&self, value: &Value) -> usize {
+        self.heap.object_size_bytes(value)
+    }
+
+    /// Visit host-pinned roots for the V8 snapshot's synthetic root.
+    pub fn pinned_roots(&self, visitor: &mut dyn FnMut(&Value)) {
+        self.heap.for_each_root(visitor);
+    }
+
     /// Visit raw objects in the paused heap.
     pub fn objects(&self, visitor: &mut dyn FnMut(&Value)) {
         // SAFETY: the VM pause covers the entire borrow of the inspection.

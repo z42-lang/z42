@@ -6,9 +6,17 @@
 //! flat array lengths matching node/edge counts, string dedup).
 
 use super::*;
-use crate::gc::{Heap};
+use crate::gc::Heap;
 use crate::object::{NativeData, ScriptObject, TypeDesc, Value};
 use std::sync::Arc;
+
+fn build_graph_snapshot(heap: &Heap) -> GraphSnapshot {
+    super::build_graph_snapshot(
+        |visit| heap.iterate_live_objects(visit),
+        |value| heap.object_size_bytes(value),
+        |visit| heap.for_each_root(visit),
+    )
+}
 
 fn dummy_type_desc(name: &str) -> Arc<TypeDesc> {
     let fields = vec![

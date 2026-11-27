@@ -60,11 +60,8 @@ fn target_ptr(value: &Value) -> Option<usize> {
 }
 
 fn with_collected_heap<T>(ctx: &VmContext, query: impl FnOnce(PausedHeap<'_>) -> T) -> T {
-    // If another collector is active, the pause request parks us until it finishes.
-    loop {
-        if let Some(pause) = crate::threads::safepoint::request_gc_pause(ctx) {
-            ctx.heap().collect_full();
-            return query(pause.inspect_heap());
-        }
-    }
+    super::with_heap_pause(ctx, |pause| {
+        ctx.heap().collect_full();
+        query(pause.inspect_heap())
+    })
 }

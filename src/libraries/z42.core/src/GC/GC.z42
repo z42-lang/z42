@@ -56,6 +56,7 @@ public static class GC {
 
     /// 把当前堆的对象引用图写成 V8 `.heapsnapshot` JSON 文件，返回写入字节数。
     ///
+    /// 在 VM 暂停期间采集图，随后恢复 VM 并写文件。
     /// 文件可被 Chrome DevTools（Memory → Load）加载看 retainer 图 / dominator 树 /
     /// 到根最短路径。路径不可写时抛异常。
     // v1 局限：无 allocation-site 栈回溯；不 stream 大堆（in-memory 一次写）；weak refs 不进图。

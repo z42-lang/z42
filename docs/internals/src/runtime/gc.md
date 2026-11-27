@@ -661,11 +661,13 @@ diff `RecentPauses()` 与上次调用结果也能算 incremental
 (Memory → Load)、[speedscope](https://www.speedscope.app)、
 [heapviewer.com](https://heapviewer.com) 都能直接打开。
 
-实现走 `crates/z42-profiler/src/profiler/heap/snapshot.rs` two-pass walker：
+诊断层在一个 VM 暂停窗口内将堆视图交给
+`crates/z42-profiler/src/profiler/heap/snapshot.rs`。采集保留增量 GC 的存活筛选，
+直接从该窗口内的对象、数组和宿主 pin 根构建图。
 
 ```
 pass 1: iterate_live_objects → assign V8 node ids (odd 2k+1), emit NodeRecs
-pass 2: for each node, scan_object_refs → emit Property / Element EdgeRecs
+pass 2: for each node, read field / array references → emit Property / Element EdgeRecs
 pass 3: for_each_root → emit Shortcut edges from synthetic root (id=0)
 ```
 
@@ -697,10 +699,11 @@ dedup；`trace_function_infos` / `trace_tree` / `samples` / `locations`
 v1 输出空数组。10 MB heap → 约 30 MB snapshot 文件（V8 char-count
 overhead 内）。
 
-**序列化实现**（v1）：
+**序列化实现**：
 
-`builtin_gc_write_heap_snapshot` 通过 `serialize_v8_heapsnapshot_to<W:
-Write>` 流式直写 `BufWriter<File>`，无中间 `String` 内存分配。
+profiler 返回只持有自有节点、边和名称的写出操作。诊断层结束 GC 暂停，
+将调用线程标记为 native 等待，再通过 `serialize_v8_heapsnapshot_to`
+流式写入 `BufWriter<File>`。其他线程可在写出期间继续运行和回收。
 `serialize_v8_heapsnapshot(&snap) -> String` 作为薄包装（`Vec<u8>`
 驱动流式路径）供测试和内存场景使用，输出字节完全相同。
 
