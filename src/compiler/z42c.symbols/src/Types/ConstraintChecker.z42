@@ -42,7 +42,7 @@ public sealed class ConstraintChecker {
             if (d is MethodDecl) {
                 // resolve-method-where-at-decl：**顶层自由函数**（`MethodDecl.IsFree`）的 where。
                 // 它此前完全没有声明期入口——`Resolve` 只认 ClassDecl，而调用点那条又只在真被调用时才走。
-                this._diagnoseMethodWheres(symbols, d as MethodDecl, new string[0], 0);   // 自由函数无 owner 类型参
+                this._resolveMethodWheres(symbols, d as MethodDecl, new string[0], 0);   // 自由函数无 owner 类型参
             } else if (d is ClassDecl) {
                 ClassDecl c = d as ClassDecl;
                 // add-associated-types PR-1：条件由 `class || struct` 放宽到**含 interface**。此前
@@ -60,57 +60,67 @@ public sealed class ConstraintChecker {
                         }
                     }
                 }
-                // 成员方法的 where 也在声明期过一遍（只报诊断，bundle 丢弃——方法级不预登记符号表）。
-                int m = 0;
-                while (m < c.MemberCount) {
-                    Decl mem = this._unwrap(c.Members[m]);
-                    if (mem is MethodDecl) { this._diagnoseMethodWheres(symbols, mem as MethodDecl, c.TypeParams.Names, c.TypeParams.Count); }
-                    m = m + 1;
-                }
+                symbols.EnclosingClass = c.Name;
+                this._resolveMemberWheres(symbols, c.Members, c.MemberCount, c.TypeParams.Names, c.TypeParams.Count);
+                symbols.EnclosingClass = "";
+            } else if (d is ImplDecl) {
+                var implementation = d as ImplDecl;
+                this._resolveMemberWheres(symbols, implementation.Methods, implementation.MethodCount,
+                    implementation.TargetParamNames, implementation.TargetParamNames.Length);
             }
             i = i + 1;
         }
     }
 
-    // 方法级 where 的**声明期**诊断：建一次 bundle 只为触发诊断，结果丢弃。
-    //
-    // 为什么不顺手把结果缓存起来给 `CheckMethod` 用：方法级约束**不预登记符号表**（没有一把稳定的键——
-    // 同名同 arity 的重载各有各的 where），而即席重建的成本本来就低（约束项个位数）。把「报诊断」与
-    // 「建 bundle」拆开，比造一张键不可靠的缓存表安全得多。
-    // check-bare-type-param-member-access C：`ownerPnames` = owner 类的型参名表（自由函数传空）。
-    //
-    // 🔴 **此前这里是 `md.TypeParams.Count == 0` 就早退** —— 于是
-    // `class List<T> { public void Sort() where T : IComparable { … } }`（方法级 where **细化**
-    // 类级型参、方法自己没有型参）整条 where **一眼都不看**。而调用点 `CheckMethod` 对
-    // `pi < 0` 静默跳过、注释写着「那条也归声明期报」⇒ **两边各自以为对方会报，结果没人报**：
-    // `new List<Opaque>().Sort()` 零诊断、运行期崩 `VCall: function `Opaque.CompareTo` not found`。
-    //
-    // 现在：where 的型参先查方法级、再查**类级**（后者 = 合法细化），两边都不在才报未知型参。
-    private void _diagnoseMethodWheres(SymbolTable symbols, MethodDecl md, string[] ownerPnames, int ownerPc) {
-        if (md == null || md.WhereCount == 0) { return; }
-        string[] pnames = md.TypeParams.Names;
-        int pc = md.TypeParams.Count;
-        int w = 0;
-        while (w < md.WhereCount) {
-            WhereClause wc = md.Wheres[w];
-            int pi = this._indexOfName(pnames, pc, wc.TypeParam);
-            if (pi >= 0) {
-                this._fillBundle(symbols, md.Name, new ConstraintBundle(), wc, pnames, pc, true);
+    private void _resolveMemberWheres(SymbolTable symbols, Decl[] members, int count,
+                                      string[] ownerNames, int ownerCount) {
+        for (int i = 0; i < count; i = i + 1) {
+            var method = this._unwrap(members[i]) as MethodDecl;
+            if (method != null) { this._resolveMethodWheres(symbols, method, ownerNames, ownerCount); }
+        }
+    }
+
+    private void _resolveMethodWheres(SymbolTable symbols, MethodDecl md, string[] ownerNames, int ownerCount) {
+        if (md.WhereCount == 0) { return; }
+        if (symbols.FindMethodConstraints(md) != null) { return; }
+        var method = ConstraintChecker._emptySet(md.TypeParams.Names, md.TypeParams.Count);
+        var owner = ConstraintChecker._emptySet(ownerNames, ownerCount);
+        for (int i = 0; i < md.WhereCount; i = i + 1) {
+            WhereClause clause = md.Wheres[i];
+            int slot = method.IndexOf(clause.TypeParam);
+            if (slot >= 0) {
+                this._fillBundle(symbols, md.Name, method.Bundles[slot], clause, method.ParamNames, method.Count, true);
             } else {
-                int ci = this._indexOfName(ownerPnames, ownerPc, wc.TypeParam);
-                if (ci >= 0) {
-                    // 合法细化：约束挂在 owner 类的型参上。声明期照样过一遍 `_fillBundle`，
-                    // 这样 `where T : NotAnInterface` 这类**约束本身写错**仍在声明期被抓到。
-                    this._fillBundle(symbols, md.Name, new ConstraintBundle(), wc, ownerPnames, ownerPc, true);
+                slot = owner.IndexOf(clause.TypeParam);
+                if (slot >= 0) {
+                    this._fillBundle(symbols, md.Name, owner.Bundles[slot], clause, owner.ParamNames, owner.Count, true);
                 } else {
-                    // 与类级同款（`_buildSet` 那条）：`void f<T>(T v) where U : IFoo` —— 约束挂在一个
-                    // 不存在的型参上，等于整条 where 白写。此前方法级把它**静默跳过**。
                     this._diags.Error(DiagnosticCodes.UndefinedSymbol,
-                        "where clause references unknown type parameter `" + wc.TypeParam + "` on `" + md.Name + "`",
-                        wc.Span);
+                        "where clause references unknown type parameter `" + clause.TypeParam + "` on `" + md.Name + "`",
+                        clause.Span);
                 }
             }
-            w = w + 1;
+        }
+        ConstraintChecker._qualifyMethodBounds(symbols, method);
+        ConstraintChecker._qualifyMethodBounds(symbols, owner);
+        symbols.RegisterMethodConstraints(md, method, owner);
+    }
+
+    private static ConstraintSet _emptySet(string[] names, int count) {
+        ConstraintBundle[] bundles = new ConstraintBundle[count];
+        for (int i = 0; i < count; i = i + 1) { bundles[i] = new ConstraintBundle(); }
+        return new ConstraintSet(names, bundles, count);
+    }
+
+    private static void _qualifyMethodBounds(SymbolTable symbols, ConstraintSet set) {
+        foreach (ConstraintBundle bundle in set.Bundles) {
+            if (bundle.HasBaseClass) {
+                var baseType = symbols.GetClass(bundle.BaseClassName);
+                if (baseType != null) { bundle.BaseClassName = baseType.Fqn(); }
+            }
+            for (int i = 0; i < bundle.InterfaceCount; i = i + 1) {
+                bundle.InterfaceNames[i] = SymbolTable.IfaceFqnOf(symbols, bundle.InterfaceNames[i]);
+            }
         }
     }
 
@@ -128,30 +138,9 @@ public sealed class ConstraintChecker {
     public void CheckMethodRefinedClassParams(SymbolTable symbols, MethodDecl md,
                                               string[] ownerPnames, int ownerPc,
                                               Z42Type[] recvArgs, int recvArgCount, Span sp) {
-        if (md == null || md.WhereCount == 0 || ownerPc == 0 || recvArgCount == 0) { return; }
-        ConstraintBundle[] bundles = new ConstraintBundle[ownerPc];
-        int b = 0;
-        while (b < ownerPc) { bundles[b] = new ConstraintBundle(); b = b + 1; }
-        bool any = false;
-        int w = 0;
-        while (w < md.WhereCount) {
-            WhereClause wc = md.Wheres[w];
-            // 方法自己的型参归 `CheckMethod`，这里只管细化类级型参的那些。
-            if (this._indexOfName(md.TypeParams.Names, md.TypeParams.Count, wc.TypeParam) < 0) {
-                int ci = this._indexOfName(ownerPnames, ownerPc, wc.TypeParam);
-                // 声明期已报未知型参 ⇒ 这里静默跳过（report=false，一个错误一条诊断）。
-                if (ci >= 0) { this._fillBundle(symbols, md.Name, bundles[ci], wc, ownerPnames, ownerPc, false); any = true; }
-            }
-            w = w + 1;
-        }
-        if (!any) { return; }
-        int n = recvArgCount; if (n > ownerPc) { n = ownerPc; }
-        int i = 0;
-        while (i < n) {
-            if (!bundles[i].IsEmpty()) {
-                this._checkBundle(symbols, ownerPnames, ownerPc, recvArgs, recvArgCount, bundles[i], recvArgs[i], md.Name, i, sp);
-            }
-            i = i + 1;
+        var entry = symbols.FindMethodConstraints(md);
+        if (entry != null) {
+            this._checkMethodSet(symbols, entry.Owner, recvArgs, recvArgCount, md.Name, sp);
         }
     }
 
@@ -746,39 +735,21 @@ public sealed class ConstraintChecker {
         return this._isValueTypeArg(symbols, arg);
     }
 
-    // 方法级约束按方法型参的声明顺序整理，供本包校验和签名发射共用。
-    public ConstraintSet BuildMethodSet(SymbolTable symbols, MethodDecl md) {
-        if (md == null || md.WhereCount == 0 || md.TypeParams.Count == 0) { return null; }
-        string[] pnames = md.TypeParams.Names;
-        int pc = md.TypeParams.Count;
-        ConstraintBundle[] bundles = new ConstraintBundle[pc];
-        int b = 0;
-        while (b < pc) { bundles[b] = new ConstraintBundle(); b = b + 1; }
-        int w = 0;
-        while (w < md.WhereCount) {
-            WhereClause wc = md.Wheres[w];
-            int pi = this._indexOfName(pnames, pc, wc.TypeParam);
-            // 声明级诊断已由 `Resolve` 的 `_diagnoseMethodWheres` 在声明期发过 ⇒ 这里 **report=false**。
-            // `pi < 0`（where 引用不存在的型参）同样静默跳过，那条也归声明期报。
-            if (pi >= 0) { this._fillBundle(symbols, md.Name, bundles[pi], wc, pnames, pc, false); }
-            w = w + 1;
-        }
-        return new ConstraintSet(pnames, bundles, pc);
+    public void CheckMethod(SymbolTable symbols, MethodSymbol method, Z42Type[] args, int argCount, Span sp) {
+        ConstraintSet constraints = method.HasDecl ? symbols.MethodConstraintsOf(method.Decl) : method.TypeParamConstraints;
+        this._checkMethodSet(symbols, constraints, args, argCount, method.Name, sp);
     }
 
-    public void CheckMethod(SymbolTable symbols, MethodSymbol method, Z42Type[] args, int argCount, Span sp) {
-        ConstraintSet constraints = method.HasDecl ? this.BuildMethodSet(symbols, method.Decl) : method.TypeParamConstraints;
+    private void _checkMethodSet(SymbolTable symbols, ConstraintSet constraints, Z42Type[] args,
+                                 int argCount, string owner, Span sp) {
         if (constraints == null) { return; }
-        int n = argCount;
-        if (n > constraints.Count) { n = constraints.Count; }
-        int i = 0;
-        while (i < n) {
+        int n = argCount < constraints.Count ? argCount : constraints.Count;
+        for (int i = 0; i < n; i = i + 1) {
             ConstraintBundle bundle = constraints.Bundles[i];
             if (!bundle.IsEmpty()) {
                 this._checkBundle(symbols, constraints.ParamNames, constraints.Count, args, argCount,
-                                  bundle, args[i], method.Name, i, sp);
+                                  bundle, args[i], owner, i, sp);
             }
-            i = i + 1;
         }
     }
 

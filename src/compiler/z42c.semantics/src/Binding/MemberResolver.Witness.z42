@@ -139,7 +139,7 @@ public sealed partial class MemberResolver {
         if (owner == null || !owner.IsFree || env.FnLocals != null || call.TypeArgCount != 0) {
             return this._missingStaticWitness(member, target.Name);
         }
-        ConstraintSet constraints = this._tc._constraints.BuildMethodSet(env.Symbols, owner);
+        ConstraintSet constraints = env.Symbols.MethodConstraintsOf(owner);
         StaticWitnessSlot[] slots = this._witnessSlots(env.Symbols, constraints);
         int selected = -1;
         for (int i = 0; i < slots.Length; i = i + 1) {
@@ -186,19 +186,19 @@ public sealed partial class MemberResolver {
         return new BoundError("unavailable static interface member", new Z42ErrorType(), member.Span);
     }
 
-    private ConstraintSet _witnessConstraints(BoundCall call, MethodSymbol method) {
+    private ConstraintSet _witnessConstraints(BoundCall call, MethodSymbol method, SymbolTable symbols) {
         if (call.Kind != "free") { return null; }
-        return method.TypeParamConstraints;
+        return method.HasDecl ? symbols.MethodConstraintsOf(method.Decl) : method.TypeParamConstraints;
     }
 
     private bool _requiresStaticWitnesses(BoundCall call, MethodSymbol method, TypeEnv env) {
-        ConstraintSet constraints = this._witnessConstraints(call, method);
+        ConstraintSet constraints = this._witnessConstraints(call, method, env.GetSymbols());
         return constraints != null && this._witnessSlots(env.Symbols, constraints).Length > 0;
     }
 
     private void _attachStaticWitnesses(BoundCall call, MethodSymbol method, TypeEnv env, Span span) {
         if (method == null || call.MethodTypeArgCount == 0) { return; }
-        ConstraintSet constraints = this._witnessConstraints(call, method);
+        ConstraintSet constraints = this._witnessConstraints(call, method, env.GetSymbols());
         if (constraints == null || constraints.Count != call.MethodTypeArgCount) { return; }
         StaticWitnessSlot[] slots = this._witnessSlots(env.Symbols, constraints);
         if (slots.Length == 0) { return; }
@@ -263,7 +263,7 @@ public sealed partial class MemberResolver {
         MethodDecl owner = this._tc._curMethodDecl;
         int index = env.MethodParamIndexOf(parameter);
         if (index < 0 || owner == null || !owner.IsFree || env.FnLocals != null) { return ""; }
-        ConstraintSet constraints = this._tc._constraints.BuildMethodSet(env.Symbols, owner);
+        ConstraintSet constraints = env.Symbols.MethodConstraintsOf(owner);
         StaticWitnessSlot[] slots = this._witnessSlots(env.Symbols, constraints);
         for (int i = 0; i < slots.Length; i = i + 1) {
             StaticWitnessSlot candidate = slots[i];

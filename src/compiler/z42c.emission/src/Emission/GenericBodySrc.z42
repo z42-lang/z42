@@ -10,14 +10,8 @@
 //
 // 故登记表除了 AST，还必须带上**该 AST 所属 CU 的 model**。
 //
-// ## 为什么不拆成两阶段流水线
-//
-// 「先 Infer 全部 CU、再带所有 model 做 codegen」是最正统的解法，但 `BuildPackageCus` 那条路上
-// 并行、诊断、缓存三件事缠在一起，拆开风险与改动面都大。
-//
-// 这里取等价但小得多的做法：**只为「声明了泛型的那些 CU」预先算一次 model**。
-// 泛型声明文件在一个包里只是少数，代价有界；这些 CU 稍后编自己时会再 Infer 一次（多算一遍，
-// 但不改变任何结果），换来流水线结构一行不动。
+// Package emission binds generic declaration files before building the specialization registry.
+// Fresh files reuse that binding for ordinary emission as well.
 namespace Z42.Emission;
 
 using Z42.Semantics;

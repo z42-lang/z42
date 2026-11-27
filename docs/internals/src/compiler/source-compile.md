@@ -1207,6 +1207,12 @@ z42 的 IR 把**字节偏移烘焙进指令**（`struct_fget_prim %0 @8`）。�
 > 🔴 **待办**：`SemanticModel` 也按 CU 建（`TypeChecker.Infer(cu, …)`），所以**泛型声明与
 > 实例化跨文件**时拿不到绑定后的体 —— 登记表提到包级**不足以**解决它。
 
+## 方法约束解析
+
+方法的 `where` 在声明文件的作用域解析。符号表按 `MethodDecl` 身份保存结果，
+区分同名重载，也供实参检查、静态接口见证和签名发射读取。类级型参的方法约束也保存于该方法的声明条目，
+校验时使用接收者的实际类型实参。
+
 ## 源快照读取
 
 CLI 与 BuildSession 共用 pipeline 的 `SourceReader.Read`，返回按输入路径顺序对齐的文本与哈希。
@@ -1221,7 +1227,9 @@ CLI 与进程内 `BuildSession` 使用 pipeline 的 `IncrementalCompilation`、`
 `IncrementalMetadata` 和 `IncrementalCacheWriter` 共享缓存算法，入口只保留策略和布局。
 HostTarget 的启用条件、独立目录及语义输入见 [工程模型](project-model.md#hosttarget-的增量边界)。
 
-命中缓存只跳过对应 CU 的类型检查/代码生成；当前源码仍解析并参与全包符号收集。
+缓存复用当前 CU 的 IR。当前源文件仍参与解析和包级符号收集。如果有待发射的文件，
+跨文件泛型特化仍可读取命中缓存的声明文件的绑定体。泛型声明文件在该次构建共享一份绑定结果，
+包含语义模型、诊断及依赖使用记录。
 缓存的 UsedNs/UsedDepNs/per-CU 警告必须在文件级 using 校验之前恢复，后续包检查与 lint 每次重跑。
 全局 using 变动改变所有 CU 的解析环境，按整包失效处理；局部 IR 不能携带旧全局环境穿过这道边界。
 IR 校验失败的降级由入口决定是否呈现，HostTarget 保持诊断通过 reporter 返回。

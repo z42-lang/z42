@@ -9,6 +9,16 @@ using Z42.IR;
 
 // 单 CU / partial 编译内核（从 IrDump 分出，irdump-pipeline-split）：per-file typecheck+codegen（_compileCu）
 // + partial 碎片合并（_buildMergedPartial/_mergeFragments）。全私有内核，仅 IrDump 门面同包内调用。
+internal sealed class CuBinding {
+    public SemanticModel Model;
+    public DiagnosticBag Diags;
+    public NsUseRecorder UsedNs;
+
+    public CuBinding(SemanticModel model, DiagnosticBag diags, NsUseRecorder usedNs) {
+        this.Model = model; this.Diags = diags; this.UsedNs = usedNs;
+    }
+}
+
 public static class CuCompile {
     // add-partial-types：为每个 partial 类型构建一条**合并 ClassDecl**（全碎片成员按 Ordinal(cus 已 Ordinal 排序)
     // + 声明序拼接；基表并集按 Dump dedup）。仅主碎片（IrGen 判 min-path）用它发 TYPE record → 单条完整 record，
@@ -107,11 +117,15 @@ public static class CuCompile {
     // ∪ `DepUseCollector` 在绑定树上补的（接收者类型没写出的实例调用等）。**不依赖代码生成**——有错误时
     // 照样完整，代码生成也因此可以跳过。顺序 = 绑定期首现序，再接 walker 新增的。
     public static string[] DepRefsOf(TypeChecker tc, SemanticModel model) {
+        return CuCompile._depRefsOf(tc.UsedNs, model);
+    }
+
+    private static string[] _depRefsOf(NsUseRecorder used, SemanticModel model) {
         string[] walk = DepUseCollector.Collect(model);
-        string[] r = new string[tc.UsedNs.DepCount + walk.Length];
+        string[] r = new string[used.DepCount + walk.Length];
         int n = 0;
         int t = 0;
-        while (t < tc.UsedNs.DepCount) { r[n] = tc.UsedNs.DepItems[t]; n = n + 1; t = t + 1; }
+        while (t < used.DepCount) { r[n] = used.DepItems[t]; n = n + 1; t = t + 1; }
         int w = 0;
         while (w < walk.Length) {
             bool dup = false;
@@ -135,16 +149,21 @@ public static class CuCompile {
         return new IrModule("main", pool, 1, new IrClassDesc[0], 0, new IrFunction[0], 0);
     }
 
+    internal static CuBinding Bind(CompilationUnit cu, SymbolTable symbols) {
+        var diags = new DiagnosticBag();
+        cu.MergeParseDiags(diags);
+        var checker = new TypeChecker(diags);
+        var model = checker.Infer(cu, symbols, false);
+        return new CuBinding(model, diags, checker.UsedNs);
+    }
+
     // perf-layouts-once：`layouts` = 包级预计算的 StructLayout（BuildPackageCus 算一次；此前每 CU
     // 各建一份 = 整包符号表重建 count 次）。并行 CU 共享它，但实例化名的布局要在代码生成时按需算 ——
     // 所以每个 CU 用 `ForkView()` 拿自己的视图（按需算出的只进视图），基表保持只读。null=自行计算。
-    internal static CompiledModuleZ _compileCu(CompilationUnit cu, string file, SymbolTable symbols, DependencyIndex deps, ImportedSymbols imported, LocalClassSet localClasses, bool isRelease, StrMap partialMerged, int optSet, StructLayout layouts, StrMap pkgGenerics, StrMap pkgGenericTypes, bool pkgHasErrors) {
-        var diags = new DiagnosticBag();
-        cu.MergeParseDiags(diags);   // fix-parse-diags-dropped：parse 错误计入编译错误
-        // parallelize-package-compile：约束已由 BuildPackageCus 循环前 hoist 到 symbols.ClassConstraints
-        //（并行段只读）；Infer 内建 per-file 别名视图。故 resolveConstraints=false。
-        var tc = new TypeChecker(diags);
-        var model = tc.Infer(cu, symbols, false);
+    internal static CompiledModuleZ _compileCu(CompilationUnit cu, string file, SymbolTable symbols, DependencyIndex deps, ImportedSymbols imported, LocalClassSet localClasses, bool isRelease, StrMap partialMerged, int optSet, StructLayout layouts, StrMap pkgGenerics, StrMap pkgGenericTypes, bool pkgHasErrors, CuBinding binding) {
+        if (binding == null) { binding = CuCompile.Bind(cu, symbols); }
+        var diags = binding.Diags;
+        var model = binding.Model;
         var gen = new IrGen();
         gen.Layouts = layouts != null ? layouts.ForkView() : null;   // 包级基表的本 CU 视图（null → Generate 内自算）
         // complete-generic-instantiation S1：包级泛型体登记表（null → Generate 内按本 CU 自扫，
@@ -163,8 +182,8 @@ public static class CuCompile {
         gen.HasTypeErrors = diags.ErrorCount() > 0 || pkgHasErrors;
         gen.Diags = diags;   // diag-recursive-generic：单态化不收敛报 E0503
         IrModule irm = CuCompile.GenerateIfClean(gen, cu, model, optSet);
-        string[] depRefs = CuCompile.DepRefsOf(tc, model);
-        UsingLint.Check(cu, tc.UsedNs.ToArray(), diags);   // using-csharp-rules PR-3：W0607 / W0608
+        string[] depRefs = CuCompile._depRefsOf(binding.UsedNs, model);
+        UsingLint.Check(cu, binding.UsedNs.ToArray(), diags);   // using-csharp-rules PR-3：W0607 / W0608
         string[] usings = new string[8];
         int uc = 0;
         int i = 0;
@@ -185,7 +204,7 @@ public static class CuCompile {
         if (cu.HasNamespace) { ns = cu.Namespace; }
         // deterministic-zpkg-deps：DEPS 的输入 = 本文件真正引用到的导入符号（带归属包），见 `DepRefsOf`。
         var cm2 = new CompiledModuleZ(irm, ns, usings, uc, depRefs, depRefs.Length, 0);
-        cm2.UsedNs = tc.UsedNs.ToArray();   // using-csharp-rules PR-2
+        cm2.UsedNs = binding.UsedNs.ToArray();   // using-csharp-rules PR-2
         cm2.AddAll(diags);
         return cm2;
     }
