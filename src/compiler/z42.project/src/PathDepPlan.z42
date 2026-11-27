@@ -14,8 +14,7 @@
 //   - `visiting` 集（in-progress）检测回边 → 环报错；
 //   - `visited` 集（按**规范化** toml 路径）去重，钻石依赖只建一次；
 //   - post-order 发射 → 叶子在前，消费方在后（消费方本身不发射）。
-// 产出 flat 数组 `Tomls[]`（z42 无交错数组，仿 WorkspaceMembers）。dist 目录由 driver
-// 经 `BuildLayout`（z42.project）解析，本模块只定拓扑序。
+// 产出拓扑序和对应的已解析清单。产物目录由执行方根据 BuildLayout 解析。
 //
 // z42c 受限子集：无闭包捕获 → 显式 `PathDepState` 状态对象穿透递归；固定数组 + 计数。
 namespace Z42.Project;
@@ -26,18 +25,27 @@ using Std.IO;
 public sealed class PathDepClosure {
     public string[] Tomls;
     public int      Count;
+    // Resolve 为每个拓扑节点保留本次规划时读取的清单。
+    public ProjectManifest[] Manifests;
     public PathDepClosure(string[] tomls, int count) {
         this.Tomls = tomls; this.Count = count;
+        this.Manifests = new ProjectManifest[0];
+    }
+
+    internal PathDepClosure(string[] tomls, ProjectManifest[] manifests) {
+        this.Tomls = tomls; this.Count = tomls.Length; this.Manifests = manifests;
     }
 }
 
 // DFS 状态：post-order 结果 + in-progress 环集 + 已完成去重集（均按规范化路径）。
 sealed class PathDepState {
     public string[] Order;    public int Oc;
+    public ProjectManifest[] Manifests;
     public string[] Visiting; public int Vc;
     public string[] Visited;  public int Visc;
     public PathDepState() {
         this.Order = new string[1024];    this.Oc = 0;
+        this.Manifests = new ProjectManifest[this.Order.Length];
         this.Visiting = new string[1024]; this.Vc = 0;
         this.Visited = new string[1024];  this.Visc = 0;
     }
@@ -48,20 +56,26 @@ public static class PathDepPlan {
     // consumerToml → 其 path 依赖的传递闭包，post-order（叶子在前）、按规范化 toml 路径去重。
     // 不含 consumer 自身。环 → 抛 Exception。
     public static PathDepClosure Resolve(string consumerToml) {
+        return PathDepPlan.Resolve(consumerToml, ManifestLoader.Load(consumerToml));
+    }
+
+    /// Reuse the consumer manifest already loaded by the caller.
+    public static PathDepClosure Resolve(string consumerToml, ProjectManifest consumer) {
+        if (consumer.DepCount == 0) { return new PathDepClosure(new string[0], 0); }
         PathDepState st = new PathDepState();
         // consumer 入 visiting（让指回它的 path 边触发环检测），但不发射到 Order。
         st.Visiting[st.Vc] = PathDepPlan._norm(consumerToml); st.Vc = st.Vc + 1;
-        PathDepPlan._visitDeps(st, consumerToml);
+        PathDepPlan._visitDeps(st, consumerToml, consumer);
         st.Vc = st.Vc - 1;   // pop consumer
         string[] outp = new string[st.Oc];
-        int i = 0;
-        while (i < st.Oc) { outp[i] = st.Order[i]; i = i + 1; }
-        return new PathDepClosure(outp, st.Oc);
+        Array.Copy(st.Order, outp, st.Oc);
+        ProjectManifest[] manifests = new ProjectManifest[st.Oc];
+        Array.Copy(st.Manifests, manifests, st.Oc);
+        return new PathDepClosure(outp, manifests);
     }
 
     // 访问 consumerToml 的每个 path 依赖（按 dep 名稳定序），递归其闭包。
-    static void _visitDeps(PathDepState st, string consumerToml) {
-        ProjectManifest pm = ManifestLoader.Load(consumerToml);
+    static void _visitDeps(PathDepState st, string consumerToml, ProjectManifest pm) {
         string consumerDir = Path.GetDirectoryName(consumerToml);
         if (consumerDir.Length == 0) { consumerDir = "."; }
         // 收集 path 依赖（Path 非空）的 (name, resolvedToml)。
@@ -108,10 +122,11 @@ public static class PathDepPlan {
             throw new Exception("z42c build: path dependency closure too large (>1024)");
         }
         st.Visiting[st.Vc] = norm; st.Vc = st.Vc + 1;
-        PathDepPlan._visitDeps(st, depToml);
+        ProjectManifest manifest = ManifestLoader.Load(depToml);
+        PathDepPlan._visitDeps(st, depToml, manifest);
         st.Vc = st.Vc - 1;
         st.Visited[st.Visc] = norm; st.Visc = st.Visc + 1;
-        st.Order[st.Oc] = depToml; st.Oc = st.Oc + 1;
+        st.Order[st.Oc] = depToml; st.Manifests[st.Oc] = manifest; st.Oc = st.Oc + 1;
     }
 
     // `path` 值是不是指向一个 `.zpkg` **产物**（而非工程目录）。
