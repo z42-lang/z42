@@ -122,7 +122,8 @@ fn standalone_root_scanner_is_called_only_for_marking() {
         c.fetch_add(1, Ordering::SeqCst);
     }));
 
-    crate::gc::walk::roots(&heap, &mut |_, _| panic!("no diagnostic roots"));
+    // SAFETY: this standalone heap has no VM mutators.
+    unsafe { heap.walk_diagnostic_roots(&mut |_, _| panic!("no diagnostic roots")); }
     assert_eq!(calls.load(Ordering::SeqCst), 0);
 
     heap.collect_cycles();

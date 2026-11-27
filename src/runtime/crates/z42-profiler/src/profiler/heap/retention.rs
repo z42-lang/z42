@@ -7,13 +7,13 @@
 //!
 //! This module holds graph construction and the **pure graph logic**: `RetentionGraph` records reverse
 //! edges (`child ← parent`) + root edges, and answers L1/L2. The heap walk that
-//! feeds it uses `gc::walk` for live regions and categorized roots.
+//! feeds it uses a paused heap view for live regions and categorized roots.
 //! Full retaining *paths* (L3) are deferred.
 
 use crate::object::{ArrRef, ObjRef, Value};
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use crate::gc::walk::RootKind;
+use crate::{components::bridge::PausedHeap, gc::walk::RootKind};
 
 pub use crate::diagnostics::retention::{RetainerKind, RetainerInfo, RootInfo};
 
@@ -111,17 +111,11 @@ fn value_heap_ptr(v: &Value) -> Option<usize> {
     }
 }
 
-/// **add-heap-retention-diagnostics **: build the reverse
-/// reference graph over the live heap (object + array regions) + categorized
-/// roots. Callers `force_collect()` first so only reachable objects remain.
-fn build_graph(heap: &crate::gc::Heap) -> RetentionGraph {
-    // add-gc-tlab (stage 2): merge the caller's TLAB so retention analysis
-    // sees its recent allocations (callers already force_collect first, but
-    // this keeps the region view consistent regardless of entry).
-    heap.retire_thread_tlab();
+/// Build the reverse reference graph from collected regions and categorized roots.
+fn build_graph(heap: PausedHeap<'_>) -> RetentionGraph {
     let mut g = RetentionGraph::new();
 
-    crate::gc::walk::objects(heap, &mut |value| {
+    heap.objects(&mut |value| {
         let Value::Object(handle) = value else { return };
         let self_ptr = crate::object::ObjRef::as_ptr(handle) as usize;
         let obj = handle.borrow();
@@ -139,7 +133,7 @@ fn build_graph(heap: &crate::gc::Heap) -> RetentionGraph {
             }
         });
     });
-    crate::gc::walk::arrays(heap, &mut |value| {
+    heap.arrays(&mut |value| {
         let Value::Array(handle) = value else { return };
         let self_ptr = crate::object::ArrRef::as_ptr(handle) as usize;
         let arr = handle.borrow();
@@ -157,20 +151,16 @@ fn build_graph(heap: &crate::gc::Heap) -> RetentionGraph {
             }
         });
     });
-    crate::gc::walk::roots(heap, &mut |value, kind| {
+    heap.roots(&mut |value, kind| {
         if let Some(object) = value_heap_ptr(value) {
             g.add_root_edge(object, kind);
         }
     });
     g
 }
-/// Caller holds the VM pause (or uses a standalone heap), as for a full heap walk.
-pub fn direct_referrers(heap: &crate::gc::Heap, target: usize) -> Vec<RetainerInfo> {
-    heap.collect_full();
+pub(in crate::profiler) fn direct_referrers(heap: PausedHeap<'_>, target: usize) -> Vec<RetainerInfo> {
     build_graph(heap).direct_referrers(target)
 }
-/// Caller holds the VM pause (or uses a standalone heap).
-pub fn retaining_roots(heap: &crate::gc::Heap, target: usize) -> Vec<RootInfo> {
-    heap.collect_full();
+pub(in crate::profiler) fn retaining_roots(heap: PausedHeap<'_>, target: usize) -> Vec<RootInfo> {
     build_graph(heap).retaining_roots(target)
 }

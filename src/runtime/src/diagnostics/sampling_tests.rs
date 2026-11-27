@@ -52,6 +52,6 @@ fn gate_dispatch_errors_and_backend_lifetime() {
 
 impl ProfilerBackend for Backend {
     fn write_heap_snapshot(&self, _: &VmContext, _: &str) -> anyhow::Result<i64> { anyhow::bail!("test provider") }
-    fn direct_referrers(&self, _: &Heap, _: usize) -> Vec<super::super::retention::RetainerInfo> { Vec::new() }
-    fn retaining_roots(&self, _: &Heap, _: usize) -> Vec<super::super::retention::RootInfo> { Vec::new() }
+    fn direct_referrers(&self, _: PausedHeap<'_>, _: usize) -> Vec<super::super::retention::RetainerInfo> { Vec::new() }
+    fn retaining_roots(&self, _: PausedHeap<'_>, _: usize) -> Vec<super::super::retention::RootInfo> { Vec::new() }
 }

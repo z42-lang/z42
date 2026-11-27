@@ -40,7 +40,7 @@ observers / allocation sampling / weak refs / finalizers / strict OOM / ...）�
 | `satb.rs` | **SATB 删除屏障**：进程级 `MARKING_HEAPS` 快路径 + 线程本地记录缓冲，`retire_thread_tlab` 时交给堆 |
 | `tlab.rs` | thread-local `Tlab{var,holes}` + arm 门（仅 VmContext 线程走零锁 TLAB）。机制见 [book: GC TLAB](../../../../docs/internals/src/runtime/gc-tlab.md) |
 | `types.rs` | 支持类型 —— `RootHandle` / `FrameMark` / `GcEvent` / `GcObserver` / `WeakRef` / `HeapStats` / `FinalizerFn` / `AllocSamplerFn` / ... |
-| `walk.rs` | 存活对象、原始对象/数组和分类根遍历；工具实现位于 `profiler/` |
+| `walk.rs` | 存活对象摘要，以及 `PausedHeap` 上的对象、数组和分类根遍历 |
 | `soft_registry.rs` | soft-reference 注册表（堆压力下可被清除的引用） |
 | `phase_timer.rs` / `trace.rs` | `Z42_GC_PHASES` 分阶段停顿计时 / `Z42_GC_TRACE` 每次 collect 的 stderr trace |
 | `heap_api_tests.rs` / `heap_tests/` / `*_tests.rs` | 公开堆 API 契约测试 / `Heap` 行为单测（分配 / 收集 / 标记队列 / 分代 / 增量 / finalizer / 不变量等）/ 各模块单测 |

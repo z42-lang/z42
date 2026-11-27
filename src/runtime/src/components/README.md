@@ -28,6 +28,8 @@ VM 消费者通过内部 `components::api` 准备和查询执行角色。分析�
 消费者不传具体提供方 ID；执行热路径使用一次装配的引擎。组件管理类型不从 host 转出；宿主功能请求由私有 VM 装配输入适配。
 独立组件通过 `z42::components::abi` 使用同构建协议。`components::bridge` 提供核心身份、布局、对象服务借用和后端登记入口。组件装配先校验身份并保留代码，再调用附着回调。解释器和 JIT 登记所属 VM 的引擎，JIT 运行时还通过桥发布按需构建的 tier。
 最终 Rust 组合根使用 `abi::register_static_component` 或 `abi::register_shared_component`；C 声明在 `include/z42_components.h` 维护，由 native 聚合进既有的 `z42_host.h` 发布；调用方不单独包含组件头。两者仅登记工厂，不调用工厂或创建 VM。
+
+Profiler 的同构建接口在挂接前校验版本。保留图通过 `components::bridge::PausedHeap` 访问暂停期内的堆。
 描述符、接口头、构建身份与执行核心身份均在装配时校验。
 
 装配按每 VM 策略分别检查静态链接、共享链接和运行时装入，详见

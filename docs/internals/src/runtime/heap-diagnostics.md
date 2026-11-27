@@ -25,8 +25,8 @@ z42 自有**精确 GC**，能回答 .NET GC 回答不了的问题：**"这个对
 GC 只有**正向**追踪（`Value::trace_children`）；诊断需**反向**。查询时做一次堆扫描：
 
 ```
-collect_full()                        // ① 先触发全堆 GC（分代下是 major） —— 之后存活即可达，无浮动垃圾误报
-profiler::heap::retention::build_graph(): // ② 建反向图
+diagnostics::retention: collect_full()  // ① 在暂停内做全堆 GC（分代下是 major）
+profiler::heap::retention::build_graph(heap): // ② 借暂停堆视图建反向图
   region_var 对象块: 每对象的字段里每条堆-ref child → rev[child].push(parent)
   region_var 数组块: 每数组的元素里每条堆-ref child → rev[child].push(parent)
   分类根 + pinned 根: 每个根 Value → root_ptrs[obj].push(RootKind)
@@ -35,9 +35,9 @@ L2 retaining_roots(target)  = 从 target 沿 rev 反向 BFS，收集途经对象
 ```
 
 对象身份用块头地址（`ObjRef::as_ptr` / `ArrRef::as_ptr` as usize）作 key。反向 BFS 用 `visited` 集处理环。
-图构建、查询与纯图逻辑在 `crates/z42-profiler/src/profiler/heap/retention.rs`（`RetentionGraph`）。GC 的 `walk.rs` 提供
-对象、数组和类别根原语；区域回调在锁内执行，不得重入堆。对象和数组仍分两遍枚举，
-不新增全堆临时副本。查询先在现有停世界窗口内完成全堆回收，再构图。
+图构建、查询与纯图逻辑在 `crates/z42-profiler/src/profiler/heap/retention.rs`（`RetentionGraph`）。
+`PausedHeap` 提供对象、数组和类别根遍历。区域回调在锁内执行，不得重入堆。
+对象和数组分两遍枚举，直接借用区域内的值。
 
 ### 分类根
 
@@ -47,10 +47,10 @@ L2 retaining_roots(target)  = 从 target 沿 rev 反向 BFS，收集途经对象
 独立堆注册的普通闭包只提供标记根。
 
 ### 准确性
-先 `collect_full()` → `iterate_alive` 只见可达对象 → 反向图不含浮动垃圾。诊断非热路径，一次额外 GC 可接受。
-整个查询（回收 + 建反向图 + 扫根）在 `request_gc_pause` 的停世界窗口里执行（`corelib/core/diagnostics.rs` 的
-`with_world_stopped`）：扫根要读**每个线程**的帧栈，别的 mutator 必须先 park。拿不到 collector 角色时，
-`request_gc_pause` 已经让本线程停到那个回收结束，重试即可。
+诊断层通过 `request_gc_pause` 获取暂停，在 `diagnostics/retention.rs` 中先回收再把
+`GcPauseGuard` 借出的 `PausedHeap` 交给 profiler。视图限定在暂停期和收集线程上，
+因此读取其他线程的帧根时，其所有者已停在安全点或 native 等待区。另一收集器正在运行时，
+当前线程先等待其结束，再重新申请暂停。完整回收之后才扫描存活区域，避免把浮动垃圾计入反向图。
 
 ## 边界 / 后续
 

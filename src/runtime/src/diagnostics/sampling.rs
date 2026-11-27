@@ -1,5 +1,5 @@
 //! Light profiling contracts and a lazy per-VM provider; no analysis implementation.
-use crate::{vm::VmContext, gc::Heap};
+use crate::{gc::walk::PausedHeap, vm::VmContext};
 use std::sync::OnceLock;
 
 pub trait SampleBackend: Send + Sync {
@@ -8,12 +8,12 @@ pub trait SampleBackend: Send + Sync {
     fn flush_trace(&self, path: &str) -> std::io::Result<()>;
 }
 
-/// Internal same-core registration contract. Heap callers own the GC pause and
-/// root protocol; implementations must not run managed code while inspecting it.
+/// Internal same-core registration contract. Retention queries receive a
+/// collected heap while its owning VM is paused.
 pub trait ProfilerBackend: SampleBackend {
     fn write_heap_snapshot(&self, ctx: &VmContext, path: &str) -> anyhow::Result<i64>;
-    fn direct_referrers(&self, heap: &Heap, target: usize) -> Vec<super::retention::RetainerInfo>;
-    fn retaining_roots(&self, heap: &Heap, target: usize) -> Vec<super::retention::RootInfo>;
+    fn direct_referrers(&self, heap: PausedHeap<'_>, target: usize) -> Vec<super::retention::RetainerInfo>;
+    fn retaining_roots(&self, heap: PausedHeap<'_>, target: usize) -> Vec<super::retention::RootInfo>;
 }
 
 pub struct Sampling {

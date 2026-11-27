@@ -16,6 +16,8 @@ crate 类型：component。VM 经内部 components::api 请求采样/堆分析�
 
 独立实现通过 `z42::components::abi` 使用描述符和 C 布局接口，通过 `z42::components::bridge` 校验共享核心身份/布局。CPU 采样经同一个桥获取所属线程的帧名快照。核心模块仅私有导入，不由本库再导出。
 
+保留图使用诊断层在全堆回收后传入的 `PausedHeap`。视图随 VM 暂停借用，组件负责遍历和构图。
+
 ## 基础用法
 
 宿主仅依赖 `z42::host`。动态包按需发现本组件；静态宿主链接本库并登记 `PROFILER_COMPONENT` 与 `z42_profiler_init`。未使用分析功能时不创建实现状态；开启 CPU 采样时执行前装配，堆分析首次调用时装配。缺库、禁用或身份不匹配均报错。

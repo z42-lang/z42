@@ -328,10 +328,10 @@ impl crate::components::bridge::ProfilerBackend for Sampler {
         writer.flush()?;
         Ok(bytes as i64)
     }
-    fn direct_referrers(&self, heap: &crate::gc::Heap, target: usize) -> Vec<crate::diagnostics::retention::RetainerInfo> {
+    fn direct_referrers(&self, heap: crate::components::bridge::PausedHeap<'_>, target: usize) -> Vec<crate::diagnostics::retention::RetainerInfo> {
         super::heap::retention::direct_referrers(heap, target)
     }
-    fn retaining_roots(&self, heap: &crate::gc::Heap, target: usize) -> Vec<crate::diagnostics::retention::RootInfo> {
+    fn retaining_roots(&self, heap: crate::components::bridge::PausedHeap<'_>, target: usize) -> Vec<crate::diagnostics::retention::RootInfo> {
         super::heap::retention::retaining_roots(heap, target)
     }
 }
