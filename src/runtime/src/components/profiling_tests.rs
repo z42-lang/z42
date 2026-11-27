@@ -74,3 +74,78 @@ fn loaded_program_applies_profiler_source_without_eager_attachment() {
     assert!(error.contains("profiler") && error.contains("disabled"), "{error}");
     assert!(!host::profiler_loaded(program.context()));
 }
+
+#[test]
+fn legacy_profiler_interface_is_rejected_before_attachment() {
+    use abi::{
+        ApiHeader, ComponentDescriptor, ComponentInterface, ComponentStatus, ExecutionIdentity,
+        IdSpan, InstanceHandle, InterfaceId, InterfaceRef, InterfaceSpan, InterfaceSpec, ProfilerApi,
+        RuntimeApi, VmHandle,
+    };
+    use std::ffi::c_void;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    static ATTACHED: AtomicBool = AtomicBool::new(false);
+    static LEGACY_SPEC: [InterfaceSpec; 1] = [InterfaceSpec {
+        version: 1,
+        ..InterfaceSpec::of::<ProfilerApi>()
+    }];
+    static LEGACY_API: ProfilerApi = ProfilerApi {
+        header: ApiHeader::of::<ProfilerApi>(1),
+        core_identity: identity,
+        attach,
+    };
+    unsafe extern "C" fn identity() -> ExecutionIdentity {
+        ExecutionIdentity {
+            image: crate::components::bridge::core_identity(),
+            abi: crate::components::bridge::CORE_ABI,
+        }
+    }
+    unsafe extern "C" fn attach(_: *const c_void, _: u32, _: u32) -> ComponentStatus {
+        ATTACHED.store(true, Ordering::Relaxed);
+        ComponentStatus::ERROR
+    }
+    unsafe extern "C" fn create(
+        _: *const RuntimeApi, _: VmHandle, out: *mut InstanceHandle,
+    ) -> ComponentStatus {
+        unsafe { *out = std::ptr::null_mut(); }
+        ComponentStatus::OK
+    }
+    unsafe extern "C" fn destroy(_: InstanceHandle) {}
+    unsafe extern "C" fn query(
+        _: InstanceHandle, id: InterfaceId, version: u32, out: *mut InterfaceRef,
+    ) -> ComponentStatus {
+        if out.is_null() || id != ProfilerApi::ID || version != 1 {
+            return ComponentStatus::UNAVAILABLE;
+        }
+        unsafe { *out = InterfaceRef { api: &LEGACY_API.header, context: std::ptr::null_mut() }; }
+        ComponentStatus::OK
+    }
+    unsafe extern "C" fn old_profiler() -> *const ComponentDescriptor {
+        static DESCRIPTOR: ComponentDescriptor = ComponentDescriptor {
+            header: ApiHeader::of::<ComponentDescriptor>(abi::COMPONENT_ABI_VERSION),
+            build_id: abi::COMPONENT_BUILD_ID,
+            id: abi::PROFILER_COMPONENT,
+            dependencies: IdSpan { data: std::ptr::null(), len: 0 },
+            interfaces: InterfaceSpan { data: LEGACY_SPEC.as_ptr(), len: 1 },
+            create_vm: Some(create),
+            destroy_vm: Some(destroy),
+            query_interface: Some(query),
+        };
+        &DESCRIPTOR
+    }
+
+    let components = unsafe {
+        api::ComponentOptions::default().with_static(abi::PROFILER_COMPONENT, old_profiler)
+    };
+    let program = host::LoadedProgram::load_bytes_with_components(
+        &crate::loader::test_support::empty_zbc(),
+        host::LoadOptions { mode: host::ExecMode::Interp, ..Default::default() },
+        crate::vm::assembly::ComponentInputs { components, ..Default::default() },
+    ).unwrap();
+    let ctx = program.context();
+    let error = host::prepare_profiler(ctx).unwrap_err().to_string();
+    assert!(error.contains("does not match requested table"), "{error}");
+    assert!(!ATTACHED.load(Ordering::Relaxed));
+    assert!(!host::profiler_loaded(ctx));
+}

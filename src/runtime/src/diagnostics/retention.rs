@@ -1,6 +1,6 @@
 //! Heap inspection result contracts; algorithms live in the profiler component.
 use crate::{
-    gc::walk::RootKind,
+    gc::walk::{PausedHeap, RootKind},
     object::{ArrRef, ObjRef, Value},
     vm::VmContext,
 };
@@ -36,8 +36,8 @@ pub(crate) fn direct_referrers(
         return Ok(Vec::new());
     };
     let backend = super::profiler(ctx)?;
-    Ok(with_world_stopped(ctx, || {
-        backend.direct_referrers(ctx.heap(), ptr)
+    Ok(with_collected_heap(ctx, |heap| {
+        backend.direct_referrers(heap, ptr)
     }))
 }
 
@@ -46,8 +46,8 @@ pub(crate) fn retaining_roots(ctx: &VmContext, target: &Value) -> anyhow::Result
         return Ok(Vec::new());
     };
     let backend = super::profiler(ctx)?;
-    Ok(with_world_stopped(ctx, || {
-        backend.retaining_roots(ctx.heap(), ptr)
+    Ok(with_collected_heap(ctx, |heap| {
+        backend.retaining_roots(heap, ptr)
     }))
 }
 
@@ -59,11 +59,12 @@ fn target_ptr(value: &Value) -> Option<usize> {
     }
 }
 
-fn with_world_stopped<T>(ctx: &VmContext, query: impl FnOnce() -> T) -> T {
+fn with_collected_heap<T>(ctx: &VmContext, query: impl FnOnce(PausedHeap<'_>) -> T) -> T {
     // If another collector is active, the pause request parks us until it finishes.
     loop {
-        if let Some(_pause) = crate::threads::safepoint::request_gc_pause(ctx) {
-            return query();
+        if let Some(pause) = crate::threads::safepoint::request_gc_pause(ctx) {
+            ctx.heap().collect_full();
+            return query(pause.inspect_heap());
         }
     }
 }

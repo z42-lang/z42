@@ -19,6 +19,17 @@ using Z42.IR;   // StrMap 统一到 z42c.ir（compiler-review §4.1）
 
 using Z42.Syntax;
 
+internal sealed class MethodConstraintEntry {
+    public MethodDecl Decl;
+    public ConstraintSet Method;
+    public ConstraintSet Owner;
+    public MethodConstraintEntry Next;
+
+    public MethodConstraintEntry(MethodDecl decl, ConstraintSet method, ConstraintSet owner, MethodConstraintEntry next) {
+        this.Decl = decl; this.Method = method; this.Owner = owner; this.Next = next;
+    }
+}
+
 public sealed partial class SymbolTable {
     // 类 / 接口的**唯一**登记表：FQN 键（`ns.Name` / `ns.Name$N`；全局 ns 即裸键）→ 类型对象。
     // fqn-tables 5 起不再有按短名键的 `Classes` / `Interfaces`（同短名跨 ns 只活一份、first/last-wins）：
@@ -127,7 +138,30 @@ public sealed partial class SymbolTable {
     public string EnclosingClass;
     // `SortedClasses()` 的缓存。**每个视图自己的**（不随 WithAliases 复制），见该函数。
     private Z42ClassType[] _sortedClasses;
+    // Identity-hash buckets use reference equality for overloaded or generated declarations.
+    // Populated before parallel binding and shared by file scopes.
+    private StrMap _methodConstraints;
+
+    internal void RegisterMethodConstraints(MethodDecl decl, ConstraintSet method, ConstraintSet owner) {
+        string key = decl.GetHashCode().ToString();
+        var previous = this._methodConstraints.Get(key) as MethodConstraintEntry;
+        this._methodConstraints.Put(key, new MethodConstraintEntry(decl, method, owner, previous));
+    }
+
+    internal MethodConstraintEntry FindMethodConstraints(MethodDecl decl) {
+        if (decl == null || decl.WhereCount == 0) { return null; }
+        var entry = this._methodConstraints.Get(decl.GetHashCode().ToString()) as MethodConstraintEntry;
+        while (entry != null && !Object.ReferenceEquals(entry.Decl, decl)) { entry = entry.Next; }
+        return entry;
+    }
+
+    public ConstraintSet MethodConstraintsOf(MethodDecl decl) {
+        var entry = this.FindMethodConstraints(decl);
+        return entry == null ? null : entry.Method;
+    }
+
     public SymbolTable() {
+        this._methodConstraints = new StrMap();
         // perf-strmap：包级大视图一次到位（编译器包 ≈500-1500 类/自由函数，从 16 连翻 7 次的
         // _grow 重哈希在 profile 里占 1.9%；2048 槽 ≈35KB，每包构建一份，可忽略）。
         this.ClassesByFqn = new StrMap(2048);   // fix-type-ref-ns-collision
@@ -192,6 +226,7 @@ public sealed partial class SymbolTable {
     // 字段（`CurrentAliases` / `EnclosingClass` / `_sortedClasses` / `_firstArity`）取初值。公开构造器只给**根表**
     // 用（预分配包级大表）——视图是 per-CU × per-pass 建的，走公开构造器会把那些表原地丢弃。
     private SymbolTable(SymbolTable parent) {
+        this._methodConstraints = parent._methodConstraints;
         this.ClassesByFqn = parent.ClassesByFqn;   // fix-type-ref-ns-collision：共享 FQN 视图（并行段内只读）
         this.FunctionsByFqn = parent.FunctionsByFqn;   // 共享（并行段内只读）
         this.FuncOverloadsByFqn = parent.FuncOverloadsByFqn;   // free-function-overloads：共享（并行段内只读）

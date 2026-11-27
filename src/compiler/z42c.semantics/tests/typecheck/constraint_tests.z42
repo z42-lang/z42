@@ -895,3 +895,47 @@ void test_static_interface_self_requires_a_class_constraint() {
         "interface IFactory { static Self Create(); } "
         + "T Make<T>() where T : IFactory { return T.Create(); }"));
 }
+
+[Test]
+void test_method_constraint_uses_declaration_namespace() {
+    string lib = "namespace Rules; public interface IRule {} public class Good : IRule {}"
+        + " public void Require<T>(T item) where T : IRule {}";
+    string caller = "namespace Caller; public interface IRule {} public class Wrong : IRule {}";
+    string[] files = new string[] { "Rules.z42", "Caller.z42" };
+    string[] good = new string[] { lib, caller + " void Run() { Rules.Require<Rules.Good>(new Rules.Good()); }" };
+    string[] wrong = new string[] { lib, caller + " void Run() { Rules.Require<Wrong>(new Wrong()); }" };
+    Assert.Equal(0, SemanticDump.ErrorCountMulti(good, files));
+    Assert.Equal(1, SemanticDump.ErrorCountMulti(wrong, files));
+    Assert.True(SemanticDump.HasErrorCodeMulti(wrong, files, "E0402"));
+}
+
+[Test]
+void test_overloaded_methods_keep_their_own_constraints() {
+    string lib = "namespace Rules; public interface IFirst {} public interface ISecond {}"
+        + " public class First : IFirst {} public class Second : ISecond {}"
+        + " public void Require<T>(T item, int tag) where T : IFirst {}"
+        + " public void Require<T>(T item, string tag) where T : ISecond {}";
+    string caller = "namespace Caller; void Run() {";
+    string[] files = new string[] { "Rules.z42", "Caller.z42" };
+    string[] good = new string[] { lib, caller + " Rules.Require<Rules.First>(new Rules.First(), 1);"
+        + " Rules.Require<Rules.Second>(new Rules.Second(), \"tag\"); }" };
+    string[] wrong = new string[] { lib, caller + " Rules.Require<Rules.Second>(new Rules.Second(), 1); }" };
+    Assert.Equal(0, SemanticDump.ErrorCountMulti(good, files));
+    Assert.True(SemanticDump.HasErrorCodeMulti(wrong, files, "E0402"));
+}
+
+[Test]
+void test_member_and_receiver_bounds_use_declaration_namespace() {
+    string lib = "namespace Rules; public interface IRule {} public class Good : IRule {}"
+        + " public class Host<T> { public void Run() where T : IRule {}"
+        + " public void Take<U>(U item) where U : IRule {} }";
+    string caller = "namespace Caller; public interface IRule {} public class Wrong : IRule {}";
+    string[] files = new string[] { "Rules.z42", "Caller.z42" };
+    string[] good = new string[] { lib, caller
+        + " void Use(Rules.Host<Rules.Good> h) { h.Run(); h.Take<Rules.Good>(new Rules.Good()); }" };
+    string[] wrong = new string[] { lib, caller
+        + " void Use(Rules.Host<Wrong> h) { h.Run(); h.Take<Wrong>(new Wrong()); }" };
+    Assert.Equal(0, SemanticDump.ErrorCountMulti(good, files));
+    Assert.Equal(2, SemanticDump.ErrorCountMulti(wrong, files));
+    Assert.True(SemanticDump.HasErrorCodeMulti(wrong, files, "E0402"));
+}

@@ -15,6 +15,12 @@
 //!     let _ = &ctx.core().diagnostics().sampler;
 //! }
 //! ```
+//! ```compile_fail
+//! use z42::{components::bridge::PausedHeap, gc::Heap};
+//! fn inspect(heap: &Heap) -> PausedHeap<'_> {
+//!     unsafe { PausedHeap::new(heap) }
+//! }
+//! ```
 // Component-facing VM identities and layout facts stay here when their owner
 // moves internally. Export individual contracts, never whole implementation modules.
 pub use crate::vm::{VmContext, VM_CONTEXT_CCTORS_OFFSET,
@@ -22,6 +28,7 @@ pub use crate::vm::{VmContext, VM_CONTEXT_CCTORS_OFFSET,
 use crate::components::abi::ExecutionCoreAbi;
 use crate::exec::{Engine, JitConfig, TierApi, TierBackend};
 pub use crate::diagnostics::sampling::{ProfilerBackend, SampleBackend};
+pub use crate::gc::walk::PausedHeap;
 static CORE_IDENTITY: u8 = 0;
 pub fn core_identity() -> *const core::ffi::c_void { core::ptr::addr_of!(CORE_IDENTITY).cast() }
 pub const CORE_ABI: ExecutionCoreAbi = ExecutionCoreAbi {
