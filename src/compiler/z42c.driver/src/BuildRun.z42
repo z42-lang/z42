@@ -77,7 +77,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
 int _build(string tomlPath, bool isRelease, string outputDirOverride, string cacheDirOverride, string[] libsDirsOverride, int libsDirsCount,
            bool noIncremental, int cliAdd, int cliRemove, bool fix, WsTier tier, string internalOf, BundleDomain memberDomain, bool inProcessGraph) {
     // ── ① manifest 校验 + 源发现（旋钮 / deploy 清单级 fail-fast 都在编译前）──
-    BuildSourcesOut sr = _resolveBuildSources(tomlPath, tier);
+    BuildSourcesOut sr = _resolveBuildSources(tomlPath, memberDomain == null ? null : memberDomain.Manifest);
     if (sr.Rc != 0) { return sr.Rc; }
     ProjectManifest pm = sr.Pm; string[] srcs = sr.Srcs; string[] dispSrcs = sr.DispSrcs; string projectDir = sr.ProjectDir;
     // ── ② 依赖域组装（Z42_LIBS / path 闭包 / vendored zpkg / SDK 库可见性 → 扫描档）──
@@ -155,9 +155,9 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
 }
 
 // ── ① manifest 校验 + 源发现 ─────────────────────────────────────────────────────
-BuildSourcesOut _resolveBuildSources(string tomlPath, WsTier tier) {
+BuildSourcesOut _resolveBuildSources(string tomlPath, ProjectManifest plannedManifest) {
     BuildSourcesOut o = new BuildSourcesOut();
-    o.Pm = ManifestLoader.Load(tomlPath);
+    o.Pm = plannedManifest == null ? ManifestLoader.Load(tomlPath) : plannedManifest;
     // 旋钮名校验（compiler-checks-knob-names）：manifest 的 `[profile.*]` 有问题不值得等
     // 一趟全量编译，放在编译前 fail fast。旧形状（直接写键）致命；未知旋钮名只 warn。
     int pkc = _validateProfileKnobs(o.Pm);
@@ -204,7 +204,7 @@ LibsDomainOut _resolveLibsDomain(ProjectManifest pm, string tomlPath, string pro
     // path 依赖永远不代建。闭包**子建**（tier == null、count>0）仍跳过：那里的相对路径未必解得开。
     bool wsMember = tier != null && tier.MembersN > 0;
     if (libsDirsCount == 0 || wsMember) {
-        PathClosureOut pco = _buildPathDepClosure(tomlPath, isRelease, noIncremental, cliAdd, cliRemove,
+        PathClosureOut pco = _buildPathDepClosure(tomlPath, pm, isRelease, noIncremental, cliAdd, cliRemove,
                                                   o.LibsDirs, o.LibsDirsN, wsMember ? tier : null);
         if (pco.Rc != 0) { o.Rc = pco.Rc; return o; }
         o.Closure = pco;
