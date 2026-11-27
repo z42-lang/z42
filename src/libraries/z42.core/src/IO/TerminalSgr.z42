@@ -1,0 +1,41 @@
+namespace Std.IO;
+
+/// 基础 ANSI SGR 输出和进程级着色设置。
+public static class TerminalSgr {
+    private static bool _detected = false;
+    private static bool _manual = false;
+    private static bool _enabled = false;
+    private static string _csi = "";
+    private static string _reset = "";
+    private static bool _cached = false;
+
+    /// 首次按终端和 NO_COLOR 检测着色，随后返回缓存设置。
+    public static bool Enabled() {
+        if (TerminalSgr._manual || TerminalSgr._detected) { return TerminalSgr._enabled; }
+        bool tty = Console.IsTerminal();
+        string? noColor = Environment.GetEnvironmentVariable("NO_COLOR");
+        TerminalSgr._enabled = tty && (noColor == null || noColor.Length == 0);
+        TerminalSgr._detected = true;
+        return TerminalSgr._enabled;
+    }
+
+    /// 覆盖本进程的自动检测结果。
+    public static void SetEnabled(bool enabled) {
+        TerminalSgr._manual = true;
+        TerminalSgr._enabled = enabled;
+    }
+
+    /// 着色启用时应用一个 SGR 参数，并在文本结束后复位。
+    public static string Wrap(int code, string text) {
+        if (!TerminalSgr.Enabled()) { return text; }
+        if (!TerminalSgr._cached) {
+            char[] escape = new char[1];
+            escape[0] = (char)0x1B;
+            string esc = String.FromChars(escape);
+            TerminalSgr._csi = esc + "[";
+            TerminalSgr._reset = esc + "[0m";
+            TerminalSgr._cached = true;
+        }
+        return TerminalSgr._csi + code.ToString() + "m" + text + TerminalSgr._reset;
+    }
+}

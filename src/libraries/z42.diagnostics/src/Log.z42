@@ -30,21 +30,19 @@ using Std.Time;
 
 /// 全局单例日志门面，无 named logger、无 sink 配置。
 public static class Log {
-    private static int _minLevel = 2;  // LogLevel.Info；static initializer 顺序避免 forward-ref
-
     /// 设置全局最低输出级别，低于该级别的调用被整条丢弃。
     public static void SetMinLevel(int level) {
-        Log._minLevel = level;
+        RuntimeErrorLog.SetMinLevel(level);
     }
 
     /// 返回全局最低输出级别。
     public static int GetMinLevel() {
-        return Log._minLevel;
+        return RuntimeErrorLog.GetMinLevel();
     }
 
     /// 该级别当前是否会输出；构造昂贵的 message 前先问一句。
     public static bool IsEnabled(int level) {
-        return level >= Log._minLevel;
+        return level >= RuntimeErrorLog.GetMinLevel();
     }
 
     /// 输出一条 TRACE 级别日志。
@@ -70,13 +68,13 @@ public static class Log {
     public static void Error(string msg, LogFields fields) { Log.WriteF(LogLevel.Error, msg, fields); }
 
     private static void Write(int level, string msg) {
-        if (level < Log._minLevel) { return; }
+        if (!Log.IsEnabled(level)) { return; }
         DateTime now = DateTime.UtcNow();
         ConsoleError.WriteLine(Log.FormatHeader(level, now) + " " + msg);
     }
 
     private static void WriteF(int level, string msg, LogFields fields) {
-        if (level < Log._minLevel) { return; }
+        if (!Log.IsEnabled(level)) { return; }
         DateTime now = DateTime.UtcNow();
         string suffix = "";
         if (fields != null) suffix = fields.Format();
@@ -86,6 +84,7 @@ public static class Log {
     /// 单独生成 `[LEVEL 时间戳]` 头，供调用方 / 测试探查格式而不必绕 stderr。
     public static string FormatHeader(int level, DateTime now) {
         string name  = LogLevel.Name(level);
+        if (level == LogLevel.Error && name == "ERROR") { return RuntimeErrorLog.FormatHeader(now); }
         string token = Log._colorLevel(level, name);
         return "[" + token + " " + now.ToIso8601() + "]";
     }

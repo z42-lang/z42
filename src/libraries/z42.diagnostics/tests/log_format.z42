@@ -108,3 +108,22 @@ void test_log_methods_still_callable() {
     Log.SetMinLevel(origLevel);
     Assert.True(true);
 }
+
+[Test]
+void test_runtime_error_log_uses_the_diagnostics_threshold_and_colour() {
+    int savedLevel = Log.GetMinLevel();
+    bool savedColour = Ansi.Enabled();
+    try {
+        Log.SetMinLevel(LogLevel.Error + 1);
+        Assert.Equal(Log.GetMinLevel(), RuntimeErrorLog.GetMinLevel());
+        Assert.False(Log.IsEnabled(LogLevel.Error));
+        Ansi.SetEnabled(false);
+        Assert.Equal("[ERROR 2026-06-03T14:32:31.789Z]", RuntimeErrorLog.FormatHeader(_fixedTime()));
+        Ansi.SetEnabled(true);
+        string red = _esc() + "[31mERROR";
+        Assert.True(RuntimeErrorLog.FormatHeader(_fixedTime()).Contains(red));
+    } finally {
+        Log.SetMinLevel(savedLevel);
+        Ansi.SetEnabled(savedColour);
+    }
+}

@@ -201,7 +201,12 @@ public sealed partial class ClassDescBuilder {
         // 字段**类型名**按实例化的对象布局代换（按名匹配；布局里没有的条目保持定义的拼写）。
         StrMap ftypes = new StrMap();
         int oi = 0;
-        while (oi < ol.FieldCount) { ftypes.Put(ol.FieldNames[oi], new StrBox(ol.FieldTypeNames[oi])); oi = oi + 1; }
+        while (oi < ol.FieldCount) {
+            string fieldType = ol.FieldTypeNames[oi];
+            ftypes.Put(ol.FieldNames[oi], new StrBox(fieldType));
+            if (ol.FieldKinds[oi] == StructLeafKind.Struct) { this._g.NoteInstName(fieldType); }
+            oi = oi + 1;
+        }
         int fi2 = 0;
         while (fi2 < cd.FieldCount) {
             IrFieldDesc fd = cd.Fields[fi2];
