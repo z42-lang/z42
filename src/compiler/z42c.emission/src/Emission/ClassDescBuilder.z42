@@ -533,27 +533,9 @@ public sealed partial class ClassDescBuilder {
     }
 
     private IrConstraintDesc[] _methodConstraintDescs(MethodDecl decl, SymbolTable symbols) {
-        ConstraintSet constraints = new ConstraintChecker(null).BuildMethodSet(symbols, decl);
+        ConstraintSet constraints = symbols.MethodConstraintsOf(decl);
         if (constraints == null || !constraints.AnyNonEmpty()) { return new IrConstraintDesc[0]; }
-        IrConstraintDesc[] descs = this._constraintDescs(constraints, decl.TypeParams.Count);
-        int i = 0;
-        while (i < descs.Length) {
-            IrConstraintDesc desc = descs[i];
-            if (constraints.Bundles[i].HasBaseClass) {
-                Z42ClassType baseType = symbols.GetClass(constraints.Bundles[i].BaseClassName);
-                if (baseType != null) { desc.BaseClass = baseType.Fqn(); }
-            }
-            string[] interfaces = new string[desc.InterfaceCount];
-            int j = 0;
-            while (j < desc.InterfaceCount) {
-                string name = desc.Interfaces[j];
-                interfaces[j] = name.IndexOf('<') >= 0 ? name : SymbolTable.IfaceFqnOf(symbols, name);
-                j = j + 1;
-            }
-            desc.Interfaces = interfaces;
-            i = i + 1;
-        }
-        return descs;
+        return this._constraintDescs(constraints, decl.TypeParams.Count);
     }
 
     [Suppress("style.fnLinesHard", "90 body lines；拆分见 code-organization.md")]
