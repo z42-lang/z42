@@ -2,6 +2,7 @@
 // 只验 z42.project 解析层——DepEntry.Path 正确/为空；z42c 消费（闭包构建/打包）在 PR-2。
 namespace Z42ProjectPathDepTests;
 
+using Std.IO;
 using Z42.Project;
 using Std.Harness;
 
@@ -64,4 +65,35 @@ void test_mixed_path_and_name_deps() {
     }
     Assert.True(sawCore);
     Assert.True(sawRepl);
+}
+
+string _manifestFor(string name) {
+    return "[project]\nname = \"" + name + "\"\nversion = \"0.1.0\"\n";
+}
+
+void _writeProject(string root, string name, string dependencies) {
+    string dir = Path.Join(root, name);
+    Directory.Create(dir);
+    File.WriteAllText(Path.Join(dir, "z42.toml"), _manifestFor(name) + dependencies);
+}
+
+[Test]
+void test_path_plan_preserves_the_manifests_of_unique_nodes() {
+    string root = File.CreateTempDir("path-dep-plan");
+    try {
+        _writeProject(root, "shared", "");
+        _writeProject(root, "left", "[dependencies]\nshared = { path = \"../shared\" }\n");
+        _writeProject(root, "right", "[dependencies]\nshared = { path = \"../left/../shared\" }\n");
+        string deps = "[dependencies]\nright = { path = \"right\" }\nleft = { path = \"left\" }\n"
+            + "external = { path = \"external.zpkg\" }\n";
+        ProjectManifest consumer = ManifestLoader.ParseText(_manifestFor("consumer") + deps);
+        string consumerPath = Path.Join(root, "z42.toml");
+        PathDepClosure plan = PathDepPlan.Resolve(consumerPath, consumer);
+        Assert.Equal(3, plan.Count);
+        Assert.Equal(Path.Normalize(Path.Join(root, "shared/z42.toml")), Path.Normalize(plan.Tomls[0]));
+        Assert.Equal("shared", plan.Manifests[0].Project.Name);
+        Assert.Equal("left", plan.Manifests[1].Project.Name);
+        Assert.Equal("right", plan.Manifests[2].Project.Name);
+        Assert.Equal("../shared", plan.Manifests[1].Deps[0].Path);
+    } finally { Directory.Delete(root, true); }
 }

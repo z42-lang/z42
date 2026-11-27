@@ -301,12 +301,12 @@ pub struct HeapStats {
     /// Approximate live bytes. **RC mode caveat**: monotonically increases
     /// (`Rc<T>` drop is not observable); Phase 3 tracing GC will be precise.
     pub used_bytes:         u64,
-    /// Bytes the heap's regions hold from the allocator: fixed-region chunk storage plus
-    /// variable-region chunks. Unlike `used_bytes` (a per-object estimate that the auto-collect
-    /// policy runs on) this counts dead slots, size-class rounding and pooled chunks — the
-    /// region part of RSS. It does not count per-object payloads allocated outside the regions
-    /// (an object's field vectors) or GC side tables.
+    /// Accounted heap memory, including committed chunks, per-object extras and GC side tables.
     pub committed_bytes:    u64,
+    /// Committed memory in empty chunks retained for reuse.
+    pub pooled_bytes:       u64,
+    /// Committed memory outside the reusable chunk pool, used to judge the GC soft cap.
+    pub occupied_bytes:     u64,
     /// Heap upper bound (`None` = unlimited).
     pub max_bytes:          Option<u64>,
     /// Currently pinned roots (host-side `pin_root` count, includes frame pins).

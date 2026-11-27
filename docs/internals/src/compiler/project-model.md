@@ -87,7 +87,7 @@ vtable fixup 触发假警报）。这条策略经 workspace 两条构建路径�
 
 path 依赖与名字依赖的关键差异：名字依赖假定其 zpkg **已在** `Z42_LIBS`（stdlib / 预建）；path 依赖是**私有**、随消费方走，编译时才**现建**。`z42c build <consumer>`（single build）与 **workspace per-member 成员**遇到 path 依赖时：
 
-1. **闭包发现（`PathDepPlan.Resolve`，`z42.project`）**：从消费方 manifest 沿 `DepEntry.Path` 非空的边做 **post-order DFS**——`visiting` 集（in-progress）检测回边报环，`visited` 集（按**规范化** toml 绝对路径）去重使钻石依赖只建一次，post-order 发射得到**叶子在前**的传递闭包（消费方自身不发射）。每条边经 `Glob(<consumerDir>/<path>, "*.z42.toml")` 恰配 1 份 manifest 解析（0/多份报错）。
+1. **闭包发现（`PathDepPlan.Resolve`，`z42.project`）**：从消费方 manifest 沿 `DepEntry.Path` 非空的边做 **post-order DFS**——`visiting` 集（in-progress）检测回边报环，`visited` 集（按**规范化** toml 绝对路径）去重使钻石依赖只建一次，post-order 发射得到**叶子在前**的传递闭包（消费方自身不发射）。每条源码边用 `ManifestLocator.FindIn` 定位工程清单，沿用裸 `z42.toml` 优先的规则。规划结果保留每个拓扑节点的已解析清单，供校验、布局、编译和依赖装配复用。
 2. **逐成员构建 + libsDirs 累积（driver `_build`）**：按闭包序（叶子在前）逐个 `_build`，把已建成员的 dist 目录累积起来，作为**后续成员**与**最终消费方**的 `libsDirs`（并入继承的 `Z42_LIBS`）。因是 post-order，任一成员被建时其 path 依赖的 dist 都已在累积集里——单遍即可，无需二次扫描。
 3. **私有组件 colocate（`_bundleExeDeps`）**：消费方为 exe 时，把 **闭包全体**的 `<name>.zpkg`（+ `.zsym`）从 libsDirs **复制进消费方 dist**，使 `z42 run dist/<exe>.zpkg` 能从 entry-zpkg 同目录解析到它们（运行期惰性加载器把 entry-zpkg 所在目录并入搜索路径）。待拷名单 = **消费方直接依赖 ∪ 第 1 步算出的 path 闭包全体**（去重）；闭包名单由 `_build` 透下来，**不在这里重算**——非 top-level 子建（`libsDirsCount>0`）本就跳过闭包解析，那个语境下重算会抛 `No such file or directory`。复制判据是**真-stdlib**（`<srcRoot>/libraries/<name>` 存在）走 `Z42_LIBS` 不复制、其余（path 依赖 / 非 stdlib 命名依赖）复制——与 publish 侧 `_pubBundleProjectDeps` 一致；path 依赖名即便形如 `z42.*`（如 `z42.repl`）也因不在 `src/libraries/` 而被正确复制。
 
@@ -287,6 +287,10 @@ open 73 ms / sigs 140 ms / **tsig 939 ms**（`Z42C_TRACE_DEPSCAN=1` 打印）。
 p→m→t 升序 first-wins）与 `SigsClassIndex`（每 `ZpkgModuleSigs` 按"函数名最后一个 `.` 之前"分桶的函数链，桶内保持原下标序，
 等价于原 `StartsWith` + "余名无 `.`" 过滤）。产物逐字节不变（自举不动点 + 全 stdlib 逐包 `cmp` 对账）。
 
+z42c 的携带插件发现和按名依赖分类复用同一进程的包头解析结果。插件目录和显式制品路径的加载与
+插件内容指纹仍按原流程读取。编译器重写主包前失效该输出及其词法路径别名，后续扫描即使遇到同大小、
+同毫秒时间戳的文件也会重新打开。
+
 缓存以绝对 path 查找，命中时核对文件大小与毫秒 mtime；任一变化都会重新读取，并清空
 TSIG、SIGS、TYPE 和身份等派生缓存。文件元数据读取失败时，移除该路径的缓存条目并传播原始
 I/O 异常；依赖消失或路径被目录替代不能继续提供旧符号。路径恢复后必须重新加载，即使大小和
@@ -389,8 +393,9 @@ HostTarget 的文件缓存可使用另一种依赖观测：没有编译期插件
 原字符串池编号、源路径、调试信息及函数体不属于这条导入路径的输入。
 全部可见包和扫描顺序仍进入键，不按“上次实际调用了谁”缩小解析世界。
 indexed 包、插件及携带插件的包、非空跨包 IMPL、未知段均使用完整身份，不能省略尚未建模的输入。
-CLI 可沿用整个产物的早退路径继续使用完整 BLID/字节身份；本节的 HostTarget 投影只用于复用文件 IR，
-不绕过包级检查、lint、插件策略或产物装配。投影按 DepScanCache 相同的文件陈旧守卫 memo。
+普通 CLI 构建的 packed 单产物也可用相同投影复用文件 IR，适用至少八个源文件且不使用编译期插件的增量构建。
+CLI 整包早退同时核对完整依赖身份和当前主产物字节。完整身份变化时，即使文件 IR 全命中，也会重新执行包级检查、
+lint 和产物装配，并刷新 exe 部署的依赖。投影按 DepScanCache 相同的文件陈旧守卫 memo。
 较小消费者保留完整依赖身份，避免规范化整个依赖世界的固定成本；源文件数跨过门槛时重新验证全部缓存。
 HostTarget 缓存目录内的 `dependency-surface.key` 只缓存这个纯投影：完整依赖身份、编译器指纹、
 格式 pin 和内容校验和同时匹配才复用；任何损坏或不匹配重新计算，写入失败不影响计算出的身份。

@@ -112,10 +112,10 @@ void _builderValidateWorkerInputs(WorkspaceLayoutPlan plan, int node, ProjectMan
     while (p < pm.PluginCount) {
         throw new Exception("package graph workers require prebuilt plugin inputs: " + pm.Plugins[p].Name);
     }
-    PathDepClosure closure = PathDepPlan.Resolve(plan.Tomls[node]);
+    PathDepClosure closure = PathDepPlan.Resolve(plan.Tomls[node], pm);
     int j = 0;
     while (j < closure.Count) {
-        ProjectManifest dep = ManifestLoader.Load(closure.Tomls[j]);
+        ProjectManifest dep = closure.Manifests[j];
         int member = WorkspacePlan.IndexOfName(plan.Names, plan.Count, dep.Project.Name);
         if (member < 0 || _builderAbsolute(plan.Tomls[member]) != _builderAbsolute(closure.Tomls[j])) {
             throw new Exception("package graph requires source dependencies to be workspace members: " + dep.Project.Name);

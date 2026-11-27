@@ -68,6 +68,15 @@ public static class DumpTool {
                 sub = sub + ind + "  member " + e.Members[j].Name + " = " + DumpTool._docText(e.Members[j].Doc) + "\n";
                 j = j + 1;
             }
+        } else if (d is UnionDecl) {
+            UnionDecl u = d as UnionDecl;
+            label = "union " + u.Name;
+            int j = 0;
+            while (j < u.CaseCount) {
+                UnionCaseDecl c = u.Cases[j];
+                sub = sub + ind + "  case " + c.Name + " = " + DumpTool._docText(c.Doc) + "\n";
+                j = j + 1;
+            }
         } else if (d is ImplDecl) {
             ImplDecl im = d as ImplDecl;
             label = "impl";

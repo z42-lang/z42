@@ -132,7 +132,7 @@ int _packageDynamicRuntime(string rid, string profile, bool noBuild, bool verify
 }
 
 // importLibs：Windows 下是否随包拷动态库的导入库（<stem>.dll.lib）。runtime 包要
-// （嵌入者直接链接组件而非 dlopen，见统一 z42_host.h 的组件及 native 登记协议）；
+// （嵌入者直接链接组件而非 dlopen，见统一 z42.h 的组件及 native 登记协议）；
 // SDK 运行已链接的 z42vm，不分发供嵌入者链接的导入库。
 void _componentInstallLibraries(string cargo, string pkg, bool importLibs = false) {
     // R1 统一复制器入口：动态闭包（可选 import lib）+ 恰好一份共享 std。

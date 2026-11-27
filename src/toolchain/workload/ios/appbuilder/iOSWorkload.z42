@@ -4,7 +4,7 @@ using Z42.Build;
 using Z42.Package;
 
 /// iOS 平台 workload —— 接管 `configure → package` 尾相位。host 限 macos；
-/// runtime pack：ios-arm64 / iossim-arm64（Z42VM.xcframework）。
+/// runtime pack：ios-arm64 / iossim-arm64，提供原生库、Framework 与 C 头。
 /// 项目可 `class iOSBuild : iOSWorkload` 继承扩展（override + base.X）。
 ///
 /// ⚠️ Parked / 接口先行：方法体仅描述每相位**流程**（经 IPipelineContext 契约），

@@ -66,6 +66,8 @@ pub const METHOD_FLAG_NO_INLINING: u8 = 1 << 4;
 /// written — the compiler runs no IR optimization on it and inlines nothing into it. Same JIT
 /// note as [`METHOD_FLAG_NO_INLINING`].
 pub const METHOD_FLAG_NO_OPTIMIZATION: u8 = 1 << 5;
+/// Synthesized Equals on a shared generic struct layout containing floating-point fields.
+pub const METHOD_FLAG_SHARED_FLOAT_STRUCT_EQUALS: u8 = 1 << 6;
 
 #[derive(Debug, Clone)]
 pub struct ClassDesc {

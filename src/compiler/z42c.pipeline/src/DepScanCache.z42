@@ -103,21 +103,38 @@ public static class DepScanCache {
         DepScanCache._count = DepScanCache._count + 1;
         return e;
     }
+    /// Drop cached views of an output before this process rewrites it.
+    /// Same-size overwrites can land in the same filesystem timestamp tick.
+    public static void InvalidateOutput(string path) {
+        if (DepScanCache._count == 0) { return; }
+        string output = DepScanCache._absolute(path);
+        string basename = Path.GetFileName(output);
+        int i = DepScanCache._count - 1;
+        while (i >= 0) {
+            string cached = DepScanCache._entries[i].Path;
+            if (Path.GetFileName(cached) == basename && DepScanCache._absolute(cached) == output) {
+                DepScanCache._removeAt(i);
+            }
+            i = i - 1;
+        }
+    }
+
+    private static string _absolute(string path) {
+        return Path.Normalize(Path.IsRooted(path) ? path : Path.Join(Environment.GetCurrentDirectory(), path));
+    }
+
     // 异常路径也移除派生缓存，避免路径恢复后复用失败前的身份与类型信息。
     private static void _forget(string path) {
         int i = 0;
         while (i < DepScanCache._count) {
-            if (DepScanCache._entries[i].Path == path) {
-                int k = i + 1;
-                while (k < DepScanCache._count) {
-                    DepScanCache._entries[k - 1] = DepScanCache._entries[k]; k = k + 1;
-                }
-                DepScanCache._count = DepScanCache._count - 1;
-                DepScanCache._entries[DepScanCache._count] = null;
-                return;
-            }
+            if (DepScanCache._entries[i].Path == path) { DepScanCache._removeAt(i); return; }
             i = i + 1;
         }
     }
 
+    private static void _removeAt(int index) {
+        DepScanCache._count = DepScanCache._count - 1;
+        DepScanCache._entries[index] = DepScanCache._entries[DepScanCache._count];
+        DepScanCache._entries[DepScanCache._count] = null;
+    }
 }

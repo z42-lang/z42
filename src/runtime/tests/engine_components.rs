@@ -122,6 +122,7 @@ fn packaged_c_embedding_host_loads_components_and_shuts_down() {
         exec_mode: Z42ExecMode::Jit as i32, heap_initial_bytes: 0, heap_max_bytes: 0,
         stdout_sink: None, stderr_sink: None, sink_user_data: ptr::null_mut(),
         search_paths: search.as_ptr(), zpkg_resolver: None, zpkg_resolver_user_data: ptr::null_mut(),
+        zpkg_resolver_write: None,
     };
     let bytes = std::fs::read(input("Z42_TEST_ENGINE_BYTECODE")).unwrap();
     let fqn = CString::new("EngineComponentProbe.Echo").unwrap();

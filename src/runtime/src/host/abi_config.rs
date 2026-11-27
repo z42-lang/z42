@@ -1,7 +1,7 @@
 //! Host configuration: C ABI struct layout + validation.
 //!
 //! Mirrors `Z42HostConfig` / `Z42WriteSink` / `Z42ExecMode` from
-//! `src/runtime/include/z42_host_api.h`. Spec: docs/internals/src/runtime/embedding.md §4.2.
+//! `src/runtime/include/z42_host.h`. Spec: docs/internals/src/runtime/embedding.md §4.2.
 
 use std::ffi::CString;
 use std::os::raw::{c_char, c_void};
@@ -18,9 +18,13 @@ pub type Z42WriteSink =
     Option<unsafe extern "C" fn(bytes: *const c_char, length: usize, user_data: *mut c_void)>;
 
 /// `Z42ZpkgResolverFn` C ABI signature: hit returns non-zero, miss returns 0.
-/// Bytes need only stay valid until the callback returns. Spec:
-/// `变更 add-zpkg-resolver-hook/`.
+/// A hit's bytes must remain readable and unchanged while the runtime copies
+/// them after the callback returns.
 pub type Z42ZpkgResolverFn = Option<ZpkgResolverCallback>;
+
+/// Synchronous resolver for bytes borrowed inside the callback.
+pub type Z42ZpkgResolverWriteFn = Option<ZpkgResolverWriteCallback>;
+pub type Z42ZpkgByteSink = unsafe extern "C" fn(*const u8, usize, *mut c_void) -> i32;
 
 type ZpkgResolverCallback = unsafe extern "C" fn(
     namespace_name: *const c_char,
@@ -29,39 +33,69 @@ type ZpkgResolverCallback = unsafe extern "C" fn(
     user_data: *mut c_void,
 ) -> i32;
 
+type ZpkgResolverWriteCallback = unsafe extern "C" fn(
+    namespace_name: *const c_char,
+    write: Z42ZpkgByteSink,
+    write_data: *mut c_void,
+    user_data: *mut c_void,
+) -> i32;
+
+enum ResolverCallback {
+    Borrowed(ZpkgResolverCallback),
+    Write(ZpkgResolverWriteCallback),
+}
+
 /// Keep user data opaque so the adapter can be shared. The C host provides
 /// a thread-safe callback and keeps its data valid for the resolver's lifetime.
 struct CHookResolver {
-    callback: ZpkgResolverCallback,
+    callback: ResolverCallback,
     user_data: usize,
 }
 
 impl ZpkgResolver for CHookResolver {
     fn resolve(&self, namespace: &str) -> Option<Vec<u8>> {
         let cname = CString::new(namespace).ok()?;
-        let mut bytes_ptr: *const u8 = std::ptr::null();
-        let mut length: usize = 0;
-        // SAFETY: the callback signature matches the Rust type by
-        // construction (we got it from a typed field in `Z42HostConfig`).
-        // The runtime keeps the bytes only for the lifetime of this call.
-        let rc = unsafe {
-            (self.callback)(
-                cname.as_ptr(),
-                &mut bytes_ptr,
-                &mut length,
-                self.user_data as *mut c_void,
-            )
-        };
-        if rc == 0 || bytes_ptr.is_null() || length == 0 {
-            return None;
+        let user_data = self.user_data as *mut c_void;
+        match self.callback {
+            ResolverCallback::Borrowed(callback) => {
+                let mut bytes = std::ptr::null();
+                let mut length = 0;
+                // SAFETY: the host provides a valid callback and user data.
+                let hit = unsafe { callback(cname.as_ptr(), &mut bytes, &mut length, user_data) };
+                if hit == 0 { return None; }
+                // SAFETY: the host keeps the bytes valid through this copy.
+                unsafe { copy_zpkg_bytes(bytes, length) }
+            }
+            ResolverCallback::Write(callback) => {
+                let mut written: Option<Vec<u8>> = None;
+                let write_data = std::ptr::from_mut(&mut written).cast();
+                // SAFETY: the host uses the sink synchronously on this thread
+                // and keeps its arguments valid through the callback.
+                let hit = unsafe { callback(cname.as_ptr(), write_zpkg_bytes, write_data, user_data) };
+                if hit != 0 { written } else { None }
+            }
         }
-        // SAFETY: contract requires the host to keep these bytes valid
-        // until our callback returns. We immediately copy into a `Vec`
-        // owned by the runtime; nothing in `bytes_ptr` escapes this
-        // function.
-        let slice = unsafe { std::slice::from_raw_parts(bytes_ptr, length) };
-        Some(slice.to_vec())
     }
+}
+
+/// The caller supplies readable, unchanging bytes for the duration of this copy.
+unsafe fn copy_zpkg_bytes(bytes: *const u8, length: usize) -> Option<Vec<u8>> {
+    if bytes.is_null() || length == 0 { return None; }
+    let mut copy = Vec::new();
+    copy.try_reserve_exact(length).ok()?;
+    // SAFETY: the caller guarantees readability, and reservation checked the length.
+    copy.extend_from_slice(unsafe { std::slice::from_raw_parts(bytes, length) });
+    Some(copy)
+}
+
+unsafe extern "C" fn write_zpkg_bytes(bytes: *const u8, length: usize, write_data: *mut c_void) -> i32 {
+    // SAFETY: the resolver contract requires the original opaque pointer and
+    // synchronous calls on the invoking thread.
+    let written = unsafe { &mut *write_data.cast::<Option<Vec<u8>>>() };
+    if written.is_some() { return 0; }
+    // SAFETY: the resolver supplies readable bytes for the duration of this call.
+    *written = unsafe { copy_zpkg_bytes(bytes, length) };
+    i32::from(written.is_some())
 }
 
 /// Visitor for [`super::z42_zpkg_read_namespaces`]: invoked once per
@@ -102,7 +136,7 @@ impl Z42ExecMode {
 /// Fields appended after v2 are read only when `struct_size` covers them,
 /// so a caller built against an older v2 header is never read past the end
 /// of its struct. Every field below exists since v2, so v2 requires at
-/// least [`MIN_CONFIG_SIZE`].
+/// least [`MIN_CONFIG_SIZE`] for the original prefix.
 #[repr(C)]
 pub struct Z42HostConfig {
     pub abi_version: u32,
@@ -121,11 +155,14 @@ pub struct Z42HostConfig {
     // add-zpkg-resolver-hook (append-only).
     pub zpkg_resolver: Z42ZpkgResolverFn,
     pub zpkg_resolver_user_data: *mut c_void,
+    pub zpkg_resolver_write: Z42ZpkgResolverWriteFn,
 }
 
-/// Smallest `struct_size` a v2 caller can pass: the v2 layout in full.
-/// Stays fixed when fields are appended later.
-pub const MIN_CONFIG_SIZE: usize = std::mem::size_of::<Z42HostConfig>();
+/// The size of the original v2 prefix, through the last pointer-sized field.
+pub const MIN_CONFIG_SIZE: usize = std::mem::offset_of!(Z42HostConfig, zpkg_resolver_user_data)
+    + std::mem::size_of::<*mut c_void>();
+const RESOLVER_WRITE_END: usize = std::mem::offset_of!(Z42HostConfig, zpkg_resolver_write)
+    + std::mem::size_of::<Z42ZpkgResolverWriteFn>();
 
 /// Validation outcome. Caller maps `Err` to a `Z42HostStatus`.
 #[derive(Debug)]
@@ -142,55 +179,61 @@ pub enum ConfigError {
 ///
 /// # Safety
 /// Caller must ensure that, if `cfg` is non-null, it points to a valid
-/// `Z42HostConfig` with a valid `search_paths` array (NULL-terminated, or
-/// null pointer if no paths are configured).
+/// configuration prefix and the readable fields covered by its declared size,
+/// with a valid `search_paths` array (NULL-terminated, or null).
 pub(super) unsafe fn validate(
     cfg: *const Z42HostConfig,
 ) -> Result<(SessionConfig, crate::corelib::io::HostSinks), ConfigError> {
     if cfg.is_null() {
         return Err(ConfigError::NullConfig);
     }
-    // Only the two leading u32s are known to exist until both are checked —
-    // read them through the raw pointer before forming a reference to the
-    // whole struct.
-    let abi_version = unsafe { std::ptr::addr_of!((*cfg).abi_version).read() };
+    // Read fields through the raw pointer. An older caller may provide only
+    // the original prefix, which cannot be borrowed as the full current type.
+    use std::ptr::addr_of;
+    let abi_version = unsafe { addr_of!((*cfg).abi_version).read() };
     if abi_version != Z42_HOST_ABI_VERSION {
         return Err(ConfigError::AbiVersionMismatch {
             expected: Z42_HOST_ABI_VERSION,
             got: abi_version,
         });
     }
-    let struct_size = unsafe { std::ptr::addr_of!((*cfg).struct_size).read() };
+    let struct_size = unsafe { addr_of!((*cfg).struct_size).read() };
     if (struct_size as usize) < MIN_CONFIG_SIZE {
         return Err(ConfigError::StructTooSmall { min: MIN_CONFIG_SIZE, got: struct_size });
     }
-    let cfg = unsafe { &*cfg };
-
-    let exec_mode = Z42ExecMode::from_raw(cfg.exec_mode)
-        .ok_or(ConfigError::UnknownExecMode { raw: cfg.exec_mode })?;
+    let raw = unsafe { addr_of!((*cfg).exec_mode).read() };
+    let exec_mode = Z42ExecMode::from_raw(raw)
+        .ok_or(ConfigError::UnknownExecMode { raw })?;
 
     check_feature_available(exec_mode)?;
 
-    let search_paths = unsafe { collect_search_paths(cfg.search_paths) }?;
-
-    let zpkg_resolver = cfg.zpkg_resolver.map(|callback| {
+    let search_paths = unsafe { collect_search_paths(addr_of!((*cfg).search_paths).read()) }?;
+    let resolver_write = if struct_size as usize >= RESOLVER_WRITE_END {
+        unsafe { addr_of!((*cfg).zpkg_resolver_write).read() }
+    } else {
+        None
+    };
+    let resolver = resolver_write.map(ResolverCallback::Write)
+        .or_else(|| unsafe { addr_of!((*cfg).zpkg_resolver).read() }.map(ResolverCallback::Borrowed));
+    let zpkg_resolver = resolver.map(|callback| {
         Arc::new(CHookResolver {
             callback,
-            user_data: cfg.zpkg_resolver_user_data as usize,
+            user_data: unsafe { addr_of!((*cfg).zpkg_resolver_user_data).read() } as usize,
         }) as Arc<dyn ZpkgResolver>
     });
 
     let resolved = SessionConfig {
         exec_mode,
-        heap_initial_bytes: cfg.heap_initial_bytes,
-        heap_max_bytes: cfg.heap_max_bytes,
+        heap_initial_bytes: unsafe { addr_of!((*cfg).heap_initial_bytes).read() },
+        heap_max_bytes: unsafe { addr_of!((*cfg).heap_max_bytes).read() },
         search_paths,
         zpkg_resolver,
         vfs: crate::pal::fs::default_vfs(),
     };
+    let sink_user_data = unsafe { addr_of!((*cfg).sink_user_data).read() };
     let sinks = crate::corelib::io::HostSinks {
-        stdout: output_sink(cfg.stdout_sink, cfg.sink_user_data),
-        stderr: output_sink(cfg.stderr_sink, cfg.sink_user_data),
+        stdout: output_sink(unsafe { addr_of!((*cfg).stdout_sink).read() }, sink_user_data),
+        stderr: output_sink(unsafe { addr_of!((*cfg).stderr_sink).read() }, sink_user_data),
     };
     Ok((resolved, sinks))
 }

@@ -95,6 +95,10 @@ impl crate::gc::Heap {
         // add-gc-tlab (option B): live counters live on the atomics now, not inner.stats.
         s.used_bytes = self.used_bytes_atomic();
         s.committed_bytes = self.committed_bytes();
+        // These counters can change independently while a span is being reclaimed.
+        // Clamp the sampled pool to keep the reported breakdown consistent.
+        s.pooled_bytes = self.footprint.pooled().min(s.committed_bytes);
+        s.occupied_bytes = s.committed_bytes - s.pooled_bytes;
         s.allocations = self.allocations.load(std::sync::atomic::Ordering::Relaxed);
         s.finalizers_pending = pending;
         s.pause_histogram = self.pause_histogram.lock().clone();

@@ -112,7 +112,7 @@ loh_bytes/VarChunkReclaim 测试专用项转 cfg(test) 门控）。
 初始化层级已钉为契约：会话 = 进程配置/输出/共享解码缓存；每次 load_zbc = 独立加载单元
 （依赖闭包合并、独占 VM，类型表/静态互不可见；依赖 zpkg 按内容共享定义——ALC 规则）；invoke =
 每模块一次性托管初始化、失败终态。C initialize 不等于任何模块已初始化；一个模块的 fatal 只终结
-该模块。文本见 embedding.md「为什么是这个形状」与 z42_host_api.h 头注。
+该模块。文本见 embedding.md「为什么是这个形状」与 z42_host.h 头注。
 
 元数据解析已按最小视图运行：`metadata::resolve::ResolveServices` 只暴露函数/builtin/静态字段身份查询与
 类型加载查询/结算，`vm::VmResolveServices` 提供实现并拥有入队与排空时序（「可观察的已解析函数其类型已登记」
@@ -120,8 +120,8 @@ loh_bytes/VarChunkReclaim 测试专用项转 cfg(test) 门控）。
 
 组件静态装配协议由 components 所有：Rust 最终组合根使用 `components::abi::register_static_component`，C 使用 `z42_component_register_static`。
 登记只保存进程寿命工厂，空指针/冲突以组件状态返回，不依赖 host 会话或错误槽。
-C 声明统一维护在 `include/`（宿主声明 `z42_host_api.h`、组件链接 `z42_components.h`）；`include/z42_host.h` 是 native 的统一聚合入口。
-打包将只聚合、不单独安装的声明内联进伞头，输出平铺的 `native/include/z42_host.h`；workload 的 include 与 modulemap 不随实现目录变化。
+C 声明统一维护在 `include/`（宿主声明 `z42_host.h`、组件链接 `z42_components.h`）；`include/z42.h` 是 native 的统一聚合入口。
+打包将只聚合、不单独安装的声明内联进伞头，输出平铺的 `native/include/z42.h`；workload 的 include 与 modulemap 不随实现目录变化。
 这个发布聚合入口不等于 Rust host 的组件管理 API。
 
 ### 当前可核对的缺口

@@ -153,8 +153,8 @@ fn c_host_jit_mode_uses_the_shared_engine_and_returns_values() {
     let output = Mutex::new(Vec::new());
     let libs = CString::new(libs).unwrap();
     let paths = [libs.as_ptr(), ptr::null()];
-    // Match a C caller's zero-initialized config. All fields are scalar values,
-    // raw pointers, or nullable callback pointers.
+    // SAFETY: Zero is valid for every field in the C config, including the
+    // optional byte-sink resolver callback.
     let mut cfg: Z42HostConfig = unsafe { std::mem::zeroed() };
     cfg.abi_version = Z42_HOST_ABI_VERSION;
     cfg.struct_size = std::mem::size_of::<Z42HostConfig>() as u32;

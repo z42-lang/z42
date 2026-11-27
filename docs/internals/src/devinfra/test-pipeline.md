@@ -75,10 +75,8 @@ example 目标直接使用 `Z42.Project.RunTarget`，源文件匹配交给 `Sour
 ## 3. device 路径：xtask 备好原生 runtime，z42b 组装 + 运行
 
 `z42b test <manifest.json> --rid <device> [--out <dir>] [--project <host>] [--report-dir <dir>]`（libs 走 `Z42_LIBS`，runtime pack 走 `Z42_RUNTIME_DIR`）。
-**z42b 不编原生代码、不认仓库路径**：它消费预编译的 runtime pack（wasm `pkg-web/` / iOS `native/Z42VM.xcframework` /
-Android `native/*.so`，与 `z42 workload install` 同布局），环境变量 `Z42_RUNTIME_DIR` 指定，缺省取 SDK 里已装的。
-xtask 在 `Z42_RUNTIME_DIR` 未设时先从源码编出同形目录（`_buildDeviceRuntime` → `…/tests/runtime`）；
-设了就直接用现成的 pack（如 CI 的 package 产物），并原样传给 z42b。
+z42b 使用预编译的 runtime pack（wasm `pkg-web/`，iOS 静态库与 `native/include/`，Android `native/*.so` 与 `native/include/`）。
+环境变量 `Z42_RUNTIME_DIR` 指定包目录，缺省取 SDK 里已装的包。xtask 在该变量未设时从源码编出暂存产物（`_buildDeviceRuntime` → `…/tests/runtime`），iOS 会直接提供已组装的 XCFramework。
 sub-step flag 选粒度，默认无 flag = stage + run：
 
 | flag | 语义 |

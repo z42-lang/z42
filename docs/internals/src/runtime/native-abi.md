@@ -16,14 +16,14 @@
 | [native-extensions.md](native-extensions.md) | 独立 cdylib 的 C ABI 范式（compression / repl 两个实例、回调 trampoline） |
 | [native-ext-loader.md](native-ext-loader.md) | 那些 cdylib 怎么被发现、符号怎么绑定 |
 | [native-libraries.md](native-libraries.md) | native 库住哪个目录、发布期怎么拍平 |
-| [embedding.md](embedding.md) | 反方向：宿主启动并驱动 VM（`z42_host.h`） |
+| [embedding.md](embedding.md) | 反方向：宿主启动并驱动 VM（`z42.h`） |
 
 判据是 `[Native(...)]` 里**有没有 `type=`**：有 → 本页的 typed 通路；没有 → builtin 名字解析，落
 内部 builtin 或通用 native 模块（§6）。两条通路在编译器里由同一处分流（`StubEmitter._emitNativeStub`），在 VM
 里则是完全不同的两套代码。
 
 `Z42Value` / `Z42Args` / `Z42Error` 三个值形状由本通路与 embedding 通路**共用同一份定义**
-（`z42_abi.h` 与它的 Rust 镜像 crate），`z42_host.h` 不重复声明——见 [embedding.md §4.1](embedding.md)。
+（`z42_abi.h` 与它的 Rust 镜像 crate），`z42.h` 不重复声明——见 [embedding.md §4.1](embedding.md)。
 
 ---
 
@@ -86,7 +86,7 @@
 
 | 路径 | 内容 |
 |---|---|
-| [`src/runtime/include/z42_abi.h`](https://github.com/z42-lang/z42/blob/main/src/runtime/include/z42_abi.h) | Tier 1 C 头（与 `z42_host.h` 平行） |
+| [`src/runtime/include/z42_abi.h`](https://github.com/z42-lang/z42/blob/main/src/runtime/include/z42_abi.h) | Tier 1 C 头（与 `z42.h` 平行） |
 | [`src/runtime/src/interop/`](https://github.com/z42-lang/z42/tree/main/src/runtime/src/interop) | Tier 1 在 VM 内的实现（`providers` / `state` / `registry` / `marshal` / `dispatch` / `error` / `exports`） |
 | [`src/runtime/crates/z42-abi`](https://github.com/z42-lang/z42/tree/main/src/runtime/crates/z42-abi) | Tier 1 的 Rust 镜像（结构体 + 冻结 tag 常量 + `extern "C"` 声明） |
 | [`src/runtime/crates/z42-rs`](https://github.com/z42-lang/z42/tree/main/src/runtime/crates/z42-rs) | 面向用户的门面 crate（`Z42Type` trait + helper） |

@@ -327,7 +327,7 @@ z42: unknown runtime knob `gc-mdoe` in --set; did you mean `gc-mode`?
 | `--report-dir <dir>` | device `--run`（iOS）：junit.xml 写到哪 |
 | `--node-bin <dir>` | device `--run`：前置到 PATH 的 node bin 目录 |
 
- device `--stage-only` 用的预编译 runtime pack（wasm `pkg-web/` · iOS `native/Z42VM.xcframework` · Android `native/*.so`，即 `z42 workload install` 铺设用的同一布局）由环境变量 `Z42_RUNTIME_DIR` 指定；缺省取 SDK 里已装的 `runtimes/<rid>/<ver>/`（最高版本）。
+ device `--stage-only` 使用预编译的 runtime pack。wasm 使用 `pkg-web/`，iOS 用静态库与 `native/include/` 组装 XCFramework，Android 使用 `native/*.so` 与 `native/include/`。由环境变量 `Z42_RUNTIME_DIR` 指定包目录，缺省取 SDK 里已装的 `runtimes/<rid>/<ver>/`（最高版本）。
 
 `--name` 与 `--filter` 是**两种语义**，都作用在**目标名**上：`--name` 是「就这一个，
 点不中退出 2」，`--filter` 是「筛一批，筛空了只是没事可做」。两者都给时取交集。

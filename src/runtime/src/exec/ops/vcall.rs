@@ -297,6 +297,15 @@ fn resolve_vcall_unchecked<'a>(
             })
             .or_else(|| resolve_own_slot(ctx, module, STD_VALUE_TYPE, method, arity))
             .or_else(|| resolve_own_slot(ctx, module, STD_OBJECT, method, arity));
+        let target = match target {
+            Some(VCallTarget::Local { func, .. })
+                if method == "Equals" && arity == 1
+                    && (func.method_flags & crate::zpkg::ir::METHOD_FLAG_SHARED_FLOAT_STRUCT_EQUALS) != 0 =>
+            {
+                resolve_own_slot(ctx, module, STD_VALUE_TYPE, method, arity)
+            }
+            other => other,
+        };
         return match target {
             Some(target) => {
                 if let Some(key) = receiver_type_id(obj_val) {

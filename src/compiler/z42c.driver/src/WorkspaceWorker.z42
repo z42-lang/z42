@@ -73,10 +73,10 @@ void _validateWorkspaceGraphBuild(WorkspaceLayoutPlan plan, bool inProcess) {
             }
             p = p + 1;
         }
-        PathDepClosure closure = PathDepPlan.Resolve(plan.Tomls[i]);
+        PathDepClosure closure = PathDepPlan.Resolve(plan.Tomls[i], pm);
         int j = 0;
         while (j < closure.Count) {
-            ProjectManifest dep = ManifestLoader.Load(closure.Tomls[j]);
+            ProjectManifest dep = closure.Manifests[j];
             int member = WorkspacePlan.IndexOfName(plan.Names, plan.Count, dep.Project.Name);
             if (member < 0 || !_samePath(plan.Tomls[member], closure.Tomls[j])) {
                 throw new Exception("package graph requires source dependencies to be workspace members: " + dep.Project.Name);

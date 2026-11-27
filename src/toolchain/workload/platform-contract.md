@@ -102,10 +102,14 @@ typedef int (*Z42ZpkgResolverFn)(
     size_t*      out_length,
     void*        user_data);
 
-/* Last fields of the v2 Z42HostConfig layout: */
+/* Last fields of the original v2 Z42HostConfig prefix: */
 Z42ZpkgResolverFn  zpkg_resolver;
 void*              zpkg_resolver_user_data;
+/* Optional v2 tail extension: */
+Z42ZpkgResolverWriteFn zpkg_resolver_write;
 ```
+
+iOS 和 Android 通过 `zpkg_resolver_write` 在回调内同步提交借用的包字节。完整契约见 [C ABI](../../../docs/reference/src/embedding/c-abi.md#zpkg-resolver-回调)。
 
 ### Tier 2 Rust trait
 
@@ -179,7 +183,7 @@ zpkg 文件本身**由 `dotnet build src/compiler/z42.slnx` 编译标准库产�
 
 ## 错误码 → 平台异常映射
 
-各平台 facade 把 [`Z42HostStatus`](../../../runtime/include/z42_host.h) 翻译成本平台原生错误形式，但**保留 status code + message**，便于宿主诊断：
+各平台 facade 将 [`Z42HostStatus`](../../runtime/include/z42_host.h) 映射为本平台的错误形式，保留 status code 与 message 供宿主诊断。
 
 | Z42HostStatus | iOS `Z42VMError` | Android `Z42VMException` | WASM `Z42VMError` |
 |---------------|------------------|--------------------------|-------------------|

@@ -30,7 +30,7 @@ public sealed class PathClosureOut {
 // 那里的相对路径未必解得开——实测会抛 `No such file or directory`（e2e `buildclos` 抢到）。
 // wsTier 非空 = workspace per-member 成员：闭包里的**成员**跳过（workspace 循环按拓扑序建），代建 dist
 // **追加在末尾**——前 `MemberDirs` 个必须仍是成员 dist（WsTier.Admits 按下标分档），外部包归外部档。
-PathClosureOut _buildPathDepClosure(string tomlPath, bool isRelease, bool noIncremental, int cliAdd, int cliRemove,
+PathClosureOut _buildPathDepClosure(string tomlPath, ProjectManifest consumer, bool isRelease, bool noIncremental, int cliAdd, int cliRemove,
                                     string[] libsDirs, int libsDirsN, WsTier wsTier) {
     PathClosureOut o = new PathClosureOut(libsDirs, libsDirsN);
     // 🔴 `PathDepPlan.Resolve` 会**抛**（依赖成环 / 目录里不是恰一份 manifest）。此前无人
@@ -41,7 +41,7 @@ PathClosureOut _buildPathDepClosure(string tomlPath, bool isRelease, bool noIncr
     // 保留**全限定**写法：它现在只是明示落点，不再是消歧。
     Z42.Project.PathDepClosure closure;
     try {
-        closure = Z42.Project.PathDepPlan.Resolve(tomlPath);
+        closure = Z42.Project.PathDepPlan.Resolve(tomlPath, consumer);
     } catch (Exception e) {
         ConsoleError.WriteLine(e.Message);
         o.Rc = ExitCode.BuildError; return o;
@@ -54,8 +54,8 @@ PathClosureOut _buildPathDepClosure(string tomlPath, bool isRelease, bool noIncr
         int ci = 0;
         while (ci < closure.Count) {
             string depToml = closure.Tomls[ci];
+            ProjectManifest depPm = closure.Manifests[ci];
             ci = ci + 1;
-            ProjectManifest depPm = ManifestLoader.Load(depToml);
             if (wsTier != null && wsTier.IsMember(depPm.Project.Name)) { continue; }   // 成员由 workspace 循环建
             // 插件工程不得出现在 `[dependencies]`：它只在工具链进程里活、永不链入产物；写进依赖等于让
             // **运行期**代码引用一个不会到场的包。path 条目手上有 manifest，按 kind 判；名字条目按 zpkg 头的

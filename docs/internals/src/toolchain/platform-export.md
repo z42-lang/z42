@@ -104,13 +104,9 @@ z42b 跑在宿主的 z42vm 上，它当然不可能「是」浏览器里或模�
 把暂存好的部署件注入进去，再把报告读回来。原生工具链（node / 浏览器 / Xcode / NDK）由编排方
 （xtask）**预备**并把位置传进来（`--project` / `--report-dir` / `--node-bin`），z42b 只拥有**调用逻辑**。
 
-**z42b 不编原生代码，也不认仓库布局。** 平台 runtime 是**预编译的 runtime pack**
-（wasm `pkg-web/`、iOS `native/Z42VM.xcframework`、Android `native/*.so`——与 `z42 workload install`
-铺设用的同一布局，见 [workload-distribution](workload-distribution.md)），`--stage-only` 时 z42b 把它
-铺进宿主工程。pack 来自环境变量 `Z42_RUNTIME_DIR`（任意目录：SDK 安装、CI 的 package 目录、本地构建），缺省取 SDK 里
-已装的 `runtimes/<rid>/<ver>/`。仓库里 xtask 在 `Z42_RUNTIME_DIR` 未设时先用 wasm-pack / cargo / cargo-ndk
-从源码编出同形目录再交给 z42b；设了 `Z42_RUNTIME_DIR` 就直接用现成的 pack。
-z42b 里没有任何 cargo / wasm-pack / cargo-ndk 调用。
+z42b 接收**预编译的 runtime pack**。`--stage-only` 时将 wasm 的 `pkg-web/` 或 Android 的 `native/*.so` 与 C 头文件接入宿主工程，或使用 iOS 静态库与 C 头组装 SwiftPM 的 XCFramework。布局见 [workload-distribution](workload-distribution.md)。
+pack 由 `Z42_RUNTIME_DIR` 指定（SDK 安装、CI 组包或本地构建目录），缺省取 SDK 里已装的 `runtimes/<rid>/<ver>/`。
+仓库里的 xtask 在 `Z42_RUNTIME_DIR` 未设时先构建本地暂存产物，其中 iOS 可直接提供 `native/Z42VM.xcframework`。
 
 两个子步骤可以单独跑（CI / 调试用），不带任何一个就是 stage + run：
 

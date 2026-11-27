@@ -2,7 +2,7 @@
 
 > 代码：
 > `src/runtime/src/host/app.rs`（`z42::host::run_app` 核心）、`src/runtime/src/host/ffi.rs`（C ABI
-> `z42_host_run_app`）、`src/runtime/include/z42_host.h`（公有头）、
+> `z42_host_run_app`）、`src/runtime/include/z42.h`（公有头）、
 > `src/runtime/src/host`（Rust wrapper）、
 > `src/toolchain/workload/test/agent/src/agent.z42`（test-agent）、
 > `src/toolchain/workload/desktop/shell/testhost.c`（desktop C 壳）、
@@ -222,7 +222,7 @@ z42 解释器**在原生调用栈上递归**——每次 z42 调用一层原生�
 | 要改什么 | 改哪 |
 |---|---|
 | 启动序列 / 加载顺序 | `src/runtime/src/loader/program.rs`、`vm/assembly.rs` |
-| 嵌入入口（所有原生壳共用） | `src/runtime/src/host/mod.rs` 的 C 符号 + `src/runtime/include/z42_host.h` |
+| 嵌入入口（所有原生壳共用） | `src/runtime/src/host/mod.rs` 的 C 符号 + `src/runtime/include/z42.h` |
 | agent 的命令面 / 报告通道 | `src/toolchain/workload/test/agent/src/agent.z42` |
 | bundle 的跑法（golden 隔离 / unit 共享） | `src/libraries/z42.harness/src/BundleRunner.z42` |
 | 语料枚举 / 采样 / 分片 | `scripts/src/test/app/embedded_corpus.z42` |

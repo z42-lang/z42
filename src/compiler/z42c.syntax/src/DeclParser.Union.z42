@@ -1,0 +1,85 @@
+namespace Z42.Syntax;
+
+using Z42.Core;
+
+public sealed partial class DeclParser {
+    // Leave `union Make<T>(...)` available for a function whose return type is named union.
+    internal bool _isUnionDecl() {
+        if (this._p._peekAt(1).Kind != TokenKind.Identifier) { return false; }
+        int next = this._p._peekAt(2).Kind;
+        if (next != TokenKind.Lt) { return next == TokenKind.LBrace || next == TokenKind.Where; }
+        int i = 3;
+        while (this._p._peekAt(i).Kind == TokenKind.Identifier || this._p._peekAt(i).Kind == TokenKind.Comma) {
+            i = i + 1;
+        }
+        if (this._p._peekAt(i).Kind != TokenKind.Gt) { return false; }
+        next = this._p._peekAt(i + 1).Kind;
+        return next == TokenKind.LBrace || next == TokenKind.Where;
+    }
+
+    internal Decl _parseUnion(string mods) {
+        Span span = this._p._peek().Span;
+        this._p._advance();
+        Token name = this._p._peek();
+        this._p._expect(TokenKind.Identifier, "union name");
+        TypeParamList typeParams = this._p._typeP._parseTypeParams();
+        WhereList wheres = this._p._typeP._parseWhereClause();
+        this._p._expect(TokenKind.LBrace, "{");
+        UnionCaseDecl[] cases = new UnionCaseDecl[4];
+        int count = 0;
+        while (this._p._peek().Kind != TokenKind.RBrace && this._p._peek().Kind != TokenKind.Eof) {
+            if (count == cases.Length) {
+                UnionCaseDecl[] grown = new UnionCaseDecl[cases.Length * 2];
+                Array.Copy(cases, grown, count);
+                cases = grown;
+            }
+            cases[count] = this._parseUnionCase();
+            count = count + 1;
+            if (this._p._peek().Kind != TokenKind.Comma) { break; }
+            this._p._advance();
+        }
+        if (count == 0 && this._p._peek().Kind == TokenKind.RBrace) {
+            this._p._diags.Error(DiagnosticCodes.ExpectedToken, "expected at least one union case", this._p._peek().Span);
+        }
+        this._p._expect(TokenKind.RBrace, "}");
+        return new UnionDecl(mods, name.Text, typeParams, wheres, cases, count, span);
+    }
+
+    private UnionCaseDecl _parseUnionCase() {
+        Token name = this._p._peek();
+        int docTok = this._p._mark();
+        this._p._expect(TokenKind.Identifier, "union case name");
+        UnionPayloadField[] fields = new UnionPayloadField[0];
+        int count = 0;
+        if (this._p._peek().Kind == TokenKind.LParen) {
+            this._p._advance();
+            while (this._p._peek().Kind != TokenKind.RParen && this._p._peek().Kind != TokenKind.Eof) {
+                if (count == fields.Length) {
+                    int capacity = count == 0 ? 2 : count * 2;
+                    UnionPayloadField[] grown = new UnionPayloadField[capacity];
+                    Array.Copy(fields, grown, count);
+                    fields = grown;
+                }
+                fields[count] = this._parseUnionField();
+                count = count + 1;
+                if (this._p._peek().Kind != TokenKind.Comma) { break; }
+                this._p._advance();
+            }
+            this._p._expect(TokenKind.RParen, ")");
+        }
+        UnionCaseDecl result = new UnionCaseDecl(name.Text, fields, count, name.Span);
+        if (this._p._lx.DocBlockCount() > 0) { result.Doc = this._p._claimDoc(docTok, docTok); }
+        return result;
+    }
+
+    private UnionPayloadField _parseUnionField() {
+        Span span = this._p._peek().Span;
+        TypeExpr type = this._p._typeP._parseType();
+        string name = "";
+        if (this._p._peek().Kind == TokenKind.Identifier) {
+            name = this._p._peek().Text;
+            this._p._advance();
+        }
+        return new UnionPayloadField(type, name, span);
+    }
+}

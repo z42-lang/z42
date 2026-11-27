@@ -65,6 +65,16 @@ impl<'a> TypeParamEnv<'a> {
         type_param_markers::substitute(name, |m| self.resolve(ctx, m).map(Cow::into_owned))
     }
 
+    /// Materialize a type with any activation-local markers in its name resolved.
+    pub fn reflect_type(&self, ctx: &VmContext, name: &str, args: &[String]) -> Value {
+        let name = if type_param_markers::has_markers(name) {
+            Cow::Owned(self.substitute(ctx, name))
+        } else {
+            Cow::Borrowed(name)
+        };
+        (ctx.core().object_protocol().make_constructed_type)(ctx, &name, args)
+    }
+
     /// A type-test target (`is` / `as` / cast / `catch`) with its markers substituted. A target
     /// that *is* a type parameter bound to a built-in comes out in keyword spelling (`int`); the
     /// tests name built-ins by their class (`Std.Int32`), as z42c does for a written `o is int`.

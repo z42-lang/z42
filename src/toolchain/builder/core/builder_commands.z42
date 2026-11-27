@@ -58,7 +58,7 @@ class ClosurePlan {
 // 这一层差异无法消掉：两条路的 per-member 构建语义本就不同（rid/workload/hooks vs 纯包编译）。
 //
 // 每个成员的依赖扫描面 = **已建成员的 dist**（post-order ⇒ 它的依赖都已在内）+ Z42_LIBS。
-ClosurePlan _buildPathDepClosure(string tomlPath, Target t) {
+ClosurePlan _buildPathDepClosure(string tomlPath, ProjectManifest consumer, Target t) {
     ClosurePlan r = new ClosurePlan();
     r.Rc = 0; r.Dists = new string[0]; r.Names = new string[0]; r.Tomls = new string[0]; r.Count = 0;
     if (BuilderWorkspaceState.Current() != null) { return r; }
@@ -66,7 +66,7 @@ ClosurePlan _buildPathDepClosure(string tomlPath, Target t) {
     // 接住只打消息，别让用户拿到一串 z42b 内部栈帧（同 driver 那处）。
     PathDepClosure closure;
     try {
-        closure = PathDepPlan.Resolve(tomlPath);
+        closure = PathDepPlan.Resolve(tomlPath, consumer);
     } catch (Exception e) {
         ConsoleError.WriteLine(e.Message);
         r.Rc = 1;
@@ -79,8 +79,8 @@ ClosurePlan _buildPathDepClosure(string tomlPath, Target t) {
     int ci = 0;
     while (ci < closure.Count) {
         string depToml = closure.Tomls[ci];
+        ProjectManifest depPm = closure.Manifests[ci];
         ci = ci + 1;
-        ProjectManifest depPm = ManifestLoader.Load(depToml);
         // workspace 逐成员构建里本轮已建过的成员：直接用它的 dist，不重建。
         string builtDist = WsSiblings.DistOf(depPm.Project.Name);
         if (builtDist.Length > 0) {
@@ -178,7 +178,7 @@ BuildOutcome _buildProjectAt(ParseResult r, string mode, string outRoot, string 
     // 与 driver **同一份实现**。
     string[] closureDists = new string[0];
     int closureDistN = 0;
-    ClosurePlan cp = _buildPathDepClosure(tomlPath, t);
+    ClosurePlan cp = _buildPathDepClosure(tomlPath, m, t);
     if (cp.Rc != 0) { o.Rc = cp.Rc; return o; }
     closureDists = cp.Dists; closureDistN = cp.Count;
 
