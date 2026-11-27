@@ -1,0 +1,8 @@
+[project]
+name = "demo.closed_base_variance_app"
+version = "0.1.0"
+kind = "exe"
+pack = true
+
+[dependencies]
+"demo.closed_base_variance_lib" = "0.1.0"
