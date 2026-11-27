@@ -213,7 +213,7 @@ _PkgIdentityRule[] _pkgIdentityRules(string root) {
     rs[0] = _pkgRule("stdlib libs",        "libs",                          _libsDir(root), "");
     // Runtime C 头和 Swift module map（_copyAbiHeaders / _copyIosRuntimeHeaders）
     rs[1] = _pkgRule("C ABI headers",      "native/include",                rtInc, ".h");
-    rs[2] = _pkgRule("Runtime Swift module", "native/include/module.modulemap", Path.Join(rtInc, "module.modulemap"), "");
+    rs[2] = _pkgRule("Runtime Swift module", "native/include/module.modulemap", _iosRuntimeModuleMap(root), "");
     // iOS（_packageIos）
     rs[3] = _pkgRule("iOS Swift",          "Sources/Z42VM",                 Path.Join(iosSrc, "Sources/Z42VM"), ".swift");
     // Android（_pkgEmitAndroidGradleProject）

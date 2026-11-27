@@ -37,9 +37,13 @@ int _buildRuntimePackageIos(string root, string rid, string version, string prof
     return _runtimePkgFinish(root, pkgDir, rid, "[3/3]");
 }
 
+string _iosRuntimeModuleMap(string root) {
+    return Path.Join(root, "src/toolchain/workload/ios/module.modulemap");
+}
+
 void _copyIosRuntimeHeaders(string root, string directory) {
     _copyAbiHeaders(root, directory);
-    File.Copy(Path.Join(root, "src/runtime/include/module.modulemap"), Path.Join(directory, "module.modulemap"));
+    File.Copy(_iosRuntimeModuleMap(root), Path.Join(directory, "module.modulemap"));
 }
 
 // ── workload tooling: Sources/ + Package.swift (placeholder) + manifest ──

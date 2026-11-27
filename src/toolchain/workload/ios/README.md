@@ -12,7 +12,7 @@
 |------|-----------|
 | Swift 公开 API（`Z42VM` / `Z42VMModule` / `Z42VMEntry` / `Z42VMValue` / `Z42VMError`） | `platform/Sources/Z42VM/` |
 | zpkg 解析（`BundleZpkgResolver` / `MapZpkgResolver`） | `platform/Sources/Z42VM/ZpkgResolver.swift` |
-| C 模块 `Z42VMC` | Runtime XCFramework 的头文件和模块描述，源文件在 `src/runtime/include/` |
+| C 模块 `Z42VMC` | [模块描述](module.modulemap) 随 Runtime XCFramework 发布，引用 Runtime 的 `z42.h` |
 | Rust staticlib（`z42_host_*` 再导出） | `src/runtime/examples/z42.rs` |
 | 发布 / 导出管线（`: WorkloadBase`） | `appbuilder/iOSWorkload.z42`、`appbuilder/export.z42` |
 | 设备侧测试宿主 | `Z42TestHost.swift`；XCTest 在 `platform/Tests/Z42VMTests/` |

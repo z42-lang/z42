@@ -151,7 +151,7 @@ graph LR
 |---|---|---|
 | stdlib libs | `libs/`（`.zpkg` + `.zsym`）| 扁平 stdlib dist |
 | C ABI headers | `native/include/*.h` | `src/runtime/include/`；所有者相对 include 展开后的内容 |
-| Runtime Swift module | `native/include/module.modulemap` | `src/runtime/include/module.modulemap` |
+| Runtime Swift module | `native/include/module.modulemap` | `src/toolchain/workload/ios/module.modulemap` |
 | iOS Swift | `Sources/Z42VM/*.swift` | `src/toolchain/workload/ios/platform/Sources/Z42VM/` |
 | Android Kotlin | `z42vm/src/main/java/**/*.kt` | `src/toolchain/workload/android/platform/…` |
 | Android JNI bridge | `z42vm/src/main/cpp/z42vm_jni.c` | 同上 |
