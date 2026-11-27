@@ -1,0 +1,99 @@
+namespace InlineStructReceiver;
+
+class Note {
+    public int Number;
+    public Note(int number) { this.Number = number; }
+}
+
+struct Counter<T> {
+    public int Count;
+    public Note Tag;
+
+    public Counter<T> Bump() {
+        Count = Count + 1;
+        Tag = new Note(Count);
+        GC.ForceCollect();
+        return this;
+    }
+
+    public Type Argument() { return typeof(T); }
+    public bool IsInt() { return this is Counter<int>; }
+    public object Box() { return this; }
+
+    public void WriteThenThrow() {
+        Count = 9;
+        throw new InvalidOperationException("after write");
+    }
+}
+
+struct Group {
+    public int Prefix;
+    public Counter<int> Nested;
+}
+
+class Host {
+    public Counter<int> Direct;
+    public Group Grouped;
+    public readonly Counter<int> Frozen;
+    public readonly Group FrozenGroup;
+    public Counter<int> BumpBare() { return Direct.Bump(); }
+}
+
+class GenericHost<T> {
+    public Counter<int> Direct;
+    public int BumpBare() { return Direct.Bump().Count; }
+}
+
+class IndexLog { public static int Calls = 0; }
+
+Host Once(Host host) {
+    IndexLog.Calls = IndexLog.Calls + 1;
+    return host;
+}
+
+void Main() {
+    Host host = new Host();
+    Counter<int> previous = host.Direct;
+    Counter<int> snapshot = Once(host).Direct.Bump();
+    Assert.Equal(1, IndexLog.Calls);
+    Assert.Equal(1, host.Direct.Count);
+    Assert.Equal(0, previous.Count);
+    Assert.Equal(1, host.Direct.Tag.Number);
+
+    Counter<int> second = host.BumpBare();
+    Assert.Equal(2, second.Count);
+    Assert.Equal(2, host.Direct.Count);
+    Assert.Equal(1, snapshot.Count);
+    Assert.Equal(1, snapshot.Tag.Number);
+
+    host.Grouped.Prefix = 71;
+    Counter<int> nested = host.Grouped.Nested.Bump();
+    Assert.Equal(1, host.Grouped.Nested.Count);
+    Assert.Equal(71, host.Grouped.Prefix);
+    Assert.Equal(typeof(int), host.Grouped.Nested.Argument());
+    Assert.True(host.Grouped.Nested.IsInt());
+    Assert.Equal(typeof(Counter<int>), host.Grouped.Nested.Box().GetType());
+
+    bool threw = false;
+    try { host.Grouped.Nested.WriteThenThrow(); }
+    catch (InvalidOperationException) { threw = true; }
+    Assert.True(threw);
+    Assert.Equal(9, host.Grouped.Nested.Count);
+    Assert.Equal(1, nested.Count);
+
+    Assert.Equal(1, host.Frozen.Bump().Count);
+    Assert.Equal(0, host.Frozen.Count);
+    Assert.Equal(1, host.FrozenGroup.Nested.Bump().Count);
+    Assert.Equal(0, host.FrozenGroup.Nested.Count);
+
+    GenericHost<int> generic = new GenericHost<int>();
+    Assert.Equal(1, generic.Direct.Bump().Count);
+    Assert.Equal(2, generic.BumpBare());
+    Assert.Equal(2, generic.Direct.Count);
+
+    Host missing = null;
+    bool nullOwner = false;
+    try { missing.Direct.Bump(); }
+    catch (NullReferenceException) { nullOwner = true; }
+    Assert.True(nullOwner);
+}

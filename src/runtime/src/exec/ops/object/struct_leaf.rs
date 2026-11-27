@@ -14,6 +14,8 @@
 //! | `StructRefHeap`（`struct[]` 元素） | struct 布局 × 元素下标 | `write_barrier_array_elem` |
 //! | `StructRef`（帧内 arena blob） | struct 布局 | 无（arena 是根） |
 
+use crate::exec::call::transient_arena::StructView;
+use crate::exec::ops::structs::snapshot_struct_view;
 use crate::object::types::named_struct_layout;
 use crate::object::{
     decode_prim, encode_prim, is_ref_tag, prim_width, StructTypeLayout, Value,
@@ -93,17 +95,19 @@ pub fn struct_field_get_val(
         Value::StackObject { idx, frame_id } => {
             ctx.exec().with_stack_object(*idx, *frame_id, |obj| obj.struct_leaf(byte_off, kind))?
         }
-        // Leaf of a struct[] element `arr[index]`.
-        Value::StructRefHeap { idx, frame_id } => {
-            let e = ctx.exec().struct_elem(*idx, *frame_id)?;
-            let arr = e.arr.borrow();
-            let i = e.index as usize;
-            if is_ref_tag(kind) {
-                arr.struct_elem_ref(i, byte_off)
-            } else {
-                arr.struct_elem_prim(i, byte_off, prim_width(kind)?, kind)
+        Value::StructRefHeap { idx, frame_id } => match ctx.exec().struct_view(*idx, *frame_id)? {
+            StructView::Element(e) => {
+                let arr = e.arr.borrow();
+                let i = e.index as usize;
+                if is_ref_tag(kind) {
+                    arr.struct_elem_ref(i, byte_off)
+                } else {
+                    arr.struct_elem_prim(i, byte_off, prim_width(kind)?, kind)
+                }
             }
-        }
+            StructView::Inline { owner, offset, descriptor } =>
+                struct_field_get_val(ctx, &owner, inline_leaf_offset(offset, byte_off, kind, &descriptor)?, kind),
+        },
         _ => {
             let (idx, fid) = as_struct_ref(base_val, "StructFieldGetPrim base")?;
             if is_ref_tag(kind) {
@@ -134,11 +138,11 @@ pub fn struct_field_set_val(
                 obj.store_struct_leaf(byte_off, kind, v).map(|_| ())
             })?
         }
-        // Leaf write into a struct[] element.
-        Value::StructRefHeap { idx, frame_id } => {
-            let e = ctx.exec().struct_elem(*idx, *frame_id)?;
-            crate::object::store_struct_element_leaf(ctx.heap(), &e, byte_off, kind, v)
-        }
+        Value::StructRefHeap { idx, frame_id } => match ctx.exec().struct_view(*idx, *frame_id)? {
+            StructView::Element(e) => crate::object::store_struct_element_leaf(ctx.heap(), &e, byte_off, kind, v),
+            StructView::Inline { owner, offset, descriptor } =>
+                struct_field_set_val(ctx, &owner, inline_leaf_offset(offset, byte_off, kind, &descriptor)?, kind, v),
+        },
         _ => {
             let (idx, fid) = as_struct_ref(base_val, "StructFieldSetPrim base")?;
             if is_ref_tag(kind) {
@@ -149,6 +153,16 @@ pub fn struct_field_set_val(
             ctx.exec().with_struct_bytes_mut(idx, fid, |bytes| encode_prim(bytes, off, w, kind, v))?
         }
     }
+}
+
+fn inline_leaf_offset(offset: u32, leaf: u32, kind: u8, td: &crate::object::TypeDesc) -> Result<u32> {
+    let width = if is_ref_tag(kind) { 8 } else { prim_width(kind)? };
+    if td.struct_layout_ref().is_none_or(|layout| {
+        leaf as usize + width > layout.size || layout.ref_index(leaf).is_some() != is_ref_tag(kind)
+    }) {
+        bail!("invalid inline struct leaf at byte offset {leaf} for `{}`", td.name);
+    }
+    offset.checked_add(leaf).ok_or_else(|| anyhow::anyhow!("inline struct leaf offset overflow"))
 }
 
 pub fn as_struct_ref(v: &Value, what: &str) -> Result<(u32, u32)> {
@@ -188,8 +202,7 @@ pub fn struct_value_hash(ctx: &VmContext, value: &Value) -> Result<Option<i64>> 
             }
         }
         Value::StructRefHeap { idx, frame_id } => {
-            let element = ctx.exec().struct_elem(*idx, *frame_id)?;
-            let (mut bytes, refs, layout, name) = crate::object::snapshot_struct_element(&element)?;
+            let (mut bytes, refs, layout, name) = snapshot_struct_view(ctx, *idx, *frame_id)?;
             hash_snapshot(ctx, &name, &mut bytes, &refs, Some(&layout))?
         }
         Value::Object(o) if o.type_desc().is_zero_payload_struct() =>
@@ -252,8 +265,7 @@ fn struct_payload(
             Ok(Some((name.to_string(), bytes, refs)))
         }
         Value::StructRefHeap { idx, frame_id } => {
-            let e = ctx.exec().struct_elem(*idx, *frame_id)?;
-            let (bytes, refs, _layout, type_name) = crate::object::snapshot_struct_element(&e)?;
+            let (bytes, refs, _layout, type_name) = snapshot_struct_view(ctx, *idx, *frame_id)?;
             Ok(Some((type_name.to_string(), bytes, refs)))
         }
         Value::Object(o) if o.type_desc().is_zero_payload_struct() => {

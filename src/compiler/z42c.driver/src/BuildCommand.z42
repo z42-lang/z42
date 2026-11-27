@@ -33,6 +33,7 @@ int _cmdBuild(string[] argv) {
     int cliRemove = 0;
     bool jobsSet = false;
     int packageJobs = 1;
+    bool workspaceInProcess = false;
     int ai = 1;
     while (ai < argv.Length) {
         string a = argv[ai];
@@ -58,6 +59,7 @@ int _cmdBuild(string[] argv) {
         else if (a == "--jobs" && ai + 1 < argv.Length) {
             Z42.Package.ParallelConfig.SetJobs(Int32.Parse(argv[ai + 1])); ai = ai + 1; jobsSet = true;
         }
+        else if (a == "--workspace-in-process") { workspaceInProcess = true; }
         else if (a == "--package-jobs" && ai + 1 < argv.Length) {
             try { packageJobs = Int32.Parse(argv[ai + 1]); }
             catch (Exception e) { ConsoleError.WriteLine("z42c build: --package-jobs needs a positive integer"); return ExitCode.UsageError; }
@@ -77,11 +79,11 @@ int _cmdBuild(string[] argv) {
         ai = ai + 1;
     }
     return _dispatchBuildOptions(toml, isWorkspace, isRelease, outputDir, cliAdd, cliRemove,
-        noIncremental, isFix, internalOf, jobsSet, packageJobs);
+        noIncremental, isFix, internalOf, jobsSet, packageJobs, workspaceInProcess);
 }
 
 int _dispatchBuildOptions(string toml, bool isWorkspace, bool isRelease, string outputDir,
-    int cliAdd, int cliRemove, bool noIncremental, bool isFix, string internalOf, bool jobsSet, int packageJobs) {
+    int cliAdd, int cliRemove, bool noIncremental, bool isFix, string internalOf, bool jobsSet, int packageJobs, bool workspaceInProcess) {
     if (toml.Length == 0 && !isWorkspace) {
         ManifestLocation loc = ManifestLocator.FindUp(".");
         if (!loc.IsFound()) {
@@ -99,14 +101,19 @@ int _dispatchBuildOptions(string toml, bool isWorkspace, bool isRelease, string 
     // 故 cliAdd/cliRemove 原样透传，唯一一次 `Opt.Resolve` 落在 `_build`（那里有 `pm`）。
     if (!jobsSet) { Z42.Package.ParallelConfig.SetJobs(_defaultBuildJobs()); }
     if (isWorkspace) {
+        if (workspaceInProcess && packageJobs != 1) {
+            ConsoleError.WriteLine("z42c build: --workspace-in-process requires --package-jobs 1");
+            return ExitCode.UsageError;
+        }
         if (packageJobs > 1 && jobsSet && Z42.Package.ParallelConfig.Jobs(2) > 1) {
             ConsoleError.WriteLine("z42c build: parallel packages require --jobs 1 (or omit --jobs)");
             return ExitCode.UsageError;
         }
         // --fix 暂不作用于 workspace（多成员批量），单包路径生效
         int fileJobs = jobsSet ? Z42.Package.ParallelConfig.Jobs(int.MaxValue) : 1;
-        return _buildWorkspace(isRelease, outputDir, cliAdd, cliRemove, noIncremental, packageJobs, fileJobs);
+        return _buildWorkspace(isRelease, outputDir, cliAdd, cliRemove, noIncremental, packageJobs, fileJobs, workspaceInProcess);
     }
+    if (workspaceInProcess) { ConsoleError.WriteLine("z42c build: --workspace-in-process requires a workspace"); return ExitCode.UsageError; }
     if (packageJobs != 1) { ConsoleError.WriteLine("z42c build: --package-jobs requires an explicit workspace graph"); return ExitCode.UsageError; }
     return _build(toml, isRelease, outputDir, "", new string[0], 0, noIncremental, cliAdd, cliRemove, isFix, null, internalOf);
 }
@@ -134,6 +141,7 @@ void _buildUsage() {
     Console.WriteLine("  --no-opt <name>        disable an optimization");
     Console.WriteLine("  --jobs <n>             parallel compile jobs (default: min(4, CPU cores); 1 = serial)");
     Console.WriteLine("  --package-jobs <n>     bounded workspace workers; requires workspace.build.graph (default: 1)");
+    Console.WriteLine("  --workspace-in-process  build graph packages serially in one VM; use for plugin-free workspaces");
     Console.WriteLine("  --fix                  apply analyzer code fixes to the sources");
     Console.WriteLine("  -q, --quiet            no progress output (diagnostics are still printed)");
     Console.WriteLine("  -h, --help             show this help");

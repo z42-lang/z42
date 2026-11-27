@@ -61,9 +61,15 @@ int _z42cWorkspaceBuild(string vm, string driver, string cwd, string libs, bool 
 // 见 `_z42cProcSeed`）。
 int _z42cWorkspaceBuild(string vm, string driver, string cwd, string libs, bool noIncremental,
                         string runLibs) {
+    return _z42cWorkspaceBuild(vm, driver, cwd, libs, noIncremental, runLibs, false);
+}
+
+int _z42cWorkspaceBuild(string vm, string driver, string cwd, string libs, bool noIncremental,
+                        string runLibs, bool workspaceInProcess) {
     Process p = _z42cProcSeed(vm, libs, runLibs, driver)
         .Arg("build").Arg("--workspace").Arg("--release");
     if (noIncremental) { p = p.Arg("--no-incremental"); }
+    if (workspaceInProcess) { p = p.Arg("--workspace-in-process"); }
     return p
         .WorkingDirectory(cwd)
         .Stdout(_verbAtLeast(3) ? Stdio.Inherit() : Stdio.Null()).Stderr(Stdio.Inherit())

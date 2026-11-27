@@ -1,0 +1,4 @@
+using SnapshotLibrary;
+using Std.IO;
+
+void Main() { Console.WriteLine(Value()); }

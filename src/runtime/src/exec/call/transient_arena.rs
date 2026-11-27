@@ -28,7 +28,15 @@
 //! these variants (exactly like `StructRef` / `StackObject`). No write barrier: the
 //! arena is re-scanned as a root each collection.
 
-use crate::object::{PinnedViewData, RefKind, StructArrayElem, Value};
+use crate::object::{PinnedViewData, RefKind, StructArrayElem, TypeDesc, Value};
+use std::sync::Arc;
+
+/// A live projection of a value struct stored outside the struct arena.
+#[derive(Clone)]
+pub enum StructView {
+    Element(StructArrayElem),
+    Inline { owner: Value, offset: u32, descriptor: Arc<TypeDesc> },
+}
 use anyhow::Result;
 
 /// One transient payload. All are immutable after creation, so a `Value`
@@ -38,8 +46,8 @@ pub(in crate::exec) enum TransientPayload {
     Ref(RefKind),
     /// `Value::PinnedView` FFI view (raw ptr + len; no GC leaf).
     PinView(PinnedViewData),
-    /// `Value::StructRefHeap` — a `struct[]` element identity (holds the backing array `ArrRef`).
-    StructElem(StructArrayElem),
+    /// `Value::StructRefHeap` — an array element or an inline class field.
+    Struct(StructView),
 }
 
 /// One arena entry; `frame_id` = creating frame's id (staleness guard).
@@ -108,11 +116,10 @@ impl TransientArena {
         })?
     }
 
-    /// Clone the `StructArrayElem` behind a `Value::StructRefHeap` handle (cheap:
-    /// `{ArrRef(Copy), u32}`), releasing the arena lock before touching the array.
-    pub fn struct_elem(&self, idx: u32, frame_id: u32) -> Result<StructArrayElem> {
+    /// Release the arena lock before touching the view's storage.
+    pub fn struct_view(&self, idx: u32, frame_id: u32) -> Result<StructView> {
         self.with(idx, frame_id, |p| match p {
-            TransientPayload::StructElem(e) => Ok(e.clone()),
+            TransientPayload::Struct(view) => Ok(view.clone()),
             _ => Err(stale_err(idx, frame_id)),
         })?
     }
@@ -129,9 +136,8 @@ impl TransientArena {
                 TransientPayload::Ref(RefKind::Field { gc_ref, .. }) => {
                     visit(&Value::Object(*gc_ref));
                 }
-                TransientPayload::StructElem(e) => {
-                    visit(&Value::Array(e.arr));
-                }
+                TransientPayload::Struct(StructView::Element(e)) => visit(&Value::Array(e.arr)),
+                TransientPayload::Struct(StructView::Inline { owner, .. }) => visit(owner),
                 TransientPayload::Ref(RefKind::Stack { .. })
                 | TransientPayload::PinView(_) => {}
             }

@@ -198,6 +198,10 @@ impl LoadedProgram {
         super::app_state::set_program_args(&self.ctx, args)
     }
 
+    pub(crate) fn configure_exit_report(&self, print_stats: bool, stats_json: bool) {
+        crate::diagnostics::configure_exit_report(&self.ctx, print_stats, stats_json);
+    }
+
     pub(crate) fn report_on_exit(&self) {
         crate::composition::report_on_exit(&self.ctx);
     }

@@ -128,14 +128,8 @@ pub enum Value {
     /// （`object b = a` 别名同盒、反射 `SetValue` 写穿、传参改盒可见）。复用对象块 + 全部 GC 机制
     /// （GC 里与 `Value::Object` 同路标记/追踪；仅 is/as/GetType/vcall/Equals 保持 boxed 值类型特判）。
     BoxedStruct(crate::object::ObjRef) = 17,
-    /// add-struct-heap-inline (P3b, route α): a transient handle to a value-struct
-    /// **inlined in a heap array element** (`arr[i]`). Unlike an object field (whose
-    /// composite byte offset the compiler bakes → base = `Value::Object`), a struct[]
-    /// element's byte offset depends on the runtime index, so `arr[i]` materializes
-    /// this handle and a following `StructFieldGetPrim/SetPrim` reads/writes a leaf of
-    /// element `index` (routing byte/ref access through the value-struct array's
-    /// element). Payload boxed (8 B pointer) so `Value` stays 24 B. GC follows `arr`.
-    /// make-value-copy: 8B handle into `VmContext.exec.transient_arena` (payload `StructArrayElem`).
+    /// A frame-scoped view of a struct array element or inline class field.
+    /// The transient arena keeps the backing storage reachable.
     StructRefHeap { idx: u32, frame_id: u32 } = 18,
     /// Receiver and exact source interface for an interface conversion.
     InterfaceRef(InterfaceRef) = 19,

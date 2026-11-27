@@ -71,11 +71,11 @@ public sealed class ParseAllOut {
 // 各相位的实现与叙事注释随相位走（下方 `_resolve*` / `_prepare*` / `_report*` / `_write*`）。
 int _build(string tomlPath, bool isRelease, string outputDirOverride, string cacheDirOverride, string[] libsDirsOverride, int libsDirsCount, bool noIncremental, int cliAdd, int cliRemove, bool fix, WsTier tier, string internalOf) {
     return _build(tomlPath, isRelease, outputDirOverride, cacheDirOverride, libsDirsOverride, libsDirsCount,
-                  noIncremental, cliAdd, cliRemove, fix, tier, internalOf, null);
+                  noIncremental, cliAdd, cliRemove, fix, tier, internalOf, null, false);
 }
 
 int _build(string tomlPath, bool isRelease, string outputDirOverride, string cacheDirOverride, string[] libsDirsOverride, int libsDirsCount,
-           bool noIncremental, int cliAdd, int cliRemove, bool fix, WsTier tier, string internalOf, BundleDomain memberDomain) {
+           bool noIncremental, int cliAdd, int cliRemove, bool fix, WsTier tier, string internalOf, BundleDomain memberDomain, bool inProcessGraph) {
     // ── ① manifest 校验 + 源发现（旋钮 / deploy 清单级 fail-fast 都在编译前）──
     BuildSourcesOut sr = _resolveBuildSources(tomlPath, tier);
     if (sr.Rc != 0) { return sr.Rc; }
@@ -88,7 +88,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     WsTier scanTier = ld.ScanTier;
     // ── ③ 编译器侧插件解析（显式 [plugins] ∪ 携带链）+ 身份指纹 ──
     PluginSetupOut pl = _resolvePluginSetup(pm, projectDir, tomlPath, libsDirs, libsDirsN,
-        isRelease, noIncremental, cliAdd, cliRemove, tier);
+        isRelease, noIncremental, cliAdd, cliRemove, tier, inProcessGraph);
     if (pl.Rc != 0) { return pl.Rc; }
     string[] azPaths = pl.AzPaths; string handlerFp = pl.HandlerFp;
     // ── ④ 源文本读入 + 源 hash（per-file 并行）──
@@ -291,7 +291,7 @@ DirsOut _appendZpkgRefDirs(ProjectManifest pm, string projectDir, string[] libsD
 
 // ── ③ 编译器侧插件解析 + 身份指纹 ────────────────────────────────────────────────
 PluginSetupOut _resolvePluginSetup(ProjectManifest pm, string projectDir, string tomlPath, string[] libsDirs, int libsDirsN,
-                                   bool isRelease, bool noIncremental, int cliAdd, int cliRemove, WsTier tier) {
+                                   bool isRelease, bool noIncremental, int cliAdd, int cliRemove, WsTier tier, bool inProcessGraph) {
     PluginSetupOut o = new PluginSetupOut();
     string[] plNames = null; string[] plPaths = null;   // 显式 [plugins]（编译器侧）
     // ── `[plugins]` 插件 zpkg 解析（PluginRefs.z42）────────────────────────────────
@@ -329,6 +329,10 @@ PluginSetupOut _resolvePluginSetup(ProjectManifest pm, string projectDir, string
     // 1c/PR2：显式∪携带（两阶段，见 PluginRefs 头注）。wsMember 判据与 `_resolveLibsDomain` 同源。
     string[] azPaths = null;
     if (!_attachCarriedPaths(pm, libsDirs, libsDirsN, tier != null && tier.MembersN > 0, plPaths, ref azPaths)) { o.Rc = ExitCode.BuildError; return o; }
+    if (inProcessGraph && azPaths != null && azPaths.Length > 0) {
+        ConsoleError.WriteLine("z42c build: --workspace-in-process does not support compiler plugins: " + pm.Project.Name);
+        o.Rc = ExitCode.BuildError; return o;
+    }
     o.AzPaths = azPaths;
     // 插件身份指纹并入增量指纹（「产物纳入指纹」）——揉进每个文件源 hash，则「换 generator 但源没变」也令
     // 所有缓存失效。空 → `""` → `text+""==text` → 源 hash 不变 → 自举 byte-identical。
