@@ -311,6 +311,15 @@ pub struct GcPauseGuard<'a> {
     ctx: &'a VmContext,
 }
 
+impl GcPauseGuard<'_> {
+    pub(crate) fn inspect_heap(&self) -> crate::gc::walk::PausedHeap<'_> {
+        // Collection observers may have allocated in the collector's TLAB.
+        self.ctx.heap().retire_thread_tlab();
+        // SAFETY: this guard stops this heap's mutators and outlives the inspection.
+        unsafe { crate::gc::walk::PausedHeap::new(self.ctx.heap()) }
+    }
+}
+
 /// Collector-side entry. Transitions `Idle → Requested`, waits for every
 /// other live VmContext to park, then transitions `Requested → Marking`
 /// and returns the guard. Caller does mark+sweep, then drops the guard to
