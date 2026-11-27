@@ -400,6 +400,10 @@ reflection `generics.rs::constraint_satisfied_by` 同款臂，两边不分歧）
 `ToString`（arity 0）→ native 特判；否则 prepend `{type_name}.{method}$arity` 候选命中合成/用户方法（this=boxed
 值，合成 body 内拆箱），fallback `Std.Object.{method}`。
 
+泛型 struct 共享实例方法中的类级型参由接收者绑定。帧内 struct 和 struct 数组元素视图从类型名
+读取闭合实参，装箱值从类型描述符读取。`typeof(T)`、`default(T)` 和 `is T` 共用这条解析路径。
+装箱泛型 struct 先查实例的成员，再查定义上的共享成员，最后回落到 `ValueType`。
+
 ### 泛型（实例化）值 struct 的值相等边界
 
 合成 `Equals(object)` 的 body 首指令是 `other is P`（`is_instance`）——**只有 `other` 是 `BoxedStruct` 时**

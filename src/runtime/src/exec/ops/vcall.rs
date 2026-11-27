@@ -290,6 +290,11 @@ fn resolve_vcall_unchecked<'a>(
         }
         use crate::zpkg::index::well_known_names::{STD_OBJECT, STD_VALUE_TYPE};
         let target = resolve_own_slot(ctx, module, name, method, arity)
+            // Equal-layout instantiations share the definition's member bodies.
+            .or_else(|| {
+                let definition = crate::object::TypeDesc::erased_definition_name(name)?;
+                resolve_own_slot(ctx, module, definition, method, arity)
+            })
             .or_else(|| resolve_own_slot(ctx, module, STD_VALUE_TYPE, method, arity))
             .or_else(|| resolve_own_slot(ctx, module, STD_OBJECT, method, arity));
         return match target {
