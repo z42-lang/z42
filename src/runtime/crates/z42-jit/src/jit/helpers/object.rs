@@ -285,8 +285,8 @@ pub unsafe extern "C" fn jit_is_instance(
         // add-struct-object-boxing → unify Phase 2 R3: 装箱值类型（struct 或基元）is-a 精确类型 /
         // object（镜像 interp is_instance；基元盒 type_desc.name 即精确 wrapper）。
         Value::BoxedStruct(b) => class_name == "Std.Object" || class_name == "Object"
-            || &*b.type_desc().name == class_name
-            || isa_td(vm_ctx_ref(ctx), &module.type_registry, b.type_desc(), class_name, key),
+            || crate::exec::ops::cast::boxed_struct_exact_type(b, class_name)
+            || isa_object(vm_ctx_ref(ctx), &module.type_registry, b.type_desc(), b.type_args(), class_name, key),
         // fix-boxed-primitive-is-as: 未装箱裸基元按其 stdlib 类名匹配（Null → None → false）。
         other => crate::metadata::dispatch::receiver::prim_isa(other, class_name),
     };
@@ -327,7 +327,7 @@ pub unsafe extern "C" fn jit_as_cast(
     if let Value::BoxedStruct(b) = &val {
         let is_obj = class_name == "Std.Object" || class_name == "Object";
         let prim_scalar = b.borrow().boxed_scalar();
-        let out = if &*b.type_desc().name == class_name {
+        let out = if crate::exec::ops::cast::boxed_struct_exact_type(b, class_name) {
             match prim_scalar {
                 Some(scalar) => scalar, // 基元盒精确命中 → 裸标量
                 None => {
@@ -336,7 +336,7 @@ pub unsafe extern "C" fn jit_as_cast(
                         .unwrap_or(Value::Null)
                 }
             }
-        } else if is_obj || isa_td(vm_ctx_ref(ctx), &module.type_registry, b.type_desc(), class_name, key) {
+        } else if is_obj || isa_object(vm_ctx_ref(ctx), &module.type_registry, b.type_desc(), b.type_args(), class_name, key) {
             val.clone()
         } else {
             Value::Null

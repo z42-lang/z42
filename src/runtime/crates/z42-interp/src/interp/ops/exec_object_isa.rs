@@ -10,7 +10,7 @@ use crate::object::Value;
 use crate::components::bridge::VmContext;
 use anyhow::Result;
 
-use crate::exec::ops::cast::{array_isa_in_registry, bound_param_extra_isa, isa_object, isa_td, struct_view_isa, struct_ref_isa};
+use crate::exec::ops::cast::{array_isa_in_registry, bound_param_extra_isa, boxed_struct_exact_type, isa_object, isa_td, struct_view_isa, struct_ref_isa};
 use super::super::{prim_isa, Frame};
 
 /// A target naming a type parameter of a shared generic body (`o is T`, `o is List<T>`) carries
@@ -67,8 +67,8 @@ fn is_instance_of(
         // 即精确 wrapper（Std.Int64…）→ `9L is long`→true、`5 is long`→false 由 exact/subclass 判定。
         Value::BoxedStruct(b) => {
             class_name == "Std.Object" || class_name == "Object"
-                || &*b.type_desc().name == class_name
-                || isa_td(ctx, &module.type_registry, b.type_desc(), class_name, key)
+                || boxed_struct_exact_type(b, class_name)
+                || isa_object(ctx, &module.type_registry, b.type_desc(), b.type_args(), class_name, key)
         }
         // fix-boxed-primitive-is-as: 未装箱裸基元（未经 object 边界）→ stdlib 类名松匹配兜底。
         other => prim_isa(other, class_name),
@@ -113,12 +113,12 @@ fn as_cast_to(
     if let Value::BoxedStruct(b) = &val {
         let is_obj = class_name == "Std.Object" || class_name == "Object";
         let prim_scalar = b.borrow().boxed_scalar();
-        let out = if &*b.type_desc().name == class_name {
+        let out = if boxed_struct_exact_type(b, class_name) {
             match prim_scalar {
                 Some(scalar) => scalar, // 基元盒精确命中 → 拆回裸标量
                 None => crate::exec::ops::structs::unbox_struct(ctx, frame.frame_id(ctx), b)?, // struct 盒 → arena StructRef
             }
-        } else if is_obj || isa_td(ctx, &module.type_registry, b.type_desc(), class_name, key) {
+        } else if is_obj || isa_object(ctx, &module.type_registry, b.type_desc(), b.type_args(), class_name, key) {
             val.clone()
         } else {
             Value::Null

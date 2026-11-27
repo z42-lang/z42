@@ -232,10 +232,16 @@ public sealed class TypeOpEmitter {
         // 运行时从 arena slot 取，无需 class 参数）。复用 Builtin opcode，无格式 bump。
         if (this._ee._isBlobStruct(b.E.Type())) {
             TypedReg sval = this._ee.Emit(b.E);
-            TypedReg[] sargs = new TypedReg[1];
-            sargs[0] = sval;
             TypedReg sdst = this._ctx.Alloc(IrType.Ref);
-            this._ctx.Emit(new BuiltinInstr(sdst, "__box_struct", sargs, 1));
+            Z42Type sourceType = b.E.Type();
+            if (sourceType is Z42InstantiatedType && !this._ctx.IsLocalReceiver(sourceType)
+                && !this._ee._hasTypeParam(sourceType)) {
+                TypedReg name = this._ctx.Alloc(IrType.Str);
+                this._ctx.Emit(new ConstStrInstr(name, this._ctx.Gen.Intern(this._ee._rtArgName(sourceType))));
+                this._ctx.Emit(new BuiltinInstr(sdst, "__box_imported_struct", new TypedReg[] { sval, name }, 2));
+            } else {
+                this._ctx.Emit(new BuiltinInstr(sdst, "__box_struct", new TypedReg[] { sval }, 1));
+            }
             return sdst;
         }
         TypedReg val = this._ee.Emit(b.E);
@@ -409,7 +415,10 @@ public sealed class TypeOpEmitter {
         // 匹配 → 拷回当前帧 arena StructRef）。类名用 QualifyClass 与 StructAlloc 的 arena type_name 对齐。
         // （`(P)somePexpr` 源已是值 struct → 不进此支，走下方 Ref==Ref 透传。）
         if (this._ee._isBlobStruct(c.Type()) && !this._ee._isBlobStruct(c.E.Type())) {
-            return this._emitStructUnbox(src, this._ctx.QualifyLayout(this._ee._blobStructName(c.Type())));
+            string name = c.Type() is Z42InstantiatedType && !this._ctx.IsLocalReceiver(c.Type())
+                && !this._ee._hasTypeParam(c.Type()) ? this._ee._rtArgName(c.Type())
+                : this._ctx.QualifyLayout(this._ee._blobStructName(c.Type()));
+            return this._emitStructUnbox(src, name);
         }
         if (TypeFacts.CanBoxToValueBase(c.Type(), c.E.Type())) {
             string target = this._typeOpTargetName(c.Type(), c.Type().Name());

@@ -1,11 +1,17 @@
 //! Struct boxing and snapshots after the caller resolves type and frame identities.
 use crate::gc::Heap;
-use super::{NativeData, StructArrayElem, StructTypeLayout, TypeDesc, Value};
+use super::{StructArrayElem, StructTypeLayout, TypeDesc, Value};
 use anyhow::Result;
 use std::sync::Arc;
 
 pub fn box_struct(heap: &Heap, td: Arc<TypeDesc>, bytes: &[u8], refs: &[Value]) -> Result<Value> {
-    let obj_val = heap.alloc_object(td, Vec::new(), NativeData::None);
+    box_struct_with_args(heap, td, bytes, refs, super::TypeArgs::empty())
+}
+
+pub(crate) fn box_struct_with_args(
+    heap: &Heap, td: Arc<TypeDesc>, bytes: &[u8], refs: &[Value], args: super::TypeArgs,
+) -> Result<Value> {
+    let obj_val = heap.alloc_instance(td, args);
     match obj_val {
         Value::Object(gc) => {
             {

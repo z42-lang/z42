@@ -258,7 +258,12 @@ fn struct_payload(
         Value::BoxedStruct(gc) => {
             let o = gc.borrow();
             let (bytes, refs) = o.boxed_blob();
-            Ok(Some((o.type_desc.name.to_string(), bytes.to_vec(), refs.to_vec())))
+            let name = if o.type_args().is_empty() {
+                o.type_desc.name.clone()
+            } else {
+                crate::zpkg::index::type_names::constructed(&o.type_desc.name, o.type_args())
+            };
+            Ok(Some((name, bytes, refs)))
         }
         Value::StructRef { idx, frame_id } => {
             let (name, bytes, refs) = ctx.exec().snapshot_struct(*idx, *frame_id)?;

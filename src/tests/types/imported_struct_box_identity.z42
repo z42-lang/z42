@@ -1,0 +1,26 @@
+namespace ImportedStructBoxIdentity;
+
+void Main() {
+    object first = (1, 2);
+    object same = (1, 2);
+    object wider = (1L, 2L);
+
+    Assert.Equal(typeof(ValueTuple2<int, int>), first.GetType());
+    Assert.Equal(typeof(ValueTuple2<long, long>), wider.GetType());
+    Assert.True(first is ValueTuple2<int, int>);
+    Assert.False(first is ValueTuple2<long, long>);
+    Assert.True(first.Equals(same));
+    Assert.False(first.Equals(wider));
+    Assert.Equal(first.GetHashCode(), same.GetHashCode());
+
+    ValueTuple2<int, int> value = (ValueTuple2<int, int>)first;
+    Assert.Equal(1, value.Item1);
+    Assert.Equal(2, value.Item2);
+    object boxedAgain = value;
+    Assert.Equal(first.GetType(), boxedAgain.GetType());
+
+    bool rejected = false;
+    try { ValueTuple2<long, long> wrong = (ValueTuple2<long, long>)first; }
+    catch (InvalidCastException) { rejected = true; }
+    Assert.True(rejected);
+}

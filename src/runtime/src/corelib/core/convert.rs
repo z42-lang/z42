@@ -496,6 +496,43 @@ pub mod typed {
         }
     }
 
+    /// Box a statically closed imported struct while preserving its erased storage layout.
+    #[builtin(name = "__box_imported_struct")]
+    pub fn box_imported_struct(
+        ctx: &VmContext, value: &Value, identity: &crate::object::string::vstr::Str,
+    ) -> Result<Value, BuiltinError> {
+        use crate::object::{type_args_from_name, TypeArgs};
+        use crate::zpkg::index::type_names::{canonical, erased};
+
+        let map_error = |error: anyhow::Error| BuiltinError::Internal(error.to_string());
+        let identity = identity.to_string();
+        let args = type_args_from_name(&identity);
+        let (name, bytes, refs) = match value {
+            Value::StructRef { idx, frame_id } => ctx.exec().snapshot_struct(*idx, *frame_id).map_err(map_error)?,
+            Value::StructRefHeap { idx, frame_id } => {
+                let (bytes, refs, _, name) =
+                    crate::exec::ops::structs::snapshot_struct_view(ctx, *idx, *frame_id).map_err(map_error)?;
+                (name, bytes, refs)
+            }
+            Value::BoxedStruct(boxed) => crate::object::snapshot_struct_box(boxed),
+            _ => return Err(BuiltinError::Internal("expected a struct value for imported boxing".into())),
+        };
+        let descriptor = ctx.loader().try_lookup_type(&name)
+            .filter(|td| td.is_struct() && erased(&td.name) == erased(&identity))
+            .ok_or_else(|| BuiltinError::Internal(format!("invalid imported struct layout `{name}` for `{identity}`")))?;
+        if !descriptor.type_args().is_empty() {
+            if canonical(&descriptor.name) != canonical(&identity) {
+                return Err(BuiltinError::Internal(format!("incompatible imported struct identity `{name}` for `{identity}`")));
+            }
+            return super::box_struct_blob(ctx, &name, &bytes, &refs).map_err(map_error);
+        }
+        if args.is_empty() || args.len() != descriptor.type_params().len() {
+            return Err(BuiltinError::Internal(format!("invalid type arguments for imported struct `{identity}`")));
+        }
+        crate::object::struct_access::box_struct_with_args(ctx.heap(), descriptor, &bytes, &refs, TypeArgs::intern(&args))
+            .map_err(map_error)
+    }
+
     /// Borrow an inline struct for the current activation's instance call.
     #[builtin(name = "__struct_field_receiver")]
     pub fn struct_field_receiver(
