@@ -42,7 +42,7 @@ public sealed class StmtEmitter : IBoundStmtVisitor<Unit, Unit> {
                 } else {
                     int sz = this._fe._gen.Layouts.StructSize(bsn);
                     TypedReg bdst = this._fe._ctx.Alloc(IrType.Ref);
-                    this._fe._ctx.Emit(new StructAllocInstr(bdst, this._fe._ctx.QualifyLayout(bsn), sz));
+                    this._fe._ctx.Emit(new StructAllocInstr(bdst, this._fe._expr._blobAllocationName(v.Init.Type(), bsn), sz));
                     this._fe._ctx.Emit(new StructCopyInstr(bdst, r, sz));
                     this._fe._ctx.Locals.Put(v.Name, bdst);
                 }

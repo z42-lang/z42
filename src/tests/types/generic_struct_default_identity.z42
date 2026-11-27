@@ -1,0 +1,41 @@
+namespace GenericStructDefaultIdentity;
+
+class InitLog { public static int Calls = 0; }
+
+struct Box<T> {
+    public int Number;
+    public Box() {
+        InitLog.Calls = InitLog.Calls + 1;
+        this.Number = 42;
+    }
+}
+
+Box<int> ReturnZero() { return default(Box<int>); }
+object BoxArgument(Box<int> value) { return value; }
+
+void Main() {
+    Box<int> original = new Box<int>();
+    Assert.Equal(42, original.Number);
+    Box<int> zero = default(Box<int>);
+    Assert.Equal(0, zero.Number);
+    Assert.Equal(1, InitLog.Calls);
+
+    object boxed = zero;
+    object anotherType = default(Box<long>);
+    Assert.Equal(typeof(Box<int>), boxed.GetType());
+    Assert.Equal(typeof(Box<long>), anotherType.GetType());
+    Assert.False(boxed.Equals(anotherType));
+
+    object returned = ReturnZero();
+    Assert.Equal(typeof(Box<int>), returned.GetType());
+    Assert.Equal(typeof(Box<int>), BoxArgument(zero).GetType());
+    Box<int>[] array = new Box<int>[1];
+    array[0] = zero;
+    object retrieved = array[0];
+    Assert.Equal(typeof(Box<int>), retrieved.GetType());
+
+    original.Number = 0;
+    object expected = original;
+    Assert.True(boxed.Equals(expected));
+    Assert.Equal(boxed.GetHashCode(), expected.GetHashCode());
+}
