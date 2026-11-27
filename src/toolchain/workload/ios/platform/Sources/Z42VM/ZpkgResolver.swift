@@ -6,7 +6,7 @@ public protocol FileResolver {
     func resolve(fileName: String, kind: UInt32) throws -> Data?
 }
 
-public struct BundleFileResolver: FileResolver {
+public struct BundleZpkgResolver: FileResolver {
     public let bundle: Bundle
     public let subdirectory: String?
 
@@ -25,7 +25,7 @@ public struct BundleFileResolver: FileResolver {
     }
 }
 
-public final class MapFileResolver: FileResolver {
+public final class MapZpkgResolver: FileResolver {
     private let lock = NSLock()
     private var map: [String: Data]
 

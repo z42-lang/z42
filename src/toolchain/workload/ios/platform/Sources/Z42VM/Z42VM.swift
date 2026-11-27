@@ -55,7 +55,7 @@ public final class Z42VM {
     ///   - stdoutHandler / stderrHandler: optional output sinks. If
     ///     `nil`, output goes to the process stdout / stderr.
     public init(
-        fileResolver: FileResolver = BundleFileResolver(),
+        fileResolver: FileResolver = BundleZpkgResolver(),
         stdoutHandler: ((Data) -> Void)? = nil,
         stderrHandler: ((Data) -> Void)? = nil,
         execMode: ExecMode = .interp

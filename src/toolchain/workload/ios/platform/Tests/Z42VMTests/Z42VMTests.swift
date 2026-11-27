@@ -15,9 +15,9 @@ final class Z42VMTests: XCTestCase {
 
     // ── Helpers ─────────────────────────────────────────────────────────
 
-    /// `BundleFileResolver` bound to the test bundle's stdlib subdirectory.
-    private func bundleResolver() -> BundleFileResolver {
-        BundleFileResolver(bundle: .module, subdirectory: "stdlib")
+    /// `BundleZpkgResolver` bound to the test bundle's stdlib subdirectory.
+    private func bundleResolver() -> BundleZpkgResolver {
+        BundleZpkgResolver(bundle: .module, subdirectory: "stdlib")
     }
 
     /// Load a fixture .zbc by basename.
@@ -130,7 +130,7 @@ final class Z42VMTests: XCTestCase {
         // are absent. loadZbc or invoke must fail with badZbc (status 10)
         // or vmException (status 30) and the message must reference an
         // unresolved stdlib namespace.
-        let resolver = MapFileResolver(["phantom.zpkg": Data()])
+        let resolver = MapZpkgResolver(["phantom.zpkg": Data()])
         let vm = try Z42VM(fileResolver: resolver, stdoutHandler: { _ in })
         let zbc = try fixture("hello")
         do {

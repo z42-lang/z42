@@ -16,7 +16,7 @@ fun interface FileResolver {
     }
 }
 
-class AssetFileResolver(
+class AssetZpkgResolver(
     private val assets: AssetManager,
     private val subdir: String = "stdlib",
 ) : FileResolver {
@@ -31,7 +31,7 @@ class AssetFileResolver(
     }
 }
 
-class MapFileResolver(initial: Map<String, ByteArray> = emptyMap()) : FileResolver {
+class MapZpkgResolver(initial: Map<String, ByteArray> = emptyMap()) : FileResolver {
     private val files = ConcurrentHashMap(initial)
 
     fun set(fileName: String, bytes: ByteArray) {

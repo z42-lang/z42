@@ -61,8 +61,8 @@ resolver 按逻辑文件名读取包、字节码和启动侧车。iOS 与 Androi
 
 | 平台 | 默认文件来源 |
 |------|--------------|
-| iOS | `BundleFileResolver` 从 Bundle 读取 |
-| Android | `AssetFileResolver` 从 AssetManager 读取 |
+| iOS | `BundleZpkgResolver` 从 Bundle 读取 |
+| Android | `AssetZpkgResolver` 从 AssetManager 读取 |
 | Wasm | `bundleStdlibNode` 按名读取，`bundleStdlibBrowser` 按部署清单预取 |
 
 ## 命名约定

@@ -11,7 +11,7 @@
 | 功能 | 入口 / 文件 |
 |------|-----------|
 | Kotlin 公开 API（`Z42VM` / `Z42VMModule` / `Z42VMEntry` / `Z42VMValue` / `Z42VMException`） | `platform/z42vm/src/main/java/io/z42/vm/` |
-| 启动文件读取（`AssetFileResolver` / `MapFileResolver`） | `FileResolver.kt` |
+| 启动文件读取（`AssetZpkgResolver` / `MapZpkgResolver`） | `ZpkgResolver.kt` |
 | JNI 桥 → `z42_host_*` C ABI | `platform/z42vm/src/main/cpp/z42vm_jni.c`，由模块的 `CMakeLists.txt` 编译。Gradle 指定 Runtime 的 include 目录 |
 | Rust cdylib（`libz42.so`，`z42_host_*` 再导出） | `src/runtime/src/lib.rs` |
 | 发布 / 导出管线（`: WorkloadBase`） | `appbuilder/AndroidWorkload.z42`、`appbuilder/export.z42` |
@@ -21,9 +21,9 @@
 
 ```kotlin
 import io.z42.vm.Z42VM
-import io.z42.vm.AssetFileResolver
+import io.z42.vm.AssetZpkgResolver
 
-Z42VM(fileResolver = AssetFileResolver(assets)).use { vm ->
+Z42VM(fileResolver = AssetZpkgResolver(assets)).use { vm ->
     vm.stdoutHandler = { bytes -> textView.append(String(bytes)) }
     val m = vm.loadZbc(assets.open("hello.zbc").readBytes())
     vm.invoke(vm.resolveEntry(m, "App.Main"))
@@ -41,7 +41,7 @@ Z42VM(fileResolver = AssetFileResolver(assets)).use { vm ->
 
 产物在宿主工程副本 `artifacts/intermediate/toolchain/workload/android/host/`（不写本目录）：
 `z42vm/build/outputs/aar/z42vm-release.aar`、`jniLibs/{arm64-v8a,x86_64}/libz42.so`、
-`assets/stdlib/*.zpkg`（`AssetFileResolver` 读各 zpkg 的 NSPC 建索引）。
+`assets/stdlib/*.zpkg`（`AssetZpkgResolver` 读各 zpkg 的 NSPC 建索引）。
 
 ## Runtime 组装
 

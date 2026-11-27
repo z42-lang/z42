@@ -35,11 +35,11 @@ class Z42VMInstrumentedTest {
     private fun fixture(name: String): ByteArray =
         ctx.assets.open("test-fixtures/$name.zbc").use { it.readBytes() }
 
-    /** Build a VM with the default AssetFileResolver + a collecting sink. */
+    /** Build a VM with the default AssetZpkgResolver + a collecting sink. */
     private fun makeVMWithSink(): Pair<Z42VM, Collector> {
         val coll = Collector()
         val vm = Z42VM(
-            fileResolver = AssetFileResolver(ctx.assets, "stdlib"),
+            fileResolver = AssetZpkgResolver(ctx.assets, "stdlib"),
             stdoutHandler = { bytes -> coll.append(bytes) },
         )
         return vm to coll
@@ -67,7 +67,7 @@ class Z42VMInstrumentedTest {
     fun testIndependentJitComponentExecutesHelloWorld() {
         val coll = Collector()
         Z42VM(
-            fileResolver = AssetFileResolver(ctx.assets, "stdlib"),
+            fileResolver = AssetZpkgResolver(ctx.assets, "stdlib"),
             stdoutHandler = { bytes -> coll.append(bytes) },
             execMode = Z42VM.ExecMode.JIT,
         ).use { vm ->
@@ -135,7 +135,7 @@ class Z42VMInstrumentedTest {
 
     @Test
     fun testMapResolverWithoutCorelibSurfacesAtInvoke() {
-        val resolver = MapFileResolver(mapOf("phantom.zpkg" to ByteArray(0)))
+        val resolver = MapZpkgResolver(mapOf("phantom.zpkg" to ByteArray(0)))
         val vm = Z42VM(fileResolver = resolver, stdoutHandler = { /* discard */ })
         vm.use {
             try {
