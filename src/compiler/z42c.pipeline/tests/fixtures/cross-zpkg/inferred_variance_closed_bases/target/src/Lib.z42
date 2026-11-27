@@ -1,0 +1,14 @@
+namespace ClosedBaseVariance;
+
+public class Animal {}
+public class Cat : Animal {}
+public interface ITag { string Tag(); }
+public interface ILabel<T> { T Label(); }
+public interface ISink<T> : ITag, ILabel<int> { string Put(T value); }
+
+public class DualSink : ISink<Animal>, ISink<Cat> {
+    public string Tag() { return "tag"; }
+    public int Label() { return 42; }
+    public string Put(Animal value) { return "animal"; }
+    public string Put(Cat value) { return "cat"; }
+}

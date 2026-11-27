@@ -1,0 +1,14 @@
+using ClosedBaseVariance;
+using Std.IO;
+
+void Main() {
+    DualSink dual = new DualSink();
+    ISink<Cat> exact = dual;
+    Assert.Equal("cat", exact.Put(new Cat()));
+    ISink<Animal> source = dual;
+    ISink<Cat> narrowed = source;
+    Assert.Equal("animal", narrowed.Put(new Cat()));
+    Assert.Equal("tag", narrowed.Tag());
+    Assert.Equal(42, narrowed.Label());
+    Console.WriteLine("fixed parents: ok");
+}

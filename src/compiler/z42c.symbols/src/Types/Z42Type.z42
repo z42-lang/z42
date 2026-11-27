@@ -628,7 +628,7 @@ public class Z42InterfaceType : Z42Type {
 
     /// Inferred direction for a parameter of an interface definition.
     public InterfaceVariance ParameterVariance(int index) {
-        if (this.BaseCount > 0 || this.AssocTypeCount > 0 || index < 0 || index >= this.TypeParamCount) {
+        if (this.AssocTypeCount > 0 || index < 0 || index >= this.TypeParamCount) {
             return InterfaceVariance.Invariant;
         }
         if (this._importedVariance.Length == this.TypeParamCount) {
@@ -637,11 +637,31 @@ public class Z42InterfaceType : Z42Type {
             if (direction == IrIfaceVariance.Contravariant) { return InterfaceVariance.Contravariant; }
             return InterfaceVariance.Invariant;
         }
-        if (this.IsImported || this._varianceUses == null) { return InterfaceVariance.Invariant; }
+        if (this.IsImported || this._varianceUses == null || this._hasUnstableVarianceBase()) {
+            return InterfaceVariance.Invariant;
+        }
         int uses = this._varianceUses[index];
         if (uses == InterfaceVarianceInference.Input) { return InterfaceVariance.Contravariant; }
         if (uses == InterfaceVarianceInference.Output) { return InterfaceVariance.Covariant; }
         return InterfaceVariance.Invariant;
+    }
+
+    // Inherited calls name the declaring interface slot. It must have the same
+    // identity before and after varying this interface's arguments.
+    private bool _hasUnstableVarianceBase() {
+        int i = 0;
+        while (i < this.BaseCount) {
+            var bound = this.BaseRefs[i] as ResolvedTypeExpr;
+            if (bound == null) { return true; }
+            var parent = bound.Resolved as Z42InterfaceType;
+            if (parent == null) { return true; }
+            if (parent is Z42InstantiatedInterfaceType) {
+                var instance = parent as Z42InstantiatedInterfaceType;
+                if (instance.ArgCount != instance.Def.TypeParamCount || !IfaceSlotKeys.IsClosed(instance)) { return true; }
+            } else if (parent.TypeParamCount > 0) { return true; }
+            i = i + 1;
+        }
+        return false;
     }
 
     public void AddBase(string name) { this.AddBaseRef(name, null); }
