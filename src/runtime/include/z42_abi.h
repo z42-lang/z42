@@ -1,10 +1,10 @@
-/* z42_abi.h — Tier 1 Native Interop ABI
+/* z42_abi.h — C ABI for native type interop.
  *
- * Stable C ABI for native libraries to register types and methods with
- * the z42 VM, and for the VM to invoke z42 code from native callers.
+ * Native libraries use these declarations to register types and methods with
+ * the z42 VM. See z42_host.h for host entry calls and z42_native.h for the
+ * module function and script callback protocols.
  *
- * Spec: docs/design/language/interop.md §3 (Tier 1 C ABI)
- * Status: C1 scaffold — declarations only; runtime implementation lands in C2.
+ * Contract: docs/reference/src/embedding/native-interop.md.
  *
  * ABI evolution rules:
  *   - `abi_version` MUST stay at offset 0 across all versions.
@@ -138,13 +138,16 @@ Z42TypeRef z42_register_type(const Z42TypeDescriptor_v1* desc);
 /* Resolve a previously registered type. NULL if not found. */
 Z42TypeRef z42_resolve_type(const char* module, const char* type_name);
 
-/* Invoke a static method (e.g. ctor). Method name uses "::name" prefix. */
+/* Reserved static-method entry. Currently returns a null value and sets
+ * z42_last_error(). Use z42_host_resolve_entry / z42_host_invoke to call a
+ * loaded program's entry from a host. */
 Z42Value z42_invoke(Z42TypeRef ty,
                     const char* method,
                     const Z42Value* args,
                     size_t arg_count);
 
-/* Invoke an instance method on `receiver`. */
+/* Reserved instance-method entry. Currently returns a null value and sets
+ * z42_last_error(). */
 Z42Value z42_invoke_method(Z42Value receiver,
                            const char* method,
                            const Z42Value* args,

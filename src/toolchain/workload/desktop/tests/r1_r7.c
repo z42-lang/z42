@@ -1,4 +1,4 @@
-/* desktop R1–R7 — platform test harness for the Tier-1 C ABI (z42.h).
+/* desktop R1–R7 — platform test harness for the C SDK (z42.h).
  *
  * The desktop peer of the wasm Playwright / iOS XCTest / Android JUnit R1–R7
  * suites: a real external C consumer links libz42.a and exercises the same
@@ -64,7 +64,6 @@ static Z42HostConfig mkcfg(const char* const* paths) {
 
 int main(int argc, char** argv) {
 #ifdef Z42_STATIC_LINK
-    extern int z42_linked_components_init(void);
     if (z42_linked_components_init() != 0) { return 1; }
 #endif
 

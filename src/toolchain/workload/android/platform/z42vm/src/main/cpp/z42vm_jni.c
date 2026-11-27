@@ -20,7 +20,6 @@
 #include <string.h>
 
 #include "z42.h"
-extern int z42_linked_components_init(void);
 
 /* ── Cached JavaVM + Kotlin class / method IDs ────────────────────────── */
 
@@ -170,9 +169,12 @@ Java_io_z42_vm_Z42VM_nativeInitialize(
     cfg.exec_mode = (Z42ExecMode)execMode;
     cfg.zpkg_resolver_write = zpkg_resolver_trampoline;
     cfg.zpkg_resolver_user_data = ctx;
+    cfg.sink_user_data = ctx;
     if (ctx->stdout_handler_global) {
         cfg.stdout_sink = stdout_sink_trampoline;
-        cfg.sink_user_data = ctx;
+    }
+    if (ctx->stderr_handler_global) {
+        cfg.stderr_sink = stderr_sink_trampoline;
     }
 
     Z42HostRef host = NULL;
@@ -185,15 +187,8 @@ Java_io_z42_vm_Z42VM_nativeInitialize(
         return 0;
     }
 
-    /* stderr_sink installed separately so each sink has its own user_data;
-     * Tier 1 supports independent stdout / stderr via dedicated setters. */
-    if (ctx->stderr_handler_global) {
-        z42_host_set_stderr_sink(host, stderr_sink_trampoline, ctx);
-    }
-
-    /* The Kotlin side stores `nativeHandle: Long`. Pack (host, ctx) into
-     * a small malloc'd Z42Handle so we can recover both via host_of /
-     * ctx_of helpers. */
+    /* The Kotlin side stores `nativeHandle: Long`. Keep the host and the JNI
+     * callback context together until nativeShutdown. */
     Z42Handle* handle = (Z42Handle*)malloc(sizeof(Z42Handle));
     handle->host = host;
     handle->ctx = ctx;
@@ -201,7 +196,6 @@ Java_io_z42_vm_Z42VM_nativeInitialize(
 }
 
 static Z42HostRef host_of(jlong h) { return ((Z42Handle*)(uintptr_t)h)->host; }
-static JniContext* ctx_of(jlong h) { return ((Z42Handle*)(uintptr_t)h)->ctx; }
 
 JNIEXPORT jlong JNICALL
 Java_io_z42_vm_Z42VM_nativeLoadZbc(

@@ -1,52 +1,17 @@
-# platforms/ — Tier 3 platform facades for the z42 Embedding API
+# 平台嵌入契约
 
-> 状态：📋 H4 设计期（2026-05-11）— 三平台 facade 共同契约。
->
-> 上层规范：[`docs/internals/src/runtime/embedding.md`](../../../../docs/internals/src/runtime/embedding.md) §6 Tier 3 + §0 host/mobile 编译边界。
+Runtime 提供共享的宿主语义和 [C SDK](../../runtime/include/README.md)。各 workload 提供绑定、资源装配和契约测试。
 
----
+## 构建与绑定
 
-## 编译边界（重要）
+z42c 在构建宿主上生成 `.zbc` 或 `.zpkg`，各平台宿主加载这些产物。各 workload 负责按目标导出工程和部署 Runtime。 [嵌入架构](../../../docs/internals/src/runtime/embedding.md)
 
-**移动 / wasm 平台只装 VM，不带编译器**。每个 facade 的 `build.sh` 在 host 端用 `z42c` 把 `.z42` 源（含 stdlib 与 test fixture）编出 `.zbc` / `.zpkg`，复制进 `Z42VM.xcframework/Resources/` / `z42vm/src/main/assets/` / `pkg-{web,nodejs}/`；mobile 设备上**只 load 二进制产物**，不调 `z42c` / `dotnet`。该原则在自举完成前不变；详细背景见 [`embedding.md §0`](../../../../docs/internals/src/runtime/embedding.md#§0-编译边界host-编--mobile-跑)。
-
----
-
-## 职责
-
-把 z42 VM 包装成各**目标平台原生形态**的依赖包，让 native 应用（iOS / Android / 浏览器 / Node.js / wasm runtime）一行 `import` 就能跑 `.zbc`。
-
-所有平台 facade **统一架在 [Tier 2 `z42::host::rust` crate](../../runtime/src/host) 之上**（consolidate-platform-into-workload S1 已从 `host/embed/` 迁至 `workload/host-api/`）；没有任何 facade 直接调 `z42_runtime::interp::*` 或 `z42::host::*` extern C 函数 —— 那是 host 模块自己内部的事。
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  iOS app (Swift)  │  Android app (Kotlin)  │  JS / TS app   │
-└────────┬──────────┴──────────┬─────────────┴────────┬───────┘
-         │ SwiftPM Z42VM       │ AAR Z42VM            │ npm Z42VM
-         ▼                     ▼                      ▼
-┌─────────────────────────────────────────────────────────────┐
-│  platforms/ios/  │  platforms/android/  │  platforms/wasm/  │
-│  (Swift facade   │  (Kotlin facade      │  (TS facade       │
-│   + C bridge     │   + JNI bridge       │   + wasm-bindgen  │
-│   + Rust cdylib) │   + Rust cdylib)     │   + Rust cdylib)  │
-└────────┬─────────┴────────┬─────────────┴──────────┬────────┘
-         │ extern "C"       │ extern "system" (JNI)  │ #[wasm_bindgen]
-         ▼                  ▼                        ▼
-┌─────────────────────────────────────────────────────────────┐
-│         src/toolchain/workload/host-api/  (Tier 2)         │
-│              z42::host::rust crate — single source of truth        │
-└─────────────────────────────────────────────────────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────┐
-│            src/runtime/  (interp-only)                      │
-└─────────────────────────────────────────────────────────────┘
-```
-
-不做：
-- VM 执行引擎本身（归 `src/runtime/`）
-- C ABI 实现（归 `src/runtime/src/host/`）
-- 嵌入示例（C / Rust 宿主）：由学习手册「在 C / Rust 程序中嵌入 z42」一章的 `examples/platforms/embedding/` 提供（章节落地前暂缺）
-- 测试 runner（归 `src/toolchain/test-runner/`）
+| 平台 | 宿主路径 |
+|---|---|
+| [桌面](desktop/README.md) | C 宿主从 `z42.h` 使用 Runtime |
+| [iOS](ios/README.md) | Swift 门面经 `Z42VMC` 模块调用 C ABI |
+| [Android](android/README.md) | Kotlin 门面经 JNI 桥调用 C ABI |
+| [Wasm](wasm/README.md) | JS 门面经 wasm-bindgen 调用 Runtime 的 Rust 宿主接口 |
 
 ---
 
@@ -75,7 +40,7 @@ loadZbc(bytes: BytesType) -> Z42VMModule
 // 按 FQN 解析入口
 resolveEntry(_ m: Z42VMModule, fqn: String) -> Z42VMEntry
 
-// 同步调用（H2 仅支持 null / i64 / f64 / bool；string + object marshal 推迟）
+// 同步调用（值类型见各绑定的接口文档）
 invoke(_ e: Z42VMEntry, args: [Z42VMValue] = []) throws -> Z42VMValue
 
 // stdout / stderr 回调（每条 z42 输出触发一次）
@@ -91,41 +56,15 @@ setStderrHandler(handler: (BytesType) -> Void)
 
 ## ZpkgResolver 协议
 
-桌面端 z42 通过 `search_paths` 扫文件系统找 `*.zpkg`；移动 / wasm 没有文件系统（或不便扫），改成**回调机制**让宿主告诉运行时"namespace X 的 zpkg 字节在这里"。
-
-### Tier 1 C ABI
-
-```c
-typedef int (*Z42ZpkgResolverFn)(
-    const char*  namespace_name,    /* "Std.IO" / "z42.core" */
-    const uint8_t** out_bytes,
-    size_t*      out_length,
-    void*        user_data);
-
-/* Last fields of the original v2 Z42HostConfig prefix: */
-Z42ZpkgResolverFn  zpkg_resolver;
-void*              zpkg_resolver_user_data;
-/* Optional v2 tail extension: */
-Z42ZpkgResolverWriteFn zpkg_resolver_write;
-```
-
-iOS 和 Android 通过 `zpkg_resolver_write` 在回调内同步提交借用的包字节。完整契约见 [C ABI](../../../docs/reference/src/embedding/c-abi.md#zpkg-resolver-回调)。
-
-### Tier 2 Rust trait
-
-```rust
-pub trait ZpkgResolver: Send + Sync {
-    fn resolve(&self, namespace: &str) -> Option<Vec<u8>>;
-}
-```
+resolver 把命名空间映射到包字节。iOS 和 Android 的 C 桥使用 `zpkg_resolver_write` 同步提交字节，Wasm 的 JS 桥适配 Rust 的 `ZpkgResolver`。 [C resolver 契约](../../../docs/reference/src/embedding/c-abi.md#zpkg-resolver-回调)
 
 ### 各平台默认实现
 
 | 平台 | 默认 resolver | 自定义路径 |
 |------|--------------|-----------|
-| **iOS** | `BundleZpkgResolver()` 在 `Bundle.main` 查 `<ns>.zpkg` | 实现 `ZpkgResolver` 协议，构造时传入 |
-| **Android** | `AssetZpkgResolver(context.assets)` 读 `assets/stdlib/<ns>.zpkg` | 实现 `ZpkgResolver` interface |
-| **WASM** | `MapZpkgResolver(Map<string, Uint8Array>)`（预 fetch 模式）+ `JsZpkgResolver(fn)`（懒 fetch 模式） | 任意 `(name: string) => Uint8Array \| null` |
+| **iOS** | `BundleZpkgResolver()` 从应用的 `stdlib/` 资源建立命名空间索引 | 实现 `ZpkgResolver` 协议，构造时传入 |
+| **Android** | `AssetZpkgResolver(context.assets)` 从 `assets/stdlib/` 建立命名空间索引 | 实现 `ZpkgResolver` interface |
+| **WASM** | JS 侧提供 resolver，可用 `bundleStdlibNode` 或 `bundleStdlibBrowser` 预建索引 | 任意 `(name: string) => Uint8Array \| null` |
 
 桌面 `search_paths` 与 resolver 可**并存**；runtime 先调 resolver，miss 后回退扫 search_paths。
 
@@ -141,43 +80,12 @@ pub trait ZpkgResolver: Send + Sync {
 | **npm 包名** | `@z42/wasm`（scope `@z42`，包 `wasm`） |
 | **Kotlin package** | `io.z42.vm` |
 | **Swift module** | `Z42VM` |
-| **Rust binding crate**（platforms/<x>/rust/） | `z42-platform-ios` / `z42-platform-android` / `z42-platform-wasm` |
 
 ---
 
-## 构建产物
+## 平台能力与验证
 
-| 平台 | 产物 | 构建命令 |
-|------|------|--------------|
-| iOS | `Z42VM.xcframework`（含 ios-arm64 + ios-arm64_x86_64-simulator slices） | `./xtask test app ios build`（IosBackend）|
-| Android | `z42vm-<version>.aar`（含 arm64-v8a / x86_64 jniLibs；32-bit ABI 已退场） | `./xtask test app android build`（AndroidBackend）|
-| WASM | npm package（`pkg-web/` + `pkg-nodejs/`） | `./xtask test app wasm build`（WasmBackend）|
-
-> 构建逻辑已从各 `build.sh` 迁入 `scripts/src/test/app/{ios,android,wasm,desktop}.z42` 的 `IPlatformBackend` 后端（统一三阶段管线）。Android 的 `test.sh`（emulator 编排）暂留，由 `AndroidBackend.RunTests` 桥接。
-
-每个产物**不入 git**（二进制大；CI 在 release 时上传）；源代码入 git。
-
----
-
-## 平台资源 bundle
-
-| 平台 | stdlib zpkg 位置 | 加载方式 |
-|------|------------------|---------|
-| iOS | `platforms/ios/Resources/stdlib/*.zpkg` → Xcode `Copy Bundle Resources` | `Bundle.main.url(forResource:withExtension:"zpkg")` |
-| Android | `platforms/android/z42vm/src/main/assets/stdlib/*.zpkg` | `assetManager.open("stdlib/$name.zpkg")` |
-| WASM | `platforms/wasm/js/stdlib/*.zpkg` → 打进 npm tarball | 浏览器 `fetch(url)` / Node `fs.readFileSync` |
-
-zpkg 文件本身**由 `dotnet build src/compiler/z42.slnx` 编译标准库产出**，build script 复制到各平台 bundle 路径。
-
----
-
-## 平台索引
-
-| 平台 | 目录 | 状态 |
-|------|------|------|
-| iOS | [`ios/`](ios) | 🟢 H4 ✅ |
-| Android | [`android/`](android) | 🟢 H4 ✅ |
-| WASM | [`wasm/`](wasm) | 🟢 H4 ✅ |
+各 workload README 记录入口、平台依赖、可选组件和验证命令。R1–R7 端到端契约共用 `fixtures/` 下的程序，各平台用各自的绑定运行。
 
 ---
 
@@ -200,25 +108,12 @@ zpkg 文件本身**由 `dotnet build src/compiler/z42.slnx` 编译标准库产�
 | `FATAL` | `.fatal(message)` | code=31 | `name: "Fatal"` |
 | `INTERNAL` | `.internal(message)` | code=99 | `name: "Internal"` |
 
-实施细节见 [embedding.md §10 错误处理](../../../../docs/internals/src/runtime/embedding.md)。
+实施细节见 [embedding.md §10 错误处理](../../../docs/internals/src/runtime/embedding.md)。
 
 ---
 
 ## 关键设计原则
 
-1. **三平台共享 Tier 2 `z42::host::rust`** —— 任何"VM 启动 / 加载 / 调用"逻辑只能在 `z42::host::rust` 中存在一份；platforms/ 只做语言绑定 + 资源 bundle
-2. **不分叉 ABI** —— 三平台用相同 C ABI；hook 机制（ZpkgResolver）统一了"如何找 zpkg 字节"，没有 platform-specific 函数
-3. **类名全平台 `Z42VM`** —— 跨平台文档 / 教学 / 错误信息可直接复用
-4. **bundle by default** —— 三平台都假定 stdlib zpkg 与 app 一起 ship；网络下载 / 增量更新留 1.x+
-5. **同步 invoke** —— v0.1 不引入 async；UI 线程切换由宿主负责
-6. **panic 隔离** —— 任何 z42 异常 / Rust panic 不跨 FFI；统一翻为状态码 + message
-
----
-
-## 不在本文档范围
-
-- 各平台 build / CI 细节 → 各平台 spec
-- xcframework / AAR / npm 发布流程 → 各平台 spec
-- Demo app 设计 → 各平台 spec
-- 测试体系（XCTest / JUnit / playwright）→ 各平台 spec
-- 桌面 hello_c desktop build + R1–R7 端到端 → 已落地为 `desktop` 平台后端（`./xtask test app desktop`；R1–R7 共用夹具在 `src/toolchain/workload/fixtures/`）
+- Runtime 统一实现宿主生命周期、装载、调用和错误语义。平台绑定负责语言转换和资源适配。
+- C 消费者引用 Runtime 发布的同一组头文件。可选能力及其装配方式记录在各 workload 中。
+- `invoke` 同步执行，UI 线程切换由宿主负责。平台绑定将 z42 异常和运行时错误映射为本语言的错误类型。

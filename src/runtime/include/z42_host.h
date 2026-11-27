@@ -1,30 +1,18 @@
-/* z42_host.h — Tier 1 Embedding / Hosting ABI
+/* z42_host.h — C ABI for embedding and driving the z42 VM.
  *
- * Stable C ABI for host applications to embed the z42 VM:
- *   initialize → load .zbc → resolve entry → invoke → shutdown.
+ * Initialize a host, load a program, resolve and invoke an entry, then shut
+ * down. Available directly and through the z42.h SDK entry point.
  *
- * Sibling to z42_abi.h, which covers "native code registers types into z42".
- * This header covers the opposite direction: "host app drives the VM".
- * Published through the z42.h umbrella (Rust mirrors: src/host/abi_config.rs
- * and src/host/ffi.rs).
- *
- * Spec: docs/design/runtime/embedding.md (Tier 1 C ABI §4)
- *       变更 add-embedding-api/
- *
- * Status: H1 scaffold — declarations + single-instance lifecycle.
- *         load_zbc / resolve_entry / invoke return ERR_INTERNAL
- *         (placeholder for H2 implementation).
- *
- * ABI evolution rules (mirror z42_abi.h):
+ * Contract: docs/reference/src/embedding/c-abi.md.
  *   - `abi_version` MUST stay at offset 0 across all versions.
  *   - New struct fields are appended only; layout never reordered.
  *   - Callers set `Z42HostConfig.struct_size = sizeof(Z42HostConfig)`; the
  *     runtime reads an appended field only when struct_size covers it, so a
  *     caller built against an older header is never read past its struct.
- *   - All access is through z42_host_* functions, not direct struct manipulation.
+ *   - Access opaque handles through z42_host_* functions.
  *   - Major version bumps are explicit semver-major breaks.
  *
- * v0.1 lifecycle: one session per process (config, sinks and the shared
+ * Lifecycle: one session per process (config, sinks and the shared
  *   zpkg decode cache). Each z42_host_load_zbc returns its own load unit:
  *   entry artifact plus its dependency closure merged into one linked
  *   module owning a private VM (type table / statics / dispatch caches are
@@ -32,8 +20,7 @@
  *   the session is shared by content (the C# ALC rule) — decoded
  *   definitions live once per session. z42_host_initialize() succeeds at
  *   most once at a time; shutdown returns the process to "uninitialized" so
- *   initialize may be called again. Multi-VM handles are tracked in
- *   docs/design/runtime/embedding.md §12 Deferred.
+ *   initialize may be called again.
  */
 
 #ifndef Z42_HOST_H
@@ -54,7 +41,7 @@ extern "C" {
 
 /* ── Opaque handles ──────────────────────────────────────────────────────── */
 
-/* Handle to the (singleton, in v0.1) VM instance. NULL = invalid. */
+/* Handle to the process's host session. NULL = invalid. */
 typedef struct Z42Host*   Z42HostRef;
 
 /* Handle to a loaded .zbc module. NULL = invalid. */
@@ -286,9 +273,7 @@ Z42HostStatus z42_host_shutdown(Z42HostRef host);
 
 /*
  * One-shot: load a self-contained app (.zbc / .zpkg) at `app_zpkg` and run its
- * entry, then tear down. This is the embedded-app-run path (add-embedded-app-run
- * / add-wasm-testhost G6) shared by every platform's test-host and by workload
- * apps — desktop C shell, iOS Swift, Android JNI all call this one symbol.
+ * entry, then tear down.
  *
  *   app_zpkg  path to the app artifact (required)
  *   entry     entry FQN override, or NULL for the app's baked-in entry
