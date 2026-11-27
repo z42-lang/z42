@@ -502,18 +502,11 @@ fn load_invoke_hello_world() {
     let search_paths: [*const c_char; 2] = [libs_path.as_ptr(), ptr::null()];
 
     let cfg = Z42HostConfig {
-        abi_version: Z42_HOST_ABI_VERSION,
         struct_size: abi_config::MIN_CONFIG_SIZE as u32,
-        exec_mode: abi_config::Z42ExecMode::Interp as i32,
-        heap_initial_bytes: 0,
-        heap_max_bytes: 0,
         stdout_sink: Some(host_stdout_sink_callback),
-        stderr_sink: None,
         sink_user_data: user_data,
         search_paths: search_paths.as_ptr(),
-        zpkg_resolver: None,
-        zpkg_resolver_user_data: ptr::null_mut(),
-        zpkg_resolver_write: None,
+        ..default_config()
     };
 
     let mut host: *mut Z42Host = ptr::null_mut();
@@ -599,18 +592,12 @@ fn with_hello_session_mode<R>(
     let libs_path = libs_dir_cstring();
     let search_paths: [*const c_char; 2] = [libs_path.as_ptr(), ptr::null()];
     let cfg = Z42HostConfig {
-        abi_version: Z42_HOST_ABI_VERSION,
         struct_size: abi_config::MIN_CONFIG_SIZE as u32,
         exec_mode: mode as i32,
-        heap_initial_bytes: 0,
-        heap_max_bytes: 0,
         stdout_sink: Some(host_simple_capture_sink),
-        stderr_sink: None,
         sink_user_data: user_data,
         search_paths: search_paths.as_ptr(),
-        zpkg_resolver: None,
-        zpkg_resolver_user_data: ptr::null_mut(),
-        zpkg_resolver_write: None,
+        ..default_config()
     };
     let mut host: *mut Z42Host = ptr::null_mut();
     assert_eq!(
@@ -971,18 +958,10 @@ fn resolver_via_map_resolver_loads_corelib_without_search_paths() {
 
     // No search_paths — relies entirely on the resolver.
     let cfg = Z42HostConfig {
-        abi_version: Z42_HOST_ABI_VERSION,
         struct_size: abi_config::MIN_CONFIG_SIZE as u32,
-        exec_mode: abi_config::Z42ExecMode::Interp as i32,
-        heap_initial_bytes: 0,
-        heap_max_bytes: 0,
         stdout_sink: Some(host_simple_capture_sink),
-        stderr_sink: None,
         sink_user_data: user_data,
-        search_paths: ptr::null(),
-        zpkg_resolver: None,
-        zpkg_resolver_user_data: ptr::null_mut(),
-        zpkg_resolver_write: None,
+        ..default_config()
     };
     let mut host: *mut Z42Host = ptr::null_mut();
     assert_eq!(
@@ -1081,18 +1060,11 @@ fn resolver_via_c_hook_loads_corelib() {
     let user_data = &capture as *const Mutex<Vec<u8>> as *mut c_void;
 
     let cfg = Z42HostConfig {
-        abi_version: Z42_HOST_ABI_VERSION,
         struct_size: abi_config::MIN_CONFIG_SIZE as u32,
-        exec_mode: abi_config::Z42ExecMode::Interp as i32,
-        heap_initial_bytes: 0,
-        heap_max_bytes: 0,
         stdout_sink: Some(host_simple_capture_sink),
-        stderr_sink: None,
         sink_user_data: user_data,
-        search_paths: ptr::null(),
         zpkg_resolver: Some(c_hook_resolver_fn),
-        zpkg_resolver_user_data: ptr::null_mut(),
-        zpkg_resolver_write: None,
+        ..default_config()
     };
     let mut host: *mut Z42Host = ptr::null_mut();
     assert_eq!(
@@ -1148,18 +1120,11 @@ fn resolver_miss_falls_back_to_search_paths() {
     let search_paths: [*const c_char; 2] = [libs_cstr.as_ptr(), ptr::null()];
 
     let cfg = Z42HostConfig {
-        abi_version: Z42_HOST_ABI_VERSION,
         struct_size: abi_config::MIN_CONFIG_SIZE as u32,
-        exec_mode: abi_config::Z42ExecMode::Interp as i32,
-        heap_initial_bytes: 0,
-        heap_max_bytes: 0,
         stdout_sink: Some(host_simple_capture_sink),
-        stderr_sink: None,
         sink_user_data: user_data,
         search_paths: search_paths.as_ptr(),
-        zpkg_resolver: None,
-        zpkg_resolver_user_data: ptr::null_mut(),
-        zpkg_resolver_write: None,
+        ..default_config()
     };
     let mut host: *mut Z42Host = ptr::null_mut();
     assert_eq!(
@@ -1216,18 +1181,8 @@ fn resolver_both_unset_load_zbc_succeeds_if_zbc_self_contained() {
     // because corelib miss is silent — the runtime only complains
     // when user code actually references a missing symbol at invoke.
     let cfg = Z42HostConfig {
-        abi_version: Z42_HOST_ABI_VERSION,
         struct_size: abi_config::MIN_CONFIG_SIZE as u32,
-        exec_mode: abi_config::Z42ExecMode::Interp as i32,
-        heap_initial_bytes: 0,
-        heap_max_bytes: 0,
-        stdout_sink: None,
-        stderr_sink: None,
-        sink_user_data: ptr::null_mut(),
-        search_paths: ptr::null(),
-        zpkg_resolver: None,
-        zpkg_resolver_user_data: ptr::null_mut(),
-        zpkg_resolver_write: None,
+        ..default_config()
     };
     let mut host: *mut Z42Host = ptr::null_mut();
     assert_eq!(
@@ -1265,18 +1220,8 @@ fn resolver_corelib_miss_then_console_writeline_fails_at_invoke() {
     reset_host();
 
     let cfg = Z42HostConfig {
-        abi_version: Z42_HOST_ABI_VERSION,
         struct_size: abi_config::MIN_CONFIG_SIZE as u32,
-        exec_mode: abi_config::Z42ExecMode::Interp as i32,
-        heap_initial_bytes: 0,
-        heap_max_bytes: 0,
-        stdout_sink: None,
-        stderr_sink: None,
-        sink_user_data: ptr::null_mut(),
-        search_paths: ptr::null(),
-        zpkg_resolver: None,
-        zpkg_resolver_user_data: ptr::null_mut(),
-        zpkg_resolver_write: None,
+        ..default_config()
     };
     let mut host: *mut Z42Host = ptr::null_mut();
     assert_eq!(
