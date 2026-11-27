@@ -6,25 +6,25 @@ use crate::vm::VmContext;
 use super::safepoint::GcPhase;
 
 pub struct ThreadState {
-    pub safepoint_throttle: u32,
+    pub(super) safepoint_throttle: u32,
     /// Fatal VM errors propagate to all contexts sharing this core.
     /// Unwinding bypasses z42 handlers and cannot become a catchable z42 exception.
     pub fatal: AtomicBool,
     /// Registered contexts remain alive while a visitor holds this lock.
     vm_contexts: Mutex<Vec<VmContextPtr>>,
     /// Registration and collector transitions follow the same phase-lock protocol.
-    pub gc_phase: Mutex<GcPhase>,
-    pub gc_phase_cv: Condvar,
+    pub(super) gc_phase: Mutex<GcPhase>,
+    pub(super) gc_phase_cv: Condvar,
     /// Parked mutators, excluding the active collector.
-    pub parked_count: AtomicUsize,
+    pub(super) parked_count: AtomicUsize,
     /// CAS winner is the only collector until the pause guard releases the claim.
-    pub collector_active: AtomicBool,
+    pub(super) collector_active: AtomicBool,
     /// Heap pressure publishes a sticky request; only a successful collector clears it.
-    pub needs_auto_collect: Arc<AtomicBool>,
+    pub(super) needs_auto_collect: Arc<AtomicBool>,
 }
 
 impl ThreadState {
-    pub fn new(safepoint_throttle: u32) -> Self {
+    pub(crate) fn new(safepoint_throttle: u32) -> Self {
         assert!(safepoint_throttle > 0, "safepoint throttle must be positive");
         Self {
             safepoint_throttle,
@@ -37,20 +37,47 @@ impl ThreadState {
             needs_auto_collect: Arc::new(AtomicBool::new(false)),
         }
     }
+
+    pub(crate) fn new_local_state(&self) -> ThreadLocalState {
+        ThreadLocalState::new(self.safepoint_throttle)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn parked_mutator_count(&self) -> usize {
+        self.parked_count.load(std::sync::atomic::Ordering::Acquire)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn collector_is_active(&self) -> bool {
+        self.collector_active.load(std::sync::atomic::Ordering::Acquire)
+    }
+
+    #[cfg(any(test, feature = "jit-test-support"))]
+    pub(crate) fn request_auto_collect_for_test(&self) {
+        self.needs_auto_collect.store(true, std::sync::atomic::Ordering::Release);
+    }
 }
 
 /// Mutator-local pause/allocation state, shared with the collector only while parked.
 pub struct ThreadLocalState {
-    pub parked_tlab: crate::gc::tlab::ParkedTlabSlot,
-    pub safepoint_skip: std::sync::atomic::AtomicU32,
+    pub(super) parked_tlab: crate::gc::tlab::ParkedTlabSlot,
+    pub(super) safepoint_skip: std::sync::atomic::AtomicU32,
 }
 
+pub(crate) const SAFEPOINT_SKIP_OFFSET: usize =
+    std::mem::offset_of!(ThreadLocalState, safepoint_skip);
+
 impl ThreadLocalState {
-    pub fn new(safepoint_throttle: u32) -> Self {
+    fn new(safepoint_throttle: u32) -> Self {
         Self {
             parked_tlab: Default::default(),
             safepoint_skip: std::sync::atomic::AtomicU32::new(safepoint_throttle),
         }
+    }
+
+    #[cfg(any(test, feature = "jit-test-support"))]
+    pub(crate) fn safepoint_counter_for_test(&self) -> u32 {
+        self.safepoint_skip.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Force the next safepoint check through its slow path.

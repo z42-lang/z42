@@ -268,7 +268,6 @@ fn stack_allocation_policy_is_per_vm_and_shared_with_workers() {
 #[test]
 fn safepoint_policy_is_per_vm_and_shared_by_worker_resets() {
     use crate::threads::safepoint::{throttle_n, check_safepoint};
-    use std::sync::atomic::Ordering;
     let mut contexts = Vec::new();
     for throttle in [1, 7, 1024] {
         let mut settings = RuntimeConfig::from_getter(|_| None);
@@ -279,10 +278,10 @@ fn safepoint_policy_is_per_vm_and_shared_by_worker_resets() {
         let worker = VmContext::new_with_core(ctx.core.clone());
         for view in [&ctx, &worker] {
             assert_eq!(throttle_n(view), throttle);
-            assert_eq!(view.threads.safepoint_skip.load(Ordering::Relaxed), throttle);
-            view.threads.safepoint_skip.store(1, Ordering::Relaxed);
+            assert_eq!(view.threads.safepoint_counter_for_test(), throttle);
+            view.threads.force_safepoint();
             check_safepoint(view);
-            assert_eq!(view.threads.safepoint_skip.load(Ordering::Relaxed), throttle);
+            assert_eq!(view.threads.safepoint_counter_for_test(), throttle);
         }
         contexts.push((ctx, throttle));
     }

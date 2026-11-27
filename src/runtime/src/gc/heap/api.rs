@@ -51,14 +51,13 @@ impl Heap {
     }
 
 
-    /// **add-gc-safepoint-auto-threshold **: wire the
-    /// AtomicBool that `maybe_auto_collect` should set on pressure trip
-    /// (deferring the actual collect to the next safepoint).
-    pub fn set_external_needs_collect_flag(&self, flag: std::sync::Arc<std::sync::atomic::AtomicBool>) {
+    /// Wire the flag and wakeup together before publishing the VM.
+    pub(crate) fn defer_auto_collect_until_safepoint(
+        &self,
+        flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        poke: std::sync::Arc<dyn Fn() + Send + Sync>,
+    ) {
         *self.external_needs_collect.lock() = Some(flag);
-    }
-
-    pub fn set_safepoint_poke(&self, poke: std::sync::Arc<dyn Fn() + Send + Sync>) {
         *self.safepoint_poke.lock() = Some(poke);
     }
 

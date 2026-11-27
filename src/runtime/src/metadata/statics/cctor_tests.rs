@@ -213,7 +213,6 @@ fn waiting_claim_parks_and_wakes_on_finish() {
 /// 一个线程等着另一个线程跑 cctor 时，GC 暂停请求不必等它：等待期间它算作已 park。
 #[test]
 fn gc_pause_does_not_wait_for_a_thread_waiting_on_a_cctor() {
-    use std::sync::atomic::Ordering;
     use crate::vm::VmContext;
     let collector = VmContext::new();
     let core = collector.core_arc();
@@ -228,7 +227,7 @@ fn gc_pause_does_not_wait_for_a_thread_waiting_on_a_cctor() {
         })
     };
     let start = std::time::Instant::now();
-    while collector.core.threads.parked_count.load(Ordering::Acquire) < 1 {
+    while collector.core.threads.parked_mutator_count() < 1 {
         assert!(start.elapsed() < std::time::Duration::from_secs(5), "等待者没有 park");
         std::thread::yield_now();
     }

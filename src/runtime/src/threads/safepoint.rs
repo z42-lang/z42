@@ -41,17 +41,15 @@ const REPOKE_INTERVAL: std::time::Duration = std::time::Duration::from_millis(1)
 /// throttle counter runs out — up to `Z42_SAFEPOINT_THROTTLE` checks later, per thread, on top of
 /// each other.
 ///
-/// The counter is single-writer by design (the fast path is a plain load + store, see
-/// [`check_safepoint`]), so a poke can be overwritten by a mutator that loaded the counter just
-/// before it. That is why the collector re-pokes while it waits ([`REPOKE_INTERVAL`]); a lost poke
+/// A poke can be overwritten if a mutator already loaded the counter for the
+/// plain load/store decrement in [`check_safepoint`]. That is why the collector re-pokes while it waits ([`REPOKE_INTERVAL`]); a lost poke
 /// at the trip costs at most the throttle, as before, because the request itself is sticky.
-pub(crate) fn poke_safepoints(core: &VmCore) {
+pub(super) fn poke_safepoints(core: &VmCore) {
     core.threads.visit_contexts(|ctx| ctx.threads().force_safepoint());
 }
 
-/// Resolved throttle for this VM; workers share the Core's immutable policy.
-/// A value of one polls every time. Parsing and defaults belong to the facade.
-pub fn throttle_n(ctx: &VmContext) -> u32 {
+/// Resolved throttle shared by a VM and its workers.
+pub(crate) fn throttle_n(ctx: &VmContext) -> u32 {
     ctx.core.threads.safepoint_throttle
 }
 
@@ -66,7 +64,7 @@ pub fn throttle_n(ctx: &VmContext) -> u32 {
 ///                       │ (mutators parked throughout Marking)
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GcPhase {
+pub(super) enum GcPhase {
     /// No GC in progress; mutators run normally.
     Idle,
     /// Collector has requested a pause; mutators must park at the next safepoint.
@@ -103,15 +101,11 @@ pub fn check_safepoint(ctx: &VmContext) {
     if prev > 1 {
         return;
     }
-    // Slow path: counter just hit 0 (or wrapped to u32::MAX in a
-    // theoretical overflow — saturating reset below restores invariant).
-    ctx.threads.safepoint_skip.store(throttle_n(ctx), Ordering::Relaxed);
     check_safepoint_slow(ctx);
 }
 
-/// Slow-path safepoint check — Mutex lock + phase check + auto-collect
-/// drain. Called from [`check_safepoint`] every Nth call (per
-/// [`throttle_n`]).
+/// Reset the countdown after a poll reaches the slow path, then coordinate a
+/// pause or drain pending work. Interpreter and native code converge here.
 ///
 /// **add-gc-safepoint-auto-threshold **: when phase is Idle
 /// but the heap's pressure-trip path has set `needs_auto_collect = true`,
@@ -119,12 +113,9 @@ pub fn check_safepoint(ctx: &VmContext) {
 /// If multiple threads see the flag, the collector-role CAS in
 /// `request_gc_pause` picks one; the rest park as mutators. The flag stays set
 /// until the winner holds the pause (P0-16: sticky — see `take_collect_request`).
-///
-/// **inline-jit-safepoint-check **: `pub` so the JIT's
-/// `jit_check_safepoint_slow` helper (the rare slow branch of the inlined
-/// fast path) can call it directly after resetting the throttle counter.
 #[inline(never)]
-pub fn check_safepoint_slow(ctx: &VmContext) {
+pub(crate) fn check_safepoint_slow(ctx: &VmContext) {
+    ctx.threads.safepoint_skip.store(throttle_n(ctx), Ordering::Relaxed);
     let phase = *ctx.core.threads.gc_phase.lock();
     if matches!(phase, GcPhase::Requested | GcPhase::Marking) {
         park_until_idle(ctx);

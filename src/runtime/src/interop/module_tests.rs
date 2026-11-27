@@ -79,7 +79,7 @@ unsafe extern "C" fn parked(raw: *mut abi::Call) -> u32 {
     let Some(frame) = (unsafe { frame(raw) }) else {
         return abi::ERROR;
     };
-    let parked = frame.ctx.core.threads.parked_count.load(Ordering::Acquire);
+    let parked = frame.ctx.core.threads.parked_mutator_count();
     unsafe { sdk::dispatch(raw, |_| Ok(NativeValue::I64(parked as i64))) }
 }
 
@@ -236,7 +236,7 @@ fn blocking_native_calls_park_and_restore_the_mutator() {
             .unwrap(),
         Some(Value::I64(1))
     );
-    assert_eq!(ctx.core.threads.parked_count.load(Ordering::Acquire), 0);
+    assert_eq!(ctx.core.threads.parked_mutator_count(), 0);
 }
 
 #[test]
@@ -444,7 +444,7 @@ fn blocking_provider_reenters_the_interpreter_and_copies_callback_results() {
     ctx.loader().install_lazy_loader(None, 0);
     unsafe extern "C" fn callback(raw: *mut abi::Call) -> u32 {
         let ctx = unsafe { frame(raw) }.unwrap().ctx;
-        assert_eq!(ctx.core.threads.parked_count.load(Ordering::Acquire), 1);
+        assert_eq!(ctx.core.threads.parked_mutator_count(), 1);
         unsafe {
             sdk::dispatch(raw, |call| {
                 if !matches!(call.invoke("Test.Void", &[])?, NativeValue::Void) {
@@ -480,7 +480,7 @@ fn blocking_provider_reenters_the_interpreter_and_copies_callback_results() {
         .unwrap();
     let copied = native_value::from_vm(&returned, abi::STR_ARRAY, "callback", 0).unwrap();
     assert!(matches!(copied, NativeValue::Strings(values) if values == ["中文", ""]));
-    assert_eq!(ctx.core.threads.parked_count.load(Ordering::Acquire), 0);
+    assert_eq!(ctx.core.threads.parked_mutator_count(), 0);
 }
 
 

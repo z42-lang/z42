@@ -417,11 +417,10 @@ throttle 去抖比 near-limit 触发更容易写错，且错了不会报错、�
 ## 自动回收 / safepoint 三态协议
 
 allocator 判定「该回收了」后**不在分配线程就地回收**（那会让 scanner 与 mutator 的活寄存器读写竞争），
-而是走一个由 `Heap::set_external_needs_collect_flag` 注册的 `Arc<AtomicBool>` flag。三态：
+而是走一个由 `threads::wire_gc_pressure` 接入的共享请求标记。三态：
 
 ```text
-① Register  VmCore::new 构造后调 set_external_needs_collect_flag(flag)
-            把与所有 VmContext 共享的 flag 交给 heap。
+① Register  VM 装配时由线程模块把共享 flag 和唤醒回调交给 heap。
             （mock heap / 无跨线程需求的 backing 保持默认 no-op → 永远停在 ③）
 
 ② Defer     alloc 时 maybe_auto_collect 判定触发（near-limit ∧ throttle）：
@@ -440,8 +439,7 @@ allocator 判定「该回收了」后**不在分配线程就地回收**（那会
 **谁检查 / 何时**：flag 在**分配线程**、alloc 时**置位**；在**mutator 线程**的 safepoint 轮询时**检查**，
 由拿到暂停的 collector **清除**。置位的 flag **从不阻塞 allocator**；因为置位时顺手戳了每个 mutator 的计数器，
 回收在下一次 check 就开始，不必等满节流（`Z42_SAFEPOINT_THROTTLE`）。戳是跨线程普通 store、可能被 mutator 自己的
-递减覆盖——那时退回到节流上界，flag 仍在。该三态协议集中文档在 `Heap::set_external_needs_collect_flag`
-的 doc（`gc/heap.rs`）。
+递减覆盖——那时退回到节流上界，flag 仍在。堆侧发布和清除请求的实现见 `gc/heap/auto_collect.rs`。
 
 safepoint 本身的相位状态机（`Idle → Requested → Marking`）见 `threads/safepoint.rs` 顶注 + `GcPhase` 文档。
 

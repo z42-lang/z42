@@ -63,19 +63,17 @@ fn br_cond_on_non_bool_throws_instead_of_branching() {
     assert!(err.to_string().contains("expected bool"), "unexpected error: {err}");
 }
 
-/// Runs `f` JIT-compiled and returns how many safepoint polls it made (each
-/// poll's fast path decrements the thread's `safepoint_skip` counter).
+/// Read the countdown after running `f` through the JIT.
 /// `indexed` runs the loader's block-index pass first, as for a loaded package.
-fn safepoint_polls(f: Function, indexed: bool) -> u32 {
-    use std::sync::atomic::Ordering;
+fn remaining_safepoint_countdown(f: Function, indexed: bool, throttle: u32) -> u32 {
     let mut module = module(f);
     if indexed { z42::loader::build_block_indices(&mut module); }
-    let vm = VmContext::new();
+    let mut settings = z42::config::RuntimeConfig::from_getter(|_| None);
+    settings.safepoint_throttle = throttle;
+    let vm = z42::components::bridge::jit_test_context(settings);
     install(&vm, &module, z42::config::runtime_config().jit_config()).expect("install");
-    const START: u32 = 1_000_000;
-    vm.threads().safepoint_skip.store(START, Ordering::Relaxed);
     crate::jit::run_fn(&vm, "f").expect("run");
-    START - vm.threads().safepoint_skip.load(Ordering::Relaxed)
+    z42::components::bridge::test_safepoint_counter(&vm)
 }
 
 /// `entry: br_cond true → yes / no` — both targets forward.
@@ -107,13 +105,17 @@ fn br_cond_loop() -> Function {
 #[test]
 fn forward_br_cond_does_not_poll_the_safepoint() {
     for indexed in [false, true] {
-        assert_eq!(safepoint_polls(forward_br_cond(), indexed), 1, "only the entry poll (indexed: {indexed})");
+        assert_eq!(remaining_safepoint_countdown(forward_br_cond(), indexed, 32), 31,
+            "only the entry poll (indexed: {indexed})");
     }
 }
 
 #[test]
 fn br_cond_back_edge_polls_every_iteration() {
     for indexed in [false, true] {
-        assert_eq!(safepoint_polls(br_cond_loop(), indexed), 1 + 10, "entry + one per iteration (indexed: {indexed})");
+        assert_eq!(remaining_safepoint_countdown(br_cond_loop(), indexed, 32), 32 - 11,
+            "entry and ten back-edge polls (indexed: {indexed})");
+        assert_eq!(remaining_safepoint_countdown(br_cond_loop(), indexed, 7), 7 - 4,
+            "the seventh poll resets the countdown before four more polls (indexed: {indexed})");
     }
 }

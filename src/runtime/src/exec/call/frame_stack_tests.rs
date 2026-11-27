@@ -83,7 +83,7 @@ fn scanning_a_running_thread_outside_a_pause_panics_in_debug() {
         sc.spawn(|| {
             // SAFETY: deliberately violates the contract; the debug assertion
             // fires before any frame is read.
-            unsafe { ctx_ref.exec().scan_frames_parked(ctx_ref.core().threads().collector_active.load(std::sync::atomic::Ordering::Acquire), |f| f.len()) }
+            unsafe { ctx_ref.exec().scan_frames_parked(ctx_ref.core().threads().collector_is_active(), |f| f.len()) }
         })
         .join()
     });
@@ -96,6 +96,6 @@ fn owner_scan_is_allowed() {
     let ctx = VmContext::new();
     crate::exec::push_frame(&ctx, frame());
     // SAFETY: owner thread.
-    assert_eq!(unsafe { ctx.exec().scan_frames_parked(ctx.core().threads().collector_active.load(std::sync::atomic::Ordering::Acquire), |f| f.len()) }, 1);
+    assert_eq!(unsafe { ctx.exec().scan_frames_parked(ctx.core().threads().collector_is_active(), |f| f.len()) }, 1);
     ctx.exec().pop_frame();
 }
