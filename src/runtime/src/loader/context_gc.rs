@@ -50,7 +50,7 @@ impl ContextReclaimSnapshot for ContextSnapshot {
         self.associations.is_empty()
     }
     fn observe_live_object(&mut self, object: &ScriptObject) {
-        let ptr = Arc::as_ptr(&object.type_desc) as usize;
+        let ptr = std::ptr::from_ref(&*object.type_desc) as usize;
         if let Some(id) = self.associations.retained_context(ptr, &object.native()) {
             self.live.insert(id);
         }

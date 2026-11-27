@@ -88,7 +88,7 @@ pub(super) fn build_type_ex(
         // Reuse the Type descriptor without a lazy lookup while fresh
         // reflection objects are held in native locals.
         Some(Value::Object(rc)) if rc.type_desc().name == well_known_names::STD_TYPE => {
-            Some(rc.type_desc_arc().clone())
+            Some(rc.clone_type_desc())
         }
         _ => ctx.loader().try_lookup_type(well_known_names::STD_TYPE),
     };

@@ -140,7 +140,7 @@ fn interp_obj_new_hits_the_site_cache() {
         ).unwrap();
         assert!(thrown.is_none());
         match frame.get(1).unwrap() {
-            Value::Object(rc) => assert!(Arc::ptr_eq(&rc.borrow().type_desc, &td)),
+            Value::Object(rc) => assert!(std::ptr::eq(rc.type_desc(), td.as_ref())),
             other => panic!("expected an object, got {other:?}"),
         }
     };

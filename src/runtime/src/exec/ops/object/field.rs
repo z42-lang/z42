@@ -131,7 +131,7 @@ fn field_get_rare(ctx: &VmContext, recv: &Value, name: &str, ic: Option<&FieldIC
         Value::Null => Err(OpError::null_field_read(name)),
         Value::StackObject { idx, frame_id } => {
             let result = ctx.exec().with_stack_object(*idx, *frame_id, |o| {
-                load(o, name, ic).map_err(|slot| (o.type_desc.clone(), slot))
+                load(o, name, ic).map_err(|slot| (o.clone_type_desc(), slot))
             })?;
             result.or_else(|(td, slot)| materialize_empty_field(ctx, &td, slot))
         }

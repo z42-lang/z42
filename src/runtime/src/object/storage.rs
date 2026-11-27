@@ -60,11 +60,12 @@ impl Default for NativeData {
     fn default() -> Self { NativeData::None }
 }
 
-// `ObjMeta` stores the extras box as a tagged raw pointer, which opts out of auto-trait
-// propagation; the object stays `Send + Sync` only because what the box owns is.
+// Object metadata and the type word store raw pointers, so auto traits do not
+// propagate from the values they own.
 const _: () = {
     const fn assert_send_sync<T: Send + Sync>() {}
     assert_send_sync::<NativeData>();
+    assert_send_sync::<TypeDesc>();
 };
 
 /// The value of an object's 8 B meta word (cold metadata: `type_args` + native backing):
@@ -192,7 +193,7 @@ pub struct ScriptObject {
     gc: GcWord,
     /// Type descriptor shared across all instances of this class — the block header's kind word.
     /// Written before the object is published, never changed.
-    pub type_desc: Arc<TypeDesc>,
+    pub type_desc: TypeDescRef,
     _pad: [std::mem::MaybeUninit<u8>; TYPE_WORD_PAD],
     /// The payload: the field area, then the meta word if the object has one. `UnsafeCell`
     /// because the cells are written through `&self` (atomic cell stores), which a shared
@@ -208,14 +209,59 @@ pub struct ScriptObject {
 #[repr(C)]
 pub struct ObjHeader {
     gc: GcWord,
-    pub type_desc: Arc<TypeDesc>,
+    type_desc: TypeDescRef,
     _pad: [std::mem::MaybeUninit<u8>; TYPE_WORD_PAD],
 }
 
 // One 16-byte header on every target; the type word is the region's kind word.
 const _: () = assert!(std::mem::size_of::<ObjHeader>() == GcBlockHeader::DATA_OFFSET);
 const _: () = assert!(std::mem::offset_of!(ObjHeader, type_desc) == crate::object::header::KIND_WORD_OFFSET);
-const _: () = assert!(std::mem::size_of::<Arc<TypeDesc>>() == std::mem::size_of::<usize>());
+const _: () = assert!(std::mem::offset_of!(ScriptObject, type_desc) == crate::object::header::KIND_WORD_OFFSET);
+
+/// A pointer to a type descriptor that owns one strong reference.
+#[repr(transparent)]
+pub struct TypeDescRef(*const TypeDesc);
+
+impl TypeDescRef {
+    #[inline]
+    fn new(desc: Arc<TypeDesc>) -> Self {
+        Self(Arc::into_raw(desc))
+    }
+
+    #[inline]
+    fn clone_arc(&self) -> Arc<TypeDesc> {
+        // SAFETY: this pointer came from Arc::into_raw and the header's owned
+        // reference keeps it alive for the duration of this borrow.
+        unsafe {
+            Arc::increment_strong_count(self.0);
+            Arc::from_raw(self.0)
+        }
+    }
+}
+
+impl std::ops::Deref for TypeDescRef {
+    type Target = TypeDesc;
+
+    #[inline]
+    fn deref(&self) -> &TypeDesc {
+        // SAFETY: the header's strong reference keeps the descriptor alive.
+        unsafe { &*self.0 }
+    }
+}
+
+impl Drop for TypeDescRef {
+    #[inline]
+    fn drop(&mut self) {
+        // SAFETY: each installed header transfers one strong reference into
+        // this pointer, and this drop releases that reference exactly once.
+        unsafe { drop(Arc::from_raw(self.0)) };
+    }
+}
+
+// SAFETY: TypeDescRef owns a strong Arc<TypeDesc> reference and only exposes
+// shared access to the same Send + Sync descriptor.
+unsafe impl Send for TypeDescRef {}
+unsafe impl Sync for TypeDescRef {}
 
 impl ObjHeader {
     /// Write `type_desc` into the kind word of the fresh, unpublished object block at `header`
@@ -229,7 +275,7 @@ impl ObjHeader {
         let p = header.as_ptr().cast::<ObjHeader>();
         // SAFETY: per the contract; a place projection on the raw pointer — no reference to the
         // header is formed while it is being written.
-        unsafe { std::ptr::addr_of_mut!((*p).type_desc).write(type_desc) };
+        unsafe { std::ptr::addr_of_mut!((*p).type_desc).write(TypeDescRef::new(type_desc)) };
     }
 }
 
@@ -244,8 +290,10 @@ pub mod obj_jit_layout {
 
     /// Mask turning an object handle's bits into its block-header address.
     pub const HANDLE_ADDR_MASK: u64 = crate::object::header::HANDLE_ADDR_MASK;
-    /// The header's type word (the `Arc<TypeDesc>`'s pointer to its heap block).
+    /// The header's type word, a pointer to `TypeDesc`.
     pub const TYPE_DESC_OFFSET: i32 = crate::object::header::KIND_WORD_OFFSET as i32;
+    /// The type identity field, relative to the descriptor pointer.
+    pub const TYPE_ID_OFFSET: i32 = std::mem::offset_of!(crate::object::TypeDesc, id) as i32;
     /// Field cell 0: a `FieldLoc::offset` is relative to this.
     pub const FIELDS_OFFSET: i32 = GcBlockHeader::DATA_OFFSET as i32;
     /// The block header's `type_tag` byte: block type, `gen_age`, remembered bit.
@@ -256,24 +304,10 @@ pub mod obj_jit_layout {
     pub const AGE_MASK: i64 = 3;
     /// Set ⇔ the object is in the heap's remembered set (a minor re-scans it whole).
     pub const REMEMBERED_BIT: i64 = 1 << 5;
-
-    // `Arc<T>` (sized `T`) is one pointer to its heap block — the word the header stores.
-    const _: () = assert!(std::mem::size_of::<std::sync::Arc<u64>>() == 8);
-    const _: () = assert!(std::mem::align_of::<crate::object::TypeDesc>() == std::mem::align_of::<u64>());
-
-    /// Offset from the `type_desc` word's pointer to `TypeDesc::id` (a `u32`): the `Arc`'s
-    /// counters, then the descriptor. Measured on a probe `Arc` of the same alignment rather than
-    /// assumed, so a std layout change shows up here (and in the pinning test), not as a wrong load.
-    pub fn type_id_offset() -> i32 {
-        let probe = std::sync::Arc::new(0u64);
-        // SAFETY: an `Arc<u64>` is exactly one pointer (asserted above); this reads it as an integer.
-        let block: usize = unsafe { std::mem::transmute_copy::<std::sync::Arc<u64>, usize>(&probe) };
-        let data = std::sync::Arc::as_ptr(&probe) as usize - block;
-        (data + std::mem::offset_of!(crate::object::TypeDesc, id)) as i32
-    }
 }
 
-// SAFETY: the header's fields are `Send + Sync` (the GC word is atomics, `type_desc` an `Arc`);
+// SAFETY: the header's fields are `Send + Sync` (the GC word is atomics and the type word owns
+// a reference to a shared descriptor);
 // the payload is only ever accessed through atomic cell views (`Cells`) and the meta word, which
 // is written only while the object is exclusively owned (`&mut`, before publication) — so sharing
 // `&ScriptObject` across threads is race-free and the `UnsafeCell`s are not a plain-memory
@@ -293,6 +327,12 @@ impl std::fmt::Debug for ScriptObject {
 }
 
 impl ScriptObject {
+    /// Obtain a strong reference that can outlive the object.
+    #[inline]
+    pub fn clone_type_desc(&self) -> Arc<TypeDesc> {
+        self.type_desc.clone_arc()
+    }
+
     /// Release what the object owns — its type descriptor and, when its meta word holds one, the
     /// extras box — and return the bytes the box held outside the block (the drop glue credits
     /// them back). `ScriptObject` has no `Drop`: an object is only ever destroyed here, by the
@@ -556,21 +596,17 @@ impl ScriptObject {
 impl crate::object::ObjRef {
     /// The object's `type_desc` (set at construction, never changed). Used by hot-path IC
     /// scans (VCallIC, FieldIC, IsInstance) and the GC mark traversal. Returns the inner
-    /// `&TypeDesc` (one fewer deref at the call site than `&Arc<TypeDesc>`). Reads through the
+    /// `&TypeDesc`. Reads through the
     /// thin header (`ObjRef::header`): no payload length, no fat reference.
     #[inline]
     pub fn type_desc(&self) -> &TypeDesc {
         &self.header().type_desc
     }
 
-    /// Lockless read of the object's `type_desc` as `&Arc<TypeDesc>`.
-    /// Use this only when the caller needs to clone the Arc for
-    /// ownership transfer (e.g. building a fallback TypeDesc, exception
-    /// stack frames). Most callers want [`type_desc`] (returns plain
-    /// `&TypeDesc`) which saves one deref.
+    /// Obtain a strong reference that can outlive the object.
     #[inline]
-    pub fn type_desc_arc(&self) -> &Arc<TypeDesc> {
-        &self.header().type_desc
+    pub fn clone_type_desc(&self) -> Arc<TypeDesc> {
+        self.header().type_desc.clone_arc()
     }
 
     /// Lockless read of the object's `type_args` (generic type arguments at construction).

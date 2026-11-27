@@ -4,7 +4,7 @@
 //! ```text
 //!   tag(regs[obj]) == Object ?                          ─ no → helper   (null, string, stack object, …)
 //!   hdr  = payload & HANDLE_ADDR_MASK                     block header (`obj_jit_layout`)
-//!   tid  = load32 [load64 [hdr + 16] + type_id_offset]    receiver's TypeId (header → Arc<TypeDesc>)
+//!   tid  = load32 [load64 [hdr + TYPE_DESC_OFFSET] + TYPE_ID_OFFSET]
 //!   e    = load64 [ic]                                    the site's FieldIC entry 0
 //!   (e & GUARD_MASK) == tid << 32 | kind ?              ─ no → helper   (other type / kind, empty)
 //!   cell = hdr + 32 + (e >> 16 & 0xFFFF)                  the field cell
@@ -91,7 +91,7 @@ pub(super) fn emit_guard(
     let bits = load_payload_i64(b, addr);
     let hdr = b.ins().band_imm_s(bits, ol::HANDLE_ADDR_MASK as i64);
     let td = b.ins().load(types::I64, flags, hdr, ol::TYPE_DESC_OFFSET);
-    let tid = b.ins().uload32(flags, td, ol::type_id_offset());
+    let tid = b.ins().uload32(flags, td, ol::TYPE_ID_OFFSET);
     let icp = b.ins().iconst(ptr, entry as i64);
     // One relaxed load of the packed (TypeId, FieldLoc) word — the pair is never torn.
     let entry = b.ins().load(types::I64, flags, icp, 0);

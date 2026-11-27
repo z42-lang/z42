@@ -211,9 +211,9 @@ detection）。该守卫 **debug 与 release 均生效**：release 若被编译�
 **数组**（`Value::Array`，R9）、字符串、闭包全是它的变长块（下一节）。
 
 **对象 = 一个变长块、一个 16 B 头**（对象模型 R8）：块头的 GC 字（generation 含存活位 / mark / `type_tag` / payload 长度）
-加种类字里的 `Arc<TypeDesc>` 就是对象头，后面是字段单元（泛型 / 带原生底座的实例再加一个 meta 字），一次分配；
+加种类字里的 `TypeDesc` 指针就是对象头，后面是字段单元（泛型 / 带原生底座的实例再加一个 meta 字），一次分配；
 `&ScriptObject` 是盖住整块的胖引用（布局见 [object-abi.md](object-abi.md) §1）。
-类型字里的 `Arc<TypeDesc>` 与 meta 字指着的 extras 盒子由变长区的 drop glue 在块被 tombstone 时释放（`var_drop_glue` 的 `Object` 臂，
+类型字拥有的强引用与 meta 字指着的 extras 盒子由变长区的 drop glue 在块被 tombstone 时释放（`var_drop_glue` 的 `Object` 臂，
 返回 extras 的字节数，变长区记回占用账；之后把种类字清空，槽位的下一个占用者看到的总是空字）。
 
 **数组 = 一个变长块、同一个 16 B 头**（对象模型 R9）：种类字里是数组的描述符（`&'static ArrayDesc`：元素类型、模式、MIXED 零种类，
@@ -285,7 +285,7 @@ VarRegion 变长块（16B 对齐原始 chunk + size-class free-list + oversized 
 | `marked: u8` | 标记位（minor 位 + major epoch，`object::header::marks::mark_cell`） |
 | `type_tag: u8` | 块种类 / 代龄 / 记忆集 / ASCII 或 meta / 侧表位（位表见 [GC TLAB](gc-tlab.md#变长区的分代)），屏障在 mutator 线程无锁读 |
 | `size: u32` | payload 长度：字符串长度、数组的元素区（数组长度由它和元素宽度推出）、对象的字段区 + meta。**size class 是它的函数**（`chunk::payload_class`），chunk 遍历按它的 footprint 步进 |
-| 种类字 | 对象的 `Arc<TypeDesc>`、数组的 `&'static ArrayDesc`；字符串块惰性缓存 `GetHashCode` 的 FNV 值（不可变 ⇒ 块常量；null=未算，carve/复用必清）；闭包恒空 |
+| 种类字 | 对象指向 `TypeDesc` 并持有强引用，数组指向 `ArrayDesc`；字符串块惰性缓存 `GetHashCode` 的 FNV 值（不可变 ⇒ 块常量；null=未算，carve/复用必清）；闭包恒空 |
 | size class（不单存） | 由 `size` 推出；块是否在专用 chunk 由 chunk 自己记（`Chunk::dedicated`） |
 | 所属 chunk（不单存） | 清扫、TLAB、空洞认领本来就按 chunk 走、手里有下标；从句柄出发的少数调用（弱引用 `downgrade`、`finalize_now`、OOM 退款）用 `VarRegion::chunk_of` 按地址查 |
 | 存活位（不单存） | 并进 generation 的最低位 |
@@ -294,7 +294,7 @@ VarRegion 变长块（16B 对齐原始 chunk + size-class free-list + oversized 
 
 | BlockType | payload | 消费者 | drop-glue |
 |-----------|---------|--------|-----------|
-| `Object` | 字段单元 [+ meta 字]（类型字在块头，整块即 `ScriptObject` DST） | `Value::Object` / `Value::BoxedStruct`（`ObjRef`）| **有**：drop 类型字（`Arc<TypeDesc>`）与 extras 盒子、清空种类字，返回 extras 字节数供占用账扣回 |
+| `Object` | 字段单元 [+ meta 字]（类型字在块头，整块即 `ScriptObject` DST） | `Value::Object` / `Value::BoxedStruct`（`ObjRef`）| **有**：释放类型描述符的强引用与 extras 盒子、清空种类字，返回 extras 字节数供占用账扣回 |
 | `Str` | inline UTF-8 | `Value::Str`（8B 细指针，**不可变叶子**，trace 无出边）| POD，无 |
 | `Closure` | 一个 `ClosureData{env: ArrRef, fn_id: FnId}` | `Value::Closure` | **POD，无**（目标是函数 id，闭包全 POD）|
 | `ArrayPrim` | PRIM 数组：紧凑基元 `[T;n]`（叶子） | `Value::Array`（`ArrRef`，整块即 `ArrayObj` DST）| POD，无 |

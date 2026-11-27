@@ -136,7 +136,7 @@ pub unsafe extern "C" fn jit_to_str(
 ) -> u8 {
     let val = &(*frame).regs[src as usize];
     if let Value::Object(rc) = val {
-        let type_desc = rc.type_desc_arc().clone();
+        let type_desc = rc.clone_type_desc();
         let func_name_opt = type_desc.vtable_index.get("ToString")
             .map(|&slot| type_desc.vtable[slot].1.clone());
         if let Some(func_name) = func_name_opt {
