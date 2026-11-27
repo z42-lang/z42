@@ -1,0 +1,53 @@
+namespace GenericInlineFieldIdentity;
+
+struct Box<T> { public int Number; }
+
+class Cell {
+    public Box<int> IntField;
+    public Box<long> LongField;
+
+    public object ReadInt() { return IntField; }
+    public object ReadLong() { return LongField; }
+}
+
+class InitLog { public static int Calls = 0; }
+
+struct Marker<T> {
+    public Marker() { InitLog.Calls = InitLog.Calls + 1; }
+}
+
+struct Container<T> {
+    public Marker<T> Mark;
+    public int Number;
+    public Marker<T> Read() { return Mark; }
+}
+
+void Main() {
+    Cell cell = new Cell();
+    cell.IntField.Number = 12;
+    cell.LongField.Number = 12;
+
+    object implicitInt = cell.ReadInt();
+    object implicitLong = cell.ReadLong();
+    object explicitInt = cell.IntField;
+    Assert.Equal(typeof(Box<int>), implicitInt.GetType());
+    Assert.Equal(typeof(Box<long>), implicitLong.GetType());
+    Assert.True(implicitInt.Equals(explicitInt));
+    Assert.Equal(implicitInt.GetHashCode(), explicitInt.GetHashCode());
+    Assert.False(implicitInt.Equals(implicitLong));
+
+    cell.IntField.Number = 34;
+    Box<int> snapshot = implicitInt as Box<int>;
+    Assert.Equal(12, snapshot.Number);
+    Assert.Equal(34, cell.IntField.Number);
+
+    Container<int> ints = new Container<int>();
+    Container<long> longs = new Container<long>();
+    object intMarker = ints.Read();
+    object longMarker = longs.Read();
+    Assert.Equal(typeof(Marker<int>), intMarker.GetType());
+    Assert.Equal(typeof(Marker<long>), longMarker.GetType());
+    Assert.True(intMarker.Equals(ints.Mark));
+    Assert.False(intMarker.Equals(longMarker));
+    Assert.Equal(0, InitLog.Calls);
+}
