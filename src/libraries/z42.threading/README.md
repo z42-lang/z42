@@ -10,6 +10,8 @@ slot table。
 GC 可见、随对象回收。原生层只提供不含值的 Monitor。机制见
 [docs/internals/src/runtime/sync-primitives.md](../../../docs/internals/src/runtime/sync-primitives.md)。
 
+定时器的失败日志由 `z42.core` 写入 stderr，并遵循 `Std.Diagnostics.Log` 设置的进程级阈值。
+
 ## src/ 核心文件
 
 | 文件 | 类型 | 说明 |

@@ -1,0 +1,35 @@
+desc = "定时器仅用 core 和 threading 就能写 stderr，并遵循基础日志阈值"
+
+[[step]]
+args = ["build", "z42.toml", "--release", "--output-dir", "out"]
+exit = 0
+absent = ["out/z42.diagnostics.zpkg"]
+
+[[step]]
+tool = "copy"
+from = "{stdlib}/z42.core.zpkg"
+to = "minimal/"
+
+[[step]]
+tool = "copy"
+from = "{stdlib}/z42.threading.zpkg"
+to = "minimal/"
+
+[[step]]
+tool = "run"
+target = "out/timer.core.log.zpkg"
+libs = "minimal"
+env = { Z42_HOME = "", Z42_PROBING_PATHS = "", NO_COLOR = "1" }
+exit = 0
+stdout_equals = "joined"
+stderr_contains = ["[ERROR ", "] Timer.StartOnce: callback threw: timer log probe"]
+
+[[step]]
+tool = "run"
+target = "out/timer.core.log.zpkg"
+args = ["--", "quiet"]
+libs = "minimal"
+env = { Z42_HOME = "", Z42_PROBING_PATHS = "", NO_COLOR = "1" }
+exit = 0
+stdout_equals = "joined"
+stderr_not_contains = ["timer log probe"]

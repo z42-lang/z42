@@ -1,0 +1,17 @@
+using Std.IO;
+using Std.Threading;
+using Std.Time;
+
+void Main() {
+    foreach (string arg in Environment.GetCommandLineArgs()) {
+        if (arg == "quiet") { RuntimeErrorLog.SetMinLevel(5); }
+    }
+    Timer timer = Timer.StartOnce(0, () => { throw new Exception("timer log probe"); });
+    Stopwatch wait = Stopwatch.StartNew();
+    while (timer.IsRunning() && wait.Elapsed().TotalMilliseconds() < 5000) {
+        Thread.Sleep(5);
+    }
+    if (timer.IsRunning()) { throw new Exception("timer did not complete"); }
+    timer.StopAndJoin();
+    Console.WriteLine("joined");
+}

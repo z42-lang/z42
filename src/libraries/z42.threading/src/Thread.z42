@@ -59,7 +59,7 @@
 //! - 没有 Change / 重启 / 改周期：停了就得重新 Start。
 //! - 没有 state 参数，回调是无参 Action，上下文靠闭包捕获的对象带。
 //! - StopAndJoin 不幂等：第二次调用抛 ThreadException("thread already joined")。
-//! - 回调异常不会上报给调用方，只有一行 Log.Error。
+//! - 回调异常不会上报给调用方，只记录一行 ERROR 日志。
 //! - Timer 共用等待线程并按需复用工作线程，闲置后内部线程退出；不提供公开池配置。
 //! - 工作线程创建失败时保留任务并退避重试，可被 Stop 取消；Start 不预建每个回调线程。
 namespace Std.Threading;

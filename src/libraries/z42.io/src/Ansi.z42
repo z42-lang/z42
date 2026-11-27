@@ -4,34 +4,11 @@ using Std.Text;
 
 /// 终端 ANSI SGR 着色；启用时把文本包成 ESC[<code>m … ESC[0m，未启用时原样返回输入。
 public static class Ansi {
-    // 惰性初始化标志：_detected 在首次自动检测后为 true；_manual 在调用过 SetEnabled 后为 true，
-    // 一旦手动设置，本进程内自动检测永久失效。
-    private static bool _detected = false;
-    private static bool _manual   = false;
-    private static bool _enabled  = false;
-
-    // 缓存的转义串 —— 首次使用时构建一次，避免每次包装都重建。
-    private static string _csi   = "";   // "ESC ["
-    private static string _reset = "";   // "ESC [ 0 m"
-    private static bool   _cached = false;
-
-    /// 是否启用着色；首次调用自动检测（Console.IsTerminal() 且 NO_COLOR 未设置或为空），之后返回缓存值。
-    public static bool Enabled() {
-        if (Ansi._manual) { return Ansi._enabled; }
-        if (Ansi._detected) { return Ansi._enabled; }
-        bool tty = Console.IsTerminal();
-        string? noColor = Environment.GetEnvironmentVariable("NO_COLOR");
-        bool noColorSet = (noColor != null && noColor.Length > 0);
-        Ansi._enabled = (tty && !noColorSet);
-        Ansi._detected = true;
-        return Ansi._enabled;
-    }
+    /// 是否启用着色；自动检测结果在本进程内缓存。
+    public static bool Enabled() { return TerminalSgr.Enabled(); }
 
     /// 显式覆盖；调用过后自动检测对本进程永久失效。
-    public static void SetEnabled(bool b) {
-        Ansi._manual = true;
-        Ansi._enabled = b;
-    }
+    public static void SetEnabled(bool b) { TerminalSgr.SetEnabled(b); }
 
     // ── 前景色（代码 30–37）─────────────────────────────────
     /// 黑色前景。
@@ -109,21 +86,7 @@ public static class Ansi {
         return sb.ToString();
     }
 
-    // ── 内部 ────────────────────────────────────────────────
-
-    private static void _BuildCache() {
-        if (Ansi._cached) { return; }
-        char[] escArr = new char[1];
-        escArr[0] = (char)0x1B;
-        string esc = String.FromChars(escArr);
-        Ansi._csi   = esc + "[";
-        Ansi._reset = esc + "[0m";
-        Ansi._cached = true;
-    }
-
     private static string _Wrap(int code, string s) {
-        if (!Ansi.Enabled()) { return s; }
-        Ansi._BuildCache();
-        return Ansi._csi + code.ToString() + "m" + s + Ansi._reset;
+        return TerminalSgr.Wrap(code, s);
     }
 }
