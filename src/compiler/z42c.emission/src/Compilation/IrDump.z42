@@ -29,6 +29,7 @@ sealed class CompileCuTask : IParallelTask {
     StructLayout _layouts;   // perf-layouts-once：包级预计算布局表（并行段只读；各 CU 用 ForkView 视图）
     // complete-generic-instantiation S1：包级泛型体登记表（同 `_layouts`，并行段只读共享）。
     StrMap _pkgGenerics; StrMap _pkgGenericTypes;
+    CuBinding[] _bindings;
     CompiledModuleZ[] _r;
     // 包里已有收集期错误（收集期诊断要到并行段之后才分发到各文件，per-file 的 diags 看不见它们）⇒
     // 各文件照常类型检查、报诊断，但都不进代码生成（`CuCompile.GenerateIfClean`）。构造后由 BuildPackageCus 设置。
@@ -39,7 +40,7 @@ sealed class CompileCuTask : IParallelTask {
                          StrMap partialMerged, int optSet, IrModule[] cached,
                          ExportedFuncZ[] allFuncs, int afc, StrMap pkgClassMap,
                          StructLayout layouts, StrMap pkgGenerics,
-                         StrMap pkgGenericTypes, CompiledModuleZ[] r) {
+                         StrMap pkgGenericTypes, CuBinding[] bindings, CompiledModuleZ[] r) {
         this._cus = cus; this._files = files; this._symbols = symbols;
         this._deps = deps; this._imported = imported;
         this._localClasses = localClasses; this._isRelease = isRelease;
@@ -47,7 +48,7 @@ sealed class CompileCuTask : IParallelTask {
         this._allFuncs = allFuncs; this._afc = afc; this._pkgClassMap = pkgClassMap;
         this._layouts = layouts;
         this._pkgGenerics = pkgGenerics; this._pkgGenericTypes = pkgGenericTypes;
-        this._r = r;
+        this._bindings = bindings; this._r = r;
     }
     public void Run(int i) {
         if (this._cached != null && this._cached[i] != null) {
@@ -59,7 +60,7 @@ sealed class CompileCuTask : IParallelTask {
         } else {
             this._r[i] = CuCompile._compileCu(this._cus[i], this._files[i], this._symbols, this._deps,
                 this._imported, this._localClasses, this._isRelease, this._partialMerged,
-                this._optSet, this._layouts, this._pkgGenerics, this._pkgGenericTypes, this.PkgHasErrors);
+                this._optSet, this._layouts, this._pkgGenerics, this._pkgGenericTypes, this.PkgHasErrors, this._bindings[i]);
         }
         string ns2 = "main";                                 // no-ns build 路径缺省（C# 字节实证）
         if (this._cus[i].HasNamespace) { ns2 = this._cus[i].Namespace; }
@@ -165,6 +166,11 @@ public static class IrDump {
         CuPreprocess._injectGlobalUsings(cus, count);   // add-global-using：包级 using 注入每个 CU（须在符号收集前）
         SymbolCollector coll = new SymbolCollector();
         SymbolTable symbols = coll.CollectAll(cus, files, count, imported);   // add-partial-types：files 供主碎片跟踪 + 合并校验
+        // Resolve declaration bounds before initializer or body binding.
+        var constraints = new ConstraintChecker(coll.Diags);
+        for (int ci = 0; ci < count; ci = ci + 1) {
+            constraints.Resolve(cus[ci], symbols.WithCu(cus[ci]));
+        }
         // infer-var-field-types：SymbolCollect 后、TSIG Export 前——从初始化器推断 static var
         // 字段类型、回写 fs.FieldType（消除「var」降级态，使导出 + 跨包消费得真实类型）。
         VarFieldInfer.Run(cus, count, symbols);
@@ -209,17 +215,6 @@ public static class IrDump {
             }
             i = i + 1;
         }
-        // parallelize-package-compile：where 约束解析 hoist 到 per-file 循环前（约束是声明级、包全局：
-        // 一个文件可 new 另一个文件声明的泛型类）。一次性把全包约束冻结进共享 symbols.ClassConstraints，
-        // 之后 per-file 循环（将并行化）只读 Check、绝不再写——消除并行下对 ClassConstraints 的数据竞争。
-        // 诊断入 coll.Diags（包级，与 CollectAll 同路径，line ~176 按 Span.File 分发）。每 CU 用自己的
-        // 别名视图（WithAliases）解析约束类型，不覆写共享 CurrentAliases。
-        ConstraintChecker _cc = new ConstraintChecker(coll.Diags);
-        int cci = 0;
-        while (cci < count) {
-            _cc.Resolve(cus[cci], symbols.WithCu(cus[cci]));
-            cci = cci + 1;
-        }
         // parallelize-package-compile ★②：per-file typecheck+codegen 并行（同层前置已冻结共享态：
         // symbols 数据字段只读 + 约束已 hoist + 别名 per-file 视图）。每项写 r[i]，确定性。
         // 并行度 ParallelConfig.Jobs（--jobs / CpuCount）；jobs<=1 串行内联（逃生舱 / 调试）。
@@ -240,35 +235,31 @@ public static class IrDump {
         // 就判不出该改派 ⇒ 落到擦除体 ⇒ 布局不符（实测：a.z42 声明、b.z42 调用，`UseInB` 报
         // `struct ref leaf at byte offset 8 not in type layout`）。
         // 故在这里扫一遍全包 CU，与 `layouts` 同为并行段只读共享。
-        // S1-f：登记表必须带着**声明所属 CU 的 model** —— 发射特化体要用它取绑定后的体，
-        // 而泛型常声明在别的文件里（`SemanticModel` 由 `TypeChecker.Infer(cu, …)` 按 CU 建）。
-        //
-        // 为此先只给「**声明了泛型的**那些 CU」算一遍 model。它们稍后编自己时会再 Infer 一次
-        // （多算一遍，不改变任何结果），换来流水线结构一行不动 —— 正统解法是拆两阶段流水线，
-        // 但 `BuildPackageCus` 这条路上并行 / 诊断 / 缓存缠在一起，改动面与风险都大得多。
-        // 泛型声明文件在一个包里只是少数，故代价有界。
+        // The registry needs declaration-site bound bodies even when a declaration's own IR is cached.
+        // Fresh files reuse that binding for diagnostics and code generation.
         StrMap pkgGenerics = new StrMap();
         StrMap pkgGenericTypes = new StrMap();
         SemanticModel[] genModels = new SemanticModel[count];
-        {
-            StrMap probeB = new StrMap(); StrMap probeT = new StrMap();
+        CuBinding[] bindings = new CuBinding[count];
+        if (_anyFresh) {
             int pi2 = 0;
             while (pi2 < count) {
-                probeB = new StrMap(); probeT = new StrMap();
+                StrMap probeB = new StrMap(); StrMap probeT = new StrMap();
                 CompilationUnit[] one2 = new CompilationUnit[1]; one2[0] = cus[pi2];
                 IrGen.ScanGenericBodies(one2, 1, null, symbols, probeB, probeT);
                 if (probeB.Count() > 0 || probeT.Count() > 0) {
-                    // 这个 CU 声明了泛型 ⇒ 为它算一份 model（诊断丢弃：它自己编时会再报一遍）。
-                    genModels[pi2] = new TypeChecker(new DiagnosticBag()).Infer(cus[pi2], symbols, false);
+                    var binding = CuCompile.Bind(cus[pi2], symbols);
+                    genModels[pi2] = binding.Model;
+                    if (cachedModules == null || cachedModules[pi2] == null) { bindings[pi2] = binding; }
                 }
                 pi2 = pi2 + 1;
             }
+            IrGen.ScanGenericBodies(cus, count, genModels, symbols, pkgGenerics, pkgGenericTypes);
         }
-        IrGen.ScanGenericBodies(cus, count, genModels, symbols, pkgGenerics, pkgGenericTypes);
         CompiledModuleZ[] r = new CompiledModuleZ[count];
         CompileCuTask _task = new CompileCuTask(cus, files, symbols, deps, imported,
             localClasses, isRelease, partialMerged, optSet, cachedModules, allFuncs, afc, pkgClassMap,
-            layouts, pkgGenerics, pkgGenericTypes, r);
+            layouts, pkgGenerics, pkgGenericTypes, bindings, r);
         _task.PkgHasErrors = upstreamErrors || coll.Diags.ErrorCount() > 0;
         ParallelFor.Run(count, ParallelConfig.Jobs(count), _task);
         // add-partial-types：分发 partial 合并的包级诊断到对应文件的 CompiledModuleZ（按 Span.File 匹配；无匹配落 0 号）。
