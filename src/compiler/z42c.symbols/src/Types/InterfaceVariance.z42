@@ -34,6 +34,11 @@ internal static class InterfaceVarianceInference {
         return useMask;
     }
 
+    // A type argument that mentions the parameter can change the inherited slot.
+    public static bool AffectsParentSlot(Z42InstantiatedInterfaceType parent, string parameter) {
+        return NestedUses(parent.TypeArgs, parent.ArgCount, parameter) != 0;
+    }
+
     private static int TypeUse(Z42Type type, string parameter, int direction) {
         if (type == null || type is Z42ErrorType || type is Z42UnknownType) { return Both; }
         if (type is Z42GenericParamType) { return type.Name() == parameter ? direction : 0; }

@@ -132,3 +132,13 @@ void test_variance_keeps_open_parent_slots_invariant() {
         "IChild");
     Assert.Equal(true, iface.ParameterVariance(0) == InterfaceVariance.Invariant);
 }
+
+
+[Test]
+void test_variance_protects_only_the_parameter_used_by_a_parent_slot() {
+    var iface = collectVarianceInterface(
+        "interface IParent<T> { T Context(); } "
+        + "interface IChild<C,T> : IParent<C[]> { C Read(); void Put(T value); }", "IChild");
+    Assert.Equal(true, iface.ParameterVariance(0) == InterfaceVariance.Invariant);
+    Assert.Equal(true, iface.ParameterVariance(1) == InterfaceVariance.Contravariant);
+}

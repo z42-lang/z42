@@ -637,7 +637,7 @@ public class Z42InterfaceType : Z42Type {
             if (direction == IrIfaceVariance.Contravariant) { return InterfaceVariance.Contravariant; }
             return InterfaceVariance.Invariant;
         }
-        if (this.IsImported || this._varianceUses == null || this._hasUnstableVarianceBase()) {
+        if (this.IsImported || this._varianceUses == null || this._hasUnstableVarianceBase(this.TypeParamNames[index])) {
             return InterfaceVariance.Invariant;
         }
         int uses = this._varianceUses[index];
@@ -648,7 +648,7 @@ public class Z42InterfaceType : Z42Type {
 
     // Inherited calls name the declaring interface slot. It must have the same
     // identity before and after varying this interface's arguments.
-    private bool _hasUnstableVarianceBase() {
+    private bool _hasUnstableVarianceBase(string parameter) {
         int i = 0;
         while (i < this.BaseCount) {
             var bound = this.BaseRefs[i] as ResolvedTypeExpr;
@@ -657,7 +657,8 @@ public class Z42InterfaceType : Z42Type {
             if (parent == null) { return true; }
             if (parent is Z42InstantiatedInterfaceType) {
                 var instance = parent as Z42InstantiatedInterfaceType;
-                if (instance.ArgCount != instance.Def.TypeParamCount || !IfaceSlotKeys.IsClosed(instance)) { return true; }
+                if (instance.ArgCount != instance.Def.TypeParamCount
+                    || InterfaceVarianceInference.AffectsParentSlot(instance, parameter)) { return true; }
             } else if (parent.TypeParamCount > 0) { return true; }
             i = i + 1;
         }

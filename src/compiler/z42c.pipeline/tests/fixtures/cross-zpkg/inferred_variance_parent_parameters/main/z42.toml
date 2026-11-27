@@ -1,0 +1,8 @@
+[project]
+name = "demo.parent_parameter_variance_app"
+version = "0.1.0"
+kind = "exe"
+pack = true
+
+[dependencies]
+"demo.parent_parameter_variance_lib" = "0.1.0"
