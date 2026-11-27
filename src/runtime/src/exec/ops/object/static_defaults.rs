@@ -28,7 +28,7 @@ pub(crate) fn zero_value_for_type(ctx: &VmContext, tag: &str) -> crate::object::
     if td.is_enum() { return Value::I64(0); }
     if td.is_zero_payload_struct() {
         let args = empty_struct_args(&td, &name);
-        return ctx.heap().alloc_instance(td, args);
+        return zero_payload_value(ctx, td, args);
     }
     if !td.is_struct() || !td.struct_layout_ref().is_some_and(|layout| layout.size > 0) {
         return Value::Null;
@@ -37,6 +37,18 @@ pub(crate) fn zero_value_for_type(ctx: &VmContext, tag: &str) -> crate::object::
         Value::Object(gc) => Value::BoxedStruct(gc),
         // alloc_object 在严格 OOM 拒绝下返回 Null：不装入，照旧返回 Null。
         _ => Value::Null,
+    }
+}
+
+/// The concrete layout may have become zero-width through specialization. Its
+/// callers still use the definition's blob ABI and unbox the erased result.
+pub(super) fn zero_payload_value(ctx: &VmContext, td: std::sync::Arc<TypeDesc>, args: TypeArgs) -> Value {
+    let boxed = !td.fields.is_empty() && TypeDesc::erased_definition_name(&td.name)
+        .and_then(|name| ctx.loader().try_lookup_type(name))
+        .is_some_and(|def| def.struct_layout_ref().is_some_and(|layout| layout.size != 0));
+    match ctx.heap().alloc_instance(td, args) {
+        Value::Object(object) if boxed => Value::BoxedStruct(object),
+        value => value,
     }
 }
 

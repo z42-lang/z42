@@ -73,7 +73,7 @@ fn materialize_empty_field(ctx: &VmContext, td: &crate::object::TypeDesc, slot: 
     let Some((class, args)) = super::static_defaults::empty_struct_type(ctx, tag) else {
         return Ok(Value::Null);
     };
-    match ctx.heap().alloc_instance(class, args) {
+    match super::static_defaults::zero_payload_value(ctx, class, args) {
         Value::Null => Err(OpError::oom(format!("an empty struct field of type `{tag}`"))),
         value => Ok(value),
     }
