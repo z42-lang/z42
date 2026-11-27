@@ -44,6 +44,15 @@ void test_doc_attaches_to_each_declaration_kind() {
 }
 
 [Test]
+void test_doc_attaches_to_union_and_cases() {
+    string source = "/// 读取结果。\npublic union ReadResult {\n"
+        + "    /// 输入结束。\n    End,\n"
+        + "    Bytes(int),\n}\n";
+    Assert.Equal("union ReadResult = 读取结果。\n  case End = 输入结束。\n  case Bytes = -\n",
+                 DumpTool.DumpDoc(source));
+}
+
+[Test]
 void test_param_docs_attach_to_record_fields_and_primary_ctor() {
     // param-docs：类型位置参数前置 /// 挂到展开后的字段；主构造器（合成成员）认领类型自己的 doc；
     // 方法形参不认领——保持「方法参数文档用 @param」的单一口径（/// 会留作孤立块，由 W0801 报出）。

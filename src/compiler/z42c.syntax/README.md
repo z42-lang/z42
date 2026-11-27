@@ -47,6 +47,7 @@
 | `src/Stmt.z42` | 语句 AST（expr/var-decl/return/if/while/block/break/continue/throw/foreach/for/do-while/switch/try-catch-finally；SwitchCase/SwitchArm 持 Pattern + 守卫）|
 | `src/Pattern.z42` | 模式 AST（Wildcard/Constant/Name/Positional/Property）——switch / is 结构化共用 |
 | `src/Decl.z42` | 声明 AST（CompilationUnit 含 `SuppressRegions` 局部抑制区间 / Using / Class·Struct·Interface / Enum / Delegate / Field / Method（`IsFree` = 顶层 func）/ Property / Param / Attr；类型用法位均为 TypeExpr）|
+| `src/UnionDecl.z42` | union 声明、分支和可选命名的载荷字段 |
 | `src/Modifiers.z42` | 声明修饰符位标志 `Mod.*` + `Mod.Parse` / `Mod.Has`：各声明构造时把 `Mods` 串解析进 `ModFlags`（属性另有 `GetModFlags` / `SetModFlags`），下游一律按标志判断 |
 | `src/TupleArity.z42` | 元组元数上下界（2..8）与越界消息的唯一定义：类型位（`TypeParser`）与元组字面量（`ConstructTyper`）共用，同码 E0402 同措辞 |
 
@@ -59,6 +60,7 @@
 | `src/ParseTable.z42` | 表达式规则表：绑定力 / led 角色 / 特性门的唯一真相源 |
 | `src/StmtParser.z42` | 递归下降语句 |
 | `src/DeclParser.z42` / `src/MemberParser.z42` | 顶层声明（class·struct·interface/enum/delegate/顶层 func/field）与类成员（method/ctor/property/类型位置参数 `Foo(int X)`/泛型形参与 where/前置 attribute/`partial`/用户转换运算符 `implicit`·`explicit operator`/事件合成）|
+| `src/DeclParser.Union.z42` | 上下文关键字 `union` 的声明前瞻及分支载荷解析 |
 | `src/TypeParser.z42` | 类型位置解析 |
 | `src/PatternParser.z42` | 模式子解析器 `_parsePattern`：名字形状分流；is 结构化前瞻 `_isPatternLead` |
 | `src/MethodOfParser.z42` | member-of 家族括号内解析：`methodof(...)` 签名语法 + `fieldof`/`propertyof(...)` 的 `Type.Member`（`_parseDataMember`） |

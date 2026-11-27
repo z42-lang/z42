@@ -312,7 +312,7 @@ public sealed class SymbolCollector {
         int ac = 0;
         while (ac < cuCount) { table.NoteArities(cus[ac]); ac = ac + 1; }   // fix-arity-mangle-package-wide：mangle 判据必须与符号表同尺度（见 SymbolTable.NoteArities）
         while (c < cuCount) { this._stub._passClassStubs(table, cus[c], files[c]); c = c + 1; }
-        this._enforce._passValidatePartial(cus, files, cuCount);   // add-partial-types：全部标 partial / Kind 一致 / 嵌套 partial 校验
+        this._enforce._passValidateTypeDeclarations(cus, cuCount);
         // seed imported classes + funcs（成员解析前；G18：兄弟包 imported 类字段/方法类型可解析为 Z42ClassType 而非 Unknown）。
         this._mergeImports(table, imported);
         // interface-names-fqn：全部 stub（本地 + 导入）都进表之后，把类的 `InterfaceNames`
