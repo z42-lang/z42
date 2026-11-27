@@ -301,6 +301,9 @@ driver 与 builder 复用图、状态机和进程运行器，各自保留单包�
 不能把隐式顺序中的缺边当作并行机会。隔离进程避免共享 `DepScanCache`、`WorkspaceMemberDeps`、
 `WsSiblings` 等过程状态，同时也失去跨成员 memo 复用，并引入启动成本；吞吐收益须以真实工作负载验证。
 
+z42c 父进程将已规划的成员顺序、图边、dist 和 cache 路径写入本次构建的临时快照。
+子进程用节点索引读取同一份计划，并校验工作区清单和目标成员清单的指纹。父进程在所有子进程退出后移除快照。
+
 builder 将完整 `WorkspaceCompileDomain` 经 `Pipeline`、`CompileRequest` 传给 HostTarget：全成员身份包含
 未选中成员，只有前置闭包可见。`WsTier.OwnedMembers` 将每个成员目录限定为该成员的主包，运行期并置的
 依赖副本不能充当编译输入；SDK 同名旧包也不能补上缺失边。相同扫描域用于缓存身份和实际编译，前置成员

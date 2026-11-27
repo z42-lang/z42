@@ -1,0 +1,17 @@
+desc = "explicit graph worker snapshots preserve prerequisite order and UTF-8 manifest, dist and cache paths"
+
+[[step]]
+args = ["build", "--workspace", "--package-jobs", "2", "--release"]
+exit = 0
+stdout_count = [[": succeeded", "2"]]
+
+[[step]]
+tool = "run"
+target = "build 产物/snapshot.app/release/dist/snapshot.app.zpkg"
+exit = 0
+stdout_equals = "42"
+
+[[step]]
+args = ["build", "--workspace", "--package-jobs", "2", "--release"]
+exit = 0
+stdout_count = [[": succeeded", "2"], ["no changes; preserved", "2"]]
