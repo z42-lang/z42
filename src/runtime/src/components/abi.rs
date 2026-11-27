@@ -265,8 +265,8 @@ pub struct ProfilerApi {
 }
 unsafe impl ComponentInterface for ProfilerApi {
     const ID: InterfaceId = InterfaceId::new(0x7a34322e70726f66696c652e61706900);
-    // Retention now calls the Rust backend with a paused inspection view.
-    const VERSION: u32 = 2;
+    // The Rust backend captures an owned snapshot during the pause.
+    const VERSION: u32 = 3;
 }
 
 #[cfg(test)]

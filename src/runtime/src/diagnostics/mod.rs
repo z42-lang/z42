@@ -165,8 +165,21 @@ pub fn write_heap_snapshot(ctx: &VmContext, path: &str) -> anyhow::Result<i64> {
 
 /// Keep the failure stage available to callers that map it to managed errors.
 pub(crate) fn try_write_heap_snapshot(ctx: &VmContext, path: &str) -> Result<i64, HeapSnapshotError> {
-    profiler(ctx)
-        .map_err(HeapSnapshotError::Unavailable)?
-        .write_heap_snapshot(ctx, path)
-        .map_err(HeapSnapshotError::Write)
+    let profiler = profiler(ctx).map_err(HeapSnapshotError::Unavailable)?;
+    let write = with_heap_pause(ctx, |pause| profiler.capture_heap_snapshot(pause.inspect_heap()));
+    // The captured graph owns its data. The current context can park during I/O.
+    let _park = crate::threads::safepoint::NativeParkGuard::enter(ctx);
+    write(path).map_err(HeapSnapshotError::Write)
+}
+
+fn with_heap_pause<T>(
+    ctx: &VmContext,
+    inspect: impl FnOnce(&crate::threads::safepoint::GcPauseGuard<'_>) -> T,
+) -> T {
+    // If another collector is active, the pause request parks us until it finishes.
+    loop {
+        if let Some(pause) = crate::threads::safepoint::request_gc_pause(ctx) {
+            return inspect(&pause);
+        }
+    }
 }

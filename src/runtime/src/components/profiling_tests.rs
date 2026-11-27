@@ -85,13 +85,14 @@ fn legacy_profiler_interface_is_rejected_before_attachment() {
     use std::ffi::c_void;
     use std::sync::atomic::{AtomicBool, Ordering};
 
+    const LEGACY_VERSION: u32 = 2;
     static ATTACHED: AtomicBool = AtomicBool::new(false);
     static LEGACY_SPEC: [InterfaceSpec; 1] = [InterfaceSpec {
-        version: 1,
+        version: LEGACY_VERSION,
         ..InterfaceSpec::of::<ProfilerApi>()
     }];
     static LEGACY_API: ProfilerApi = ProfilerApi {
-        header: ApiHeader::of::<ProfilerApi>(1),
+        header: ApiHeader::of::<ProfilerApi>(LEGACY_VERSION),
         core_identity: identity,
         attach,
     };
@@ -115,7 +116,7 @@ fn legacy_profiler_interface_is_rejected_before_attachment() {
     unsafe extern "C" fn query(
         _: InstanceHandle, id: InterfaceId, version: u32, out: *mut InterfaceRef,
     ) -> ComponentStatus {
-        if out.is_null() || id != ProfilerApi::ID || version != 1 {
+        if out.is_null() || id != ProfilerApi::ID || version != LEGACY_VERSION {
             return ComponentStatus::UNAVAILABLE;
         }
         unsafe { *out = InterfaceRef { api: &LEGACY_API.header, context: std::ptr::null_mut() }; }

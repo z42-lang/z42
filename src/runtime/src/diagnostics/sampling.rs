@@ -8,10 +8,14 @@ pub trait SampleBackend: Send + Sync {
     fn flush_trace(&self, path: &str) -> std::io::Result<()>;
 }
 
+/// Writes a captured graph using data owned independently of the VM pause.
+pub type HeapSnapshotWriter = Box<dyn FnOnce(&str) -> anyhow::Result<i64>>;
+
 /// Internal same-core registration contract. Retention queries receive a
 /// collected heap while its owning VM is paused.
 pub trait ProfilerBackend: SampleBackend {
-    fn write_heap_snapshot(&self, ctx: &VmContext, path: &str) -> anyhow::Result<i64>;
+    /// Capture the graph while paused. The writer runs after the VM resumes.
+    fn capture_heap_snapshot(&self, heap: PausedHeap<'_>) -> HeapSnapshotWriter;
     fn direct_referrers(&self, heap: PausedHeap<'_>, target: usize) -> Vec<super::retention::RetainerInfo>;
     fn retaining_roots(&self, heap: PausedHeap<'_>, target: usize) -> Vec<super::retention::RootInfo>;
 }
