@@ -4,7 +4,7 @@
 
 crate 类型：component。VM 经内部 components::api 消费优化执行能力；本库只通过同构建 ABI 和最小 bridge 连接 VM。
 
-拥有 Cranelift 编译器、tier/OSR、代码页与 JIT Engine；不依赖解释器实现。
+拥有 Cranelift 编译器、tier/OSR、代码页与 JIT Engine。生产路径经 Core 的 `z42::exec::invoke` 回退到当前 VM 绑定的基线引擎。
 
 ## 功能索引
 
@@ -21,12 +21,17 @@ src/jit 为后端实现，src/jit/component.rs 提供工厂与 ExecutionApi；sr
 
 ## 如何测试验证
 
-静态构建运行 `xtask test` 与 `xtask package sdk --verify`。动态构建运行 `xtask package runtime --linkage dynamic --profile debug --verify`（release 同理），实际搬移后的生产组件测试覆盖生命周期和缺失后端错误。源内白盒测试由本 crate 执行；测试通过受控的 Core 测试辅助接口和独立解释器装配真实后端。
+静态构建运行 `xtask test` 与 `xtask package sdk --verify`。动态构建运行 `xtask package runtime --linkage dynamic --profile debug --verify`（release 同理），实际搬移后的生产组件测试覆盖生命周期和缺失后端错误。源内白盒测试由本 crate 执行。
 
 ## 关联文档
 
+- [Runtime crate 依赖约定](../README.md#依赖关系)
 - [组件化运行时](../../../../docs/internals/src/runtime/componentized-runtime.md)
 - [宿主规范](../../src/host/README.md)
+
+## 待办
+
+- 将仍通过 `z42-interp` dev-dependency 调用解释器的对照测试迁到 Runtime 集成层，JIT 白盒测试使用 Core 接口注入测试引擎。
 
 ## 核心文件
 

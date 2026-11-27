@@ -20,7 +20,11 @@
 
 ## 依赖关系
 
-执行后端依赖 z42；生产运行时不链接具体后端。最终宿主选择并登记所需组件。native SDK 的 z42-rs/z42-macros/z42-abi 保持 VM-free，独立模块不会因此引入整台 VM；真正的注册表、查询与调用桥在运行时 interop，装载在 loader。模块编写者可关闭 z42-rs 的默认 types feature，仅使用模块辅助；旧类型/宏 API 默认保留。proc-macro 和 no_std ABI 各有独立编译约束。
+执行后端依赖 z42 Core。最终宿主登记具体组件工厂，Core 在装配 VM 时按 `Baseline`、`Optimizing` 等角色绑定接口。后端通过 Core 使用已绑定的能力，例如 JIT 回退经 `z42::exec::invoke` 调用当前 VM 的基线引擎。组件 ID 和装载策略由装配层管理。
+
+后端 crate 之间禁止直接 Cargo 依赖，范围包括 `dev-dependencies`。后端单测通过 Core 接口注入测试实现，真实的跨后端对照测试由 Runtime 集成测试装配组件，再通过 Core 接口调用。
+
+native SDK 的 z42-rs/z42-macros/z42-abi 保持 VM-free，独立模块不会因此引入整台 VM；真正的注册表、查询与调用桥在运行时 interop，装载在 loader。模块编写者可关闭 z42-rs 的默认 types feature，仅使用模块辅助；旧类型/宏 API 默认保留。proc-macro 和 no_std ABI 各有独立编译约束。
 
 ## 如何测试验证
 

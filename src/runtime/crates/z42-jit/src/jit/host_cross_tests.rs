@@ -31,16 +31,19 @@ fn jit_mode_registers_both_engines_without_eager_compilation() {
     assert!(installed_tier(ctx).is_none());
     assert_eq!(ctx.core().diagnostics().snapshot(ctx.core().threads()).jit_methods_compiled, 0);
 }
-fn program(throws: bool) -> LoadedProgram {
-    let func = zpkg::ir::Function {
+fn demo_function(throws: bool) -> z42::metadata::Function {
+    z42::metadata::Function::new(zpkg::ir::Function {
         name: "Demo.Main".into(), param_count: 0, ret_type: "long".into(), exec_mode: ExecMode::Jit,
         blocks: vec![BasicBlock { label: "entry".into(), instructions: vec![Instruction::ConstI64 { dst: 0, val: 42 }],
             terminator: if throws { Terminator::Throw { reg: 0 } } else { Terminator::Ret { reg: Some(0) } } }],
         is_static: true, visibility: 0, method_flags: 0, min_arg: 0, params_from: 0xff, max_reg: 0,
         cold: None, reg_types: Box::new([]), block_index: Default::default(), branch_targets: Vec::new(), frame_meta: None,
-    };
+    })
+}
+
+fn program(throws: bool) -> LoadedProgram {
     let module = Module::new(zpkg::image::ModuleData { name: "Demo".into(), string_pool: Vec::new(), classes: Vec::new(),
-        func_index: [("Demo.Main".into(), 0)].into_iter().collect() }, vec![z42::metadata::Function::new(func)], Default::default());
+        func_index: [("Demo.Main".into(), 0)].into_iter().collect() }, vec![demo_function(throws)], Default::default());
     let ctx = VmContext::with_module(module);
     // SAFETY: both backend engines are linked into this test process.
     unsafe {
@@ -59,6 +62,72 @@ fn jit_host_calls_return_values_compile_and_preserve_static_state() {
     assert_eq!(program.invoke("Demo.Main", &[]).unwrap(), Some(Value::I64(42)));
     assert_eq!(ctx.statics().get_named("Demo.sentinel"), Value::I64(91));
     assert!(self::program(true).invoke("Demo.Main", &[]).unwrap_err().to_string().contains("uncaught exception"));
+}
+
+#[test]
+fn jit_fallback_uses_the_bound_baseline_provider() {
+    use core::ffi::c_void;
+    use z42::components::{
+        abi::*,
+        bridge::{core_identity, test_bind_execution, CORE_ABI},
+    };
+    use z42::exec::{args::CallArgs, outcome::ExecOutcome, Engine};
+
+    struct Baseline;
+    impl Engine for Baseline {
+        fn invoke(&self, _: &VmContext, _: &Module, func: &z42::metadata::Function,
+            args: CallArgs<'_>, _: &[String]) -> anyhow::Result<ExecOutcome> {
+            anyhow::ensure!(func.name == "Demo.Main" && matches!(args, CallArgs::Values([])));
+            Ok(ExecOutcome::Returned(Some(Value::I64(17))))
+        }
+    }
+
+    static BASELINE: Baseline = Baseline;
+    const ALTERNATE: ComponentId = ComponentId::new(0x414c545f42415345);
+
+    unsafe extern "C" fn identity() -> ExecutionIdentity {
+        ExecutionIdentity { image: core_identity(), abi: CORE_ABI }
+    }
+    unsafe extern "C" fn attach(vm: *const c_void, _: *const ExecutionConfig) -> ComponentStatus {
+        // SAFETY: Core already validated its identity and retains this linked engine.
+        let ctx = unsafe { &*vm.cast::<VmContext>() };
+        match unsafe { register_baseline_engine(ctx, &BASELINE) } {
+            Ok(()) => ComponentStatus::OK,
+            Err(_) => ComponentStatus::ERROR,
+        }
+    }
+    static API: ExecutionApi = ExecutionApi {
+        header: ApiHeader::of::<ExecutionApi>(1), core_identity: identity, attach,
+    };
+    unsafe extern "C" fn create(_: *const RuntimeApi, _: VmHandle, out: *mut InstanceHandle) -> ComponentStatus {
+        unsafe { *out = core::ptr::null_mut(); }
+        ComponentStatus::OK
+    }
+    unsafe extern "C" fn destroy(_: InstanceHandle) {}
+    unsafe extern "C" fn query(_: InstanceHandle, id: InterfaceId, version: u32, out: *mut InterfaceRef) -> ComponentStatus {
+        if id != ExecutionApi::ID || version != ExecutionApi::VERSION { return ComponentStatus::UNAVAILABLE; }
+        unsafe { *out = InterfaceRef { api: &API.header, context: core::ptr::null_mut() }; }
+        ComponentStatus::OK
+    }
+    static SPECS: [InterfaceSpec; 1] = [InterfaceSpec::of::<ExecutionApi>()];
+    static DESCRIPTOR: ComponentDescriptor = ComponentDescriptor {
+        header: ApiHeader::of::<ComponentDescriptor>(COMPONENT_ABI_VERSION), build_id: COMPONENT_BUILD_ID,
+        id: ALTERNATE, dependencies: IdSpan::EMPTY,
+        interfaces: InterfaceSpan { data: SPECS.as_ptr(), len: SPECS.len() },
+        create_vm: Some(create), destroy_vm: Some(destroy), query_interface: Some(query),
+    };
+    unsafe extern "C" fn init() -> *const ComponentDescriptor { &DESCRIPTOR }
+
+    let ctx = VmContext::new();
+    unsafe {
+        test_bind_execution(&ctx, (ALTERNATE, init), (JIT_COMPONENT, super::component::z42_jit_init)).unwrap();
+    }
+    let module = Module::new(zpkg::image::ModuleData {
+        name: "Demo".into(), string_pool: Vec::new(), classes: Vec::new(), func_index: Default::default(),
+    }, Vec::new(), Default::default());
+    // The function is absent from the JIT module, so the real JIT entry falls back.
+    let outcome = z42::exec::invoke_mode(&ctx, ExecMode::Jit, &module, &demo_function(false), &[]).unwrap();
+    assert!(matches!(outcome, ExecOutcome::Returned(Some(Value::I64(17)))));
 }
 
 #[test]
