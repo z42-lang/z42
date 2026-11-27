@@ -110,6 +110,14 @@ pub fn field_get_value(ctx: &VmContext, fi: &Value, target: &Value) -> anyhow::R
 pub(super) fn object_inline_struct_field_get(
     ctx: &VmContext, rc: &crate::object::ObjRef, name: &str,
 ) -> Result<Option<Value>> {
+    if let Some(&slot) = rc.type_desc().field_index.get(name) {
+        if rc.borrow().field_access_of(slot).is_some_and(|access| {
+            access.cell == crate::object::FieldCell::Struct && access.width == 0
+        }) {
+            return crate::exec::ops::object::field::load_named(ctx, rc, name)
+                .map(Some).map_err(crate::exec::ops::object::OpError::into_anyhow);
+        }
+    }
     let class_name = rc.type_desc().name.to_string();
     let resolve = |n: &str| ctx.loader().try_lookup_type(n);
     // `struct_field_fq` returns the field type's **fully-qualified** struct name (or

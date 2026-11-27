@@ -11,7 +11,7 @@
 use crate::metadata::dispatch::ic::{
     assert_field_ic_loc, field_ic_install, field_ic_lookup, FieldIC,
 };
-use crate::object::{FieldAccess, FieldLoc, FieldWrite, ScriptObject};
+use crate::object::{FieldAccess, FieldCell, FieldLoc, FieldWrite, ScriptObject};
 use crate::object::Value;
 use crate::vm::VmContext;
 
@@ -50,13 +50,44 @@ fn resolve_miss(o: &ScriptObject, name: &str, ic: Option<&FieldIC>) -> Option<Op
     Some(fa)
 }
 
-/// 读；字段不存在读出 `Null`（与历史行为一致）。
+/// An empty inline struct needs no bytes. Return its slot to the caller so it
+/// can materialize a value after any stack arena borrow has ended.
 #[inline(always)]
-fn load(o: &ScriptObject, name: &str, ic: Option<&FieldIC>) -> Value {
-    match resolve(o, name, ic) {
-        Some(Some(fa)) => o.load_access(fa),
-        _ => Value::Null,
+fn load(o: &ScriptObject, name: &str, ic: Option<&FieldIC>) -> Result<Value, usize> {
+    let Some(Some(access)) = resolve(o, name, ic) else { return Ok(Value::Null) };
+    if access.cell == FieldCell::Struct {
+        if let Some(&slot) = o.type_desc.field_index.get(name) {
+            return load_inline(o, slot);
+        }
     }
+    Ok(o.load_access(access))
+}
+
+#[cold]
+fn load_inline(o: &ScriptObject, slot: usize) -> Result<Value, usize> {
+    // The IC records the cell kind, so recover the byte width from the real layout.
+    if o.field_access_of(slot).is_some_and(|access| access.width == 0) {
+        return Err(slot);
+    }
+    Ok(Value::Null)
+}
+
+#[cold]
+fn materialize_empty_field(ctx: &VmContext, td: &crate::object::TypeDesc, slot: usize) -> OpResult<Value> {
+    let tag = &td.fields[slot].type_tag;
+    // Zero-width slots can also come from layouts that still declare fields.
+    let Some((class, args)) = super::static_defaults::empty_struct_type(ctx, tag) else {
+        return Ok(Value::Null);
+    };
+    match ctx.heap().alloc_instance(class, args) {
+        Value::Null => Err(OpError::oom(format!("an empty struct field of type `{tag}`"))),
+        value => Ok(value),
+    }
+}
+
+#[inline(always)]
+fn load_heap(ctx: &VmContext, rc: &crate::object::ObjRef, name: &str, ic: Option<&FieldIC>) -> OpResult<Value> {
+    load(rc.borrow(), name, ic).or_else(|slot| materialize_empty_field(ctx, rc.type_desc(), slot))
 }
 
 /// 写入（不含写屏障）。返回 `Some((单元字节偏移, 写了什么))`；调用方据此发屏障。
@@ -75,7 +106,7 @@ fn store(o: &ScriptObject, name: &str, v: &Value, ic: Option<&FieldIC>) -> OpRes
 #[inline(always)]
 pub fn field_get(ctx: &VmContext, recv: &Value, name: &str, ic: Option<&FieldIC>) -> OpResult<Value> {
     match recv {
-        Value::Object(rc) => Ok(load(&rc.borrow(), name, ic)),
+        Value::Object(rc) => load_heap(ctx, rc, name, ic),
         // `.Length` 落到 FieldGet 的两种常见接收者（词法器之类的热循环）也留在内联路径。
         Value::Str(s) if name == "Length" => Ok(Value::I64(crate::object::string::str_meta::char_len(s) as i64)),
         Value::Array(rc) if name == "Length" => Ok(Value::I64(rc.borrow().len() as i64)),
@@ -86,7 +117,7 @@ pub fn field_get(ctx: &VmContext, recv: &Value, name: &str, ic: Option<&FieldIC>
 #[inline(never)]
 fn field_get_rare(ctx: &VmContext, recv: &Value, name: &str, ic: Option<&FieldIC>) -> OpResult<Value> {
     match recv {
-        Value::Object(rc) => Ok(load(&rc.borrow(), name, ic)),
+        Value::Object(rc) => load_heap(ctx, rc, name, ic),
         Value::Str(s) => match name {
             "Length"     => Ok(Value::I64(crate::object::string::str_meta::char_len(s) as i64)),
             "ByteLength" => Ok(Value::I64(s.len() as i64)),
@@ -95,7 +126,10 @@ fn field_get_rare(ctx: &VmContext, recv: &Value, name: &str, ic: Option<&FieldIC
         Value::Array(rc) => array_len_field(name, rc.borrow().len()),
         Value::Null => Err(OpError::null_field_read(name)),
         Value::StackObject { idx, frame_id } => {
-            Ok(ctx.exec().with_stack_object(*idx, *frame_id, |o| load(o, name, ic))?)
+            let result = ctx.exec().with_stack_object(*idx, *frame_id, |o| {
+                load(o, name, ic).map_err(|slot| (o.type_desc.clone(), slot))
+            })?;
+            result.or_else(|(td, slot)| materialize_empty_field(ctx, &td, slot))
         }
         Value::StackArray { idx, frame_id } => {
             let len = ctx.exec().with_stack_array(*idx, *frame_id, |a| a.len())?;
@@ -170,10 +204,13 @@ pub fn check_field_addr(recv: &Value, name: &str) -> OpResult<crate::object::Obj
 }
 
 /// 经 `ref` 读字段（`RefKind::Field`）：字段必须存在。
-pub fn load_named(gc: &crate::object::ObjRef, name: &str) -> OpResult<Value> {
+pub fn load_named(ctx: &VmContext, gc: &crate::object::ObjRef, name: &str) -> OpResult<Value> {
     let o = gc.borrow();
     let slot = *o.type_desc.field_index.get(name).ok_or_else(|| OpError::internal(format!(
         "ref field `{name}` not found on type `{}`", o.type_desc.name)))?;
+    if o.field_access_of(slot).is_some_and(|access| access.cell == FieldCell::Struct && access.width == 0) {
+        return materialize_empty_field(ctx, &o.type_desc, slot);
+    }
     Ok(o.field_value(slot))
 }
 
