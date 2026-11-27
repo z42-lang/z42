@@ -27,6 +27,6 @@ unexpected_cfgs = { level = "warn", check-cfg = ["cfg(z42_test_facade)", "cfg(lo
 
 [dev-dependencies]
 z42 = { path = "../..", default-features = false, features = ["jit-test-support"] }
-z42-interp = { path = "../z42-interp", features = ["jit"] }
+z42-test-engines = { path = "../../tests/data/engine-fixtures" }
 z42-abi = { path = "../z42-abi" }
 z42-rs = { path = "../z42-rs" }

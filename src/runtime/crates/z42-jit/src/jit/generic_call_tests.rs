@@ -103,7 +103,7 @@ fn test_module() -> Module {
 fn idx(m: &Module, name: &str) -> usize { m.func_index[name] }
 
 fn interp(vm: &VmContext, m: &Module, name: &str) -> Value {
-    match crate::interp::run_outcome(vm, m, &m.functions[idx(m, name)], &[]).expect("runs") {
+    match crate::jit::test_support::invoke_baseline(vm, m, &m.functions[idx(m, name)], &[]).expect("runs") {
         ExecOutcome::Returned(v) => v.unwrap_or(Value::Null),
         ExecOutcome::Thrown(exc) => panic!("threw {exc:?}"),
     }
@@ -306,7 +306,7 @@ fn malformed_or_missing_witnesses_throw_in_both_engines() {
     ];
     for (name, expected) in cases {
         let vm = VmContext::new();
-        let outcome = crate::interp::run_outcome(&vm, &m, &m.functions[idx(&m, name)], &[]).unwrap();
+        let outcome = crate::jit::test_support::invoke_baseline(&vm, &m, &m.functions[idx(&m, name)], &[]).unwrap();
         match outcome {
             ExecOutcome::Thrown(exc) => assert_eq!(exc, Value::Str(expected.into())),
             _ => panic!("expected {name} to throw"),
@@ -405,7 +405,7 @@ fn method_struct_alloc_rejects_missing_or_unusable_type_arguments_in_both_engine
     for (name, expected) in cases {
         let vm = VmContext::new();
         install_method_struct_types(&vm);
-        let outcome = crate::interp::run_outcome(&vm, &module, &module.functions[idx(&module, name)], &[]).unwrap();
+        let outcome = crate::jit::test_support::invoke_baseline(&vm, &module, &module.functions[idx(&module, name)], &[]).unwrap();
         assert!(matches!(outcome, ExecOutcome::Thrown(exc) if exc == Value::Str(expected.into())));
 
         let vm = VmContext::new();
@@ -459,7 +459,7 @@ fn interpreter_executes_dynamic_struct_copy_across_frames() {
     assert_eq!(interp(&vm, &module, "T.CopySmall"), Value::I64(17));
     assert_eq!(interp(&vm, &module, "T.CopyLarge"), Value::I64(31));
     let function = &module.functions[idx(&module, "T.CopyMismatch")];
-    let outcome = crate::interp::run_outcome(&vm, &module, function, &[]).unwrap();
+    let outcome = crate::jit::test_support::invoke_baseline(&vm, &module, function, &[]).unwrap();
     assert!(matches!(outcome, ExecOutcome::Thrown(Value::Str(s)) if s.starts_with("StructCopyDynamic: incompatible layouts")));
 }
 

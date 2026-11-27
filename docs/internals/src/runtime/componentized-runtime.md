@@ -32,7 +32,7 @@ interop 验证通用 native 描述符并管理编组/实例，独立运行时库
 `interop/install.rs` 编排。依赖关系见[模块边界](module-boundaries.md)。
 
 VM 主实现属于 z42 这一个 Cargo 包，runtime/src 内的目录是它的模块；工作区另有上述独立 crate。
-主库提供 rlib/dylib，后端各自提供 rlib/cdylib 和 init 入口。生产运行时不依赖具体后端；最终静态嵌入示例通过 dev-dependency 链接独立后端的 rlib，不形成生产依赖环。JIT 白盒与跨后端测试由 JIT crate 执行，使用测试辅助接口和显式装配；runtime 单测不再同源编译 JIT。
+主库提供 rlib/dylib，后端各自提供 rlib/cdylib 和 init 入口。最终静态嵌入示例通过 dev-dependency 链接独立后端的 rlib。Runtime 集成测试装配真实后端。JIT 白盒测试通过 Runtime 测试夹具登记基线组件，基线调用经 Core 的执行接口。运行时测试校验执行后端的直接 Cargo 依赖。
 
 main.rs 是轻量 dlopen/LoadLibrary 入口，加载 Core 后调用 z42_main_v1；Core 中 cli feature 的私有命令行实现通过 host 加载和执行 zpkg。静态示例 z42vm_static 复用命令行实现。非 cli 平台不编译参数解析或日志策略。组件和独立库仍支持三种接入形态。
 

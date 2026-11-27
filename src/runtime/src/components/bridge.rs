@@ -177,6 +177,37 @@ pub fn test_loaded_program(ctx: std::pin::Pin<Box<VmContext>>, mode: crate::zpkg
     crate::host::LoadedProgram::new(ctx, mode, entry)
 }
 
+/// Bind test factories through the same role validation and attach path as a loaded program.
+///
+/// # Safety
+/// Factories must satisfy the static component contract and be linked into the test binary.
+#[cfg(feature = "jit-test-support")]
+#[doc(hidden)]
+pub unsafe fn test_bind_execution(
+    ctx: &VmContext,
+    baseline: (super::abi::ComponentId, super::abi::ComponentInit),
+    optimizing: Option<(super::abi::ComponentId, super::abi::ComponentInit)>,
+) -> anyhow::Result<()> {
+    use super::{api::ExecutionRole, execution_roles::ExecutionBindings};
+    use crate::{loader::NativeOrigin::StaticLink, zpkg::ExecMode};
+
+    let mut roles = vec![(ExecutionRole::Baseline, baseline.0)];
+    let mut components = unsafe {
+        super::api::ComponentOptions::default().with_linked(baseline.0, baseline.1, StaticLink)
+    };
+    let mode = if let Some((id, init)) = optimizing {
+        roles.push((ExecutionRole::Optimizing, id));
+        components = unsafe { components.with_linked(id, init, StaticLink) };
+        ExecMode::Jit
+    } else {
+        ExecMode::Interp
+    };
+    components.install_bound(ctx, ExecutionBindings::new(roles)?)?;
+    super::api::attach_execution(
+        ctx, mode, &crate::config::runtime_config_snapshot().jit_config(),
+    )
+}
+
 #[cfg(feature = "jit-test-support")]
 #[doc(hidden)]
 pub fn test_embedding_hello() -> Option<(&'static [u8], &'static str)> {

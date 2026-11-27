@@ -37,10 +37,10 @@ unsafe extern "C" fn query(_state: InstanceHandle, id: InterfaceId, version: u32
     ComponentStatus::OK
 }
 static INTERFACES: [InterfaceSpec; 1] = [InterfaceSpec::of::<ExecutionApi>()];
-static DEPENDENCIES: [ComponentId; 1] = [INTERP_COMPONENT];
 static DESCRIPTOR: ComponentDescriptor = ComponentDescriptor {
     header: ApiHeader::of::<ComponentDescriptor>(COMPONENT_ABI_VERSION), build_id: COMPONENT_BUILD_ID,
-    id: JIT_COMPONENT, dependencies: IdSpan { data: DEPENDENCIES.as_ptr(), len: DEPENDENCIES.len() },
+    // Core binds the baseline role before it attaches the optimizing engine.
+    id: JIT_COMPONENT, dependencies: IdSpan::EMPTY,
     interfaces: InterfaceSpan { data: INTERFACES.as_ptr(), len: 1 },
     create_vm: Some(create), destroy_vm: Some(destroy), query_interface: Some(query),
 };

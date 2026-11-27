@@ -1,0 +1,10 @@
+[package]
+name = "z42-test-engines"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+anyhow = "1"
+z42 = { path = "../../..", default-features = false, features = ["jit-test-support"] }
+z42-interp = { path = "../../../crates/z42-interp", default-features = false, features = ["jit"] }
