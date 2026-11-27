@@ -1,10 +1,7 @@
 //! V8 `.heapsnapshot` graph export (add-gc-heap-snapshot-export).
 //!
-//! Walks the live heap via the concrete [`Heap`] methods
-//! ([`iterate_live_objects`](crate::gc::Heap::iterate_live_objects) +
-//! [`scan_object_refs`](crate::gc::Heap::scan_object_refs) +
-//! [`for_each_root`](crate::gc::Heap::for_each_root)) and emits a
-//! flat node/edge graph serializable to the canonical V8 heap-snapshot
+//! Captures owned nodes and edges from a paused heap and serializes them after
+//! the pause in the canonical V8 heap-snapshot
 //! JSON format. Chrome DevTools (Memory → Load), speedscope, and
 //! heapviewer.com all open the resulting `.heapsnapshot` directly.
 //!
@@ -12,7 +9,6 @@
 //! - allocation-site stack traces (`trace_function_infos` / `trace_tree`
 //!   / `samples` arrays are emitted empty; requires IR alloc-site IDs
 //!   from B4 backlog spec)
-//! - streaming JSON serializer for multi-GB heaps
 //! - server-side dominator-tree pre-computation
 //! - explicit weak edges (current weak refs are skipped to avoid
 //!   retention confusion)
@@ -23,7 +19,7 @@
 use std::collections::HashMap;
 use std::io::{self, Write};
 
-use crate::gc::Heap;
+use crate::components::bridge::PausedHeap;
 use crate::object::Value;
 
 // ── Node / edge type discriminants ───────────────────────────────────────────
@@ -170,46 +166,46 @@ fn value_ptr(v: &Value) -> Option<usize> {
     }
 }
 
-/// Resolve `(NodeType, display_name, self_size_bytes)` for a heap value.
-fn node_desc(v: &Value, heap: &Heap) -> (NodeType, String, u32) {
-    let size = heap.object_size_bytes(v) as u32;
+/// Resolve the node type and display name for a heap value.
+fn node_desc(v: &Value) -> (NodeType, String) {
     match v {
         Value::Object(gc) => {
             let name = {
                 let obj = gc.borrow();
                 obj.type_desc.name.clone()
             };
-            (NodeType::Object, name, size)
+            (NodeType::Object, name)
         }
         Value::Array(gc) => {
             let len = gc.borrow().len();
-            (NodeType::Array, format!("Array[{}]", len), size)
+            (NodeType::Array, format!("Array[{}]", len))
         }
         _ => unreachable!("node_desc called on non-heap value"),
     }
 }
 
-/// Walk the heap and assemble a graph snapshot.
-///
-/// Algorithm (two-pass; see design.md Decision 2):
-/// 1. Enumerate every live `Value::Object` / `Value::Array` via
-///    [`iterate_live_objects`], assign each a unique V8 node id, push
-///    the corresponding `NodeRec`.
-/// 2. For each node, walk its outgoing references via
-///    [`scan_object_refs`]; for refs whose target was indexed in pass
-///    1, emit one [`EdgeRec`] of the appropriate type
-///    (Property for object slots, Element for array indices).
-/// 3. Walk host-pinned roots via [`for_each_root`]; for each
-///    rooted heap value, emit a Shortcut edge from the synthetic root
-///    (node index 0 / id 0).
-pub fn build_graph_snapshot(heap: &Heap) -> GraphSnapshot {
+pub(in crate::profiler) fn capture_graph_snapshot(heap: PausedHeap<'_>) -> GraphSnapshot {
+    build_graph_snapshot(
+        |visit| heap.live_values(visit),
+        |value| heap.object_size_bytes(value),
+        |visit| heap.pinned_roots(visit),
+    )
+}
+
+/// Assign node IDs before capturing their property, element and shortcut edges.
+/// Values and the graph they describe must stay valid across all three walks.
+fn build_graph_snapshot(
+    visit_live: impl FnOnce(&mut dyn FnMut(&Value)),
+    object_size: impl Fn(&Value) -> usize,
+    visit_pinned: impl FnOnce(&mut dyn FnMut(&Value)),
+) -> GraphSnapshot {
     let mut snap = GraphSnapshot::new();
     let mut id_map: HashMap<usize, u32> = HashMap::new();   // ptr → V8 id
     let mut idx_map: HashMap<u32, u32>   = HashMap::new();  // id  → nodes[] index
 
     // Pass 1: collect alive values, assign ids, emit nodes.
     let mut alive: Vec<Value> = Vec::new();
-    heap.iterate_live_objects(&mut |v| {
+    visit_live(&mut |v| {
         if value_ptr(v).is_some() {
             alive.push(v.clone());
         }
@@ -220,9 +216,9 @@ pub fn build_graph_snapshot(heap: &Heap) -> GraphSnapshot {
         if id_map.contains_key(&ptr) {
             continue;
         }
-        let (ty, name, size) = node_desc(v, heap);
+        let (ty, name) = node_desc(v);
         let name_idx = snap.intern_str(&name);
-        let id = snap.push_node(ty, name_idx, size);
+        let id = snap.push_node(ty, name_idx, object_size(v) as u32);
         let idx = (snap.nodes.len() - 1) as u32;
         id_map.insert(ptr, id);
         idx_map.insert(id, idx);
@@ -233,10 +229,7 @@ pub fn build_graph_snapshot(heap: &Heap) -> GraphSnapshot {
         let from_id  = match value_ptr(v) { Some(p) => id_map[&p], None => continue };
         let from_idx = idx_map[&from_id];
 
-        // Capture slot names (for object) or indices (for array).
-        // We can't borrow inside the closure passed to scan_object_refs
-        // without locking conflicts on Mutex (scan walks the same
-        // borrow). So pre-materialise slot-info into a list.
+        // Capture field names and array indices while their owners are paused.
         match v {
             Value::Object(gc) => {
                 let obj = gc.borrow();
@@ -280,11 +273,11 @@ pub fn build_graph_snapshot(heap: &Heap) -> GraphSnapshot {
         }
     }
 
-    // Pass 3: synthetic root → pinned + external roots (shortcut edges).
+    // Pass 3: synthetic root → host-pinned roots (shortcut edges).
     // Use a set to dedupe in case a root is reachable multiple ways.
     let mut root_targets: Vec<u32> = Vec::new();
     let mut seen_root: std::collections::HashSet<u32> = std::collections::HashSet::new();
-    heap.for_each_root(&mut |v| {
+    visit_pinned(&mut |v| {
         if let Some(ptr) = value_ptr(v) {
             if let Some(&to_id) = id_map.get(&ptr) {
                 if seen_root.insert(to_id) {

@@ -27,7 +27,7 @@ pub use crate::vm::{VmContext, VM_CONTEXT_CCTORS_OFFSET,
     VM_CONTEXT_SAFEPOINT_SKIP_OFFSET, VM_CONTEXT_STACK_LIMIT_OFFSET};
 use crate::components::abi::ExecutionCoreAbi;
 use crate::exec::{Engine, JitConfig, TierApi, TierBackend};
-pub use crate::diagnostics::sampling::{ProfilerBackend, SampleBackend};
+pub use crate::diagnostics::sampling::{HeapSnapshotWriter, ProfilerBackend, SampleBackend};
 pub use crate::gc::walk::PausedHeap;
 static CORE_IDENTITY: u8 = 0;
 pub fn core_identity() -> *const core::ffi::c_void { core::ptr::addr_of!(CORE_IDENTITY).cast() }
