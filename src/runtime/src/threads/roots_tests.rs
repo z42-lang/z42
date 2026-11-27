@@ -1,7 +1,6 @@
 //! Root-provider parity and managed-value liveness under the VM pause protocol.
 use super::*;
 use crate::vm::VmContext;
-use std::sync::Arc;
 
 #[test]
 fn categorized_and_collector_roots_preserve_pending_exceptions() {
@@ -14,11 +13,9 @@ fn categorized_and_collector_roots_preserve_pending_exceptions() {
     ctx.exec().set_pending_thrown(second);
     let _pause = crate::threads::safepoint::request_gc_pause(&ctx).unwrap();
     let mut collector = Vec::new();
-    unsafe { CoreRoots(Arc::downgrade(ctx.core())).visit_roots(&mut |v| collector.push(*v)); }
+    unsafe { ctx.visit_roots(&mut |v| collector.push(*v)); }
     let mut classified = Vec::new();
-    unsafe {
-        scan_categorized_roots(ctx.core(), &mut |v, kind| classified.push((*v, kind)));
-    }
+    crate::gc::walk::roots(ctx.heap(), &mut |v, kind| classified.push((*v, kind)));
     assert!(collector.contains(&first));
     assert!(collector.contains(&second));
     assert_eq!(collector, classified.iter().map(|(v, _)| *v).collect::<Vec<_>>());
