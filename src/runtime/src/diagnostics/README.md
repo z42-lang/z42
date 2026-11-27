@@ -15,7 +15,7 @@
 | `retention.rs` | 堆引用和保活根查询、目标识别与 GC 暂停 |
 | `observer.rs` | 运行时事件、观察者注册及回调快照 |
 | `exit_report.rs` | 普通返回和托管退出共享的进程级统计输出与采样刷盘 |
-| `crash_report.rs` | 通过 PAL 安装致命信号处理并报告 VM 栈 |
+| `crash_report.rs` | 登记进程中的 VM Core，通过 PAL 安装信号处理并报告 VM 栈 |
 | `mod.rs` 的 `DiagnosticsState` | 六个共享诊断字段与其生命周期 |
 | `DiagnosticsState::snapshot` | 在同一线程注册表锁下汇总存活与已退出线程计数 |
 | `add_runtime_observer` / `emit_runtime_event` | 给单个 VM 注册观察者和按需构造事件 |

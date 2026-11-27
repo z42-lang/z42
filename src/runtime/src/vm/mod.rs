@@ -11,9 +11,13 @@
 //! let _: Option<std::sync::Arc<VmCore>> = None;
 //! let _: Option<std::pin::Pin<Box<VmContext>>> = None;
 //! let _ = VmExtensions::new();
+//! let _: fn() -> Vec<std::sync::Arc<VmCore>> = z42::vm::vm_cores_snapshot;
+//! ```
+//! ```compile_fail
+//! use z42::vm::VM_CORES;
 //! ```
 use std::marker::PhantomPinned;
-use std::sync::{Arc, Weak};
+use std::sync::Arc;
 use crate::gc::Heap;
 
 mod extensions;
@@ -103,28 +107,9 @@ impl VmCore {
     #[inline] pub fn ext_state(&self) -> &crate::vm::ExtensionState { &self.ext_state }
 }
 
-/// Process-wide registry of all live [`VmCore`] instances.
-///
-/// The crash reporter walks this list to capture z42 call stacks across all
-/// VMs in the process. Weak references avoid explicit deregistration;
-/// the handler ignores entries whose `upgrade()` returns `None` and the
-/// next `VmCore::new` call lazy-prunes dead entries via `retain`.
-///
-/// Use the public [`vm_cores_snapshot`] to grab a Vec of live cores from
-/// non-signal contexts (tests, debug tools); the signal handler uses
-/// `try_lock` directly to avoid deadlock on contended mutator threads.
-pub static VM_CORES: std::sync::Mutex<Vec<Weak<VmCore>>> =
-    std::sync::Mutex::new(Vec::new());
-
-/// Snapshot all live `Arc<VmCore>` instances. Convenience for tests +
-/// diagnostic tools. The signal handler does NOT use this (uses
-/// `VM_CORES.try_lock()` directly to avoid blocking on contended cores).
+/// Take a snapshot of live Cores for diagnostic tools outside the signal handler.
 pub fn vm_cores_snapshot() -> Vec<Arc<VmCore>> {
-    VM_CORES
-        .lock()
-        .ok()
-        .map(|g| g.iter().filter_map(|w| w.upgrade()).collect())
-        .unwrap_or_default()
+    crate::diagnostics::live_cores_snapshot()
 }
 
 impl VmContext {

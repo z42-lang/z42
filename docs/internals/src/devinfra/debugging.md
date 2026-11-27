@@ -77,10 +77,11 @@ Z42_CRASH_DIR=/var/log/z42 RUST_BACKTRACE=1 ./z42vm script.zbc
 | `SIGILL` | 非法指令 —— JIT code 被写坏 |
 | `SIGBUS` | 对齐错误 / mmap 越界 —— ARM64 上偶发 |
 
-**锁争用时降级不死锁**：报告要 `try_lock` 拿 VM 核心注册表（`VM_CORES`）和每个核心的
-`vm_contexts`。信号触发时若另一线程持锁（比如 GC mark 阶段），handler 写
-`<vm_contexts lock contended>` 一类占位符——不死锁、不丢报告，进程照常 abort。帧本身不加锁：
-崩溃线程读的是自己的栈，别的线程只读帧数原子。
+Core 构造时登记到 `diagnostics/crash_report.rs` 的进程级注册表。表内保存弱引用，登记新 Core 时清理
+已释放的记录。普通诊断工具可以调用 Rust `vm::vm_cores_snapshot()` 取得存活 Core 的快照。
+
+崩溃报告尝试获取进程级注册表锁，再访问各 Core 的线程上下文。遇到锁占用时写入占位符，
+例如 `<vm_contexts lock contended>`。崩溃线程读取自己的栈，其余线程只读取已发布的帧数。
 
 信号捕获目前只在 POSIX（macOS / Linux）；Windows build 编译得过但没有信号捕获。
 
