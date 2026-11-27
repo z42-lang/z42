@@ -1,0 +1,10 @@
+using GenericMethodVariance;
+using Std.IO;
+
+void Main() {
+    ITransform<Animal,Cat> source = new Transform();
+    ITransform<Cat,Animal> converted = source;
+    Assert.True(converted.Apply<int>(new Cat(), 3) is Cat);
+    Assert.Equal(7, converted.Echo<int>(7));
+    Console.WriteLine("generic variance: ok");
+}

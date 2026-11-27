@@ -59,14 +59,11 @@ void test_nested_type_arguments_keep_only_their_own_slots_invariant() {
 }
 
 [Test]
-void test_variance_waits_for_complete_inherited_imported_and_generic_contracts() {
+void test_variance_waits_for_complete_inherited_imported_and_associated_contracts() {
     var derived = collectVarianceInterface(
         "interface IBase<T> { void Set(T value); } interface IDerived<T> : IBase<T> { T Get(); }",
         "IDerived");
     Assert.Equal(true, derived.ParameterVariance(0) == InterfaceVariance.Invariant);
-    var generic = collectVarianceInterface(
-        "interface IGeneric<T> { T Get(); U Convert<U>(U value); }", "IGeneric");
-    Assert.Equal(true, generic.ParameterVariance(0) == InterfaceVariance.Invariant);
     var associated = collectVarianceInterface(
         "interface IAssociated<T> { type Item; T Get(); }", "IAssociated");
     Assert.Equal(true, associated.ParameterVariance(0) == InterfaceVariance.Invariant);
@@ -99,4 +96,23 @@ void test_inferred_variance_preserves_nominal_conversion_rules() {
     Assert.Equal(true, iface.ParameterVariance(0) == InterfaceVariance.Covariant);
     Assert.Equal(false, Z42InterfaceType.SameInterface(narrow, broad));
     Assert.Equal(ConvKind.None, Conversion.Classify(narrow, broad, symbols).Kind);
+}
+
+
+[Test]
+void test_unconstrained_generic_methods_use_only_interface_parameter_positions() {
+    var iface = collectVarianceInterface(
+        "interface IGeneric<A,B,C,D> { B Map<M>(A value, M state); "
+        + "C Get(); C Echo<C>(C value); D Mix<M>(D value, M state); }", "IGeneric");
+    Assert.Equal(true, iface.ParameterVariance(0) == InterfaceVariance.Contravariant);
+    Assert.Equal(true, iface.ParameterVariance(1) == InterfaceVariance.Covariant);
+    Assert.Equal(true, iface.ParameterVariance(2) == InterfaceVariance.Covariant);
+    Assert.Equal(true, iface.ParameterVariance(3) == InterfaceVariance.Invariant);
+}
+
+[Test]
+void test_constrained_generic_method_remains_invariant() {
+    var iface = collectVarianceInterface(
+        "interface IGeneric<T> { T Get(); U Convert<U>(U value) where U : T; }", "IGeneric");
+    Assert.Equal(true, iface.ParameterVariance(0) == InterfaceVariance.Invariant);
 }
