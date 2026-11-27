@@ -1,12 +1,21 @@
 //! Services supplied by the VM. GC knows roots and pause lifetimes, not VM state.
 
+use crate::gc::walk::RootKind;
 use crate::object::{ScriptObject, Value};
 
 /// Root access is only valid while all owners are suspended, or on a standalone heap.
+/// Visitors borrow roots for the call and must not mutate roots or re-enter the heap.
 pub trait GcRoots {
     /// # Safety
     /// Every mutator that owns these roots must be suspended throughout the visit.
     unsafe fn visit_roots(&self, visit: &mut dyn FnMut(&Value));
+
+    /// Visit roots whose categories are supplied by the VM. Standalone
+    /// scanners without categories contribute only to marking.
+    ///
+    /// # Safety
+    /// Every mutator that owns these roots must be suspended throughout the visit.
+    unsafe fn visit_categorized_roots(&self, _visit: &mut dyn FnMut(&Value, RootKind)) {}
 }
 
 impl<F: Fn(&mut dyn FnMut(&Value))> GcRoots for F {

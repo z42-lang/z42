@@ -19,7 +19,6 @@ impl Heap {
             inner: Mutex::new(RcHeapInner::default()),
             external_root_scanner: Mutex::new(None),
             context_reclaimer: Mutex::new(None),
-            categorized_root_scanner: Mutex::new(None),
             external_needs_collect: Mutex::new(None),
             safepoint_poke: Mutex::new(None),
             mode: std::sync::atomic::AtomicU8::new(mode as u8),
