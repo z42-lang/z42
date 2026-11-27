@@ -47,7 +47,7 @@ pub(crate) mod header;
 mod storage;
 mod fields;
 mod heap_access;
-mod struct_access;
+pub(crate) mod struct_access;
 mod owned_object;
 mod monitor;
 mod reflected_type;

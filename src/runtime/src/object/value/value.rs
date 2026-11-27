@@ -388,7 +388,8 @@ impl PartialEq for Value {
                     // Reference leaves are reference words inside the blob: compare the bytes
                     // with those slots zeroed, and the decoded leaves by `Value` equality.
                     let (ao, bo) = (a.borrow(), b.borrow());
-                    ao.type_desc.name == bo.type_desc.name && ao.boxed_blob() == bo.boxed_blob()
+                    ao.type_desc.name == bo.type_desc.name
+                        && ao.type_args() == bo.type_args() && ao.boxed_blob() == bo.boxed_blob()
                 }
             }
             // add-escape-analysis-stack-alloc: 栈句柄引用相等 —— 同 (frame_idx, idx,

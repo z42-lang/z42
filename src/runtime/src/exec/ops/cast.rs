@@ -146,6 +146,19 @@ pub fn isa_object(
     isa_td(ctx, registry, td, target, key)
 }
 
+/// Match the exact type for unboxing; imported boxes carry arguments on the instance.
+pub fn boxed_struct_exact_type(boxed: &crate::object::ObjRef, target: &str) -> bool {
+    let args = boxed.type_args();
+    if boxed.type_desc().name == target {
+        return true;
+    }
+    if args.is_empty() {
+        return false;
+    }
+    use crate::zpkg::index::type_names::{canonical, constructed};
+    constructed(&boxed.type_desc().name, args) == canonical(target)
+}
+
 /// The extra matches a type test against a **bound type parameter** gives (`o is T` / `(T)o` in a
 /// shared generic body, target substituted from the activation) — values whose runtime form does
 /// not carry the type the parameter is bound to, so the ordinary test would answer "no" for a value

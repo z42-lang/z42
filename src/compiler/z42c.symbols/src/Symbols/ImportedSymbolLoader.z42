@@ -492,6 +492,7 @@ private static string _fqTrimTypeArgs(string fq) {
                 string srcName = (srcDol >= 0) ? m.Name.Substring(0, srcDol) : m.Name;
                 var sym = new MethodSymbol(srcName, m.Visibility, sig, m.IsStatic, ct.Name(), false, null);
                 sym.RegKey = m.Name;
+                sym.IsSharedFloatStructEquals = m.IsSharedFloatStructEquals;
                 sym.IsSealed = m.IsSealed;   // impl-sealed-semantics-devirt：跨包方法级 sealed（override 强制）
                 sym.IsDeprecated = m.IsDeprecated; sym.DeprecationMsg = m.DeprecationMsg;   // add-deprecated-directive：跨包方法级弃用
                 sym.TypeParamCount = m.TypeParamCount;   // add-array-paired-sort：跨包方法级泛型形参个数，供 arity 重载过滤

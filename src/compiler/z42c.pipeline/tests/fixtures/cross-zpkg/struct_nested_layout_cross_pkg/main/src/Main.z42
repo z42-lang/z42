@@ -31,4 +31,27 @@ void Main() {
     pr.First.y = 220;
     Console.WriteLine(pr.First.y);    // 220
     Console.WriteLine(pr.Second);     // s
+
+    CheckImportedEquals();
+}
+
+void CheckImportedEquals() {
+    FloatCell<int> value = new FloatCell<int>(1, 0.0f);
+    object same = new FloatCell<int>(1, -0.0f);
+    object differentValue = new FloatCell<int>(1, 1.0f);
+    object differentType = new FloatCell<long>(1L, 0.0f);
+    object boxed = value;
+    Assert.True(value.Equals(same));
+    Assert.True(boxed.Equals(same));
+    Assert.False(value.Equals(differentValue));
+    Assert.False(boxed.Equals(differentValue));
+    Assert.False(value.Equals(differentType));
+    Assert.False(boxed.Equals(differentType));
+
+    CustomCell<int> custom = new CustomCell<int>(1, 0.0f);
+    object boxedCustom = custom;
+    Assert.True(custom.Equals(differentType));
+    Assert.True(boxedCustom.Equals(differentType));
+    Assert.Equal(913, custom.GetHashCode());
+    Assert.Equal(913, boxedCustom.GetHashCode());
 }

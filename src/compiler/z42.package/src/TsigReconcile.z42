@@ -874,6 +874,7 @@ public static class TsigReconcile {
         em.RefInfoKnown = TsigReconcile.RefInfoKnown(f);   // record-ref-in-signature
         em.ParamsFrom = TsigReconcile._pfInt(f.ParamsFrom);
         em.IsSealed = (f.MethodFlags & 4) != 0;   // impl-sealed-semantics-devirt：METHOD_FLAG_SEALED
+        em.IsSharedFloatStructEquals = (f.MethodFlags & IrStructEquals.SharedFloat) != 0;
         em.IsDeprecated = IrDeprecation.Has(f.Attrs, f.AttrCount); em.DeprecationMsg = IrDeprecation.Msg(f.Attrs, f.AttrCount);   // add-deprecated-directive（attr-ref 哨兵）
         em.RetIsNullable = IrNullableRet.Has(f.Attrs, f.AttrCount);   // define-null-check-marks 3.3：返回类型的 `?`（方法级哨兵）
         em.TypeParamConstraints = f.TypeParamConstraints;

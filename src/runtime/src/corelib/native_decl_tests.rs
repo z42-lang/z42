@@ -35,6 +35,7 @@ const UNDECLARED_ALLOWLIST: &[(&str, &str)] = &[
     // Emitted directly by the compiler (value boxing lowering), never spelled in stdlib source.
     ("__box_prim",   "compiler-emitted: add-primitive-value-boxing"),
     ("__box_struct", "compiler-emitted: add-struct-value-semantics"),
+    ("__box_imported_struct", "compiler-emitted: imported struct boxing with a closed identity"),
     ("__struct_field_receiver", "compiler-emitted: frame-local view of an inline struct field"),
     ("__project_interface", "compiler-emitted: implicit interface variance"),
     // Emitted by the compiler for `available!(X)`. Doubly undeclarable: it is never spelled in

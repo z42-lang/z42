@@ -55,6 +55,7 @@ public sealed class ExportedMethodZ {
     }
     public bool RefInfoKnown;   // record-ref-in-signature：本方法的 ref 信息是否写全了
                                 // （`$RefSig` 完备性标记）。假 = 旧包，**不知道**，非「全非 ref」。
+    public bool IsSharedFloatStructEquals;
     public bool RetIsNullable;  // define-null-check-marks 3.3：返回类型标了 `?`（从方法级 `$RetNullable`
                                 // 哨兵读出）。同 ParamsFrom：ctor 元数不变（旧种子 ABI），默认 false，构造后赋值。
                                 // **不需要**「已知」位——缺席 = 不强制，旧包落成 false 恰好正确。

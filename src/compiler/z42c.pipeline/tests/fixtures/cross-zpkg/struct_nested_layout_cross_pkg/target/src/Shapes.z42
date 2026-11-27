@@ -23,3 +23,10 @@ public struct Pair<A, B> {
     public B Second;
     public Pair(A a, B b) { this.First = a; this.Second = b; }
 }
+
+[Record] public struct FloatCell<T>(T Tag, float Amount);
+
+[Record] public struct CustomCell<T>(T Tag, float Amount) {
+    public override bool Equals(object? other) { return true; }
+    public override int GetHashCode() { return 913; }
+}

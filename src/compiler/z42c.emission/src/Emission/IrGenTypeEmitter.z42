@@ -175,8 +175,12 @@ public sealed class IrGenTypeEmitter {
             var eqFe = new FunctionEmitter(this._model.Symbols, g);
             string eqBase = g.SpecInstName != "" ? g._qLayout(g.SpecInstName) : g._q(g._classIrShortName(c));
             string keyName = LayoutKey.OfClass(owner);
-            string eqIr = eqBase + (g.Layouts.HasFloatLeaf(keyName) ? ".Equals$1" : ".Equals$1$synth");
+            bool hasFloat = g.Layouts.HasFloatLeaf(keyName);
+            string eqIr = eqBase + (hasFloat ? ".Equals$1" : ".Equals$1$synth");
             IrFunction eqF = eqFe.EmitSynthStructEquals(eqIr, owner);
+            if (hasFloat && owner.GenericParamCount > 0 && g.SpecInstName == "") {
+                eqF.MethodFlags = eqF.MethodFlags | IrStructEquals.SharedFloat;
+            }
             eqF.MinArg = 1;   // Equals(other) 逻辑参数 1（reconcile：默认=含 this 总数，需覆盖）
             this._out.AddFunc(eqF);
         }
