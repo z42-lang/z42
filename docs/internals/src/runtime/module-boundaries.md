@@ -214,7 +214,7 @@ C initialize 当前建立进程单例宿主会话，不等于创建一个承载�
 | 四处 builtins.rs | 组装提供方、声明导出、名称目录、执行派发 | builtin_registry_builder.rs、core_builtin_descriptors.rs、builtin_symbol_catalog.rs、builtin_dispatch.rs |
 | components/backends.rs | 来源选择、平台发现、初始引擎注册表 | source/discovery 按职责拆分；装配协调由内部 api 拥有，同构建协议位于 components::abi |
 | loader/native.rs、exec/native.rs | 原生库装入/注册；native 调用服务 | native_library_loader.rs、native_module_registration.rs、native_call_services.rs |
-| host/mod.rs、diagnostics/exit_report.rs、components/profiling.rs | 功能级诊断请求、退出报告与 profiler 装配 | host 转发请求，diagnostics 负责观察与输出，components 负责能力绑定 |
+| host/mod.rs、diagnostics/mod.rs、diagnostics/exit_report.rs、components/profiling.rs | 功能级诊断请求、退出报告与 profiler 装配 | host 导出功能入口，diagnostics 负责观察与输出，components 负责能力绑定 |
 | object/protocol.rs、exec/ops/stringify.rs | 对象能力契约；托管调用/默认文本物化 | 定义与执行桥已按所有者分开；继续检查 exec/ops 中布局/存储事实与执行编排的混合 |
 | host/mod.rs、vm/program.rs、vm/assembly.rs、loader/program.rs | 宿主接口、程序会话与装配、产物准备 | host 导出加载与调用入口，vm 持有会话和装配顺序，loader 准备产物 |
 | vm/ | Core、线程视图、布局、默认服务与装配 | 多个实现按共同所有者集中；crate::vm 的类型和组件 bridge 消费路径不随物理布局变化 |

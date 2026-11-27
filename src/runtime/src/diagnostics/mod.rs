@@ -121,7 +121,8 @@ pub(crate) fn install_profiler_backend(
     ctx.core().diagnostics().sampler.install(backend)
 }
 
-pub(crate) fn profiler_loaded(ctx: &VmContext) -> bool {
+/// Check whether this VM already has a profiler installed.
+pub fn profiler_loaded(ctx: &VmContext) -> bool {
     ctx.core().diagnostics().sampler.is_loaded()
 }
 
@@ -129,7 +130,8 @@ fn profiler(ctx: &VmContext) -> anyhow::Result<&dyn sampling::ProfilerBackend> {
     ctx.core().diagnostics().sampler.provider(ctx)
 }
 
-pub(crate) fn prepare_profiler(ctx: &VmContext) -> anyhow::Result<()> {
+/// Resolve the configured profiler, validating its build and Core identity.
+pub fn prepare_profiler(ctx: &VmContext) -> anyhow::Result<()> {
     profiler(ctx).map(|_| ())
 }
 
@@ -152,15 +154,15 @@ pub(crate) enum HeapSnapshotError {
     Write(anyhow::Error),
 }
 
-impl HeapSnapshotError {
-    pub(crate) fn into_diagnostic(self) -> anyhow::Error {
-        match self {
-            Self::Unavailable(error) | Self::Write(error) => error,
-        }
-    }
+/// Write a heap snapshot with the configured profiler and return its byte size.
+pub fn write_heap_snapshot(ctx: &VmContext, path: &str) -> anyhow::Result<i64> {
+    try_write_heap_snapshot(ctx, path).map_err(|error| match error {
+        HeapSnapshotError::Unavailable(cause) | HeapSnapshotError::Write(cause) => cause,
+    })
 }
 
-pub(crate) fn write_heap_snapshot(ctx: &VmContext, path: &str) -> Result<i64, HeapSnapshotError> {
+/// Keep the failure stage available to callers that map it to managed errors.
+pub(crate) fn try_write_heap_snapshot(ctx: &VmContext, path: &str) -> Result<i64, HeapSnapshotError> {
     profiler(ctx)
         .map_err(HeapSnapshotError::Unavailable)?
         .write_heap_snapshot(ctx, path)

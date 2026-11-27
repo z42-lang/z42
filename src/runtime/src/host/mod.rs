@@ -50,9 +50,7 @@
 //! use z42::host::module::Z42Module;
 //! ```
 pub use crate::{object::Value, pal::fs::Vfs, metadata::Module};
-// VmContext stays reachable at `z42::vm` only: hosts express functional
-// requests; the low-level context is a VM-internal facility.
-use crate::vm::VmContext;
+pub use crate::diagnostics::{prepare_profiler, profiler_loaded, write_heap_snapshot};
 /// Package resolver contract and resolver-key discovery.
 pub mod resolver {
     pub use crate::loader::program::{read_zpkg_namespaces, ZpkgResolver};
@@ -93,20 +91,3 @@ pub mod rust;
 
 
 pub use crate::config::{RuntimeConfig, VmConfig};
-
-
-/// Whether this VM already has a profiler provider installed.
-pub fn profiler_loaded(ctx: &VmContext) -> bool {
-    crate::diagnostics::profiler_loaded(ctx)
-}
-
-/// Resolve the configured profiler, validating its build/core identity first.
-pub fn prepare_profiler(ctx: &VmContext) -> anyhow::Result<()> {
-    crate::diagnostics::prepare_profiler(ctx)
-}
-
-/// Write a heap snapshot using the configured profiler.
-pub fn write_heap_snapshot(ctx: &VmContext, path: &str) -> anyhow::Result<i64> {
-    crate::diagnostics::write_heap_snapshot(ctx, path)
-        .map_err(crate::diagnostics::HeapSnapshotError::into_diagnostic)
-}

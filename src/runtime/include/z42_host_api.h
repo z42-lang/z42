@@ -206,11 +206,10 @@ Z42HostStatus z42_host_load_zbc(Z42HostRef host,
 /*
  * Read the keys a zpkg can be resolved by — its package name plus every
  * namespace it declares in NSPC — invoking `visit` once per key.
- * Stateless — needs no initialized VM. Lets a resolver build its map from
- * the package itself (no index file). Returns ERR_BAD_ZBC if `bytes`
- * isn't a parseable zpkg.
- *
- * Spec: 变更 drop-index-json-self-describing/
+ * Requires no initialized session. For nonzero length, bytes must point to
+ * a readable buffer for the duration of the call. Each key is valid only
+ * during its callback. Returns ERR_BAD_CONFIG for a null visitor and
+ * ERR_BAD_ZBC for invalid bytes. Updates z42_host_last_error on this thread.
  */
 Z42HostStatus z42_zpkg_read_namespaces(const uint8_t* bytes, size_t length,
                                        Z42NamespaceVisitor visit, void* user_data);

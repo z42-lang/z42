@@ -11,6 +11,7 @@
 |---|---|
 | `counters.rs` | 每线程原子计数、聚合快照与格式化 |
 | `sampling.rs` | 采样状态、惰性后端准备及输出委托 |
+| `prepare_profiler` / `profiler_loaded` / `write_heap_snapshot` | Rust 宿主功能入口，宿主根直接导出 |
 | `retention.rs` | 堆引用和保活根查询、目标识别与 GC 暂停 |
 | `observer.rs` | 运行时事件、观察者注册及回调快照 |
 | `exit_report.rs` | 普通返回和托管退出共享的进程级统计输出与采样刷盘 |

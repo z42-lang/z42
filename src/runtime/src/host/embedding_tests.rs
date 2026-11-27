@@ -22,6 +22,7 @@ use super::{abi_config, session};
 use super::error::Z42HostStatus;
 use super::*;
 use super::Z42Module;
+use crate::vm::VmContext;
 #[cfg(z42_have_embedding_hello)]
 use super::Z42Entry;
 
@@ -832,6 +833,12 @@ fn zpkg_read_namespaces_lists_nspc() {
         }
     };
     let mut out: Vec<String> = Vec::new();
+    let bad_status = unsafe {
+        z42_zpkg_read_namespaces(core.as_ptr(), core.len(), None, ptr::null_mut())
+    };
+    assert_eq!(bad_status, Z42HostStatus::BadConfig);
+    assert_eq!(unsafe { z42_host_last_error(ptr::null_mut()).code }, bad_status.as_code());
+
     let status = unsafe {
         z42_zpkg_read_namespaces(
             core.as_ptr(),
@@ -841,6 +848,8 @@ fn zpkg_read_namespaces_lists_nspc() {
         )
     };
     assert_eq!(status, Z42HostStatus::Ok);
+    assert_eq!(unsafe { z42_host_last_error(ptr::null_mut()).code }, 0);
+    assert_eq!(out.first().map(String::as_str), Some("z42.core"));
     // z42.core.zpkg resolves by its package name ("z42.core", the prelude
     // key) plus the namespaces it declares (Std, ...) — exactly the keys a
     // hand-maintained index would otherwise have to encode (and drift from).
@@ -852,15 +861,21 @@ fn zpkg_read_namespaces_lists_nspc() {
 #[test]
 fn zpkg_read_namespaces_rejects_garbage() {
     let garbage = b"NOTAZPKG".to_vec();
+    let mut out = Vec::<String>::new();
     let status = unsafe {
         z42_zpkg_read_namespaces(
             garbage.as_ptr(),
             garbage.len(),
             Some(ns_collect),
-            ptr::null_mut(),
+            &mut out as *mut Vec<String> as *mut c_void,
         )
     };
     assert_eq!(status, Z42HostStatus::BadZbc);
+    assert!(out.is_empty());
+    let error = unsafe { z42_host_last_error(ptr::null_mut()) };
+    assert_eq!(error.code, status.as_code());
+    assert!(unsafe { CStr::from_ptr(error.message) }.to_bytes()
+        .starts_with(b"z42_zpkg_read_namespaces: cannot read zpkg metadata"));
     assert!(super::read_zpkg_namespaces(&garbage).is_err());
 }
 

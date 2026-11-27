@@ -324,7 +324,6 @@ pub fn gc_pause_window_capacity(ctx: &VmContext) -> i64 {
 /// Load, speedscope, and heapviewer.com.
 pub fn gc_write_heap_snapshot(ctx: &VmContext, path: &str) -> Result<i64> {
     crate::diagnostics::write_heap_snapshot(ctx, path)
-        .map_err(crate::diagnostics::HeapSnapshotError::into_diagnostic)
 }
 
 /// `Std.GC.SetMaxHeapBytes(bytes)` — **add-gc-oom-exception **.
@@ -481,7 +480,7 @@ pub mod typed {
     #[builtin(name = "__gc_write_heap_snapshot")]
     pub fn write_heap_snapshot(ctx: &VmContext, path: &str) -> Result<i64, BuiltinError> {
         use crate::diagnostics::HeapSnapshotError;
-        crate::diagnostics::write_heap_snapshot(ctx, path).map_err(|error| match error {
+        crate::diagnostics::try_write_heap_snapshot(ctx, path).map_err(|error| match error {
             HeapSnapshotError::Unavailable(cause) => {
                 BuiltinError::NotSupported(format!("profiler unavailable: {cause:#}"))
             }
