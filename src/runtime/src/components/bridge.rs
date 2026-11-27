@@ -2,7 +2,8 @@
 //!
 //! ```
 //! use z42::components::bridge::{install_profiler_backend, register_baseline_engine, ProfilerBackend};
-//! use z42::components::bridge::sample_frame_names;
+//! use z42::components::bridge::{poll_safepoint_slow, sample_frame_names};
+//! let _: fn(&z42::vm::VmContext) = poll_safepoint_slow;
 //! use z42::exec::Engine;
 //! let _: fn(&z42::vm::VmContext) -> Vec<std::sync::Arc<str>> = sample_frame_names;
 //! let _: unsafe fn(&z42::vm::VmContext, &'static dyn Engine) -> _ = register_baseline_engine;
@@ -48,6 +49,12 @@ pub(super) fn validate_core(identity: crate::components::abi::ExecutionIdentity,
     anyhow::ensure!(identity.image == core_identity() && identity.abi == CORE_ABI,
         "{name} component core image or ABI mismatch; use components from the same shared-core runtime pack");
     Ok(())
+}
+
+/// Handle the slow branch reached by a native inlined safepoint poll.
+#[inline]
+pub fn poll_safepoint_slow(ctx: &VmContext) {
+    crate::threads::safepoint::check_safepoint_slow(ctx);
 }
 
 /// Borrow object capabilities already bound to this VM. Execution components call
@@ -137,6 +144,18 @@ pub unsafe fn install_profiler_backend(
 #[cfg(feature = "jit-test-support")]
 #[doc(hidden)]
 pub use crate::vm::jit_test_context;
+
+#[cfg(feature = "jit-test-support")]
+#[doc(hidden)]
+pub fn test_safepoint_counter(ctx: &VmContext) -> u32 {
+    ctx.threads().safepoint_counter_for_test()
+}
+
+#[cfg(feature = "jit-test-support")]
+#[doc(hidden)]
+pub fn test_request_auto_collect(ctx: &VmContext) {
+    ctx.core().threads().request_auto_collect_for_test();
+}
 
 #[cfg(feature = "jit-test-support")]
 #[doc(hidden)]

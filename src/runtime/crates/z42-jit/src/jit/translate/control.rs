@@ -21,28 +21,6 @@ pub(super) fn find_handler_entries(func: &Function, block_idx: usize) -> Vec<usi
     out
 }
 
-/// inline-jit-safepoint-check : emit the cooperative-GC safepoint
-/// **fast path** inline as native load/store + branch, replacing a
-/// `jit_check_safepoint` helper call (~10ns) on the hot path. See
-/// `变更 inline-jit-safepoint-check/design.md`.
-///
-/// Mirrors `threads::safepoint::check_safepoint`:
-/// ```text
-///   prev   = *(ctx + SAFEPOINT_SKIP_OFFSET)         // plain i32 load
-///            *(ctx + SAFEPOINT_SKIP_OFFSET) = prev - 1
-///   if prev u> 1 { fast: continue }                 // ~99.9%
-///   else         { slow: jit_check_safepoint_slow(frame, ctx); continue }
-/// ```
-/// `ctx` is the running thread's own `VmContext`, so the counter is this
-/// thread's. The decrement is a plain (non-atomic) load/store: `safepoint_skip` is
-/// single-writer per mutator (only `force_safepoint`, test-only, writes it
-/// cross-thread), so RMW atomicity is unnecessary — and dropping it is what
-/// makes the fast path inlinable as two bare `mov`s (the `atomic_rmw` form
-/// panicked on x86_64 Cranelift lowering; the load/store form does not).
-///
-/// The current block ends with a `brif`; emission continues in the created
-/// `fast` block, which the caller keeps building into. Blocks are sealed later
-/// by `seal_all_blocks()` (per this file's convention).
 /// runtime-audit P0-4: stack overflow is fatal. Compare the stack pointer with
 /// the context's `JitHead::stack_limit` — the limit of the thread driving it,
 /// stored at its bottom frame push; below it, record the overflow and return the
@@ -71,6 +49,9 @@ pub(super) fn emit_stack_check(
     builder.switch_to_block(ok_blk);
 }
 
+/// Inline the mutator's countdown and call the VM slow path when it expires.
+/// A concurrent collector poke can race the load/store, as in the interpreter.
+/// Emission continues in the fast block, which the caller seals later.
 pub(super) fn emit_safepoint_check(
     builder:   &mut FunctionBuilder,
     ctx_val:   cranelift_codegen::ir::Value,

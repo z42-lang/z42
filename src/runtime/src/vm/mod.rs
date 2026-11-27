@@ -73,7 +73,7 @@ pub struct VmContext {
 /// Actual nested offset of the per-thread safepoint throttle in the context.
 /// Generated code must use this constant instead of assuming Rust field order.
 pub const VM_CONTEXT_SAFEPOINT_SKIP_OFFSET: usize =
-    std::mem::offset_of!(VmContext, threads.safepoint_skip);
+    std::mem::offset_of!(VmContext, threads) + crate::threads::SAFEPOINT_SKIP_OFFSET;
 
 /// Stack bound read directly by every compiled prologue.
 pub const VM_CONTEXT_STACK_LIMIT_OFFSET: usize =
@@ -231,24 +231,20 @@ impl VmContext {
     /// Register each worker with the Core so GC can find its thread-local
     /// roots. Drop removes the registration before deallocation.
     pub fn new_with_core(core: Arc<VmCore>) -> std::pin::Pin<Box<Self>> {
-        let safepoint_throttle = core.threads.safepoint_throttle;
+        let threads = core.threads().new_local_state();
         let ctx = Self {
             exec: crate::exec::ThreadExecState::new(&core.runtime.cctors, &core.exec.engines),
             core,
             diagnostics: Default::default(),
             runtime: crate::metadata::ThreadRuntimeState::new(),
-            threads: crate::threads::ThreadLocalState::new(safepoint_throttle),
+            threads,
             _pin: PhantomPinned,
         };
         let boxed = Box::pin(ctx);
         // SAFETY: this fresh context belongs to its Core and stays pinned until
         // its Drop removes the registration.
         unsafe { boxed.core.threads.register_context(boxed.as_ref()) };
-        // add-gc-tlab (stage 2): arm this thread for TLAB allocation (balanced
-        // in Drop). A spawned worker allocates into the TLAB fast path.
-        crate::gc::tlab::arm();
-        // add-incremental-major-gc M2a: this thread's SATB records belong to this heap (balanced in Drop).
-        crate::gc::satb::bind_thread(boxed.core.heap.heap_epoch());
+        crate::threads::attach_mutator(boxed.heap());
         boxed
     }
 
@@ -259,17 +255,7 @@ impl Drop for VmContext {
     /// Retire mutator resources and remove the registration before freeing
     /// the pinned allocation.
     fn drop(&mut self) {
-        // add-gc-tlab (stage 2): retire this thread's TLAB before the context
-        // goes away — merge its borrowed chunks' filled objects back into the
-        // shared region so they stay GC-visible (a thread may have handed
-        // objects to other threads). Runs on the owning thread; leaves the
-        // thread-local TLAB unbound for the next context. No-op if unbound.
-        self.core.heap.retire_thread_tlab();
-        self.core.heap.retire_parked_tlab(&self.threads.parked_tlab);
-        // add-gc-tlab (stage 2): balance the arm() from construction.
-        crate::gc::tlab::disarm();
-        // add-incremental-major-gc M2a: the retire above handed this thread's SATB buffer over.
-        crate::gc::satb::unbind_thread();
+        crate::threads::detach_mutator(self);
         self.core.threads.deregister_context(self, &self.core.diagnostics.counters);
     }
 }

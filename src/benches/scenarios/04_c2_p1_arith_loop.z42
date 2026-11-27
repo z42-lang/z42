@@ -15,10 +15,8 @@
 // backward branch in this shape was paying a helper call to read a
 // Bool we'd JUST stored via the cmp fast path.
 //
-// Remaining gap to the spec's 2× aspiration: roughly half the loop's
-// remaining cost is in `jit_check_safepoint` (called at function entry
-// + every BrCond as a GC cooperation point). Inlining its mutex-poll
-// fast path is the next obvious target.
+// The JIT also emits the safepoint countdown at function entry and on
+// the backward BrCond, so the loop includes GC cooperation overhead.
 //
 // The true sum Σ i² for i in [0,10M) is ~3.3e20, which overflows i64 and
 // wraps (two's-complement) to 1291890006563070912 — that wrapped value is
