@@ -11,8 +11,6 @@ pub enum RootKind {
     Pinned = 2,
 }
 
-pub type CategorizedRootScanner = Box<dyn Fn(&mut dyn FnMut(&Value, RootKind)) + Send + Sync>;
-
 /// Preserve the heap's incremental liveness filter and TLAB retirement.
 pub fn live_values(heap: &Heap, visitor: &mut dyn FnMut(&Value)) {
     heap.iterate_live_objects(visitor);
@@ -25,7 +23,8 @@ pub fn objects(heap: &Heap, visitor: &mut dyn FnMut(&Value)) {
 pub fn arrays(heap: &Heap, visitor: &mut dyn FnMut(&Value)) {
     heap.walk_diagnostic_arrays(visitor);
 }
-/// Pinned and strong-handle roots, followed by categorized VM roots.
+/// Pinned and strong-handle roots, followed by categorized VM roots. Call
+/// under a VM pause or on a standalone heap, and do not re-enter the heap.
 pub fn roots(heap: &Heap, visitor: &mut dyn FnMut(&Value, RootKind)) {
     heap.walk_diagnostic_roots(visitor);
 }

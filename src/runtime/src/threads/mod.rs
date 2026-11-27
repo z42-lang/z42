@@ -21,9 +21,14 @@
 //!     let _ = &ctx.threads().safepoint_skip;
 //! }
 //! ```
+//!
+//! ```compile_fail
+//! use z42::threads::roots::CoreRoots;
+//! ```
 mod gc;
 pub(crate) use gc::{attach_mutator, detach_mutator, wire_gc_pressure};
-pub mod roots;
+mod roots;
+pub(crate) use roots::install_vm_roots;
 pub mod safepoint;
 
 mod state;
