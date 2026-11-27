@@ -90,16 +90,17 @@ pub fn resolve_frame_vcall<'a>(
     ctx: &'a VmContext, module: &'a Module, obj_val: &Value, method: &str, arity: usize,
     ic: Option<&VCallIC>, caller_type_args: &[String], caller_this: Option<&Value>,
 ) -> Result<ResolvedVCall<'a>> {
-    if let Some((interface, marker, member)) =
+    if let Some((interface, arguments, member)) =
         crate::metadata::dispatch::vcall::iface_slot_method_template(method)
     {
         let env = crate::exec::type_param_env::TypeParamEnv::new(caller_type_args, caller_this);
-        let key = match env.resolve(ctx, marker) {
-            Some(name) => {
-                let name = crate::zpkg::index::type_names::canonical_arg(&name);
-                format!("{interface}<@{name}>#{member}")
-            }
-            None => format!("{interface}#{member}"),
+        let bound = env.substitute(ctx, arguments);
+        let key = if crate::zpkg::index::type_param_markers::has_markers(&bound) {
+            format!("{interface}#{member}")
+        } else {
+            let mut owner = crate::zpkg::index::type_names::canonical_arg(&format!("{interface}<{bound}>"));
+            owner.insert(interface.len() + 1, '@');
+            format!("{owner}#{member}")
         };
         return resolve_vcall(ctx, module, obj_val, &key, arity, None);
     }

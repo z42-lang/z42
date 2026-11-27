@@ -1,0 +1,41 @@
+namespace Demo;
+interface IRoute<A, B> { string Pick(A a, B b); }
+class Both : IRoute<int, string>, IRoute<string, int> {
+    public string Pick(int a, string b) { return "int/string"; }
+    public string Pick(string a, int b) { return "string/int"; }
+}
+interface IArrayRoute<A, B> { string Pick(B value); }
+class ArrayRoutes : IArrayRoute<int[], int>, IArrayRoute<string[], string> {
+    public string Pick(int value) { return "int[]"; }
+    public string Pick(string value) { return "string[]"; }
+}
+
+class Router {
+    public virtual string ViaArray<B>(IArrayRoute<B[], B> x, B a) { return x.Pick(a); }
+    public virtual string Via<A, B>(IRoute<A, B> x, A a, B b) { return x.Pick(a, b); }
+}
+class Relay<B> {
+    public string Via(IArrayRoute<B[], B> route, B value) { return route.Pick(value); }
+}
+
+void Main() {
+    Both both = new Both();
+    IRoute<int, string> first = both;
+    IRoute<string, int> second = both;
+    Router router = new Router();
+    Assert.Equal("int/string", first.Pick(1, "s"));
+    Assert.Equal("string/int", second.Pick("s", 1));
+    ArrayRoutes arrays = new ArrayRoutes();
+    IArrayRoute<int[], int> ints = arrays;
+    IArrayRoute<string[], string> strings = arrays;
+    var intRelay = new Relay<int>();
+    var stringRelay = new Relay<string>();
+    for (int i = 0; i < 20; i = i + 1) {
+        Assert.Equal("int/string", router.Via<int, string>(first, 1, "s"));
+        Assert.Equal("string/int", router.Via<string, int>(second, "s", 1));
+        Assert.Equal("int[]", router.ViaArray<int>(ints, 1));
+        Assert.Equal("string[]", router.ViaArray<string>(strings, "s"));
+        Assert.Equal("int[]", intRelay.Via(ints, 1));
+        Assert.Equal("string[]", stringRelay.Via(strings, "s"));
+    }
+}
