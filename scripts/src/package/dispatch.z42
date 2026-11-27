@@ -219,7 +219,7 @@ _PkgIdentityRule[] _pkgIdentityRules(string root) {
     // Android（_pkgEmitAndroidGradleProject）
     rs[4] = _pkgRule("Android Kotlin",     "z42vm/src/main/java",           Path.Join(andProj, "z42vm/src/main/java"), ".kt");
     rs[5] = _pkgRule("Android JNI bridge", "z42vm/src/main/cpp/z42vm_jni.c", Path.Join(andProj, "z42vm/src/main/cpp/z42vm_jni.c"), "");
-    rs[6] = _pkgRule("Android CMakeLists", "z42vm/src/main/cpp/CMakeLists.txt", Path.Join(andProj, "z42vm/src/main/cpp/CMakeLists.txt"), "");
+    rs[6] = _pkgRule("Android CMakeLists", "z42vm/CMakeLists.txt", Path.Join(andProj, "z42vm/CMakeLists.txt"), "");
     // wasm（_packageWasm）
     rs[7] = _pkgRule("wasm js facade",     "js",                            wasmJs, "");
     return rs;

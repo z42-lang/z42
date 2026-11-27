@@ -30,6 +30,7 @@ include = ["builder_cli.z42", "builder_test.z42", "builder_device.z42", "builder
 "z42.build"   = { version = "0.1.0", deploy = "shared" }   # Pipeline 八相位及编译后端静态依赖
 "z42.package" = { version = "0.1.0", deploy = "shared" }   # ZpkgReader（1c 携带解析沿依赖闭包读 PLGS / DEPS；SDK 库同款按名声明）
 "z42.project" = { version = "0.1.0", deploy = "shared" }   # ProjectManifest / ManifestLoader（build/new/export 动词读清单）
+"z42.workload.ios" = { path = "../../workload/ios/appbuilder", version = "0.1.0" }   # 组装 SwiftPM 的 Runtime XCFramework
 
 [plugins]
 # hook 插件（unify-plugin-packages 1b）：编译前由 hooks/ 从 versions.toml 生成 builder_pins.z42

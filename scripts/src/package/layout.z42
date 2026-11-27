@@ -164,6 +164,7 @@ void _plToolingIos(_PkgLayout L) {
 void _plToolingAndroid(_PkgLayout L) {
     L.HasFile("gradlew");
     L.HasFile("settings.gradle.kts");
+    L.HasFile("z42vm/CMakeLists.txt");
     L.HasDir("z42vm/src/main/java/io/z42/vm");
     L.HasFile("z42vm/src/main/cpp/z42vm_jni.c");
     L.Absent("z42vm/src/main/cpp/include", "JNI includes the Runtime headers");

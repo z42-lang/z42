@@ -15,7 +15,7 @@ namespace Z42Xtask;
 using Std.IO;
 using Std.Time;
 
-// ── runtime pack (z42-runtime-<ver>-<rid>): native VM lib + xcframework + libs ──
+// ── runtime pack (z42-runtime-<ver>-<rid>): native libraries + Frameworks + headers + libs ──
 int _buildRuntimePackageIos(string root, string rid, string version, string profile) {
     string cargoTarget = _ridToCargo(rid);
     bool rel = (profile == "release");

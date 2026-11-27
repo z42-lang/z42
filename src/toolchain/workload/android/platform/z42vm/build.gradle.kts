@@ -7,6 +7,16 @@ plugins {
     id("com.android.library")
 }
 
+// The workload installer and device test staging write this reference.
+// Direct builds from the repository resolve its Runtime include directory.
+val workloadDir = projectDir.parentFile
+val runtimeIncludeRef = workloadDir.resolve("runtime-include.txt")
+val runtimeIncludeDir = if (runtimeIncludeRef.isFile) {
+    file(runtimeIncludeRef.readText().trim())
+} else {
+    workloadDir.resolve("../../../../runtime/include").normalize()
+}
+
 android {
     namespace = "io.z42.vm"
     compileSdk = 37
@@ -25,13 +35,15 @@ android {
 
         externalNativeBuild {
             cmake {
-                cppFlags("")
-                arguments("-DANDROID_STL=c++_static")
+                arguments(
+                    "-DANDROID_STL=c++_static",
+                    "-DZ42_RUNTIME_INCLUDE_DIR=${runtimeIncludeDir.path}",
+                )
             }
         }
 
         ndk {
-            // Mirror the cargo-ndk targets driven by build.sh (32-bit ABI 已退场；
+            // Mirror the cargo-ndk targets driven by xtask (32-bit ABI 已退场；
             // 见 memory project_supported_platforms 与 versions.toml [platform.android].abis)。
             abiFilters += listOf("arm64-v8a", "x86_64")
         }
@@ -59,7 +71,7 @@ android {
 
     externalNativeBuild {
         cmake {
-            path = file("src/main/cpp/CMakeLists.txt")
+            path = file("CMakeLists.txt")
             version = "3.22.1"
         }
     }

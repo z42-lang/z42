@@ -19,7 +19,7 @@ VM 内部怎么实现这套 ABI 不在本页。
 
 头文件随 **runtime 包**（`z42-runtime-<版本>-<rid>`）分发在 `native/include/`；仓内在 `src/runtime/include/`。
 SDK 包不带嵌入件——它的 `native/` 只放 z42vm 自己加载的扩展库。
-iOS 的 Swift facade 从 Runtime XCFramework 导入 C 模块。Android JNI 的 include 路径指向 Runtime 头文件目录。
+iOS Runtime 在 `native/include/` 同时分发 `module.modulemap`。workload 安装器使用发布头和静态库组装 XCFramework，Swift facade 从中导入 `Z42VMC`。Android JNI 的 include 路径指向 Runtime 头文件目录。
 
 
 ---
