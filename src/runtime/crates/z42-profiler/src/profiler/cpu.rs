@@ -320,13 +320,18 @@ impl crate::components::bridge::SampleBackend for Sampler {
 }
 
 impl crate::components::bridge::ProfilerBackend for Sampler {
-    fn write_heap_snapshot(&self, ctx: &VmContext, path: &str) -> anyhow::Result<i64> {
-        let snapshot = super::heap::snapshot::build_graph_snapshot(ctx.heap());
-        let file = std::fs::File::create(path)?;
-        let mut writer = std::io::BufWriter::new(file);
-        let bytes = super::heap::snapshot::serialize_v8_heapsnapshot_to(&snapshot, &mut writer)?;
-        writer.flush()?;
-        Ok(bytes as i64)
+    fn capture_heap_snapshot(
+        &self,
+        heap: crate::components::bridge::PausedHeap<'_>,
+    ) -> crate::components::bridge::HeapSnapshotWriter {
+        let snapshot = super::heap::snapshot::capture_graph_snapshot(heap);
+        Box::new(move |path| {
+            let file = std::fs::File::create(path)?;
+            let mut writer = std::io::BufWriter::new(file);
+            let bytes = super::heap::snapshot::serialize_v8_heapsnapshot_to(&snapshot, &mut writer)?;
+            writer.flush()?;
+            Ok(bytes as i64)
+        })
     }
     fn direct_referrers(&self, heap: crate::components::bridge::PausedHeap<'_>, target: usize) -> Vec<crate::diagnostics::retention::RetainerInfo> {
         super::heap::retention::direct_referrers(heap, target)
