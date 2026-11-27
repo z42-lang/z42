@@ -253,7 +253,23 @@ pub fn resolve_for_access(
     ctx: &VmContext, root_type: &str, path: &[u16], base_val: &Value, who: &str,
 ) -> Result<u32> {
     check_base_space(ctx, root_type, base_val, who)?;
-    resolve_field_path(ctx, root_type, path)
+    let declared = resolve_field_path(ctx, root_type, path);
+    if declared.is_ok() || path.len() < 2 {
+        return declared;
+    }
+
+    // Shared class bodies name the generic definition. An intermediate
+    // inline field can need the receiver's closed descriptor to name its layout.
+    let actual_name = match base_val {
+        Value::Object(object) => object.type_desc().name.clone(),
+        Value::StackObject { idx, frame_id } => ctx.exec()
+            .with_stack_object(*idx, *frame_id, |object| object.type_desc.name.clone())?,
+        _ => return declared,
+    };
+    if crate::object::TypeDesc::erased_definition_name(&actual_name) != Some(root_type) {
+        return declared;
+    }
+    resolve_field_path(ctx, &actual_name, path).or(declared)
 }
 
 

@@ -699,7 +699,9 @@ public sealed partial class ClassDescBuilder {
         IrFieldDesc[] fs = new IrFieldDesc[n];
         int i = 0;
         while (i < n) {
-            fs[i] = new IrFieldDesc(li.FieldNames[i], li.FieldTypeNames[i]);   // 类型名已是代换后的具体名
+            string fieldType = li.FieldTypeNames[i];
+            fs[i] = new IrFieldDesc(li.FieldNames[i], fieldType);
+            if (li.FieldKinds[i] == StructLeafKind.Struct) { this._g.NoteInstName(fieldType); }
             i = i + 1;
         }
         // 描述符名必须是 **FQ**（与 `_classDesc` 的 `_q(_classIrShortName(c))` 同口径）——运行期

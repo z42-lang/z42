@@ -1,0 +1,61 @@
+namespace OpenInlineFieldLayout;
+
+struct Counter<T> {
+    public int Count;
+    public string Label;
+}
+
+struct Group<T> {
+    public int Prefix;
+    public Counter<T> Counter;
+}
+
+class Host<T> {
+    public Counter<T> Direct;
+    public Group<T> Nested;
+
+    public void Update(int n, string text) {
+        Direct.Count = n;
+        this.Direct.Label = text;
+        Nested.Counter.Count = n + 1;
+        this.Nested.Counter.Label = text;
+    }
+
+    public int Read() { return Direct.Count + this.Nested.Counter.Count; }
+    public Counter<T> Copy() { return Direct; }
+    public Counter<T> CopyExplicit() { return this.Direct; }
+}
+
+int SharedOnly() {
+    Host<long> host = new Host<long>();
+    host.Update(10, "shared");
+    return host.Read();
+}
+
+void Main() {
+    Assert.Equal(21, SharedOnly());
+
+    Host<int> host = new Host<int>();
+    host.Nested.Prefix = 71;
+    host.Update(12, "first");
+
+    Counter<int> direct = host.Direct;
+    Counter<int> returned = host.Copy();
+    Counter<int> explicitCopy = host.CopyExplicit();
+    Assert.Equal(12, direct.Count);
+    Assert.Equal("first", direct.Label);
+    Assert.Equal(12, returned.Count);
+    Assert.Equal("first", explicitCopy.Label);
+    Assert.Equal(13, host.Nested.Counter.Count);
+    Assert.Equal("first", host.Nested.Counter.Label);
+    Assert.Equal(71, host.Nested.Prefix);
+
+    object boxed = host.Direct;
+    Assert.Equal(typeof(Counter<int>), boxed.GetType());
+    host.Update(40, "second");
+    Assert.Equal(12, direct.Count);
+    Assert.Equal("first", returned.Label);
+    Assert.Equal(12, explicitCopy.Count);
+    Assert.Equal(40, host.Direct.Count);
+    Assert.Equal("second", host.Nested.Counter.Label);
+}
