@@ -339,6 +339,9 @@ int z42_host_run_app(const char* app_zpkg, const char* entry,
 这是各平台 test-host 与自包含 app 的共用入口：桌面 C shell、iOS Swift、Android JNI 调的都是这一个符号。
 `Z42HostConfig` 里的 `exec_mode` 对它没有影响——它用运行时的默认执行后端。
 
+首次解析进程运行时配置时，入口会读取应用旁的 `<app>.runtimeconfig.toml`，并按运行时配置的优先级合并各层。
+原生平台使用解析后的 `thread-stack-bytes` 创建运行应用的线程。进程已完成配置时，应用沿用进程配置。
+
 ---
 
 ## 完整例子：跑一个 Hello World
