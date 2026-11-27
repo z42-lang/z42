@@ -187,16 +187,7 @@ impl ArrayObj {
     /// A zero-width struct array stores no field values. Its object-form values
     /// still carry a runtime type, including arguments on erased descriptors.
     pub(crate) fn accepts_empty_struct(&self, value: &Value) -> bool {
-        let (Value::Object(gc) | Value::BoxedStruct(gc)) = value else { return false };
-        let object = gc.borrow();
-        let td = &object.type_desc;
-        if !td.is_struct() || !td.fields.is_empty() { return false; }
-        let element = self.element_type();
-        let name: &str = &element;
-        td.name == name || (
-            TypeDesc::erased_definition_name(name).is_some_and(|base| td.name == base)
-                && object.type_args() == &*type_args_from_name(name)
-        )
+        empty_struct_matches(value, &self.element_type())
     }
 
     /// Whole-element store from a `BoxedStruct` source (the box's blob is the element's layout).

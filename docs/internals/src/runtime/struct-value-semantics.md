@@ -803,6 +803,9 @@ z42c.semantics 依赖它作跨包 API。给它加新 `IsStruct` 字段并在 z42
 
 ### struct 字段反射（`FieldInfo.GetValue/SetValue`）
 
+反射写入空 struct 字段时会校验值的完整类型，包含擦除描述符上的泛型实参。零宽字段没有载荷，
+校验通过后即可返回，邻接字段与引用位图不受影响。
+
 反射按**字段名**读值需 per-field 字节 offset + tag，但 runtime `StructTypeLayout` 只有 size + 无名引用位图。
 解 = **Rust 复刻编译器 `StructLayout._compute`**（`object/types/named_struct_layout.rs`，方案 B——格式中立、warm 本地可验，
 非格式 bump 写偏移表）：

@@ -1,0 +1,52 @@
+namespace EmptyStructReflectionWrite;
+using Std.Reflection;
+
+struct Empty {}
+struct Marker<T> {}
+
+class Host {
+    public Empty Plain;
+    public Marker<int> Closed;
+    public int Stamp;
+}
+
+struct Record {
+    public Empty Plain;
+    public Marker<int> Closed;
+    public int Stamp;
+}
+
+T Zero<T>() { return default(T); }
+
+FieldInfo FindField(Type type, string name) {
+    foreach (FieldInfo field in type.GetFields()) {
+        if (field.Name == name) { return field; }
+    }
+    throw new Exception("missing field " + name);
+}
+
+void CheckWrites(object target, Type type) {
+    FieldInfo plain = FindField(type, "Plain");
+    FieldInfo closed = FindField(type, "Closed");
+    object empty = new Empty();
+    object marker = new Marker<int>();
+    plain.SetValue(target, empty);
+    closed.SetValue(target, marker);
+    closed.SetValue(target, Zero<Marker<int>>());
+    Assert.Throws("Exception", () => { plain.SetValue(target, null); });
+    Assert.Throws("Exception", () => { plain.SetValue(target, 42); });
+    Assert.Throws("Exception", () => { plain.SetValue(target, marker); });
+    Assert.Throws("Exception", () => { closed.SetValue(target, Zero<Marker<string>>()); });
+    Assert.Equal(17, (int)FindField(type, "Stamp").GetValue(target));
+}
+
+void Main() {
+    Host host = new Host();
+    host.Stamp = 17;
+    CheckWrites(host, typeof(Host));
+
+    Record record = new Record();
+    record.Stamp = 17;
+    object boxed = record;
+    CheckWrites(boxed, typeof(Record));
+}
