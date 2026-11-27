@@ -44,7 +44,7 @@ RAII 令牌。`GcToVm` 的实现须保证令牌有效期间所有其他 mutator 
 包括静态字段、驻留串及各线程的异常、帧和 arena。两种视图都遵守同一暂停协议。
 堆销毁按 heap epoch 幂等撤销 SATB 注册，覆盖增量标记与 one-shot 回调 unwind；不能只依赖增量 phase 判断。
 
-加载上下文回收由 `vm/context_gc.rs` 适配：标记后创建 VM 拥有的关联快照，GC 把同一批
+加载上下文回收由 `loader/context_gc.rs` 提供。标记后取得 Loader 的关联快照，GC 把同一批
 标记对象交给它观察；清扫结束后才消费快照回收未被保留的上下文。增量 major 将这份不透明快照
 保留到最后一个清扫切片，不把 ContextId 或 VM 注册表放进 GC。
 

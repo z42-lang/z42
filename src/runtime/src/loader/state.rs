@@ -16,7 +16,7 @@ pub struct LoaderState {
     /// Nonzero while a drain detaches queued work for processing.
     /// Without it, empty queues can falsely imply type loading has quiesced.
     pub type_load_batch_inflight: AtomicUsize,
-    pub context_registry: Mutex<ContextRegistry>,
+    pub(super) context_registry: Arc<Mutex<ContextRegistry>>,
     /// Drop after the loader and contexts that use this injected file-system provider.
     pub vfs: Arc<dyn Vfs>,
 }
@@ -37,7 +37,7 @@ impl LoaderState {
             pending_type_loads: Mutex::new(Vec::new()),
             pending_type_load_count: AtomicUsize::new(0),
             type_load_batch_inflight: AtomicUsize::new(0),
-            context_registry: Mutex::new(ContextRegistry::new()),
+            context_registry: Arc::new(Mutex::new(ContextRegistry::new())),
             vfs,
         }
     }

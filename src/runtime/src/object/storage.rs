@@ -25,7 +25,7 @@ pub enum NativeData {
     TypeShape(Arc<ReflectedTypeShape>),
     /// add-load-context-model：`Std.Runtime.LoadContext` 对象携带的
     /// 上下文句柄（root = `ContextId::ROOT`）。`__lctx_*` builtins 据此查
-    /// `VmCore.context_registry`。
+    /// Loader 上下文注册表。
     LoadContextHandle(crate::object::identity::ContextId),
     /// add-load-context-model：`Std.Reflection.Assembly` 对象携带的
     /// 程序集句柄（zpkg 运行时投影）。`__asm_*` builtins 据此查注册表。
