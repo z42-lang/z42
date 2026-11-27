@@ -1,0 +1,36 @@
+namespace Z42cSemanticsUnionDeclarationTests;
+
+using Std.Harness;
+using Z42.Core;
+using Z42.Semantics;
+
+bool hasUnionDiagnostic(string source, string code) {
+    DiagnosticBag diags = FrontEnd.Collect(source, "union.z42").Diags;
+    int i = 0;
+    while (i < diags.Count()) {
+        if (diags.Get(i).Code == code) { return true; }
+        i = i + 1;
+    }
+    return false;
+}
+
+[Test]
+void test_union_rejects_duplicate_case_names() {
+    Assert.True(hasUnionDiagnostic("union Token { Number(int), Number(string) }", "E0408"));
+}
+
+[Test]
+void test_union_rejects_duplicate_named_payload_fields_in_one_case() {
+    Assert.True(hasUnionDiagnostic("union Token { Pair(int value, int value) }", "E0408"));
+}
+
+[Test]
+void test_union_payload_names_are_scoped_to_the_case() {
+    Assert.False(hasUnionDiagnostic("union Token { Pair(int, int), A(int value), B(int value) }", "E0408"));
+}
+
+[Test]
+void test_union_accepts_access_modifiers() {
+    Assert.False(hasUnionDiagnostic("public union State { Ready }", "E0405"));
+    Assert.True(hasUnionDiagnostic("partial union State { Ready }", "E0405"));
+}

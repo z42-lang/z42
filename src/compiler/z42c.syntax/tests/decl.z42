@@ -147,6 +147,43 @@ void test_enum() {
 }
 
 [Test]
+void test_union_payload_fields() {
+    string source = "public union ReadResult { End, Bytes(int), Error(int), Range(int start, int end), }";
+    Assert.Equal("", parseErrorCodes(source));
+    Assert.Equal("(unit (union public ReadResult End (Bytes (int)) (Error (int)) (Range (int start) (int end))))",
+                 parseUnit(source));
+}
+
+[Test]
+void test_union_generic_and_mixed_payload_fields() {
+    string source = "union Result<T, E> { Ok(T), Error(E error, int), }";
+    Assert.Equal("", parseErrorCodes(source));
+    Assert.Equal("(unit (union Result<T,E> (Ok (T)) (Error (E error) (int))))", parseUnit(source));
+}
+
+[Test]
+void test_union_is_a_contextual_keyword() {
+    Assert.Equal("", parseErrorCodes("struct union {} union Make<T>() { return new union(); } int union(int union) => union;"));
+    Assert.Equal("", parseErrorCodes("struct union<T> {} union<int> Make() => new union<int>();"));
+}
+
+[Test]
+void test_union_construction_and_patterns_use_existing_syntax() {
+    string source = "union ReadResult { End, Bytes(int), Range(int start, int end) }"
+        + " ReadResult Make() => ReadResult.Range(end: 20, start: 10);"
+        + " int Count(ReadResult value) => value switch {"
+        + " ReadResult.End => 0, ReadResult.Bytes(n) => n, ReadResult.Range(a, b) => b - a };"
+        + " bool HasBytes(ReadResult value) => value is ReadResult.Bytes(_);";
+    Assert.Equal("", parseErrorCodes(source));
+}
+
+[Test]
+void test_union_requires_a_case_and_case_separators() {
+    Assert.True(parseErrorCodes("union Empty {}") != "");
+    Assert.True(parseErrorCodes("union ReadResult { End Bytes(int) }") != "");
+}
+
+[Test]
 void test_top_level_func() {
     // 顶层自由函数（head=func，区别于类成员 method）
     Assert.Equal("(unit (func int Add (int a, int b) (block (return (+ a b)))))",

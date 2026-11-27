@@ -1,0 +1,41 @@
+namespace Z42.Symbols;
+
+using Z42.Core;
+using Z42.IR;
+using Z42.Syntax;
+
+public sealed partial class DeclEnforcer {
+    private void _checkUnionDeclaration(UnionDecl declaration) {
+        if ((declaration.ModFlags & ~Mod.AnyAccess) != 0) {
+            this._sc.Diags.Error(DiagnosticCodes.InvalidModifier,
+                "a union declaration only accepts an access modifier", declaration.Span);
+        }
+
+        var cases = new StrMap(declaration.CaseCount);
+        int i = 0;
+        while (i < declaration.CaseCount) {
+            UnionCaseDecl branch = declaration.Cases[i];
+            if (!cases.TryAdd(branch.Name, branch)) {
+                this._sc.Diags.Error(DiagnosticCodes.DuplicateDeclaration,
+                    "duplicate union case `" + branch.Name + "`", branch.Span);
+            }
+            this._checkUnionPayloadNames(branch);
+            i = i + 1;
+        }
+    }
+
+    private void _checkUnionPayloadNames(UnionCaseDecl branch) {
+        if (branch.FieldCount < 2) { return; }
+        var fields = new StrMap();
+        int i = 0;
+        while (i < branch.FieldCount) {
+            UnionPayloadField field = branch.Fields[i];
+            if (field.Name != "" && !fields.TryAdd(field.Name, field)) {
+                this._sc.Diags.Error(DiagnosticCodes.DuplicateDeclaration,
+                    "duplicate payload field `" + field.Name + "` in union case `" + branch.Name + "`",
+                    field.Span);
+            }
+            i = i + 1;
+        }
+    }
+}

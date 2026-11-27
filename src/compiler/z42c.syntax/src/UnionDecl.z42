@@ -1,0 +1,83 @@
+namespace Z42.Syntax;
+
+using Z42.Core;
+
+public sealed class UnionPayloadField {
+    public TypeExpr Type;
+    public string Name;
+    public Span Span;
+
+    public UnionPayloadField(TypeExpr type, string name, Span span) {
+        this.Type = type;
+        this.Name = name;
+        this.Span = span;
+    }
+
+    public string Dump() {
+        if (this.Name == "") { return this.Type.Dump(); }
+        return this.Type.Dump() + " " + this.Name;
+    }
+}
+
+public sealed class UnionCaseDecl {
+    public string Name;
+    public UnionPayloadField[] Fields;
+    public int FieldCount;
+    public Span Span;
+    public DocBlock Doc;
+
+    public UnionCaseDecl(string name, UnionPayloadField[] fields, int fieldCount, Span span) {
+        this.Name = name;
+        this.Fields = fields;
+        this.FieldCount = fieldCount;
+        this.Span = span;
+        this.Doc = null;
+    }
+
+    public string Dump() {
+        if (this.FieldCount == 0) { return this.Name; }
+        string result = "(" + this.Name;
+        int i = 0;
+        while (i < this.FieldCount) {
+            result = result + " (" + this.Fields[i].Dump() + ")";
+            i = i + 1;
+        }
+        return result + ")";
+    }
+}
+
+public sealed class UnionDecl : Decl {
+    public string Mods;
+    public int ModFlags;
+    public string Name;
+    public TypeParamList TypeParams;
+    public WhereClause[] Wheres;
+    public int WhereCount;
+    public UnionCaseDecl[] Cases;
+    public int CaseCount;
+
+    public UnionDecl(string mods, string name, TypeParamList typeParams, WhereList wheres,
+                     UnionCaseDecl[] cases, int caseCount, Span span) {
+        this.Mods = mods;
+        this.ModFlags = Mod.Parse(mods);
+        this.Name = name;
+        this.TypeParams = typeParams;
+        this.Wheres = wheres.Items;
+        this.WhereCount = wheres.Count;
+        this.Cases = cases;
+        this.CaseCount = caseCount;
+        this.Span = span;
+    }
+
+    public override string Dump() {
+        string result = "(union ";
+        if (this.Mods != "") { result = result + this.Mods + " "; }
+        result = result + this.Name + this.TypeParams.Dump() + DeclHelpers.DumpWheres(this.Wheres, this.WhereCount);
+        int i = 0;
+        while (i < this.CaseCount) {
+            result = result + " " + this.Cases[i].Dump();
+            i = i + 1;
+        }
+        return result + ")";
+    }
+}

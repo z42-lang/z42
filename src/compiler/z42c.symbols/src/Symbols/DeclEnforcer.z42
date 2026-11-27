@@ -149,7 +149,7 @@ public sealed partial class DeclEnforcer {
 
     // partial 类型校验（AST 级，跨全部 CU 按名分组）：① 全部标 partial ② Kind 一致 ③ 嵌套 partial 报错。
     // （base 冲突在 _passClassStubs——需接口表分辨 base vs iface；成员重复在 _fillClass。）
-    internal void _passValidatePartial(CompilationUnit[] cus, string[] files, int count) {
+    internal void _passValidateTypeDeclarations(CompilationUnit[] cus, int count) {
         ClassDecl[] frags = new ClassDecl[16];
         int nf = 0;
         int c = 0;
@@ -166,6 +166,8 @@ public sealed partial class DeclEnforcer {
                     }
                     frags[nf] = cd; nf = nf + 1;
                     this._checkNestedPartial(cd);
+                } else if (d is UnionDecl) {
+                    this._checkUnionDeclaration(d as UnionDecl);
                 }
                 i = i + 1;
             }
