@@ -1,0 +1,28 @@
+namespace Z42BuildDeploymentBenchmarks;
+
+using Std.IO;
+using Std.Harness;
+using Z42.Build;
+
+[Benchmark]
+void bench_verify_unchanged_deployment_payload(Bencher b) {
+    string dir = File.CreateTempDir("deployment-verify-bench");
+    try {
+        string source = Path.Join(dir, "source");
+        string dist = Path.Join(dir, "dist");
+        Directory.Create(dist);
+        byte[] payload = new byte[256 * 1024];
+        for (int i = 0; i < payload.Length; i = i + 1) { payload[i] = (byte)(i & 255); }
+        File.WriteAllBytes(source, payload);
+
+        var first = new DeploymentCopies(dist, "payload-bench", ".z42-deps-");
+        first.Add("dependency.zpkg", source, payload);
+        first.Apply();
+
+        b.iter(() => {
+            var plan = new DeploymentCopies(dist, "payload-bench", ".z42-deps-");
+            plan.Add("dependency.zpkg", source, payload);
+            plan.Apply();
+        });
+    } finally { Directory.Delete(dir, true); }
+}

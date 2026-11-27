@@ -200,3 +200,26 @@ void test_validate_owner_conflict_preserves_existing_payload() {
         Assert.Equal("first", File.ReadAllText(Path.Join(dir, "dep.zpkg")));
     } finally { Directory.Delete(dir, true); }
 }
+
+[Test]
+void test_existing_receipt_compares_snapshot_even_if_caller_changes_array() {
+    string dir = File.CreateTempDir("deploy-snapshot");
+    try {
+        string source = Path.Join(dir, "source");
+        string output = Path.Join(dir, "dep.zpkg");
+        File.WriteAllText(source, "old");
+        DeploymentCopies initial = _plan(dir, "owner");
+        initial.Add("dep.zpkg", source, Utf8.GetBytes("old"));
+        initial.Apply();
+
+        File.WriteAllText(source, "new");
+        byte[] planned = Utf8.GetBytes("new");
+        DeploymentCopies update = _plan(dir, "owner");
+        update.Add("dep.zpkg", source, planned);
+        planned[0] = (byte)111;
+        planned[1] = (byte)108;
+        planned[2] = (byte)100;
+        update.Apply();
+        Assert.Equal("new", File.ReadAllText(output));
+    } finally { Directory.Delete(dir, true); }
+}

@@ -8,11 +8,15 @@ using Std.Collections;
 sealed class DeploymentCopy {
     public string Source;
     public string Hash;
-    public DeploymentCopy(string source, string hash) { this.Source = source; this.Hash = hash; }
+    public byte[] Snapshot;
+    public DeploymentCopy(string source, string hash, byte[] snapshot) {
+        this.Source = source; this.Hash = hash; this.Snapshot = snapshot;
+    }
 }
 
 // A receipt is scoped to the project even when multiple executables share dist.
 public sealed class DeploymentCopies {
+    private int _snapshotBytesLeft = 8 * 1024 * 1024;
     private string _dist;
     private string _receipt;
     private string _prefix;
@@ -30,7 +34,14 @@ public sealed class DeploymentCopies {
     public void Add(string rel, string source, byte[] bytes) {
         if (!DeploymentCopies.IsRelativePath(rel)) { throw new Exception("unsafe deployment payload path: " + rel); }
         if (this._protected.ContainsKey(rel)) { throw new Exception("deployment payload collides with project output: " + rel); }
-        this._planned[rel] = new DeploymentCopy(source, this._hash(bytes));
+        byte[] snapshot = null;
+        if (this._snapshotBytesLeft > 0 && bytes.Length <= this._snapshotBytesLeft) {
+            // The caller owns the input array. Comparison must use the bytes hashed by Add.
+            snapshot = new byte[bytes.Length];
+            Array.Copy(bytes, snapshot, bytes.Length);
+            this._snapshotBytesLeft = this._snapshotBytesLeft - bytes.Length;
+        }
+        this._planned[rel] = new DeploymentCopy(source, this._hash(snapshot == null ? bytes : snapshot), snapshot);
     }
 
     public static bool IsRelativePath(string rel) {
@@ -46,6 +57,27 @@ public sealed class DeploymentCopies {
     private string _fileHash(string path) {
         if (!File.Exists(path) || Directory.Exists(path)) { return ""; }
         return this._hash(File.ReadAllBytes(path));
+    }
+
+    private string _observedHash(string path, DeploymentCopy copy) {
+        if (copy.Snapshot == null) { return this._fileHash(path); }
+        if (!File.Exists(path) || Directory.Exists(path)) { return ""; }
+        byte[] bytes = File.ReadAllBytes(path);
+        return this._observedBytesHash(copy, bytes);
+    }
+
+    private string _observedBytesHash(DeploymentCopy copy, byte[] bytes) {
+        if (copy.Snapshot != null && this._sameBytes(copy.Snapshot, bytes)) { return copy.Hash; }
+        return this._hash(bytes);
+    }
+
+    private bool _sameBytes(byte[] left, byte[] right) {
+        int length = left.Length;
+        if (length != right.Length) { return false; }
+        for (int i = 0; i < length; i = i + 1) {
+            if (left[i] != right[i]) { return false; }
+        }
+        return true;
     }
 
     private Dictionary<string, string> _read(string body) {
@@ -105,7 +137,7 @@ public sealed class DeploymentCopies {
         if (Directory.Exists(this._dist)) { this._otherOwners(); }
         foreach (var rel in this._planned.Keys()) {
             DeploymentCopy copy = this._planned[rel];
-            if (this._fileHash(copy.Source) != copy.Hash) {
+            if (this._observedHash(copy.Source, copy) != copy.Hash) {
                 throw new Exception("dependency changed while deploying: " + copy.Source);
             }
         }
@@ -122,7 +154,7 @@ public sealed class DeploymentCopies {
         Dictionary<string, string> others = this._otherOwners();
         foreach (var rel in this._planned.Keys()) {
             DeploymentCopy copy = this._planned[rel];
-            string current = this._fileHash(Path.Join(this._dist, rel));
+            string current = this._observedHash(Path.Join(this._dist, rel), copy);
             bool owned = this._owns(previous, rel, current);
             if (current == copy.Hash && !owned) {
                 if (!this._owns(others, rel, current)) { continue; }
@@ -149,7 +181,7 @@ public sealed class DeploymentCopies {
         foreach (var rel in writes.Keys()) {
             DeploymentCopy copy = writes[rel];
             byte[] bytes = File.ReadAllBytes(copy.Source);
-            if (this._hash(bytes) != copy.Hash) { throw new Exception("dependency changed while deploying: " + copy.Source); }
+            if (this._observedBytesHash(copy, bytes) != copy.Hash) { throw new Exception("dependency changed while deploying: " + copy.Source); }
             string target = Path.Join(this._dist, rel);
             Directory.Create(Path.GetDirectoryName(target));
             File.WriteAllBytesAtomic(target, bytes);
