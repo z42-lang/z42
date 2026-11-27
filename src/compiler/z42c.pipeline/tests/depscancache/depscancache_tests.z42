@@ -101,3 +101,28 @@ void test_directory_replacing_dependency_is_not_a_cache_hit() {
     Assert.True(failed);
     Directory.Delete(dir, true);
 }
+
+[Test]
+void test_packed_writer_evicts_all_lexical_paths_for_same_size_output() {
+    string dir = File.CreateTempDir("depscan-rewrite");
+    try {
+        string output = Path.Join(dir, "out.zpkg");
+        string other = Path.Join(dir, "other.zpkg");
+        string alias = Path.Join(dir, "./out.zpkg");
+        byte[] bytes = _header(ZpkgWriterZ.Major, ZpkgWriterZ.Minor, 0);
+        File.WriteAllBytes(output, _header(ZpkgWriterZ.Major, ZpkgWriterZ.Minor - 1, 0));
+        File.WriteAllBytes(other, bytes);
+        CachedZpkg a = DepScanCache.Get(output);
+        CachedZpkg b = DepScanCache.Get(alias);
+        CachedZpkg keep = DepScanCache.Get(other);
+
+        BuildSession.WriteZpkgDist(output, new ZpkgWriteResult(bytes, false, null));
+        // Simulate the old entries still passing the filesystem timestamp check.
+        a.MtimeMs = File.GetLastWriteTime(output).UnixMs();
+        b.MtimeMs = a.MtimeMs;
+        Assert.True(a.Z == null && b.Z == null);
+        Assert.True(DepScanCache.Get(output).Z != null);
+        Assert.True(DepScanCache.Get(alias).Z != null);
+        Assert.True(DepScanCache.Get(other) == keep);
+    } finally { Directory.Delete(dir, true); }
+}
