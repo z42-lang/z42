@@ -74,13 +74,13 @@ pub(crate) unsafe fn enter_compiled(
     crate::exec::push_frame(vm, crate::exec::frames::VmFrame::new(func, &frame.regs as *const _));
     let r = unsafe { jit_fn(&mut frame, vm) };
     vm.exec().pop_frame();
-    if r != 0 {
-        frame.recycle(vm);
-        return NativeOutcome::Threw;
-    }
-    let ret = frame.take_ret();
+    let outcome = if r == 0 {
+        NativeOutcome::Returned(frame.take_ret())
+    } else {
+        NativeOutcome::Threw
+    };
     frame.recycle(vm);
-    NativeOutcome::Returned(ret)
+    outcome
 }
 
 /// [`enter_compiled`] for a borrowed compiled entry (the JIT helpers' case).
@@ -91,3 +91,7 @@ pub(crate) unsafe fn enter_compiled(
 pub(crate) unsafe fn call_entry(vm: &VmContext, entry: &FnEntry, frame: JitFrame) -> NativeOutcome {
     unsafe { enter_compiled(vm, entry.ptr, entry.func, frame) }
 }
+
+#[cfg(test)]
+#[path = "invoke_tests.rs"]
+mod invoke_tests;

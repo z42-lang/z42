@@ -56,7 +56,7 @@ impl<'a> JitFrame<'a> {
     /// the call arguments.
     pub fn new(vm: &VmContext, max_reg: usize, args: &[Value]) -> Self {
         let size = max_reg + 1;
-        let mut regs = vm.exec().reg_pool.take(size);
+        let mut regs = vm.exec().take_registers(size);
         for (i, v) in args.iter().enumerate() {
             if i < size {
                 regs[i] = v.clone();
@@ -73,12 +73,7 @@ impl<'a> JitFrame<'a> {
     /// `max_reg + 1`; interp slots beyond that are dropped (same function → same
     /// max_reg), missing ones stay `Null`.
     pub fn from_interp_regs(vm: &VmContext, interp_regs: &[Value], max_reg: usize) -> Self {
-        let size = max_reg + 1;
-        let mut regs = vm.exec().reg_pool.take(size);
-        for (i, v) in interp_regs.iter().enumerate() {
-            if i < size { regs[i] = v.clone(); }
-        }
-        Self::with_regs(regs)
+        Self::new(vm, max_reg, interp_regs)
     }
 
     /// Allocate a frame and fill its first registers directly from the caller's
@@ -91,7 +86,7 @@ impl<'a> JitFrame<'a> {
         vm: &VmContext, max_reg: usize, caller_regs: &[Value], arg_indices: &[u32],
     ) -> Self {
         let size = max_reg + 1;
-        let mut regs = vm.exec().reg_pool.take(size);
+        let mut regs = vm.exec().take_registers(size);
         for (i, &r) in arg_indices.iter().enumerate() {
             if i < size {
                 regs[i] = caller_regs[r as usize].clone();
@@ -109,7 +104,7 @@ impl<'a> JitFrame<'a> {
         vm: &VmContext, max_reg: usize, receiver: Value, caller_regs: &[Value], arg_indices: &[u32],
     ) -> Self {
         let size = max_reg + 1;
-        let mut regs = vm.exec().reg_pool.take(size);
+        let mut regs = vm.exec().take_registers(size);
         if size > 0 { regs[0] = receiver; }
         for (i, &r) in arg_indices.iter().enumerate() {
             let slot = i + 1;
@@ -138,7 +133,7 @@ impl<'a> JitFrame<'a> {
 
     /// Hand the register file back to `vm`'s pool once the frame is popped.
     pub fn recycle(self, vm: &VmContext) {
-        vm.exec().reg_pool.give(self.regs);
+        vm.exec().recycle_registers(self.regs);
     }
 }
 

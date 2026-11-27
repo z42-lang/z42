@@ -322,8 +322,8 @@ regs，interp `RefKind::Stack` 跨帧 deref 通过 `frame.regs`。
 **帧的登记只有两处**，改帧布局 / 登记方式只动这两处：
 
 - **interp 帧**：`interp::run::exec_support::enter_frame`（由 `exec_function_body` 调用）——`push_frame`、
-  建 `FrameGuard`（任何退出路径都先 pop，再把寄存器文件还给 `reg_pool`），再做栈深检查。
-- **原生帧**：`jit::runtime::invoke::enter_compiled`——`push_frame` → 运行编译码 → `pop_frame` → 回收 `JitFrame`（寄存器文件还给 `reg_pool`），
+  建 `FrameGuard`（任何退出路径都先 pop，再经执行状态归还寄存器），再做栈深检查。
+- **原生帧**：`jit::runtime::invoke::enter_compiled`——`push_frame` → 运行编译码 → `pop_frame` → 经执行状态归还寄存器，
   返回 `NativeOutcome`（`Returned(ret)` / `Threw`，异常仍挂在 `VmContext` 上）。JIT 入口 `run_fn`、
   各调用 helper（`jit_call` / `jit_vcall` / `jit_call_indirect` / `jit_obj_new` / `jit_to_str`）与 interp 的
   混合模式分流（`try_native_exec` / OSR / `try_native_static_call` / `try_native_method_call`）都经它；
@@ -337,8 +337,8 @@ regs，interp `RefKind::Stack` 跨帧 deref 通过 `frame.regs`。
 
 一次调用除了 push / pop 之外的固定开销都收在 `VmContext` 上，调用路径上不碰 thread-local、不做 RMW：
 
-- **寄存器池**（`exec/call/reg_pool.rs`）：interp `Frame::new*` 与 `JitFrame::new*` 都从 `reg_pool.take(need)`
-  取寄存器文件，`FrameGuard` / `enter_compiled` 在 pop **之后**用 `give` 还回。不变量：池里的 `Vec` 长度为 0；
+- **寄存器池**由 `ThreadExecState` 私有持有。解释器和 JIT 通过 `take_registers` 领用寄存器文件，
+  `FrameGuard` / `enter_compiled` 在 pop **之后**用 `recycle_registers` 归还。池里的 `Vec` 长度为 0；
   `take` 用 `resize(need, Null)` 把每个槽写一遍 `Null`（每次调用恰好一遍，不能省——帧一 push，GC 就扫
   `regs[0..len)`，此前每个槽都必须是合法值）；`give` 只 `clear()`（`Value` 是 `Copy`，只改长度），容量以外的
   旧位无人读取——池里的 `Vec` 不是根。上限 512 个。没进入过 `enter_frame` 的 `Frame`（入口拷参失败）直接释放。
@@ -1478,7 +1478,7 @@ jit/helpers/
 **Raw memory access invariants**:
 
 - `frame.regs` 是 `Vec<Value>`；data pointer 在 JitFrame 构造时分配
-  并稳定到函数结束（`reg_pool.take(max_reg + 1)` 一次定长，不会再 grow）。
+  并稳定到函数结束（`take_registers(max_reg + 1)` 一次定长，不会再 grow）。
   `JitFrame` 是 `#[repr(C)]`，首字段 `regs_ptr` 即 `regs.as_mut_ptr()`（构造时设好）；
   函数序言按偏移 `JIT_FRAME_REGS_PTR_OFFSET`（= 0）load 一次，缓存为 SSA `regs_base`，不调 helper。
 - Slot 地址 `= regs_base + idx * 16`（`VALUE_STRIDE = size_of::<Value>()`，`jit/translate/reg_access.rs`；
@@ -1687,7 +1687,7 @@ builtin 按功能分 submodule：`string.rs` / `io.rs` / `math.rs` / `fs.rs` 等
 > 即编译码被调用时收到的那个（`jit::runtime::invoke::enter_compiled` 传入）；Cranelift translate 在调用点插入 `ctx_val`。
 > helper 用 `vm_ctx_ref(ctx)` 直接解引用，共享的 JIT 状态经 `ctx.jit()`（缓存的 `&TierApi`，`jit_rt(ctx)`）取。
 >
-> 寄存器池也在 `VmContext` 上（`reg_pool`）。`VmContext` 是所有 runtime-mutable 状态的唯一规范来源；
+> 寄存器池由 `VmContext` 的执行状态持有。`VmContext` 是所有 runtime-mutable 状态的唯一规范来源；
 > 仍是 thread-local 的只有引擎入口 guard 维护的 `CURRENT_VM` 与 ambient 堆指针（供拿不到 ctx 的
 > `z42_*` 导出函数与 `Str::new` 使用）。
 
