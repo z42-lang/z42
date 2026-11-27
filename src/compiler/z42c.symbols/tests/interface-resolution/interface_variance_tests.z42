@@ -116,3 +116,19 @@ void test_constrained_generic_method_remains_invariant() {
         "interface IGeneric<T> { T Get(); U Convert<U>(U value) where U : T; }", "IGeneric");
     Assert.Equal(true, iface.ParameterVariance(0) == InterfaceVariance.Invariant);
 }
+
+[Test]
+void test_variance_allows_parents_with_fixed_slot_identity() {
+    var iface = collectVarianceInterface(
+        "interface ITag { string Tag(); } interface ILabel<T> { T Label(); } "
+        + "interface ISink<T> : ITag, ILabel<int> { void Put(T value); }", "ISink");
+    Assert.Equal(true, iface.ParameterVariance(0) == InterfaceVariance.Contravariant);
+}
+
+[Test]
+void test_variance_keeps_open_parent_slots_invariant() {
+    var iface = collectVarianceInterface(
+        "interface IParent<T> { T Get(); } interface IChild<T> : IParent<T> { T Read(); }",
+        "IChild");
+    Assert.Equal(true, iface.ParameterVariance(0) == InterfaceVariance.Invariant);
+}
