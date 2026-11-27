@@ -1134,10 +1134,11 @@ z42.core 里的脚本泛型，跨包不特化，擦除体里 `a[i]` 拿到的是
 **单标量叶子 struct 塌缩**（`GCHandle`）、**JIT 原生内联字节访问**（现 helper 桥接=interp 速度）、**反射合成方法可见**、**static struct 字段反射**、**ToString 字段 dump**、**E0438 自引用诊断**（现 `Size==0` 兜底防崩）、**`(P)o` 拆箱失败报错**（对 blob struct 目标发 `AsCast`，类型不符 / `o` 为 null 时得 `Null`，不抛 `InvalidCastException` / `NullReferenceException`；基元拆箱已抛，见 [object-abi](object-abi.md)）尚未实施。
 
 
-## Deferred
-
-### 依赖包泛型 struct 的闭合装箱
+## 依赖包泛型 struct 的闭合装箱
 
 导入 struct 装箱时使用定义包的存储布局，并在对象上记录闭合实参。共享泛型方法或
 类的成员可从当前调用帧或接收者绑定实参，再创建盒。反射、类型测试、受检拆箱和装箱
 值相等性使用这些实参。跨包物理布局特化仍沿用定义包的布局约定。
+
+直接调用导入泛型 struct 的 `Equals$1$synth` 时也保留接收者的闭合实参，
+复用装箱相等性派发。布局相同且字段值相同的两个不同闭合类型仍不相等。

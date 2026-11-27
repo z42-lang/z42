@@ -188,6 +188,12 @@ public sealed class CallEmitter {
             // （struct 无继承/虚方法；receiver 是 StructRef 句柄非 object，走 VCall 会崩）。含返回 struct 的
             // sret。绕过下方 devirt/DepIndex/VCall。实参先于 receiver（保发射序）+ struct 实参 copy-in。
             if (this._ee._isBlobStruct(c.Receiver.Type())) {
+                // The imported synthesized body can only test against its erased definition.
+                // Pass both closed identities to the existing boxed equality path.
+                if (c.MethodName == "Equals$1$synth" && c.Receiver.Type() is Z42InstantiatedType
+                    && !this._ctx.IsLocalReceiver(c.Receiver.Type())) {
+                    return this._emitBoxedStructObjectCall(c, "Equals");
+                }
                 // fix-value-type-object-methods 阶段2：struct **未自声明**的 Object 方法（ToString /
                 // GetHashCode / Equals）→ `__box_struct` 装箱 receiver + VCall，命中 runtime 装箱-struct
                 // Object 协议（exec_vcall.rs：ToString→短类型名 / GetHashCode→FNV / Equals→Std.Object）。
@@ -214,7 +220,7 @@ public sealed class CallEmitter {
                         this._ctx.Emit(new BuiltinInstr(hdst, "__struct_hash_code", ha, 1));
                         return hdst;
                     }
-                    return this._emitBoxedStructObjectCall(c);
+                    return this._emitBoxedStructObjectCall(c, c.MethodName);
                 }
                 TypedReg[] sargs = this._emitStructAwareArgs(c);
                 // Object-protocol overrides operate on the array element's value snapshot.
@@ -641,14 +647,11 @@ public sealed class CallEmitter {
     // fix-value-type-object-methods：struct receiver 未自声明的 Object 方法 → 装箱 + VCall。
     // 实参先于 receiver（match struct 发射序），receiver 经 __box_struct 得 BoxedStruct 句柄 → VCall
     // 命中 runtime 装箱-struct Object 协议。GetHashCode/ToString 0 参、Equals 1 参。
-    private TypedReg _emitBoxedStructObjectCall(BoundCall c) {
+    private TypedReg _emitBoxedStructObjectCall(BoundCall c, string method) {
         TypedReg[] oargs = this._emitStructAwareArgs(c);
-        TypedReg sv = this._ee.Emit(c.Receiver);
-        TypedReg[] ba = new TypedReg[1]; ba[0] = sv;
-        TypedReg boxed = this._ctx.Alloc(IrType.Ref);
-        this._ctx.Emit(new BuiltinInstr(boxed, "__box_struct", ba, 1));
+        TypedReg boxed = this._ee._emitStructBox(c.Receiver);
         TypedReg odst = this._ctx.Alloc(this._ctx.ToIrType(c.Type()));
-        this._ctx.Emit(new VCallInstr(odst, boxed, c.MethodName, oargs, c.ArgCount));
+        this._ctx.Emit(new VCallInstr(odst, boxed, method, oargs, c.ArgCount));
         return odst;
     }
 

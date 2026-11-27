@@ -231,21 +231,7 @@ public sealed class TypeOpEmitter {
         // add-struct-object-boxing: blob 值 struct → `__box_struct`（把帧 arena blob 拷到堆，type_name
         // 运行时从 arena slot 取，无需 class 参数）。复用 Builtin opcode，无格式 bump。
         if (this._ee._isBlobStruct(b.E.Type())) {
-            TypedReg sval = this._ee.Emit(b.E);
-            TypedReg sdst = this._ctx.Alloc(IrType.Ref);
-            string identity = this._importedStructIdentity(b.E.Type());
-            if (identity != "") {
-                TypedReg name = this._ctx.Alloc(IrType.Ref);
-                if (this._ee._hasTypeParam(b.E.Type())) {
-                    this._ctx.Emit(new TypeofInstr(name, identity, new string[0], 0));
-                } else {
-                    this._ctx.Emit(new ConstStrInstr(name, this._ctx.Gen.Intern(identity)));
-                }
-                this._ctx.Emit(new BuiltinInstr(sdst, "__box_imported_struct", new TypedReg[] { sval, name }, 2));
-            } else {
-                this._ctx.Emit(new BuiltinInstr(sdst, "__box_struct", new TypedReg[] { sval }, 1));
-            }
-            return sdst;
+            return this._emitStructBox(b.E);
         }
         TypedReg val = this._ee.Emit(b.E);
         // 非基元（如非 blob 单字段 struct 擦除到 object）→ BoundBox 退化为透传，保持现模型。
@@ -260,6 +246,26 @@ public sealed class TypeOpEmitter {
         // `Type.z42`「z42 一律以 i64 背书 enum」。类名按 enum 类型自己的声明 ns 限定（语义期存的是短名）。
         if (_boxEnum) { return this._emitBoxPrim(val, this._ctx.QualifyType(_bet, b.PrimFQ)); }
         return this._emitBoxPrim(val, b.PrimFQ);
+    }
+
+    internal TypedReg _emitStructBox(BoundExpr value) {
+        TypedReg src = this._ee.Emit(value);
+        TypedReg dst = this._ctx.Alloc(IrType.Ref);
+        string identity = this._importedStructIdentity(value.Type());
+        if (identity == "") {
+            this._ctx.Emit(new BuiltinInstr(dst, "__box_struct", new TypedReg[] { src }, 1));
+            return dst;
+        }
+        TypedReg name;
+        if (this._ee._hasTypeParam(value.Type())) {
+            name = this._ctx.Alloc(IrType.Ref);
+            this._ctx.Emit(new TypeofInstr(name, identity, new string[0], 0));
+        } else {
+            name = this._ctx.Alloc(IrType.Str);
+            this._ctx.Emit(new ConstStrInstr(name, this._ctx.Gen.Intern(identity)));
+        }
+        this._ctx.Emit(new BuiltinInstr(dst, "__box_imported_struct", new TypedReg[] { src, name }, 2));
+        return dst;
     }
 
     private string _importedStructIdentity(Z42Type type) {
