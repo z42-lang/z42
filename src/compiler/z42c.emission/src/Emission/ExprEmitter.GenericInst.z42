@@ -31,6 +31,18 @@ public sealed partial class ExprEmitter {
         return isBlob;
     }
 
+    // 数组元素的表示取决于特化实参，绑定树上的元素仍可能是裸型参。
+    internal string _arrayElementBlobName(Z42Type elem) {
+        if (elem is Z42GenericParamType) {
+            // 类的特化不能替换同名的方法形参；方法仍按自己的激活和擦除约定执行。
+            if (this._ctx.Gen.SpecInstName == "" || this._ctx.IsMethodTypeParam(elem)) { return ""; }
+            string name = this._substTypeParam(elem);
+            if (name != "" && this._ctx.Gen.Layouts != null && this._ctx.Gen.Layouts.IsBlobStruct(name)) { return name; }
+            return "";
+        }
+        return this._isBlobStruct(elem) ? this._blobStructName(elem) : "";
+    }
+
     // 命中闸门的实例化规范名；不命中（非实例化 / 无 blob struct 实参 / 布局不可用）→ ""。
     // 闸门：**至少一个型参实参本身是 blob struct**。否则表示与今天逐字节相同，不必投送描述符。
     internal string _instLayoutName(Z42Type t) {
