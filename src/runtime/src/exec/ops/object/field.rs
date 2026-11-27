@@ -55,21 +55,15 @@ fn resolve_miss(o: &ScriptObject, name: &str, ic: Option<&FieldIC>) -> Option<Op
 #[inline(always)]
 fn load(o: &ScriptObject, name: &str, ic: Option<&FieldIC>) -> Result<Value, usize> {
     let Some(Some(access)) = resolve(o, name, ic) else { return Ok(Value::Null) };
-    if access.cell == FieldCell::Struct {
-        if let Some(&slot) = o.type_desc.field_index.get(name) {
-            return load_inline(o, slot);
-        }
-    }
-    Ok(o.load_access(access))
+    o.load_access_with_inline(access, Ok, || empty_inline_slot(o, name).map_or(Ok(Value::Null), Err))
 }
 
 #[cold]
-fn load_inline(o: &ScriptObject, slot: usize) -> Result<Value, usize> {
+fn empty_inline_slot(o: &ScriptObject, name: &str) -> Option<usize> {
+    let slot = *o.type_desc.field_index.get(name)?;
     // The IC records the cell kind, so recover the byte width from the real layout.
-    if o.field_access_of(slot).is_some_and(|access| access.width == 0) {
-        return Err(slot);
-    }
-    Ok(Value::Null)
+    let access = o.field_access_of(slot)?;
+    (access.width == 0).then_some(slot)
 }
 
 #[cold]
@@ -87,7 +81,17 @@ fn materialize_empty_field(ctx: &VmContext, td: &crate::object::TypeDesc, slot: 
 
 #[inline(always)]
 fn load_heap(ctx: &VmContext, rc: &crate::object::ObjRef, name: &str, ic: Option<&FieldIC>) -> OpResult<Value> {
-    load(rc.borrow(), name, ic).or_else(|slot| materialize_empty_field(ctx, rc.type_desc(), slot))
+    let o = rc.borrow();
+    let Some(Some(access)) = resolve(o, name, ic) else { return Ok(Value::Null) };
+    o.load_access_with_inline(access, Ok, || load_heap_inline(ctx, o, name))
+}
+
+#[cold]
+fn load_heap_inline(ctx: &VmContext, o: &ScriptObject, name: &str) -> OpResult<Value> {
+    match empty_inline_slot(o, name) {
+        Some(slot) => materialize_empty_field(ctx, &o.type_desc, slot),
+        None => Ok(Value::Null),
+    }
 }
 
 /// 写入（不含写屏障）。返回 `Some((单元字节偏移, 写了什么))`；调用方据此发屏障。
