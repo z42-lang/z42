@@ -1,0 +1,8 @@
+[project]
+name = "demo.zero_payload_struct_app"
+version = "0.1.0"
+kind = "exe"
+pack = true
+
+[dependencies]
+"demo.zero_payload_struct" = "0.1.0"

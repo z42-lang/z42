@@ -1,0 +1,63 @@
+namespace ZeroPayloadStructDefault;
+using Std.Reflection;
+
+class InitLog {
+    public static int Calls = 0;
+}
+
+struct Empty {}
+
+struct Composite {
+    public Empty Member;
+
+    static Composite() { InitLog.Calls = InitLog.Calls + 1; }
+    public Composite() { InitLog.Calls = InitLog.Calls + 1; }
+}
+
+struct Layer { public Composite Nested; }
+struct Holder<T> { public Empty Value; }
+class Host { public Composite Value; }
+
+Composite ConcreteZero() { return default(Composite); }
+T GenericZero<T>() { return default(T); }
+
+void Main() {
+    Composite concrete = ConcreteZero();
+    object boxed = concrete;
+    object generic = GenericZero<Composite>();
+    Assert.Equal(typeof(Composite), boxed.GetType());
+    Assert.True(boxed.Equals(generic));
+    Assert.Equal(boxed.GetHashCode(), generic.GetHashCode());
+
+    object child = concrete.Member;
+    Assert.Equal(typeof(Empty), child.GetType());
+    concrete.Member = default(Empty);
+    Layer layer = default(Layer);
+    object nested = layer.Nested;
+    Assert.True(boxed.Equals(nested));
+    Host host = new Host();
+    object fieldValue = host.Value;
+    Assert.Equal(typeof(Composite), fieldValue.GetType());
+
+    Composite[] array = new Composite[2];
+    array[1] = concrete;
+    object element = array[1];
+    Assert.True(boxed.Equals(element));
+    Assert.Equal(boxed.GetHashCode(), element.GetHashCode());
+
+    FieldInfo[] fields = typeof(Composite).GetFields();
+    Assert.Equal(1, fields.Length);
+    Assert.Equal(typeof(Empty), fields[0].GetValue(boxed).GetType());
+    fields[0].SetValue(boxed, default(Empty));
+
+    Holder<int> holder = default(Holder<int>);
+    object holderObject = holder;
+    object held = holder.Value;
+    Assert.Equal(typeof(Holder<int>), holderObject.GetType());
+    Assert.Equal(typeof(Empty), held.GetType());
+    Assert.Equal(0, InitLog.Calls);
+
+    object made = new Composite();
+    Assert.Equal(2, InitLog.Calls);
+    Assert.True(boxed.Equals(made));
+}

@@ -46,6 +46,9 @@ impl ScriptObject {
         if let Some(col) = self.type_desc.composed_object_layout_ref() {
             return col.field_access.get(slot).copied();
         }
+        if self.type_desc.is_zero_payload_struct() && slot < self.type_desc.fields.len() {
+            return Some(FieldAccess::struct_root(0, 0));
+        }
         self.synthesized_field_access(slot)
     }
 

@@ -1,0 +1,14 @@
+namespace ZeroPayloadConsumer;
+using Std.IO;
+using ZeroPayloadValues;
+
+void Main() {
+    Composite value = Zero();
+    object empty = value.Value;
+    object original = Create();
+    object boxed = value;
+    Assert.Equal(typeof(Marker), empty.GetType());
+    Assert.True(boxed.Equals(original));
+    Assert.Equal(boxed.GetHashCode(), original.GetHashCode());
+    Console.WriteLine("ok");
+}
