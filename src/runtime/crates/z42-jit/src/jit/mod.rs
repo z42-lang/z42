@@ -152,7 +152,4 @@ mod forward_cross_tests;
 mod qualified_cross_tests;
 
 #[cfg(test)]
-mod host_cross_tests;
-
-#[cfg(test)]
 mod test_support;

@@ -35,11 +35,39 @@ Process _runtimeTestCargoFor(string verb, string targetDir) {
 
 string _runtimeTestTarget() { return Path.Join(_componentBuildDir(_root()), "tests/runtime"); }
 
+bool _runtimeBackendCrate(string name) {
+    return name == "z42-interp" || name == "z42-jit";
+}
+
+int _verifyRuntimeBackendDependencies() {
+    ProcessResult cargo = new Process("cargo").Arg("metadata")
+        .Arg("--no-deps").Arg("--locked").Arg("--format-version").Arg("1")
+        .WorkingDirectory(Path.Join(_root(), "src/runtime")).Stderr(Stdio.Inherit()).Run();
+    if (cargo.ExitCode != 0) { return cargo.ExitCode; }
+    JsonValue packages = JsonValue.Parse(cargo.Stdout).Get("packages");
+    for (int i = 0; i < packages.Count(); i = i + 1) {
+        JsonValue pkg = packages.At(i);
+        string backend = pkg.Get("name").AsString();
+        if (!_runtimeBackendCrate(backend)) { continue; }
+        JsonValue dependencies = pkg.Get("dependencies");
+        for (int j = 0; j < dependencies.Count(); j = j + 1) {
+            string provider = dependencies.At(j).Get("name").AsString();
+            if (_runtimeBackendCrate(provider)) {
+                ConsoleError.WriteLine("Runtime backend " + backend + " directly depends on " + provider
+                    + ". Bind execution roles through Core, including in tests.");
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
 // 完整 harness 与 GREEN 窄版共用的执行器。harness 依赖共享 Rust std（`-C prefer-dynamic`），组件测试还会
 // dlopen 现编的探针库，所以两者都这样跑：一次 Cargo 图编出要的 target → std 拷到组件旁 → 带组件 / deps / std
 // 的库搜索路径逐个运行 harness。直接 `cargo test` 没有这套布局，组件探针库在 Linux 上 dlopen 失败。
 // libOnly（窄版）：只编 `cargo test --no-run` 那组 target、只跑 lib 单测，不跑 doctest。
 int _runtimeTestRunHarnesses(bool libOnly) {
+    int dependencies = _verifyRuntimeBackendDependencies(); if (dependencies != 0) { return dependencies; }
     // Build every harness and production dependency in one Cargo graph. A subsequent
     // cargo test graph can overwrite the shared runtime with incompatible metadata.
     Process cargo = _runtimeTestCargo("build");
