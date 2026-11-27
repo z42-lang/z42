@@ -1,0 +1,54 @@
+namespace ZeroWidthStructSpecialization;
+
+class InitLog { public static int Calls = 0; }
+
+struct Empty {
+    public Empty() { InitLog.Calls = InitLog.Calls + 1; }
+}
+
+struct Holder<T> {
+    public T Value;
+    public T Read() { return Value; }
+}
+
+struct MarkerOf<T> {}
+class Container { public Holder<Empty> Stored; }
+
+struct Pair {
+    public MarkerOf<int> Typed;
+    public Empty Marker;
+    public int Number;
+}
+
+Holder<Empty> Make() { return default(Holder<Empty>); }
+T Zero<T>() { return default(T); }
+
+void Main() {
+    Holder<Empty> holder = Make();
+    object boxed = holder;
+    Assert.Equal(typeof(Holder<Empty>), boxed.GetType());
+    object fromField = holder.Value;
+    Assert.Equal(typeof(Empty), fromField.GetType());
+    object fromMethod = holder.Read();
+    Assert.Equal(typeof(Empty), fromMethod.GetType());
+    Holder<Empty> generic = Zero<Holder<Empty>>();
+    Assert.Equal(typeof(Empty), ((object)generic.Value).GetType());
+    Assert.True(boxed.Equals(generic));
+
+    Holder<Empty>[] items = new Holder<Empty>[2];
+    items[1] = holder;
+    object fromArray = items[1];
+    Assert.Equal(boxed.GetHashCode(), fromArray.GetHashCode());
+    Assert.True(boxed.Equals(fromArray));
+    Holder<Empty> fromReflection = items.GetValue(0) as Holder<Empty>;
+    Assert.True(boxed.Equals(fromReflection));
+    Pair pair = default(Pair);
+    object marker = pair.Marker;
+    Assert.Equal(typeof(Empty), marker.GetType());
+    object typedMarker = pair.Typed;
+    Assert.Equal("ZeroWidthStructSpecialization.MarkerOf<Std.Int32>", typedMarker.GetType().FullName);
+    Container c = new Container();
+    Holder<Empty> stored = c.Stored;
+    Assert.True(boxed.Equals(stored));
+    Assert.Equal(0, InitLog.Calls);
+}

@@ -277,6 +277,17 @@ public sealed class AccessEmitter {
             if (rfs != null) { fg.Readonly = rfs.IsReadonly; }
         }
         this._ctx.Emit(fg);
+        return this._unboxZeroWidthField(dst, m.Type());
+    }
+
+    // FieldGet preserves the receiver check and returns a box for a zero-width
+    // specialization of a blob type. Typed callers still expect an arena value.
+    private TypedReg _unboxZeroWidthField(TypedReg value, Z42Type type) {
+        if (!(type is Z42InstantiatedType) || !this._ee._isBlobStruct(type)) { return value; }
+        string name = this._ee._blobStructName(type);
+        if (!this._ctx.Gen.Layouts.IsZeroPayloadStruct(name)) { return value; }
+        TypedReg dst = this._ctx.Alloc(IrType.Ref);
+        this._ctx.Emit(new AsCastInstr(dst, value, this._ctx.QualifyLayout(name)));
         return dst;
     }
 
@@ -309,11 +320,7 @@ public sealed class AccessEmitter {
         int[] path = AccessEmitter._pathAppend(this._structChainPath(m.Target), this._ctx.Gen.Layouts.FieldIndexOf(cont, ln));
         if (this._ctx.Gen.Layouts.FieldIsStruct(cont, ln)) {
             string fs = this._ctx.Gen.Layouts.FieldTypeName(cont, ln);
-            int sz = this._ctx.Gen.Layouts.StructSize(fs);
-            TypedReg cp = this._ctx.Alloc(IrType.Ref);
-            this._ctx.Emit(new StructAllocInstr(cp, this._ctx.QualifyLayout(fs), sz));
-            this._copyRegion(base_, this._ctx.QualifyLayout(rootTy), path, cp, this._ctx.QualifyLayout(fs), new int[0], fs);
-            return cp;
+            return this._copyStructOut(base_, this._ctx.QualifyLayout(rootTy), path, fs, m.Type());
         }
         int tag = Tag.FromName(this._ctx.Gen.Layouts.FieldTypeName(cont, ln));
         TypedReg dst = this._ctx.Alloc(this._ctx.ToIrType(m.Type()));
@@ -657,11 +664,31 @@ public sealed class AccessEmitter {
 
     // 从 srcBase@srcOff 处复制出一个 struct 值副本到新分配的 blob，返回其句柄（complete-struct：模式嵌套
     // struct 字段读复用——把子 struct 字段作独立值副本产出供递归子模式解构，非别名）。
-    internal TypedReg _copyStructOut(TypedReg srcBase, string srcRoot, int[] srcPath, string structName) {
-        int sz = this._ctx.Gen.Layouts.StructSize(structName);
+    internal TypedReg _copyStructOut(TypedReg srcBase, string srcRoot, int[] srcPath, string structName, Z42Type fieldType = null) {
+        StructLayout layouts = this._ctx.Gen.Layouts;
+        int size = layouts.StructSize(structName);
+        string name = this._ctx.QualifyLayout(structName);
+        // Types declared with a zero-width layout use an object at their call sites.
+        // Specializations of blob types keep their arena representation even at size zero.
+        if (size == 0 && (!(fieldType is Z42InstantiatedType) || !this._ee._hasTypeParam(fieldType))
+            && layouts.IsZeroPayloadStruct(structName)
+            && !layouts.IsBlobStruct(StructLayout.BaseNameOf(structName))) {
+            if (this._ee._receiverClassType(fieldType) != null) {
+                return this._ee._emitConcreteDefault(fieldType);
+            }
+            string[] args = new string[0];
+            if (layouts.LayoutOf(structName).FieldCount == 0) {
+                // A fieldless generic can use its definition with concrete instance arguments.
+                args = StructLayout.InstArgsOf(name);
+                name = StructLayout.BaseNameOf(name);
+            }
+            TypedReg empty = this._ctx.Alloc(IrType.Ref);
+            this._ctx.Emit(new ObjNewInstr(empty, name, "@default", args, args.Length, new TypedReg[0], 0));
+            return empty;
+        }
         TypedReg cp = this._ctx.Alloc(IrType.Ref);
-        this._ctx.Emit(new StructAllocInstr(cp, this._ctx.QualifyLayout(structName), sz));
-        this._copyRegion(srcBase, srcRoot, srcPath, cp, this._ctx.QualifyLayout(structName), new int[0], structName);
+        this._ctx.Emit(new StructAllocInstr(cp, name, size));
+        this._copyRegion(srcBase, srcRoot, srcPath, cp, name, new int[0], structName);
         return cp;
     }
 
@@ -749,13 +776,9 @@ public sealed class AccessEmitter {
                 // add-struct-nested-fields：裸 owner 字段本身是 struct（`P p = a;`）→ 值复制出（reg0=this，off=字段 offset）。
                 if (this._ctx.Gen.Layouts.FieldIsStruct(this._ctx.OwnerStructName, rbn)) {
                     string fs = this._ctx.Gen.Layouts.FieldTypeName(this._ctx.OwnerStructName, rbn);
-                    int sz = this._ctx.Gen.Layouts.StructSize(fs);
-                    TypedReg cp = this._ctx.Alloc(IrType.Ref);
-                    this._ctx.Emit(new StructAllocInstr(cp, this._ctx.QualifyLayout(fs), sz));
-                    this._copyRegion(new TypedReg(0, IrType.Ref), this._ctx.QualifyLayout(this._ctx.OwnerStructName),
-                                     AccessEmitter._pathAppend(new int[0], this._ctx.Gen.Layouts.FieldIndexOf(this._ctx.OwnerStructName, rbn)),
-                                     cp, this._ctx.QualifyLayout(fs), new int[0], fs);
-                    return cp;
+                    int fieldIndex = this._ctx.Gen.Layouts.FieldIndexOf(this._ctx.OwnerStructName, rbn);
+                    return this._copyStructOut(new TypedReg(0, IrType.Ref), this._ctx.QualifyLayout(this._ctx.OwnerStructName),
+                                               AccessEmitter._pathAppend(new int[0], fieldIndex), fs, id.Type());
                 }
                 return this._emitStructFieldGet(this._ctx.OwnerStructName, rbn, new TypedReg(0, IrType.Ref), this._ctx.ToIrType(id.Type()));
             }
@@ -775,7 +798,7 @@ public sealed class AccessEmitter {
             FieldGetInstr bfg = new FieldGetInstr(dst, new TypedReg(0, IrType.Ref), id.Name);
             if (this._ctx.ReadonlyFields.ContainsKey(id.Name)) { bfg.Readonly = true; }   // add-readonly-fields-opt
             this._ctx.Emit(bfg);
-            return dst;
+            return this._unboxZeroWidthField(dst, id.Type());
         }
         TypedReg ph = this._ctx.Alloc(this._ctx.ToIrType(id.Type()));
         this._ctx.Emit(new ConstNullInstr(ph));
