@@ -318,3 +318,23 @@ void test_variance_accepts_only_the_nominal_reference_parent_of_a_constructed_cl
     Assert.Equal("E0402", SemanticDump.FirstErrorCode(ctx
         + " void F(ISource<Item<Cat>> x) { ISource<object> a = x; }"));
 }
+
+
+[Test]
+void test_interface_variance_uses_projected_constructed_base_arguments() {
+    string ctx = "namespace D; class Cat {} class Crate<A,B> {}"
+        + " class Mid<A,B> : Crate<B,A> {} class Leaf<X> : Mid<int,X> {}"
+        + " class Fixed : Crate<Cat,int> {} struct Item<T> { public T Value; }"
+        + " interface ISource<T> { T Read(); } interface ISink<T> { void Put(T value); }";
+    Assert.Equal(0, SemanticDump.ErrorCount(ctx
+        + " void F(ISource<Leaf<Cat>> x, ISink<Crate<Cat,int>> y, ISource<Fixed> z) {"
+        + " ISource<Crate<Cat,int>> a = x; ISink<Leaf<Cat>> b = y; ISource<Crate<Cat,int>> c = z; }"));
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(ctx
+        + " void F(ISource<Leaf<Cat>> x) { ISource<Crate<int,Cat>> a = x; }"));
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(ctx
+        + " void F(ISource<Crate<Cat,int>> x) { ISource<Leaf<Cat>> a = x; }"));
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(ctx
+        + " void F(ISink<Crate<object,int>> x) { ISink<Leaf<Cat>> a = x; }"));
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(ctx
+        + " void F(ISource<Item<Cat>> x) { ISource<Crate<Cat,int>> a = x; }"));
+}

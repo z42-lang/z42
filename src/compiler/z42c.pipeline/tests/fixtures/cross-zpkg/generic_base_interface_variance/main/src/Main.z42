@@ -1,0 +1,18 @@
+using GenericBaseVariance;
+using Std.IO;
+
+void Main() {
+    ISource<Leaf<Cat>> source = new Source();
+    ISource<Crate<Cat,int>> widened = source;
+    Assert.True(widened.Read() is Leaf<Cat>);
+    ISource<Fixed> fixedSource = new FixedSource();
+    ISource<Crate<Cat,int>> widenedFixed = fixedSource;
+    Assert.True(widenedFixed.Read() is Fixed);
+    Sink sink = new Sink();
+    ISink<Crate<Cat,int>> bases = sink;
+    ISink<Leaf<Cat>> narrowed = bases;
+    ISink<Leaf<Cat>> exact = sink;
+    Assert.Equal("base", narrowed.Put(new Leaf<Cat>()));
+    Assert.Equal("leaf", exact.Put(new Leaf<Cat>()));
+    Console.WriteLine("generic base variance: ok");
+}

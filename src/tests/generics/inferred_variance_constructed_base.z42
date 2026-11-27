@@ -1,0 +1,38 @@
+namespace GenericBaseVariance;
+
+class Cat {}
+class Crate<A,B> {}
+class Mid<A,B> : Crate<B,A> {}
+class Leaf<X> : Mid<int,X> {}
+class Fixed : Crate<Cat,int> {}
+
+interface ISource<T> { T Read(); }
+interface ISink<T> { string Put(T value); }
+
+class Source : ISource<Leaf<Cat>> {
+    public Leaf<Cat> Read() { return new Leaf<Cat>(); }
+}
+
+class Sink : ISink<Crate<Cat,int>>, ISink<Leaf<Cat>> {
+    public string Put(Crate<Cat,int> value) { return "base"; }
+    public string Put(Leaf<Cat> value) { return "leaf"; }
+}
+
+class FixedSource : ISource<Fixed> {
+    public Fixed Read() { return new Fixed(); }
+}
+
+void Main() {
+    ISource<Leaf<Cat>> source = new Source();
+    ISource<Crate<Cat,int>> widened = source;
+    Assert.True(widened.Read() is Leaf<Cat>);
+    ISource<Fixed> fixedSource = new FixedSource();
+    ISource<Crate<Cat,int>> widenedFixed = fixedSource;
+    Assert.True(widenedFixed.Read() is Fixed);
+    Sink sink = new Sink();
+    ISink<Crate<Cat,int>> bases = sink;
+    ISink<Leaf<Cat>> narrowed = bases;
+    ISink<Leaf<Cat>> exact = sink;
+    Assert.Equal("base", narrowed.Put(new Leaf<Cat>()));
+    Assert.Equal("leaf", exact.Put(new Leaf<Cat>()));
+}
