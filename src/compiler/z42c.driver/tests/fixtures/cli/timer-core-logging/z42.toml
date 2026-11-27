@@ -1,0 +1,4 @@
+[project]
+name = "timer.core.log"
+version = "0.1.0"
+kind = "exe"

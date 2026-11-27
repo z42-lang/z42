@@ -1,5 +1,4 @@
 namespace Std.Threading;
-using Std.Diagnostics;
 
 internal sealed partial class TimerScheduler {
     internal object Gate;
@@ -114,7 +113,7 @@ internal sealed partial class TimerScheduler {
     }
 
     private void ReportStartFailure(Timer timer, string message) {
-        try { Log.Error("Timer: cannot start callback worker: " + message); }
+        try { RuntimeErrorLog.Write("Timer: cannot start callback worker: " + message); }
         catch (Exception e) {
             MonitorNative.Enter(this.Gate);
             try {

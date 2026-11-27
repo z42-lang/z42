@@ -1,0 +1,27 @@
+namespace Std.Runtime;
+
+using Std.IO;
+using Std.Time;
+
+/// 基础库的 ERROR 日志出口，与 Std.Diagnostics.Log 共用进程级阈值。
+public static class RuntimeErrorLog {
+    private static int _minLevel = 2;
+
+    /// 设置最低日志级别。
+    public static void SetMinLevel(int level) { RuntimeErrorLog._minLevel = level; }
+
+    /// 返回最低日志级别。
+    public static int GetMinLevel() { return RuntimeErrorLog._minLevel; }
+
+    /// 以 ERROR 级别写一行到标准错误。
+    public static void Write(string message) {
+        if (RuntimeErrorLog._minLevel > 4) { return; }
+        ConsoleError.WriteLine(RuntimeErrorLog.FormatHeader(DateTime.UtcNow()) + " " + message);
+    }
+
+    /// 格式化带 ISO 8601 时间戳的 ERROR 头。
+    public static string FormatHeader(DateTime now) {
+        string level = TerminalSgr.Wrap(1, TerminalSgr.Wrap(31, "ERROR"));
+        return "[" + level + " " + now.ToIso8601() + "]";
+    }
+}

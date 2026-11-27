@@ -1,5 +1,4 @@
 namespace Std.Threading;
-using Std.Diagnostics;
 
 /// 一次性或周期性后台回调，共享等待调度和按需增长的回调工作线程。
 ///
@@ -88,7 +87,7 @@ public sealed class Timer {
                 callback();
             } catch (Exception e) {
                 string name = this.Periodic ? "Timer.StartPeriodic" : "Timer.StartOnce";
-                Log.Error(name + ": callback threw: " + e.Message);
+                RuntimeErrorLog.Write(name + ": callback threw: " + e.Message);
             }
             return null;
         } catch (Exception e) { return e.Message; }
