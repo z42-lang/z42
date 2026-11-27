@@ -280,6 +280,8 @@ pub unsafe extern "C" fn jit_is_instance(
         Value::Array(rc)  => crate::exec::ops::cast::array_isa_in_registry(vm_ctx_ref(ctx), Some(module), &rc.borrow().element_type(), class_name),
         Value::StructRef { idx, frame_id } =>
             crate::exec::ops::cast::struct_ref_isa(vm_ctx_ref(ctx), &module.type_registry, *idx, *frame_id, class_name),
+        Value::StructRefHeap { idx, frame_id } =>
+            crate::exec::ops::cast::struct_array_elem_isa(vm_ctx_ref(ctx), &module.type_registry, *idx, *frame_id, class_name),
         // add-struct-object-boxing → unify Phase 2 R3: 装箱值类型（struct 或基元）is-a 精确类型 /
         // object（镜像 interp is_instance；基元盒 type_desc.name 即精确 wrapper）。
         Value::BoxedStruct(b) => class_name == "Std.Object" || class_name == "Object"

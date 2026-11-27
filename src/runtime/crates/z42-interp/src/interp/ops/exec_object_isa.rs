@@ -10,7 +10,7 @@ use crate::object::Value;
 use crate::components::bridge::VmContext;
 use anyhow::Result;
 
-use crate::exec::ops::cast::{array_isa_in_registry, bound_param_extra_isa, isa_object, isa_td, struct_ref_isa};
+use crate::exec::ops::cast::{array_isa_in_registry, bound_param_extra_isa, isa_object, isa_td, struct_array_elem_isa, struct_ref_isa};
 use super::super::{prim_isa, Frame};
 
 /// A target naming a type parameter of a shared generic body (`o is T`, `o is List<T>`) carries
@@ -60,6 +60,7 @@ fn is_instance_of(
         // T[] is-a Std.Array is-a Std.Object, and is-a X[] iff its element type is X (invariant).
         Value::Array(rc) => array_isa_in_registry(ctx, Some(module), &rc.borrow().element_type(), class_name),
         Value::StructRef { idx, frame_id } => struct_ref_isa(ctx, &module.type_registry, *idx, *frame_id, class_name),
+        Value::StructRefHeap { idx, frame_id } => struct_array_elem_isa(ctx, &module.type_registry, *idx, *frame_id, class_name),
         Value::Null => false,
         // add-struct-object-boxing → unify Phase 2 R3: 装箱值类型（struct 或基元）is-a 精确类型 /
         // object（值类型经装箱进 object 层级）；接口 / 基链经 type_desc 解析。基元盒的 type_desc.name

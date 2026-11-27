@@ -192,8 +192,8 @@ public sealed class CallEmitter {
                 // GetHashCode / Equals）→ `__box_struct` 装箱 receiver + VCall，命中 runtime 装箱-struct
                 // Object 协议（exec_vcall.rs：ToString→短类型名 / GetHashCode→FNV / Equals→Std.Object）。
                 // 否则（record 合成 / 用户覆写，ChainHasMethod=true）走下方静态 Call，保各自语义不被拦。
-                if (this._isBoxedObjectMethod(c.MethodName, c.ArgCount)
-                    && !this._ctx.ChainHasMethod(c.OwnerClass, c.MethodName)) {
+                bool objectMethod = this._isBoxedObjectMethod(c.MethodName, c.ArgCount);
+                if (objectMethod && !this._ctx.ChainHasMethod(c.OwnerClass, c.MethodName)) {
                     // add-struct-value-eq-fastpath：Equals/GetHashCode 的**静态类型位点**不再装箱走
                     // vcall——语义与合成 Equals$1（`other is P ? eq : false`）/ FNV 哈希逐位相同，
                     // 但零堆分配（实参为异型值/null 时编译期已可判 false）。ToString 保持装箱协议
@@ -208,7 +208,7 @@ public sealed class CallEmitter {
                     }
                     if (c.MethodName == "GetHashCode" && c.ArgCount == 0
                         && !this._ctx.StructDeclaresMethod(c.Receiver.Type(), "GetHashCode")) {
-                        TypedReg harg = this._ee._emitStructHashReceiver(c.Receiver);
+                        TypedReg harg = this._ee._emitStructReceiver(c.Receiver);
                         TypedReg hdst = this._ctx.Alloc(this._ctx.ToIrType(c.Type()));
                         TypedReg[] ha = new TypedReg[1]; ha[0] = harg;
                         this._ctx.Emit(new BuiltinInstr(hdst, "__struct_hash_code", ha, 1));
@@ -217,7 +217,8 @@ public sealed class CallEmitter {
                     return this._emitBoxedStructObjectCall(c);
                 }
                 TypedReg[] sargs = this._emitStructAwareArgs(c);
-                TypedReg srecv = this._ee.Emit(c.Receiver);
+                // Object-protocol overrides operate on the array element's value snapshot.
+                TypedReg srecv = objectMethod ? this._ee.Emit(c.Receiver) : this._ee._emitStructReceiver(c.Receiver);
                 string sname = this._ee._blobStructName(c.Receiver.Type());
                 string fqm = this._ctx.QualifyLayout(sname) + "." + c.MethodName;
                 return this._emitCallSretAware(fqm, srecv, sargs, c.ArgCount, c.Type());

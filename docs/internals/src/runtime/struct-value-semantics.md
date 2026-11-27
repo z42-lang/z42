@@ -1109,6 +1109,10 @@ InstNeedsOwnBody(inst) = Layouts.InstDiffersFromDef(inst)      // ① 布局不�
 用例：`src/tests/generics/generic_static_per_instantiation.z42`（三格 + **三条阴性对照**：
 非泛型静态字段、`a < b` 仍是比较、实例字段仍每对象一份）。
 
+数组元素作为 blob struct 普通实例方法的接收者时，传入 `StructRefHeap`。字段写入直接更新数组，
+沿用数组的引用写屏障。方法中的按值复制和返回从元素视图复制载荷到帧内槽。数组字面量以
+该接收者为元素时也复制载荷。对象协议的用户重载仍通过常规读值取得独立副本。
+
 ## 待办
 
 **`Std.Array` 的泛型算法在 struct[] 上**：`Fill` / `Clear` / `Reverse` / `Resize` / `Sort` / `IndexOf` / `Find` 等是
