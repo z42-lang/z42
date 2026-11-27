@@ -35,7 +35,7 @@ pub fn run_app(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
         },
     )?;
     program.set_program_args(opts.program_args)?;
-    crate::diagnostics::configure_exit_report(opts.print_stats, opts.stats_json);
+    program.configure_exit_report(opts.print_stats, opts.stats_json);
     let result = program.run_entry(entry);
     program.report_on_exit();
     if opts.exit_after_run {

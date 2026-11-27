@@ -31,8 +31,10 @@ z42 的观测遵循**两层成本**原则（design §6）：
 2. **opt-in、按需 gate**：用户锁争用（编译期 `profile-contention` feature，默认编译掉）、
    **采样 profiler**（运行时 `Z42_SAMPLE_HZ` flag，默认无线程无开销）。
 
-退出时 `diagnostics/exit_report.rs` 把 counter 快照 + 堆派生数 + 并发探针合成一条 `ProfileSnapshot`，
-`--stats-format=json` 输出单行 JSON（sentinel key `z42vm_counters`）供 `xtask profile` 抓取。
+退出时 `diagnostics/exit_report.rs` 把计数器、堆统计和并发探针合成一条 `ProfileSnapshot`。
+`--stats=json` 将单行 JSON 写到 stderr，供 `xtask profile` 读取。
+报告配置和发出状态归 VM。一次性入口结束或托管 `Environment.Exit` 先报告当前 VM，同一 VM 的 worker 共用一次报告。
+独立或嵌套运行各自管理报告。采样输出路径来自进程配置，使用同一路径的写入串行完成，后完成的报告覆盖之前的文件。
 
 ---
 

@@ -1,17 +1,21 @@
 //! Diagnostics emitted when an application run finishes or exits the process.
 use crate::vm::VmContext;
 use std::path::Path;
+use std::sync::OnceLock;
 
-struct ExitReport {
+struct Options {
     print_stats: bool,
     stats_json: bool,
 }
 
-/// First-wins: an embedder or a nested `run` must not clobber the CLI's choice.
-static EXIT_REPORT: std::sync::OnceLock<ExitReport> = std::sync::OnceLock::new();
+#[derive(Default)]
+pub(super) struct ExitReport {
+    options: OnceLock<Options>,
+    emitted: OnceLock<()>,
+}
 
-pub(crate) fn configure_exit_report(print_stats: bool, stats_json: bool) {
-    let _ = EXIT_REPORT.set(ExitReport {
+pub(crate) fn configure_exit_report(ctx: &VmContext, print_stats: bool, stats_json: bool) {
+    let _ = ctx.core().diagnostics().exit_report.options.set(Options {
         print_stats,
         stats_json,
     });
@@ -19,19 +23,21 @@ pub(crate) fn configure_exit_report(print_stats: bool, stats_json: bool) {
 
 /// Emit the end-of-run counter snapshot (when requested) and flush the sampling
 /// profiler. Called on the normal return path by `run_app` and, before the process
-/// dies, by `Environment.Exit`. Safe to call with no `EXIT_REPORT` recorded
-/// (pure-embedder VMs): stats are then skipped and only the env-driven sampler
-/// flush applies.
+/// dies, by `Environment.Exit`. Low-level embedded VMs can flush sampling
+/// without configuring a counter report.
 pub(crate) fn report_on_exit(
     ctx: &VmContext,
     sampling_paths: impl FnOnce() -> (&'static Path, Option<&'static Path>),
 ) {
-    static DONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-    // Nested and repeated embedded runs share the same process report.
-    if DONE.swap(true, std::sync::atomic::Ordering::SeqCst) {
-        return;
-    }
-    let report = EXIT_REPORT.get();
+    let exit = &ctx.core().diagnostics().exit_report;
+    exit.emitted.get_or_init(|| emit_report(ctx, exit.options.get(), sampling_paths));
+}
+
+fn emit_report(
+    ctx: &VmContext,
+    report: Option<&Options>,
+    sampling_paths: impl FnOnce() -> (&'static Path, Option<&'static Path>),
+) {
     let diagnostics = ctx.core().diagnostics();
     // --stats: snapshot counters AFTER vm.run (even on error).
     // JSON form (--stats=json) is one line for `xtask profile` to scrape;
@@ -77,6 +83,9 @@ pub(crate) fn report_on_exit(
 
     // Sampling output is independent of counter reporting.
     if diagnostics.sampler.enabled() {
+        // The process config can give several VMs the same output paths.
+        static OUTPUT: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
+        let _output = OUTPUT.lock();
         let (folded_path, trace_path) = sampling_paths();
         let folded_path = folded_path.to_string_lossy();
         match diagnostics.sampler.flush_folded(&folded_path) {

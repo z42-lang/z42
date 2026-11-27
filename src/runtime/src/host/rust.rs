@@ -74,7 +74,9 @@ impl ExecMode {
 /// Configuration handed to [`Host::new`].
 pub struct HostConfig {
     pub exec_mode: ExecMode,
+    /// Reserved heap sizing field. Use `None`.
     pub heap_initial: Option<usize>,
+    /// Reserved heap sizing field. Use `None`.
     pub heap_max: Option<usize>,
     pub stdout: Option<Box<dyn Fn(&[u8]) + Send + Sync + 'static>>,
     pub stderr: Option<Box<dyn Fn(&[u8]) + Send + Sync + 'static>>,
@@ -207,23 +209,7 @@ pub fn run_app(
     mode: Option<z42::host::ExecMode>,
     args: Vec<String>,
 ) -> Result<(), HostError> {
-    crate::composition::install_app_config(file);
-    let vfs = z42::pal::fs::default_vfs();
-    let opts = z42::host::RunOpts {
-        mode: mode.unwrap_or_else(z42::host::default_mode),
-        search_dirs: crate::composition::resolve_search_dirs(
-            file,
-            libs_dir.as_deref(),
-            &*vfs,
-            crate::config::runtime_config(),
-        ),
-        vfs,
-        resolver: None,
-        program_args: args,
-        print_stats: false,
-        stats_json: false,
-        exit_after_run: false,
-    };
+    let opts = crate::composition::embedded_app_options(file, libs_dir.as_deref(), mode, args);
     z42::host::run_app(file, entry, opts).map_err(|e| match z42::exec::stack_guard::take_report() {
         Some(report) => HostError::Fatal(report),
         None => HostError::VmException(format!("{e:#}")),
