@@ -142,11 +142,10 @@ void _pkgEmitAndroidGradleProject(string root, string pkgDir) {
     _copyIfExists(Path.Join(proj, "z42vm/src/main/AndroidManifest.xml"), Path.Join(sm, "AndroidManifest.xml"));
     _pkgCopyKtTree(Path.Join(proj, "z42vm/src/main/java"), Path.Join(sm, "java"));
 
-    // cpp/: JNI bridge + CMake + SELF-CONTAINED headers (real, not forwarding stubs)
-    Directory.Create(Path.Join(sm, "cpp/include"));
+    // The installer points CMake to the selected runtime package's headers.
+    Directory.Create(Path.Join(sm, "cpp"));
     File.Copy(Path.Join(proj, "z42vm/src/main/cpp/z42vm_jni.c"), Path.Join(sm, "cpp/z42vm_jni.c"));
     File.Copy(Path.Join(proj, "z42vm/src/main/cpp/CMakeLists.txt"), Path.Join(sm, "cpp/CMakeLists.txt"));
-    _copyAbiHeaders(root, Path.Join(sm, "cpp/include"));
 
     // empty jniLibs/ + assets/stdlib/ — `z42 workload install android` populates these
     // from the runtime pack (per-ABI .so → jniLibs/<abi>/, stdlib zpkgs → assets/stdlib/).

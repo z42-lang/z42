@@ -202,31 +202,26 @@ _PkgIdentityRule _pkgRule(string label, string pkgRel, string srcAbs, string suf
 }
 
 // ⚠️ 规则必须与**实际拷贝的那一行**同源，否则门会验一个不相干的文件（= 假保障）。
-// 每条右侧注明拷贝点。特别注意 ios `Sources/Z42VMC/` 与 android `.../cpp/` **不能**
-// 整棵目录递归比：它们的 `include/` 装的是 `_copyAbiHeaders` 拷进去的**真 runtime 头**，
-// 而源树同名目录里是 `#include "../../.."` 的转发 stub，整棵比会假红。故那两处用
-// 显式文件规则 + 单独一条指向 src/runtime/include 的 include 规则。
+// 公共 C 头和 Swift module map 随 Runtime 发布，workload 只发布平台源码。
 _PkgIdentityRule[] _pkgIdentityRules(string root) {
     string rtInc   = Path.Join(root, "src/runtime/include");
     string iosSrc  = Path.Join(root, "src/toolchain/workload/ios/platform");
     string andProj = Path.Join(root, "src/toolchain/workload/android/platform");
     string wasmJs  = Path.Join(root, "src/toolchain/workload/wasm/platform/js");
-    _PkgIdentityRule[] rs = new _PkgIdentityRule[10];
+    _PkgIdentityRule[] rs = new _PkgIdentityRule[8];
     // stdlib zpkg/zsym（_pkgCopyLibsOf）
     rs[0] = _pkgRule("stdlib libs",        "libs",                          _libsDir(root), "");
-    // C ABI 头，三个落点同一份源（_copyAbiHeaders）
+    // Runtime C 头和 Swift module map（_copyAbiHeaders / _copyIosRuntimeHeaders）
     rs[1] = _pkgRule("C ABI headers",      "native/include",                rtInc, ".h");
-    rs[2] = _pkgRule("C ABI headers (ios)", "Sources/Z42VMC/include",       rtInc, ".h");
-    rs[3] = _pkgRule("C ABI headers (android)", "z42vm/src/main/cpp/include", rtInc, ".h");
+    rs[2] = _pkgRule("Runtime Swift module", "native/include/module.modulemap", Path.Join(rtInc, "module.modulemap"), "");
     // iOS（_packageIos）
-    rs[4] = _pkgRule("iOS Swift",          "Sources/Z42VM",                 Path.Join(iosSrc, "Sources/Z42VM"), ".swift");
-    rs[5] = _pkgRule("iOS Z42VMC dummy.c", "Sources/Z42VMC/dummy.c",        Path.Join(iosSrc, "Sources/Z42VMC/dummy.c"), "");
+    rs[3] = _pkgRule("iOS Swift",          "Sources/Z42VM",                 Path.Join(iosSrc, "Sources/Z42VM"), ".swift");
     // Android（_pkgEmitAndroidGradleProject）
-    rs[6] = _pkgRule("Android Kotlin",     "z42vm/src/main/java",           Path.Join(andProj, "z42vm/src/main/java"), ".kt");
-    rs[7] = _pkgRule("Android JNI bridge", "z42vm/src/main/cpp/z42vm_jni.c", Path.Join(andProj, "z42vm/src/main/cpp/z42vm_jni.c"), "");
-    rs[8] = _pkgRule("Android CMakeLists", "z42vm/src/main/cpp/CMakeLists.txt", Path.Join(andProj, "z42vm/src/main/cpp/CMakeLists.txt"), "");
+    rs[4] = _pkgRule("Android Kotlin",     "z42vm/src/main/java",           Path.Join(andProj, "z42vm/src/main/java"), ".kt");
+    rs[5] = _pkgRule("Android JNI bridge", "z42vm/src/main/cpp/z42vm_jni.c", Path.Join(andProj, "z42vm/src/main/cpp/z42vm_jni.c"), "");
+    rs[6] = _pkgRule("Android CMakeLists", "z42vm/src/main/cpp/CMakeLists.txt", Path.Join(andProj, "z42vm/src/main/cpp/CMakeLists.txt"), "");
     // wasm（_packageWasm）
-    rs[9] = _pkgRule("wasm js facade",     "js",                            wasmJs, "");
+    rs[7] = _pkgRule("wasm js facade",     "js",                            wasmJs, "");
     return rs;
 }
 

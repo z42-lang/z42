@@ -103,6 +103,7 @@ void _plRuntimeIos(_PkgLayout L, string rid) {
     L.HasFile("native/libz42.a");
     _plRuntimeHeaders(L, "native/include");
     L.HasDir("libs");
+    L.HasFile("native/include/module.modulemap");
     L.Absent("native/Z42VM.xcframework", "static archive is published directly");
     L.Absent("native/Z42VMDynamic.xcframework", "dynamic framework is published directly");
 }
@@ -150,22 +151,22 @@ void _plRuntimeWasm(_PkgLayout L) {
     L.Expect(exports > 0, "wasm 模块有导出（" + exports.ToString() + " 个）", "没有 (export");
 }
 
-// tooling 包 = SwiftPM 源码 + 自包含的 Z42VMC 头 + 安装期才解析的 Package.swift 占位模板。
+// Tooling uses the Runtime XCFramework's Clang module.
 void _plToolingIos(_PkgLayout L) {
     L.HasDir("Sources/Z42VM");
-    _plRuntimeHeaders(L, "Sources/Z42VMC/include");
+    L.Absent("Sources/Z42VMC", "Swift imports the Runtime binary target");
     L.HasFile("Package.swift");
     string ps = File.Exists(L.P("Package.swift")) ? File.ReadAllText(L.P("Package.swift")) : "";
     L.Expect(ps.Contains("__Z42_RUNTIME_XCFRAMEWORK__"), "Package.swift 是安装期解析的占位模板", "缺占位符 __Z42_RUNTIME_XCFRAMEWORK__");
 }
 
-// tooling 包 = 可构建的 gradle 工程 + 自包含的 JNI 头。
+// Tooling resolves headers from the installed Runtime.
 void _plToolingAndroid(_PkgLayout L) {
     L.HasFile("gradlew");
     L.HasFile("settings.gradle.kts");
     L.HasDir("z42vm/src/main/java/io/z42/vm");
     L.HasFile("z42vm/src/main/cpp/z42vm_jni.c");
-    _plRuntimeHeaders(L, "z42vm/src/main/cpp/include");
+    L.Absent("z42vm/src/main/cpp/include", "JNI includes the Runtime headers");
 }
 
 void _plToolingWasm(_PkgLayout L) {

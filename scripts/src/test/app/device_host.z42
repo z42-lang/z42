@@ -14,11 +14,6 @@
 //
 //   · 只同步 git 跟踪的文件 —— 源码树里旧工作流留下的生成物不会被带过去；
 //   · 目标不存在或内容不同才拷（文件都很小，比内容比 mtime 准）；`100755` 的补可执行位；
-//   · 用相对路径转发到 src/ 其它地方的头文件，同步的是**被转发的那一份**（_dhContentSource）：
-//     iOS 的 `Sources/Z42VMC/include/*.h`、Android 的 `z42vm/src/main/cpp/include/*.h` 在源码里是
-//     `#include "../../…/runtime/include/x.h"` 转发头，拷进副本后相对路径就断了，所以副本里放
-//     `src/runtime/include/` 下的真实头文件 —— 与打包时 `_copyAbiHeaders` 让包自包含是同一个做法。
-//     按内容识别（不按平台写死路径）；按内容比较，不变就不重拷，Xcode / CMake 增量不受影响；
 //   · 上一轮同步过、这一轮源码里已删的文件，从副本里删掉（清单记在 `.staged-files`）；
 //   · 副本里其余的东西（gradle / Xcode / npm 的产物与缓存）**不动** —— 增量同步的意义就是让
 //     这些缓存继续生效，且路径固定，可以直接用 Android Studio / Xcode 打开副本调试。
@@ -61,10 +56,14 @@ string _stageDeviceHost(string root, string platform) {
         string mode = raw.Substring(0, 6);
         string rel = raw.Substring(tab + 1).Substring(srcRel.Length + 1);
         now.Add(rel);
-        string s = _dhContentSource(root, platform, rel, Path.Join(src, rel));
+        string s = Path.Join(src, rel);
         string d = Path.Join(host, rel);
         if (!File.Exists(s)) { continue; }   // 工作树里删了但还没提交
-        if (_dhCopyContent(s, d)) { copied = copied + 1; }
+        if (!_filesEqual(s, d)) {
+            Directory.Create(Path.GetDirectoryName(d));
+            File.Copy(s, d);
+            copied = copied + 1;
+        }
         if (mode == "100755") { File.MakeExecutable(d); }
     }
     int removed = 0;
@@ -76,35 +75,14 @@ string _stageDeviceHost(string root, string platform) {
     string listing = "";
     foreach (var rel in now) { listing = listing + rel + "\n"; }
     File.WriteAllText(listPath, listing);
+    if (platform == "android") {
+        string reference = Path.Join(host, "runtime-include.txt");
+        string include = Path.Join(root, "src/runtime/include");
+        if (!File.Exists(reference) || File.ReadAllText(reference) != include) {
+            File.WriteAllText(reference, include);
+        }
+    }
     Console.WriteLine("  host project → " + host + " (" + now.Count.ToString() + " tracked files; "
         + copied.ToString() + " updated, " + removed.ToString() + " removed)");
     return host;
-}
-
-
-// 副本里 `rel` 这个文件的内容取自哪里：默认是源码里的同名文件；转发到 runtime/include/ 的头文件
-// （正文是一行 `#include "<相对路径>/runtime/include/<name>"`）取被转发的真实文件。
-string _dhContentSource(string root, string platform, string rel, string srcPath) {
-    if (!rel.EndsWith(".h") || !File.Exists(srcPath)) { return srcPath; }
-    string text = File.ReadAllText(srcPath);
-    int k = text.IndexOf("#include \"../");
-    if (k < 0 || !text.Contains("/runtime/include/")) { return srcPath; }
-    string real = Path.Join(Path.Join(root, "src/runtime/include"), Path.GetFileName(rel));
-    return File.Exists(real) ? real : srcPath;
-}
-
-// Header copies use the same native export as packaged SDKs. Comparing emitted
-// contents preserves incremental CMake/Xcode builds when only paths change.
-bool _dhCopyContent(string source, string destination) {
-    if (source.EndsWith(".h")) {
-        string text = _runtimeHeaderText(source);
-        if (File.Exists(destination) && File.ReadAllText(destination) == text) { return false; }
-        Directory.Create(Path.GetDirectoryName(destination));
-        File.WriteAllText(destination, text);
-        return true;
-    }
-    if (_filesEqual(source, destination)) { return false; }
-    Directory.Create(Path.GetDirectoryName(destination));
-    File.Copy(source, destination);
-    return true;
 }

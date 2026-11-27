@@ -89,9 +89,7 @@ runtime 包另外提供静态嵌入归档与 C 头，保留各平台的链接形
 发布的动态库都是可重定位的：macOS install name 是 `@rpath/<名>`，
 Linux 带 SONAME（= 文件名），Windows 带 import lib `z42.dll.lib`（`z42.lib` 是静态库）。
 
-C ABI 头文件统一落 `native/include/`（`z42_abi.h` + `z42.h`，源是
-`src/runtime/include/`）；iOS 与 Android 的平台目录下还各有一份同名 include，装的也是这两个
-真头文件，源树同名目录里那些 `#include "../../.."` 转发 stub 不进包。
+Runtime 包在 `native/include/` 发布统一头 `z42.h` 与各独立协议头。iOS 将这组头和模块描述放入 Runtime XCFramework，Android 的安装器将 JNI 构建指向同一 Runtime 包的 include 目录。
 
 顶层 `manifest.toml` 由 `_pkgEmitManifest` 生成：
 

@@ -19,10 +19,19 @@ add_library(
     z42vm_jni.c
 )
 
-target_include_directories(
-    z42vm_jni PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-)
+get_filename_component(Z42_WORKLOAD_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../.." ABSOLUTE)
+if(NOT DEFINED Z42_RUNTIME_INCLUDE_DIR)
+    if(EXISTS "${Z42_WORKLOAD_DIR}/runtime-include.txt")
+        file(READ "${Z42_WORKLOAD_DIR}/runtime-include.txt" Z42_RUNTIME_INCLUDE_DIR)
+    else()
+        set(Z42_RUNTIME_INCLUDE_DIR "${Z42_WORKLOAD_DIR}/../../../../runtime/include")
+    endif()
+endif()
+file(TO_CMAKE_PATH "${Z42_RUNTIME_INCLUDE_DIR}" Z42_RUNTIME_INCLUDE_DIR)
+if(NOT EXISTS "${Z42_RUNTIME_INCLUDE_DIR}/z42.h")
+    message(FATAL_ERROR "z42 Runtime headers missing at ${Z42_RUNTIME_INCLUDE_DIR}")
+endif()
+target_include_directories(z42vm_jni PRIVATE "${Z42_RUNTIME_INCLUDE_DIR}")
 
 # Locate the cargo-ndk-built libz42.so for the current
 # ABI. Gradle's externalNativeBuild sets ANDROID_ABI; build.sh drops

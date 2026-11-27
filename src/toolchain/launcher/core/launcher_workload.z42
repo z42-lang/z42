@@ -212,6 +212,7 @@ void _bedRuntimeIntoWorkload(string wlDest, string rtDest, string rid, string ve
             ConsoleError.WriteLine("z42 workload install: cannot map rid '" + rid + "' to an Android ABI");
             Environment.Exit(2); return;
         }
+        File.WriteAllText(Path.Join(wlDest, "runtime-include.txt"), Path.Join(nativeDir, "include"));
         string jni = Path.Join(Path.Join(Path.Join(wlDest, "z42vm/src/main/jniLibs"), abi), "");
         Directory.Create(jni);
         // The core's DT_NEEDED shared std and lazily opened modules are all

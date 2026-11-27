@@ -12,7 +12,7 @@
 |------|-----------|
 | Kotlin 公开 API（`Z42VM` / `Z42VMModule` / `Z42VMEntry` / `Z42VMValue` / `Z42VMException`） | `platform/z42vm/src/main/java/io/z42/vm/` |
 | zpkg 解析（`AssetZpkgResolver` / `MapZpkgResolver`） | `ZpkgResolver.kt` |
-| JNI 桥 → `z42_host_*` C ABI | `platform/z42vm/src/main/cpp/z42vm_jni.c` |
+| JNI 桥 → `z42_host_*` C ABI | `platform/z42vm/src/main/cpp/z42vm_jni.c`，CMake 引用 Runtime 的 include 目录 |
 | Rust cdylib（`libz42.so`，`z42_host_*` 再导出） | `src/runtime/src/lib.rs` |
 | 发布 / 导出管线（`: WorkloadBase`） | `appbuilder/AndroidWorkload.z42`、`appbuilder/export.z42` |
 | 设备侧测试宿主 | `Z42TestHost.kt`（`main`）、`Z42VMInstrumentedTest.kt` / `Z42EmbeddedInstrumentedTest.kt`（`androidTest`） |

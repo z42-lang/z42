@@ -56,7 +56,7 @@ mobile 端拿到的是 host 端 `z42c` 编出来的 `.zbc` / `.zpkg`，由平台
 
 | 路径 | 内容 |
 |------|------|
-| `src/runtime/include/z42_host.h` | 宿主 C ABI。统一头 `z42.h` 汇总该接口。iOS 与 Android facade 用同名转发头引用 Runtime 的定义 |
+| `src/runtime/include/z42_host.h` | 宿主 C ABI。统一头 `z42.h` 汇总该接口。iOS 从 Runtime XCFramework 导入模块，Android CMake 直接使用 Runtime 的 include 目录 |
 | `src/runtime/src/host/` | Rust 宿主服务及 C ABI 适配（`ffi.rs`） |
 | `src/runtime/src/host/` | 统一宿主 z42 包及 Tier 2 Rust 接口 |
 | `src/toolchain/workload/fixtures/` | 各平台契约测试共用的 z42 夹具（`hello.z42` / `multi_line.z42`） |

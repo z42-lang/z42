@@ -16,12 +16,10 @@ let package = Package(
         .library(name: "Z42VM", targets: ["Z42VM"]),
     ],
     targets: [
-        // Swift facade. Depends on the C bridge (headers/module map)
-        // and the binary xcframework (libz42_platform_ios.a slices for
-        // ios-arm64 / ios-arm64_x86_64-simulator / macos-arm64).
+        // The Runtime xcframework supplies the C module, headers and library.
         .target(
             name: "Z42VM",
-            dependencies: ["Z42VMC", "Z42VMBinary"],
+            dependencies: ["Z42VMC"],
             path: "Sources/Z42VM"
         ),
 
@@ -29,22 +27,8 @@ let package = Package(
         // actual z42_host_* / z42 runtime symbols; SwiftPM links it into
         // both library and test products.
         .binaryTarget(
-            name: "Z42VMBinary",
-            path: "Z42VM.xcframework"
-        ),
-
-        // C bridge — exposes z42.h + z42_abi.h to Swift via a
-        // clang module. The actual symbols are linked from
-        // Z42VM.xcframework's binary library; this target only
-        // contributes headers + module map.
-        //
-        // The dummy.c source is required by SwiftPM (a regular target
-        // needs ≥ 1 source file). It's empty.
-        .target(
             name: "Z42VMC",
-            path: "Sources/Z42VMC",
-            sources: ["dummy.c"],
-            publicHeadersPath: "include"
+            path: "Z42VM.xcframework"
         ),
 
         // XCTest target. R1–R7 implementation per platform-test-contract:

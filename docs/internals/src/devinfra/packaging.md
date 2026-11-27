@@ -57,8 +57,7 @@ C 声明统一位于 `src/runtime/include/`：宿主声明在 `z42_host.h`，组
 `_runtimeHeaderText` 将 `z42_compression.h` 和 `z42_components.h` 的声明展开到统一头。
 Swift modulemap、JNI 与完整 C 调用方使用 `z42.h`。单独使用宿主 API 的调用方可包含 `z42_host.h`。
 
-设备测试宿主暂存也调用同一个 `_runtimeHeaderText`，比较展开后的内容再决定是否重写，保持 CMake/Xcode 增量构建。
-安装器自检覆盖 Android/iOS 的实际转发头，确认暂存结果与发布头一致、没有源码相对 include，重复暂存不重写；真实 C 部署使用同一个统一头编译与链接。
+iOS 设备测试与发布安装都从 Runtime 构建 XCFramework，Swift 直接导入静态库提供的模块。Android 暂存与安装只记录 Runtime 头文件目录，JNI 构建从该处读取。
 source-identity 检查比较发布头与同一展开过程的结果，其余源文件继续逐字节比较。
 
 ## 2. 构建 → 安装
@@ -152,10 +151,8 @@ graph LR
 |---|---|---|
 | stdlib libs | `libs/`（`.zpkg` + `.zsym`）| 扁平 stdlib dist |
 | C ABI headers | `native/include/*.h` | `src/runtime/include/`；所有者相对 include 展开后的内容 |
-| C ABI headers (ios) | `Sources/Z42VMC/include/*.h` | 同上 |
-| C ABI headers (android) | `z42vm/src/main/cpp/include/*.h` | 同上 |
+| Runtime Swift module | `native/include/module.modulemap` | `src/runtime/include/module.modulemap` |
 | iOS Swift | `Sources/Z42VM/*.swift` | `src/toolchain/workload/ios/platform/Sources/Z42VM/` |
-| iOS Z42VMC dummy.c | `Sources/Z42VMC/dummy.c` | 同一 platform 树 |
 | Android Kotlin | `z42vm/src/main/java/**/*.kt` | `src/toolchain/workload/android/platform/…` |
 | Android JNI bridge | `z42vm/src/main/cpp/z42vm_jni.c` | 同上 |
 | Android CMakeLists | `z42vm/src/main/cpp/CMakeLists.txt` | 同上 |
@@ -164,7 +161,7 @@ graph LR
 一张表服务全部包类别：**包内不存在该路径 ⇒ 整条规则跳过**（desktop 没有 `Sources/`，ios 没有 `js/`）；
 **源侧没有对应物 ⇒ 该文件不在本门管辖内**（包里可以有源树没有的产物）。
 
-三条容易踩的设计点：
+两条容易踩的设计点：
 
 1. **「路径存在却 0 个文件可比」= 失败，不是警告。** 那意味着规则与拷贝点脱钩了，门在验一个不相干
    的东西 = 假保障。若只打 ⚠ 不计失败，则「本门要防的那个形状」自己复发时门是黄的不是红的。
@@ -173,10 +170,6 @@ graph LR
    → 门会看见空壳，把「本包没有这一类」误判成「规则脱钩」，三个平台的 package job 全红。
    现在是**谁写谁建**：`_pkgCopyLibsOf` / `_copyAbiHeaders` / `_copyNativeLibs` 各自 ensure 自己的
    目标目录，空目录不会出现在发布包里。
-3. **ios 的 `Sources/Z42VMC/` 与 android 的 `…/cpp/` 不能整棵目录递归比**：它们的 `include/` 装的是
-   拷进去的**真 runtime 头**，而源树同名目录里是 `#include "../../.."` 的转发 stub，整棵比会假红。
-   故那两处是显式文件规则 + 单独一条指向 `src/runtime/include` 的 include 规则。
-
 **为什么是「包 vs 源」而不是「包 vs 包」**：上表每一类文件，各包里的副本都拷自**同一份仓库源**，
 故 `A==源 ∧ B==源 ⟹ A==B`——**跨包 byte-identical 是本门的推论**。反过来不成立：两两比对只能证明
 「大家一样」，证不了「大家都对」（所有包一致地拷了陈旧副本时跨包比对全绿）。且各包在独立 xtask
