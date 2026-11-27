@@ -4,7 +4,7 @@
 use super::*;
 use crate::metadata::{Function, Module};
 use crate::zpkg::ir::{BasicBlock, Instruction, Terminator};
-use crate::loader::package::LoadedArtifact;
+use crate::loader::package::DecodedProgram;
 use crate::metadata::ids::tokens::FnId;
 use crate::zpkg::ir::ExecMode;
 use crate::object::string::vstr::Str;
@@ -47,8 +47,8 @@ fn module(name: &str, pool: &[&str], functions: Vec<Function>) -> Module {
     }, functions, Default::default())
 }
 
-fn package(name: &str, pool: &[&str], functions: Vec<Function>) -> LoadedArtifact {
-    LoadedArtifact {
+fn package(name: &str, pool: &[&str], functions: Vec<Function>) -> DecodedProgram {
+    DecodedProgram {
         module: module(name, pool, functions),
         entry_hint: None,
         dependencies: vec![],
@@ -59,9 +59,9 @@ fn package(name: &str, pool: &[&str], functions: Vec<Function>) -> LoadedArtifac
     }
 }
 
-fn register(ctx: &VmContext, artifact: LoadedArtifact) {
+fn register(ctx: &VmContext, decoded: DecodedProgram) {
     ctx.core.loader.lazy_loader.write().as_mut().expect("loader installed")
-        .register_loaded_artifact(artifact)
+        .register_loaded_program(decoded)
         .expect("register package");
 }
 

@@ -5,7 +5,7 @@
  *
  * Threading model: v0.1 the runtime is a process singleton; Kotlin
  * callers serialise their own access. JNI callbacks happen on the
- * same thread that called into z42 (stdoutHandler / zpkgResolver
+ * same thread that called into z42 (stdoutHandler / fileResolver
  * trampolines re-enter via AttachCurrentThread if the runtime were
  * to ever spawn — v0.1 does not).
  *
@@ -35,15 +35,15 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
 /* Per-instance context kept alive for the VM's lifetime. Lives in the
  * runtime's user_data slot; freed in nativeShutdown. */
 typedef struct {
-    jobject resolver_global;       /* io.z42.vm.ZpkgResolver instance */
+    jobject resolver_global;       /* io.z42.vm.FileResolver instance */
     jobject stdout_handler_global; /* kotlin.jvm.functions.Function1<ByteArray, Unit>?, may be NULL */
     jobject stderr_handler_global; /* same */
-    jmethodID resolver_resolve;    /* (Ljava/lang/String;)[B */
+    jmethodID resolver_resolve;    /* (Ljava/lang/String;I)[B */
     jmethodID function1_invoke;    /* (Ljava/lang/Object;)Ljava/lang/Object; */
 } JniContext;
 
 /* Packed handle returned to Kotlin as `nativeHandle: Long`. Carries the
- * runtime VM pointer + this binding's JniContext so nativeLoadZbc /
+ * runtime VM pointer + this binding's JniContext so nativeLoadBytes /
  * Invoke / Shutdown can recover both with O(1) cost. */
 typedef struct {
     Z42HostRef host;
@@ -67,41 +67,34 @@ static void throw_last_error(JNIEnv* env) {
     throw_z42_vm_exception(env, (int)err.code, msg);
 }
 
-/* ── zpkg resolver trampoline ─────────────────────────────────────────── */
-
-static int zpkg_resolver_trampoline(
-    const char* namespace_name,
-    Z42ZpkgByteSink write,
-    void* write_data,
-    void* user_data
+static int32_t file_resolver_trampoline(
+    const Z42FileRequest* request, Z42FileWriter* writer, void* user_data
 ) {
     JniContext* ctx = (JniContext*)user_data;
-    if (!g_jvm || !ctx || !ctx->resolver_global) return 0;
+    if (!g_jvm || !ctx || !ctx->resolver_global) return Z42_FILE_ERROR;
 
     JNIEnv* env = NULL;
-    if ((*g_jvm)->GetEnv(g_jvm, (void**)&env, JNI_VERSION_1_6) != JNI_OK) return 0;
-
-    jstring jns = (*env)->NewStringUTF(env, namespace_name);
-    jobject result = (*env)->CallObjectMethod(
-        env, ctx->resolver_global, ctx->resolver_resolve, jns);
-    if ((*env)->ExceptionCheck(env)) {
-        (*env)->ExceptionClear(env);
-        (*env)->DeleteLocalRef(env, jns);
-        return 0;
+    if ((*g_jvm)->GetEnv(g_jvm, (void**)&env, JNI_VERSION_1_6) != JNI_OK) {
+        return Z42_FILE_ERROR;
     }
-    (*env)->DeleteLocalRef(env, jns);
-    if (result == NULL) return 0;
 
-    jbyteArray arr = (jbyteArray)result;
-    jsize length = (*env)->GetArrayLength(env, arr);
-    jbyte* bytes = length > 0 ? (*env)->GetByteArrayElements(env, arr, NULL) : NULL;
-    int hit = 0;
-    if (bytes) {
-        hit = write((const uint8_t*)bytes, (size_t)length, write_data);
-        (*env)->ReleaseByteArrayElements(env, arr, bytes, JNI_ABORT);
+    jstring name = (*env)->NewStringUTF(env, request->file_name);
+    if (!name) return Z42_FILE_ERROR;
+    jbyteArray result = (jbyteArray)(*env)->CallObjectMethod(
+        env, ctx->resolver_global, ctx->resolver_resolve, name, (jint)request->kind);
+    (*env)->DeleteLocalRef(env, name);
+    if ((*env)->ExceptionCheck(env)) return Z42_FILE_ERROR;
+    if (!result) return Z42_FILE_NOT_FOUND;
+
+    jsize length = (*env)->GetArrayLength(env, result);
+    jbyte* bytes = length > 0 ? (*env)->GetByteArrayElements(env, result, NULL) : NULL;
+    Z42HostStatus status = Z42_HOST_ERR_INTERNAL;
+    if (length == 0 || bytes) {
+        status = z42_file_write(writer, (const uint8_t*)bytes, (size_t)length);
     }
-    (*env)->DeleteLocalRef(env, arr);
-    return hit;
+    if (bytes) (*env)->ReleaseByteArrayElements(env, result, bytes, JNI_ABORT);
+    (*env)->DeleteLocalRef(env, result);
+    return status == Z42_HOST_OK ? Z42_FILE_FOUND : Z42_FILE_ERROR;
 }
 
 /* ── stdout / stderr sink trampolines ──────────────────────────────────── */
@@ -153,7 +146,7 @@ Java_io_z42_vm_Z42VM_nativeInitialize(
     ctx->resolver_global = (*env)->NewGlobalRef(env, resolver);
     jclass resolver_cls = (*env)->GetObjectClass(env, resolver);
     ctx->resolver_resolve = (*env)->GetMethodID(
-        env, resolver_cls, "resolve", "(Ljava/lang/String;)[B");
+        env, resolver_cls, "resolve", "(Ljava/lang/String;I)[B");
     (*env)->DeleteLocalRef(env, resolver_cls);
 
     if (stdoutHandler != NULL) {
@@ -167,8 +160,8 @@ Java_io_z42_vm_Z42VM_nativeInitialize(
     cfg.abi_version = Z42_HOST_ABI_VERSION;
     cfg.struct_size = sizeof cfg;
     cfg.exec_mode = (Z42ExecMode)execMode;
-    cfg.zpkg_resolver_write = zpkg_resolver_trampoline;
-    cfg.zpkg_resolver_user_data = ctx;
+    cfg.file_resolver = file_resolver_trampoline;
+    cfg.file_resolver_user_data = ctx;
     cfg.sink_user_data = ctx;
     if (ctx->stdout_handler_global) {
         cfg.stdout_sink = stdout_sink_trampoline;
@@ -198,9 +191,10 @@ Java_io_z42_vm_Z42VM_nativeInitialize(
 static Z42HostRef host_of(jlong h) { return ((Z42Handle*)(uintptr_t)h)->host; }
 
 JNIEXPORT jlong JNICALL
-Java_io_z42_vm_Z42VM_nativeLoadZbc(
+Java_io_z42_vm_Z42VM_nativeLoadBytes(
     JNIEnv* env, jobject self,
     jlong handle,
+    jstring name,
     jbyteArray bytes
 ) {
     (void)self;
@@ -208,12 +202,20 @@ Java_io_z42_vm_Z42VM_nativeLoadZbc(
     jsize len = (*env)->GetArrayLength(env, bytes);
     jbyte* buf = (*env)->GetByteArrayElements(env, bytes, NULL);
 
+    if (!buf && (*env)->ExceptionCheck(env)) return 0;
+    const char* file_name = name ? (*env)->GetStringUTFChars(env, name, NULL) : NULL;
+    if (name && !file_name) {
+        if (buf) (*env)->ReleaseByteArrayElements(env, bytes, buf, JNI_ABORT);
+        return 0;
+    }
+
     Z42ModuleRef mod = NULL;
-    Z42HostStatus status = z42_host_load_zbc(host, (const uint8_t*)buf, (size_t)len, &mod);
-    (*env)->ReleaseByteArrayElements(env, bytes, buf, JNI_ABORT);
+    Z42HostStatus status = z42_host_load_bytes(host, file_name, (const uint8_t*)buf, (size_t)len, &mod);
+    if (buf) (*env)->ReleaseByteArrayElements(env, bytes, buf, JNI_ABORT);
+    if (file_name) (*env)->ReleaseStringUTFChars(env, name, file_name);
 
     if (status != Z42_HOST_OK) {
-        throw_last_error(env);
+        if (!(*env)->ExceptionCheck(env)) throw_last_error(env);
         return 0;
     }
     return (jlong)(uintptr_t)mod;
@@ -349,55 +351,4 @@ Java_io_z42_vm_Z42TestHost_nativeRunApp(
     if (ent)  (*env)->ReleaseStringUTFChars(env, entry, ent);
     if (libs) (*env)->ReleaseStringUTFChars(env, libsDir, libs);
     return (jint)rc;
-}
-
-/* ── z42_zpkg_read_namespaces bridge (static) ────────────────────────────
- *
- * Stateless: reads a zpkg's NSPC section so AssetZpkgResolver can build a
- * namespace → bytes map from the asset packages directly — no index.json.
- * The visitor collects C strings (JNIEnv-free); String[] is built after.
- */
-
-typedef struct {
-    char** items;
-    size_t count;
-    size_t cap;
-} NsCollector;
-
-static void ns_collect(const char* ns, size_t len, void* user_data) {
-    NsCollector* c = (NsCollector*)user_data;
-    if (c->count == c->cap) {
-        size_t ncap = c->cap ? c->cap * 2 : 8;
-        char** ni = (char**)realloc(c->items, ncap * sizeof(char*));
-        if (!ni) return;
-        c->items = ni;
-        c->cap = ncap;
-    }
-    char* s = (char*)malloc(len + 1);
-    if (!s) return;
-    memcpy(s, ns, len);
-    s[len] = '\0';
-    c->items[c->count++] = s;
-}
-
-JNIEXPORT jobjectArray JNICALL
-Java_io_z42_vm_Z42VM_readNamespaces(JNIEnv* env, jclass clazz, jbyteArray bytes) {
-    (void)clazz;
-    jsize len = (*env)->GetArrayLength(env, bytes);
-    jbyte* buf = (*env)->GetByteArrayElements(env, bytes, NULL);
-
-    NsCollector c = { NULL, 0, 0 };
-    z42_zpkg_read_namespaces((const uint8_t*)buf, (size_t)len, ns_collect, &c);
-    if (buf) (*env)->ReleaseByteArrayElements(env, bytes, buf, JNI_ABORT);
-
-    jclass str_class = (*env)->FindClass(env, "java/lang/String");
-    jobjectArray arr = (*env)->NewObjectArray(env, (jsize)c.count, str_class, NULL);
-    for (size_t i = 0; i < c.count; i++) {
-        jstring js = (*env)->NewStringUTF(env, c.items[i]);
-        (*env)->SetObjectArrayElement(env, arr, (jsize)i, js);
-        (*env)->DeleteLocalRef(env, js);
-        free(c.items[i]);
-    }
-    free(c.items);
-    return arr;
 }

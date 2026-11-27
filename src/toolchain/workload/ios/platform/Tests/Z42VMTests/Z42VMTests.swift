@@ -15,9 +15,9 @@ final class Z42VMTests: XCTestCase {
 
     // ── Helpers ─────────────────────────────────────────────────────────
 
-    /// `BundleZpkgResolver` bound to the test bundle's stdlib subdirectory.
-    private func bundleResolver() -> BundleZpkgResolver {
-        BundleZpkgResolver(bundle: .module, subdirectory: "stdlib")
+    /// `BundleFileResolver` bound to the test bundle's stdlib subdirectory.
+    private func bundleResolver() -> BundleFileResolver {
+        BundleFileResolver(bundle: .module, subdirectory: "stdlib")
     }
 
     /// Load a fixture .zbc by basename.
@@ -39,7 +39,7 @@ final class Z42VMTests: XCTestCase {
     private func makeVMWithSink() throws -> (Z42VM, Collector) {
         let collector = Collector()
         let vm = try Z42VM(
-            zpkgResolver: bundleResolver(),
+            fileResolver: bundleResolver(),
             stdoutHandler: { collector.append($0) }
         )
         return (vm, collector)
@@ -68,7 +68,7 @@ final class Z42VMTests: XCTestCase {
     #if targetEnvironment(simulator)
     func testIndependentJitComponentExecutesHelloWorld() throws {
         let collector = Collector()
-        let vm = try Z42VM(zpkgResolver: bundleResolver(), stdoutHandler: { collector.append($0) }, execMode: .jit)
+        let vm = try Z42VM(fileResolver: bundleResolver(), stdoutHandler: { collector.append($0) }, execMode: .jit)
         let module = try vm.loadZbc(fixture("hello"))
         _ = try vm.invoke(vm.resolveEntry(module, fqn: "Hello.Main"))
         XCTAssertEqual(String(data: collector.bytes, encoding: .utf8), "hello, world\n")
@@ -130,8 +130,8 @@ final class Z42VMTests: XCTestCase {
         // are absent. loadZbc or invoke must fail with badZbc (status 10)
         // or vmException (status 30) and the message must reference an
         // unresolved stdlib namespace.
-        let resolver = MapZpkgResolver(["Std.Phantom": Data()])
-        let vm = try Z42VM(zpkgResolver: resolver, stdoutHandler: { _ in })
+        let resolver = MapFileResolver(["phantom.zpkg": Data()])
+        let vm = try Z42VM(fileResolver: resolver, stdoutHandler: { _ in })
         let zbc = try fixture("hello")
         do {
             let mod = try vm.loadZbc(zbc)

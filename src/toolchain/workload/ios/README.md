@@ -11,7 +11,7 @@
 | 功能 | 入口 / 文件 |
 |------|-----------|
 | Swift 公开 API（`Z42VM` / `Z42VMModule` / `Z42VMEntry` / `Z42VMValue` / `Z42VMError`） | `platform/Sources/Z42VM/` |
-| zpkg 解析（`BundleZpkgResolver` / `MapZpkgResolver`） | `platform/Sources/Z42VM/ZpkgResolver.swift` |
+| 启动文件读取（`BundleFileResolver` / `MapFileResolver`） | `platform/Sources/Z42VM/FileResolver.swift` |
 | C 模块 `Z42VMC` | [模块描述](module.modulemap) 和 `z42.h` 随 iOS Runtime 发布在 `native/include/`。workload 安装时从该目录组装 SwiftPM 的 XCFramework |
 | Rust staticlib（`z42_host_*` 再导出） | `src/runtime/examples/z42.rs` |
 | 发布 / 导出管线（`: WorkloadBase`） | `appbuilder/iOSWorkload.z42`、`appbuilder/export.z42` |
@@ -22,7 +22,7 @@
 ```swift
 import Z42VM
 
-let vm = try Z42VM(zpkgResolver: BundleZpkgResolver(),
+let vm = try Z42VM(fileResolver: BundleFileResolver(),
                    stdoutHandler: { bytes in textArea.append(String(decoding: bytes, as: UTF8.self)) })
 let module = try vm.loadZbc(Data(contentsOf: zbcURL))
 let entry  = try vm.resolveEntry(module, fqn: "App.Main")

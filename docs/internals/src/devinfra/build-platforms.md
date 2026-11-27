@@ -118,13 +118,13 @@ iOS 的 cargo build 自动带上 `IPHONEOS_DEPLOYMENT_TARGET=platform.ios.min_io
 
 ```swift
 import Z42VM
-let vm = try Z42VM(zpkgResolver: BundleZpkgResolver())
+let vm = try Z42VM(fileResolver: BundleFileResolver())
 vm.stdoutHandler = { bytes in textArea.append(String(decoding: bytes, as: UTF8.self)) }
 let m = try vm.loadZbc(Data(contentsOf: zbcURL))
 _ = try vm.invoke(try vm.resolveEntry(m, fqn: "App.Main"))
 ```
 
-`BundleZpkgResolver` 是 `Z42VM.init` 的默认参数（从 main bundle 的 `stdlib` 子目录取），
+`BundleFileResolver` 是 `Z42VM.init` 的默认参数（从 main bundle 的 `stdlib` 子目录取），
 所以最简用法不用自己传 resolver。Swift API 与错误码见
 `src/toolchain/workload/ios/README.md`。
 
@@ -178,14 +178,14 @@ dependencies { implementation(files("path/to/z42vm-release.aar")) }
 ```
 
 ```kotlin
-Z42VM(zpkgResolver = AssetZpkgResolver(assets)).use { vm ->
+Z42VM(fileResolver = AssetFileResolver(assets)).use { vm ->
     vm.stdoutHandler = { bytes -> textView.append(String(bytes)) }
     val m = vm.loadZbc(assets.open("hello.zbc").readBytes())
     vm.invoke(vm.resolveEntry(m, "App.Main"))
 }
 ```
 
-与 iOS 不同，Android 的 `zpkgResolver` 是**必填参数**（没有默认值）；resolver 自己吃
+与 iOS 不同，Android 的 `fileResolver` 是**必填参数**（没有默认值）；resolver 自己吃
 `AssetManager`。Kotlin API 见 `src/toolchain/workload/android/README.md`。
 
 | 症状 | 原因 |

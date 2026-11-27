@@ -47,7 +47,7 @@ impl LazyLoader {
     /// lookups.
     ///
     /// Cycle-safe: inserts into `loaded_zpkgs` **before** loading the
-    /// artifact, so a re-entrant call (A depends on B, B depends on A)
+    /// decoded, so a re-entrant call (A depends on B, B depends on A)
     /// returns immediately on the second visit.
     pub(crate) fn load_zpkg_file(&mut self, file_name: &str) -> Result<()> {
         if self.loaded_zpkgs.contains(file_name) {
@@ -63,18 +63,18 @@ impl LazyLoader {
         self.mark_zpkg_loaded_both(file_name);
 
         let path_str = file_path.to_string_lossy().into_owned();
-        let mut artifact = load_artifact_with_fusion(&*self.vfs, &path_str, self.fusion_inputs)?;
-        if let Some(identity) = crate::loader::package_identity::PackageIdentity::from_artifact(&artifact) {
+        let mut decoded = decode_program_file_with_fusion(&*self.vfs, &path_str, self.fusion_inputs)?;
+        if let Some(identity) = crate::loader::package_identity::PackageIdentity::from_program(&decoded) {
             self.package_identities.insert(file_name.to_owned(), identity);
         }
 
         // add-crosspkg-impl-reflection: register this package's
         // `impl Trait for Type` pairs (backs GetInterfaces cross-pkg traits).
-        self.seed_impls(&artifact.impl_pairs);
+        self.seed_impls(&decoded.impl_pairs);
         // precise-pkg-refs: this package's references now route precisely too.
-        self.note_symbol_owners(&artifact.dependencies);
+        self.note_symbol_owners(&decoded.dependencies);
 
-        let offset = self.append_strings(&mut artifact.module.string_pool)?;
+        let offset = self.append_strings(&mut decoded.module.string_pool)?;
 
         // Decision 6: first-wins on function / type name collisions.
         //
@@ -97,7 +97,7 @@ impl LazyLoader {
         // two zpkgs were never compiled against each other — usually a stale copy of a
         // renamed package left in a libs dir.
         let mut owned = OwnedSyms::default();
-        for mut fn_ in artifact.module.functions {
+        for mut fn_ in decoded.module.functions {
             owned.note(&fn_.name);
             remap_const_str(&mut fn_, offset);
             let name = fn_.name.clone();
@@ -106,7 +106,7 @@ impl LazyLoader {
                 // 每个用到 `Std.ValueTuple2<Int32,String>` 的包都会各合成一份它的成员，两份是
                 // (定义, 类型实参) 的确定性函数。不区分的话，「库内部用了元组、主程序也用了」
                 // 就会被记成歧义，而歧义函数**一调用就抛**（`exec_call` 的 use-site 判定）。
-                if is_instantiation_artifact(&name) && same_function_shape(&prev, &fn_) {
+                if is_generic_instantiation(&name) && same_function_shape(&prev, &fn_) {
                     continue;
                 }
                 // runtime-ambiguous-use-site: 记下来，供**使用位**判定（见 note_ambiguous_function
@@ -130,13 +130,13 @@ impl LazyLoader {
         // has strong_count = 1 in the lazy_loader's registry. Otherwise the
         // fixup pass below can't use `Arc::get_mut` to mutate inherited
         // field layouts in place.
-        for (name, desc) in std::mem::take(&mut artifact.module.type_registry) {
+        for (name, desc) in std::mem::take(&mut decoded.module.type_registry) {
             owned.note_type(&desc);
             if let Some(prev) = self.type_registry.get(&name) {
                 // complete-generic-instantiation D4-fix：同上，类型侧。结构**不**一致时
                 // 仍按歧义处理（两个消费方对着不同版本的生产方编出来的布局真会不同），
                 // 不静默取第一份。
-                if is_instantiation_artifact(&name) && same_type_shape(prev, &desc) {
+                if is_generic_instantiation(&name) && same_type_shape(prev, &desc) {
                     continue;
                 }
                 self.note_ambiguous_type(&name);   // runtime-ambiguous-use-site：同上
@@ -184,7 +184,7 @@ impl LazyLoader {
         // colocated package dep is found even when it isn't in `libs/`.
         if !self.search_dirs.is_empty() {
             let dirs = self.search_dirs.clone();
-            for dep in &artifact.dependencies {
+            for dep in &decoded.dependencies {
                 if self.loaded_zpkgs.contains(&dep.file)
                     || self.declared_zpkgs.contains_key(&dep.file)
                 {
@@ -216,7 +216,7 @@ impl LazyLoader {
         Ok(())
     }
 
-    /// Load a compiled artifact from an arbitrary **path** (not a declared dep)
+    /// Load Z42 code from an arbitrary **path** (not a declared dep)
     /// and merge its functions / types / strings into the live registries. Powers
     /// `__load_module` (`Std.Runtime.ModuleLoader.Load`): components, hooks, analyzers and
     /// the test runner (which then discovers `[Test]` functions by reflection). Mirrors
@@ -227,7 +227,7 @@ impl LazyLoader {
         // absolute/foreign path (e.g. z42.scripting's REPL injector loading
         // z42c.pipeline.zpkg from the SDK's programs/z42c/) carries a transitive dep
         // closure (z42c.semantics + siblings) that sits NEXT TO it — outside the VM's
-        // startup search_dirs (app entry dir + Z42_LIBS). Add the loaded artifact's
+        // startup search_dirs (app entry dir + Z42_LIBS). Add the loaded decoded's
         // own directory to search_dirs so those siblings resolve, mirroring host::run_app's
         // "entry-zpkg dir first" rule. Appended (lowest priority) + deduped so it never
         // shadows the app dir / Z42_LIBS; harmless when path has no colocated deps.
@@ -244,11 +244,11 @@ impl LazyLoader {
                 self.search_dirs.push(dir);
             }
         }
-        let artifact = load_artifact_with_fusion(&*self.vfs, path, self.fusion_inputs)?;
-        self.register_loaded_artifact(artifact)
+        let decoded = decode_program_file_with_fusion(&*self.vfs, path, self.fusion_inputs)?;
+        self.register_loaded_program(decoded)
     }
 
-    /// In-memory sibling of [`load_module_from_path`]: load a compiled artifact
+    /// In-memory sibling of [`load_module_from_path`]: load a compiled decoded
     /// from raw bytes (packed zpkg or bare zbc, detected by magic) and merge it
     /// into the live registries. Backs the `__load_bytecode_in_memory` builtin
     /// used by `z42.scripting` (REPL): `PackageCompile` produces packed zpkg
@@ -259,18 +259,18 @@ impl LazyLoader {
     /// 静态初始化器现已是**每类型的类型初始化器**、按首次使用惰性触发 —— 本轮的
     /// `Vars{N}` 在被读/写时自然初始化，且天然只初始化本轮的类型，不再需要这条通道。
     pub fn load_module_from_bytes(&mut self, raw: &[u8]) -> Result<()> {
-        let artifact = load_artifact_from_bytes_with_fusion(raw, self.fusion_inputs)?;
-        self.register_loaded_artifact(artifact)
+        let decoded = decode_program_bytes_with_fusion(raw, self.fusion_inputs)?;
+        self.register_loaded_program(decoded)
     }
 
     /// Shared registration body for [`load_module_from_path`] /
     /// [`load_module_from_bytes`]: merge functions / types / string pool,
     /// register dep + namespace candidates, force-load the declared closure,
     /// run inheritance fixup.
-    pub(super) fn register_loaded_artifact(
-        &mut self, mut artifact: LoadedArtifact,
+    pub(super) fn register_loaded_program(
+        &mut self, mut decoded: DecodedProgram,
     ) -> Result<()> {
-        let mod_key = format!("__loaded_path__{}", artifact.module.name);
+        let mod_key = format!("__loaded_path__{}", decoded.module.name);
 
         // Register the loaded module's dependencies as lazy-loader candidates so
         // cross-zpkg calls FROM the test module — including virtual (instance-
@@ -281,11 +281,11 @@ impl LazyLoader {
         // Mirrors the dedicated test-runner bootstrap's `build_declared_candidates`
         // (which covered both); without the namespace path a test calling
         // `SortedSet.Add` (a dep's instance method) hits "VCall not found".
-        self.note_symbol_owners(&artifact.dependencies);   // precise-pkg-refs
+        self.note_symbol_owners(&decoded.dependencies);   // precise-pkg-refs
         let declared_before = self.declared_zpkgs.len();
         if !self.search_dirs.is_empty() {
             let dirs = self.search_dirs.clone();
-            for dep in &artifact.dependencies {
+            for dep in &decoded.dependencies {
                 if self.loaded_zpkgs.contains(&dep.file)
                     || self.declared_zpkgs.contains_key(&dep.file)
                 {
@@ -311,7 +311,7 @@ impl LazyLoader {
             // the namespace actually matched (was first-dir-by-name) — identical
             // for real single-location zpkgs. (refactor-metadata-namespace-index)
             let scanned = namespace_index::scan_zpkg_candidates(&*self.vfs, &dirs);
-            for ns in &artifact.import_namespaces {
+            for ns in &decoded.import_namespaces {
                 for cand in &scanned {
                     if !cand.namespaces.iter().any(|n| n == ns) {
                         continue;
@@ -350,24 +350,24 @@ impl LazyLoader {
         // bytes in memory) — and emit a spurious "cannot read dep zpkg meta" WARN.
         // Registering it here lets the dep loop short-circuit on `loaded_zpkgs`.
         // (fix-repl-inmemory-dep-warn)
-        if let Some(pkg) = &artifact.package_name {
+        if let Some(pkg) = &decoded.package_name {
             self.mark_zpkg_loaded(format!("{pkg}.zpkg"));
-            if let Some(identity) = crate::loader::package_identity::PackageIdentity::from_artifact(&artifact) {
+            if let Some(identity) = crate::loader::package_identity::PackageIdentity::from_program(&decoded) {
                 self.package_identities.entry(format!("{pkg}.zpkg")).or_insert(identity);
             }
         }
 
-        let offset = self.append_strings(&mut artifact.module.string_pool)?;
+        let offset = self.append_strings(&mut decoded.module.string_pool)?;
 
         let mut owned = OwnedSyms::default();
-        for mut fn_ in artifact.module.functions {
+        for mut fn_ in decoded.module.functions {
             owned.note(&fn_.name);
             remap_const_str(&mut fn_, offset);
             let name = fn_.name.clone();
             // cache-ctorless-objnew: same funnel (first-wins handled inside).
             self.insert_function(name, Arc::new(fn_));
         }
-        for (name, desc) in std::mem::take(&mut artifact.module.type_registry) {
+        for (name, desc) in std::mem::take(&mut decoded.module.type_registry) {
             owned.note_type(&desc);
             if self.type_registry.contains_key(&name) {
                 // harden-crosspkg-gates: this used to be a **completely silent** skip —
@@ -420,7 +420,7 @@ impl LazyLoader {
 ///
 /// 成员函数名同判：它们的 owner 前缀就是实例化名
 /// （`Std.ValueTuple2<Int32,String>.ValueTuple2$2`）。
-pub(super) fn is_instantiation_artifact(name: &str) -> bool {
+pub(super) fn is_generic_instantiation(name: &str) -> bool {
     name.contains('<')
 }
 

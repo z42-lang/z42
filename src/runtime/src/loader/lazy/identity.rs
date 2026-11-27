@@ -6,7 +6,7 @@ use crate::loader::package_identity::PackageIdentity;
 
 impl LazyLoader {
     /// Fingerprint the entry package and its executable dependency closure.
-    /// Registered artifacts use the bytes that were decoded. For a lazy edge
+    /// Registered programs use the bytes that were decoded. For a lazy edge
     /// use the loader's candidate or its normal filename search order.
     pub(in crate::loader) fn program_content_identity(&self) -> Option<String> {
         let root = self.entry_identity.as_ref()?;

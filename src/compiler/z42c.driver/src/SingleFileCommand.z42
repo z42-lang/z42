@@ -30,11 +30,12 @@ int _cmdSingleFile(string[] argv, bool emit) {
     // replace-csharp Phase C：跨包 dep 解析（Z42_LIBS）→ 调 stdlib 的源（golden 等）emit 正确 FQ
     // 函数名（否则 `<error>` → 运行期 undefined function）。无 Z42_LIBS → 回落无依赖单文件 emit。
     string ezEnv = Environment.GetEnvironmentVariable("Z42_LIBS", "");
+    DepScanResult ezScan = null;
     DependencyIndex ezIndex = null;
     ImportedSymbols ezImported = null;
     if (ezEnv.Length > 0) {
         string[] ezDirs = new string[1]; ezDirs[0] = ezEnv;
-        DepScanResult ezScan = DepScan.ScanDirs(ezDirs, 1, "", new string[0], 0, null);
+        ezScan = DepScan.ScanDirs(ezDirs, 1, "", new string[0], 0, null);
         // using-csharp-rules 1.7：激活集 = using ∪ 本文件 ns 的外围链（与包编译 `PackageCompile` 同一出口
         // `ActivationNsOf`）。此前只看 using ⇒ `namespace Std.Collections.X;` 里不写 using 用 `Stack<T>`
         // 时 z42.collections 根本不加载。借 `ParseAll` 解析：driver 自己的 `new Parser` 只许两处（见 pipeline 的 IncrementalCompilation）。
@@ -69,7 +70,32 @@ int _cmdSingleFile(string[] argv, bool emit) {
     // 同上：无错但有 warning 时也要说话（此前同样被 ErrorCount 罩住）。
     int ezWi = 0;
     while (ezWi < ezCm.DiagCount) { ConsoleError.WriteLine("  " + ezCm.DiagMsgs[ezWi]); ezWi = ezWi + 1; }
-    if (emit) { File.WriteAllBytes(argv[2], IrDump.ZbcBytesOf(ezCm)); }
+    if (emit) {
+        File.WriteAllBytes(argv[2], IrDump.ZbcBytesOf(ezCm));
+        _writeBytecodeDependencies(argv[2], file, ezCm, ezScan);
+    }
     else { Console.WriteLine(ezCm.Module.Dump()); }
     return ExitCode.Ok;
+}
+
+void _writeBytecodeDependencies(string output, string source, CompiledModuleZ cm, DepScanResult scan) {
+    string manifest = output + ".deps";
+    if (scan != null) {
+        ZbcFileZ module = new ZbcFileZ(source, "", cm.Namespace, new string[0], 0, cm.Module);
+        module.UsedDepNs = cm.UsedDepNs;
+        module.UsedDepNsCount = cm.UsedDepNsCount;
+        ZpkgDepList deps = ZpkgDeps.Build(new ZbcFileZ[]{ module }, 1,
+                                        scan.NsNames, scan.NsFiles, scan.NsCount, "", "");
+        if (deps.Count > 0) {
+            string[] names = new string[deps.Count];
+            int i = 0;
+            while (i < deps.Count) {
+                names[i] = deps.Items[i].File;
+                i = i + 1;
+            }
+            File.WriteAllText(manifest, string.Join("\n", names));
+            return;
+        }
+    }
+    if (File.Exists(manifest)) { File.Delete(manifest); }
 }

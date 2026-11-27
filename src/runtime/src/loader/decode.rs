@@ -2,7 +2,7 @@
 use std::path::PathBuf;
 
 use crate::pal::fs::Vfs;
-use crate::loader::{LazyLoader, LoadedArtifact, ZpkgCandidate, availability, package};
+use crate::loader::{LazyLoader, DecodedProgram, ZpkgCandidate, package};
 use crate::loader::fusion_inputs::{FusionInputs, FusionInputSource};
 use crate::metadata::Module;
 
@@ -17,49 +17,48 @@ fn process_fusion_inputs() -> FusionInputs {
     }
 }
 
-/// Load a compiler output artifact from `path` on `fs`, returning a `LoadedArtifact`.
+/// Decode the Z42 program at `path` on `fs`.
 /// The `.zsym` sidecar and an indexed zpkg's scattered zbcs are read from `fs` too.
 ///
 /// Format is determined by file extension (case-insensitive):
 /// - `.zbc`  → binary zbc (full mode)
 /// - `.zpkg` → binary zpkg (packed mode)
-pub fn load_artifact(fs: &dyn Vfs, path: &str) -> anyhow::Result<LoadedArtifact> {
-    package::load_artifact_with_fusion(fs, path, FUSION_INPUTS)
+pub fn decode_program_file(fs: &dyn Vfs, path: &str) -> anyhow::Result<DecodedProgram> {
+    package::decode_program_file_with_fusion(fs, path, FUSION_INPUTS)
 }
 
-/// Load a compiler output artifact from in-memory bytes, returning a
-/// `LoadedArtifact`. Format is detected by magic bytes.
+/// Decode Z42 program bytes. The header magic selects the format.
 ///
 /// Used by the embedding API (`z42_host_load_zbc`) where the host hands
 /// the runtime raw bytes rather than a filesystem path. Behaviour
-/// mirrors [`load_artifact`] modulo the source of the byte stream;
+/// mirrors [`decode_program_file`] modulo the source of the byte stream;
 /// the same registry / verification / index passes run.
 ///
 /// Spec: docs/internals/src/runtime/embedding.md §4.4 (z42_host_load_zbc),
 ///       变更 add-embedding-api/.
-pub fn load_artifact_from_bytes(raw: &[u8]) -> anyhow::Result<LoadedArtifact> {
-    package::load_artifact_from_bytes_with_fusion(raw, FUSION_INPUTS)
+pub fn decode_program_bytes(raw: &[u8]) -> anyhow::Result<DecodedProgram> {
+    package::decode_program_bytes_with_fusion(raw, FUSION_INPUTS)
 }
 
 /// Decode bytes through the optional session cache. Linked VM state stays private
-/// to each returned artifact while successful decodes share their definitions.
-pub(crate) fn load_artifact_from_bytes_cached(
+/// to each returned decoded while successful decodes share their definitions.
+pub(crate) fn decode_program_bytes_cached(
     bytes: &[u8], cache: Option<&super::ImageCache>,
-) -> anyhow::Result<LoadedArtifact> {
+) -> anyhow::Result<DecodedProgram> {
     match cache {
-        Some(cache) => cache.artifact_for(&super::content_id(bytes), || load_artifact_from_bytes(bytes)),
-        None => load_artifact_from_bytes(bytes),
+        Some(cache) => cache.program_for(&super::content_id(bytes), || decode_program_bytes(bytes)),
+        None => decode_program_bytes(bytes),
     }
 }
 
 /// Cache-backed reads use the file bytes as the identity. With no cache, use
 /// the path loader to retain sidecar and indexed package resolution.
-pub(super) fn load_artifact_cached(
+pub(super) fn decode_program_file_cached(
     fs: &dyn Vfs, path: &str, cache: Option<&super::ImageCache>,
-) -> anyhow::Result<LoadedArtifact> {
+) -> anyhow::Result<DecodedProgram> {
     match cache {
-        Some(cache) => load_artifact_from_bytes_cached(&fs.read(path)?, Some(cache)),
-        None => load_artifact(fs, path),
+        Some(cache) => decode_program_bytes_cached(&fs.read(path)?, Some(cache)),
+        None => decode_program_file(fs, path),
     }
 }
 
@@ -67,18 +66,6 @@ pub(super) fn load_artifact_cached(
 /// This eliminates the O(n) HashMap construction in every exec_function call.
 pub fn build_block_indices(module: &mut Module) {
     package::build_block_indices_with_fusion(module, FUSION_INPUTS)
-}
-
-/// 加载期折叠 + 剪枝。返回统计供测试与 trace 断言。
-///
-/// `declared` 是「声明了但尚未加载」的候选 zpkg（与 lazy loader 用的是同一份）；probe 从 `fs`
-/// （这台 VM 的文件系统）读它们。
-pub fn fold_availability(
-    fs: &dyn Vfs,
-    module: &mut Module,
-    declared: &[(String, ZpkgCandidate)],
-) -> availability::AvailabilityStats {
-    availability::fold_availability_with_fusion(fs, module, declared, FUSION_INPUTS)
 }
 
 impl LazyLoader {

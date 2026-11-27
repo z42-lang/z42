@@ -27,7 +27,7 @@ native 安装器将其聚合成既有统一头，workload 不增加逐模块 inc
 | `main_startup.rs` | 命令行宿主的私有启动策略；main_command.rs 解析参数并消费 host 接口 |
 | `corelib/builtins.rs` | 核心库导出自身描述符，经 interop 的通用目录提供 builtin 查询与执行服务 |
 | `corelib/mod.rs` | 核心库提供 GetType 和默认 ToString 的对象协议绑定；宿主将其注入 VM |
-| `loader/artifact.rs` | 门面在函数融合准备时读取进程配置，为公开加载入口与每 VM loader 提供同一惰性输入 |
+| `loader/decode.rs` | 门面在函数融合准备时读取进程配置，为公开加载入口与每 VM loader 提供同一惰性输入 |
 | `vm/defaults.rs` | 默认配置、内置服务与扩展输入；Core 构造、线程加入和 Drop 机制由 vm/mod.rs 负责 |
 | `vm/services.rs` | 门面装配 interop 与核心库每 VM 资源状态，保留库句柄到最后释放，所有构造入口共用 |
 | `threads/state.rs` | `ThreadState` 拥有每 VM 线程注册、暂停握手与 fatal 状态，VmCore 组合持有 |

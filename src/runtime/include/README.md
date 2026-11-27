@@ -17,7 +17,7 @@
 
 ## 配置与组装
 
-各平台共用 `Z42HostConfig`。使用头文件提供的 `Z42_HOST_ABI_VERSION`，将 `struct_size` 设为调用方的 `sizeof(Z42HostConfig)`。运行时依据 `Z42_HOST_CONFIG_MIN_SIZE` 校验必需前缀，并按调用方提供的尺寸读取可选尾部字段。`zpkg_resolver_write` 支持在回调内同步提交临时包缓冲。
+各平台共用 `Z42HostConfig`。使用头文件提供的 `Z42_HOST_ABI_VERSION`，将 `struct_size` 设为调用方的 `sizeof(Z42HostConfig)`。运行时依据 `Z42_HOST_CONFIG_MIN_SIZE` 校验必需前缀，并按调用方提供的尺寸读取可选尾部字段。`file_resolver` 按逻辑文件名提供程序依赖及启动配置，通过 `z42_file_write` 同步交付字节。
 
 自行组装静态 Runtime 时，可通过 `z42.h` 登记执行组件和原生模块。组包时，`z42_components.h` 与 `z42_compression.h` 的声明随 `z42.h` 发布。各 workload 说明目标平台提供的执行模式、组件和链接方式。
 

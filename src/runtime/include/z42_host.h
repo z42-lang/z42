@@ -71,7 +71,37 @@ typedef enum Z42ExecMode {
  */
 typedef void (*Z42WriteSink)(const char* bytes, size_t length, void* user_data);
 
-/* ── zpkg resolver hook ──────────────────────────────────────────────────── */
+/*
+ * Read program code, package dependencies and application configuration by
+ * their exact logical names. The request and writer are valid for the
+ * duration of the callback on the calling thread. Keep user_data alive
+ * until host shutdown. Implementations must synchronize shared state.
+ */
+#define Z42_FILE_ZPKG           1
+#define Z42_FILE_ZBC            2
+#define Z42_FILE_RUNTIME_CONFIG 3
+#define Z42_FILE_ZBC_DEPS       4
+#define Z42_FILE_ERROR          (-1)
+#define Z42_FILE_NOT_FOUND      0
+#define Z42_FILE_FOUND          1
+
+typedef struct Z42FileRequest {
+    uint32_t struct_size;
+    uint32_t kind;
+    const char* file_name; /* NUL-terminated UTF-8 logical name */
+} Z42FileRequest;
+
+typedef struct Z42FileWriter Z42FileWriter;
+
+/*
+ * On success call z42_file_write once and return Z42_FILE_FOUND.
+ * Return Z42_FILE_NOT_FOUND without writing to allow normal lookup.
+ * A read or submission failure returns Z42_FILE_ERROR.
+ */
+typedef int32_t (*Z42FileResolverFn)(const Z42FileRequest* request,
+                                    Z42FileWriter* writer, void* user_data);
+
+/* ── Legacy namespace resolver ──────────────────────────────────────────────────── */
 
 /*
  * Resolve a namespace to its zpkg bytes. The runtime can call a resolver
@@ -151,6 +181,9 @@ typedef struct Z42HostConfig {
     /* Optional v2 extension. When present and non-NULL, this takes
      * precedence over zpkg_resolver. A miss proceeds to search_paths. */
     Z42ZpkgResolverWriteFn zpkg_resolver_write;
+    /* Optional file resolver. Takes precedence over the legacy resolvers. */
+    Z42FileResolverFn file_resolver;
+    void* file_resolver_user_data;
 } Z42HostConfig;
 
 /* Required configuration prefix. Callers normally advertise sizeof(Z42HostConfig). */
@@ -206,12 +239,22 @@ Z42HostStatus z42_host_initialize(const Z42HostConfig* cfg,
                                   Z42HostRef* out_host);
 
 /*
- * Load a .zbc module from a byte buffer. The bytes must remain valid
- * for the duration of the call; the VM copies what it needs.
- *
- * H1 status: returns ERR_INTERNAL with message "H2: load_zbc not yet
- * implemented". Real loading lands in H2.
+ * Copy bytes during a file resolver callback. bytes is borrowed until
+ * this function returns. A zero-length buffer may use a NULL pointer.
  */
+Z42HostStatus z42_file_write(Z42FileWriter* writer,
+                            const uint8_t* bytes, size_t length);
+
+/*
+ * Load program code in either Z42 format. file_name is optional. A
+ * supplied name can locate the application's runtimeconfig sidecar.
+ * The input pointers are borrowed for the duration of the call.
+ */
+Z42HostStatus z42_host_load_bytes(Z42HostRef host, const char* file_name,
+                                  const uint8_t* bytes, size_t length,
+                                  Z42ModuleRef* out_module);
+
+/* Compatibility entry point for unnamed program bytes. */
 Z42HostStatus z42_host_load_zbc(Z42HostRef host,
                                 const uint8_t* bytes, size_t length,
                                 Z42ModuleRef* out_module);
@@ -232,7 +275,6 @@ Z42HostStatus z42_zpkg_read_namespaces(const uint8_t* bytes, size_t length,
  *   "namespace.Type::method"  (static method or member)
  *   "namespace::function"     (top-level function)
  *
- * H1 status: returns ERR_INTERNAL ("H2: resolve_entry not yet implemented").
  */
 Z42HostStatus z42_host_resolve_entry(Z42HostRef host, Z42ModuleRef module,
                                      const char* fqn,
@@ -242,7 +284,6 @@ Z42HostStatus z42_host_resolve_entry(Z42HostRef host, Z42ModuleRef module,
  * Synchronously invoke an entry. `args` and `n` must match the entry's
  * signature. `out_result` may be NULL to discard the return value.
  *
- * H1 status: returns ERR_INTERNAL ("H2: invoke not yet implemented").
  */
 Z42HostStatus z42_host_invoke(Z42EntryRef entry,
                               const Z42Value* args, size_t n,

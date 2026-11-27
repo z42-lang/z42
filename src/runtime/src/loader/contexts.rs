@@ -48,7 +48,7 @@ pub enum ContextState {
 #[derive(Debug)]
 pub(crate) enum ContextLoadError {
     Inactive,
-    Artifact(anyhow::Error),
+    Decode(anyhow::Error),
 }
 
 /// Outcome of [`ContextRegistry::unload`], mapped to a z42 result by the builtin.

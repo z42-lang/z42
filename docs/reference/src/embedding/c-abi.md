@@ -8,7 +8,7 @@
 每个导出函数的签名、参数语义、返回码、生命周期与线程约束、以及**当前明确不支持什么**。
 VM 内部怎么实现这套 ABI 不在本页。
 
-调用序列永远是：`initialize` → `load_zbc` → `resolve_entry` → `invoke` → `shutdown`。
+调用序列永远是：`initialize` → `load_bytes` → `resolve_entry` → `invoke` → `shutdown`。
 只想「跑一个打好包的 app，不要句柄」的话，直接用[一次性入口 `z42_host_run_app`](#一次性入口z42_host_run_app)。
 
 ```c
@@ -78,6 +78,8 @@ typedef struct Z42HostConfig {
     Z42ZpkgResolverFn  zpkg_resolver;
     void*              zpkg_resolver_user_data;
     Z42ZpkgResolverWriteFn zpkg_resolver_write;
+    Z42FileResolverFn file_resolver;
+    void* file_resolver_user_data;
 } Z42HostConfig;
 ```
 
@@ -90,7 +92,7 @@ typedef struct Z42HostConfig {
 | `stdout_sink` / `stderr_sink` | 见 [stdout / stderr 重定向](#stdout--stderr-重定向) |
 | `sink_user_data` | 原样透传给上面两个回调。一份 config 只有一个，两个 sink 共用；要分开就 init 之后用 `z42_host_set_*_sink` 各设各的 |
 | `search_paths` | 每个元素是一个**目录**。`z42.core.zpkg` 在哪个目录里被找到，哪个目录就是 stdlib 的 `libs/`，`using` 到的其他 zpkg 也从那里找。数组必须 NULL 结尾，且长度不超过 4096（否则 `ERR_BAD_CONFIG`）；路径必须是合法 UTF-8 |
-| `zpkg_resolver` / `zpkg_resolver_write` | 见 [zpkg resolver 回调](#zpkg-resolver-回调)。两者共用 `zpkg_resolver_user_data`，完整覆盖且非 NULL 的 `zpkg_resolver_write` 优先 |
+| `file_resolver` / `file_resolver_user_data` | 可选的[文件 resolver 回调](#文件-resolver-回调)及其宿主数据。旧配置的命名空间回调通过 ABI 适配层保留 |
 
 `search_paths` 为空且没给 resolver 也是合法的——只是任何用到 stdlib 的 z42 代码会在 `invoke` 时失败。
 
@@ -168,21 +170,17 @@ Z42HostStatus z42_host_initialize(const Z42HostConfig* cfg, Z42HostRef* out_host
 
 初始化失败不更改已有宿主会话及其 stdout / stderr 回调；`out_host` 保持 NULL。
 
-### `z42_host_load_zbc`
+### `z42_host_load_bytes`
 
 ```c
-Z42HostStatus z42_host_load_zbc(Z42HostRef host,
-                                const uint8_t* bytes, size_t length,
-                                Z42ModuleRef* out_module);
+Z42HostStatus z42_host_load_bytes(Z42HostRef host, const char* file_name,
+                                  const uint8_t* bytes, size_t length,
+                                  Z42ModuleRef* out_module);
 ```
 
-字节可以是 `.zbc`，也可以是 `.zpkg`。**`bytes` 只需在本次调用期间有效**，返回后宿主可立即释放或复用缓冲。
-
-加载时会顺带把依赖也解析进来：先请求 `z42.core`（即使用户代码一句 `using` 都没写），
-再按用户产物记录的 import namespace 逐个请求。每个 namespace 先问已配置的 resolver，miss 再扫 `search_paths`。
-**依赖找不到不是错误**：`load_zbc` 照样返回 `OK`，直到 `invoke` 真的用到那个符号才报 `ERR_VM_EXCEPTION`。
-
-`out_module` 可以为 NULL（只想验证字节能不能解析的话）。
+`bytes` 可传裸 `.zbc` 或包含模块内容的 `.zpkg`，缓冲只需在调用期间有效。
+传入逻辑文件名可让 Runtime 发现应用的侧车。已有的 `z42_host_load_zbc` 按无文件名的字节调用处理。
+`out_module` 可以为 NULL。
 
 ### `z42_host_resolve_entry`
 
@@ -267,42 +265,28 @@ Z42HostStatus z42_host_set_stderr_sink(Z42HostRef host, Z42WriteSink sink, void*
 
 ---
 
-## zpkg resolver 回调
+## 文件 resolver 回调
 
-桌面宿主可以用 `search_paths` 扫文件系统；移动端和 wasm 没有（或不便扫）文件系统，
-就用回调告诉运行时「某个 namespace 的 zpkg 字节在这儿」。
+在 `Z42HostConfig.file_resolver` 提供回调，`file_resolver_user_data` 保持有效至宿主关闭。
+`Z42FileRequest` 带有精确的 UTF-8 逻辑文件名和 `kind`。
 
-```c
-typedef int (*Z42ZpkgResolverFn)(
-    const char*     namespace_name,   /* "z42.core" / "Std.IO" / ... */
-    const uint8_t** out_bytes,
-    size_t*         out_length,
-    void*           user_data);
-```
+| 请求类型 | 示例 |
+|---|---|
+| `Z42_FILE_ZPKG` | `z42.core.zpkg`、包依赖清单指定的 `.zpkg` |
+| `Z42_FILE_ZBC` | 依赖清单指定的 `.zbc` |
+| `Z42_FILE_RUNTIME_CONFIG` | `app.runtimeconfig.toml` |
+| `Z42_FILE_ZBC_DEPS` | `app.zbc.deps` |
 
-- `zpkg_resolver` 命中时填写 `*out_bytes` 和 `*out_length`，返回非 0。运行时在回调返回之后复制字节，宿主在复制完成前维持缓冲可读、内容稳定。并发和后台解析可使用会话期间一直有效的不可变缓冲。
-- 临时缓冲用 `zpkg_resolver_write`。命中时在 resolver 回调内调用 `write(bytes, length, write_data)` 并返回其结果。运行时在 `write` 返回前完成复制。宿主在调用线程内同步调用一次 `write`。`write` 和 `write_data` 的借用期是本次 resolver 回调。
-- 两种回调均用 0 表示 miss。空指针、空缓冲或未提交字节也按 miss 处理。配置了写入回调时使用该回调，miss 后搜索 `search_paths`。
-- resolver 可在装入或执行期间被调用。宿主负责共享 `user_data` 的线程安全，保存到会话关闭。
-- resolver 命中但字节解析不了时，`load_zbc` 返回 `ERR_BAD_ZBC`，错误消息带 namespace 名。两种来源都 miss 时，延迟解析的调用会在 `invoke` 抛出托管异常。
+回调在调用线程上使用借用的 request 和 writer。找到文件时调用一次 `z42_file_write`，它在返回前复制字节。
+写入成功后返回 `Z42_FILE_FOUND`，找不到返回 `Z42_FILE_NOT_FOUND`，读取或写入失败返回 `Z42_FILE_ERROR`。
+缺失时 Runtime 查找原有文件来源。错误和无效字节会使当前加载失败。
 
-### 从 zpkg 自己读出它答应哪些名字
+应用侧车在程序准备前读取。现有进程级 RuntimeConfig 只应用一次。
+ZPKG 的依赖名来自包清单。裸 ZBC 的精确依赖来自 `z42c --emit-zbc` 生成的 `.zbc.deps`，部署时与字节码一起提供。
+Resolver 读取依赖时使用清单里的名称。缺失的可选依赖仍可按原有延迟加载行为诊断。
 
-一个 zpkg 常常同时提供多个 namespace（`z42.core.zpkg` 就同时 ship `z42.core` / `Std` / `Std.IO` …），
-**不能假设 namespace == 文件名**。要建「namespace → 字节」表，就枚举手上的 zpkg，逐个问它：
-
-```c
-typedef void (*Z42NamespaceVisitor)(const char* ns, size_t len, void* user_data);
-
-Z42HostStatus z42_zpkg_read_namespaces(const uint8_t* bytes, size_t length,
-                                       Z42NamespaceVisitor visit, void* user_data);
-```
-
-- 对该 zpkg 的**每一个可解析键**回调一次：先是它的**包名**（`z42.core` 这种，prelude 就是按包名请求的），
-  然后是它声明的每一个 namespace。
-- `ns` 是 `len` 个 UTF-8 字节，**不 NUL 结尾**，只在本次回调期间有效——拷走再用。
-- 可在初始化前调用。成功清除当前线程的宿主错误，失败可通过 `z42_host_last_error` 查询。
-- 字节不是可解析的 zpkg → `ERR_BAD_ZBC`；`visit == NULL` → `ERR_BAD_CONFIG`。
+旧调用者可继续使用原配置前缀及其命名空间回调。配置 `file_resolver` 时，按文件名加载，旧回调由 ABI 兼容层保留。
+`z42_zpkg_read_namespaces` 可查询包名和命名空间元数据。visitor 接收调用期内有效的 UTF-8 字节。
 
 ---
 
@@ -395,7 +379,7 @@ int main(void) {
     Z42EntryRef  entry = NULL;
     Z42Value     result;
 
-    if (z42_host_load_zbc(host, bytes, len, &mod) != Z42_HOST_OK ||
+    if (z42_host_load_bytes(host, NULL, bytes, len, &mod) != Z42_HOST_OK ||
         z42_host_resolve_entry(host, mod, "Hello.Main", &entry) != Z42_HOST_OK ||
         z42_host_invoke(entry, NULL, 0, &result) != Z42_HOST_OK) {
         fprintf(stderr, "run: %s\n", z42_host_last_error(NULL).message);

@@ -10,7 +10,7 @@ impl RuntimeLoader<'_> {
     }
 
     /// Load into the context's private arena for reflection.
-    pub(crate) fn load_context_artifact(
+    pub(crate) fn load_context_program(
         &self,
         context: ContextId,
         path: &str,
@@ -18,17 +18,17 @@ impl RuntimeLoader<'_> {
         if self.state.context_registry.lock().context_state(context) != Some(ContextState::Active) {
             return Err(ContextLoadError::Inactive);
         }
-        let artifact = crate::loader::package::load_artifact_with_fusion(
+        let decoded = crate::loader::package::decode_program_file_with_fusion(
             self.state.vfs.as_ref(),
             path,
             self.state.fusion_inputs,
         )
-        .map_err(ContextLoadError::Artifact)?;
+        .map_err(ContextLoadError::Decode)?;
         let name = std::path::Path::new(path)
             .file_stem()
             .and_then(|name| name.to_str())
             .unwrap_or(path);
-        Ok(self.state.context_registry.lock().load_into(context, name, artifact.module))
+        Ok(self.state.context_registry.lock().load_into(context, name, decoded.module))
     }
 
     pub(crate) fn unload_context(&self, context: ContextId) -> UnloadOutcome {

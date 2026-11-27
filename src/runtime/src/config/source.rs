@@ -60,16 +60,23 @@ pub fn load_config_tables(
         }
         Err(e) => return Err(format!("{var}={}: {e}", path.display())),
     };
-    let doc: toml::Table = toml::from_str(&text)
-        .map_err(|e| format!("{var}={}: invalid TOML: {e}", path.display()))?;
+    parse_config_tables(&text, &format!("{var}={}", path.display()))
+}
+
+pub(crate) fn parse_config_tables(
+    text: &str,
+    origin: &str,
+) -> Result<(Option<toml::Table>, Option<toml::Table>), String> {
+    let doc: toml::Table = toml::from_str(text)
+        .map_err(|e| format!("{origin}: invalid TOML: {e}"))?;
     let runtime = match doc.get("runtime") {
         Some(toml::Value::Table(t)) => Some(t.clone()),
-        Some(_) => return Err(format!("{var}={}: [runtime] must be a table", path.display())),
+        Some(_) => return Err(format!("{origin}: [runtime] must be a table")),
         None => None,
     };
     let props = match doc.get("properties") {
         Some(toml::Value::Table(t)) => Some(t.clone()),
-        Some(_) => return Err(format!("{var}={}: [properties] must be a table", path.display())),
+        Some(_) => return Err(format!("{origin}: [properties] must be a table")),
         None => None,
     };
     Ok((runtime, props))
@@ -126,13 +133,8 @@ pub fn load_app_config_tables<F>(
 where
     F: Fn(&str) -> Option<String>,
 {
-    if let Some(p) = get("Z42_APP_CONFIG").filter(|s| !s.trim().is_empty()) {
-        let tables = load_config_tables(Path::new(p.trim()), "Z42_APP_CONFIG")?;
-        if tables.0.is_some() || tables.1.is_some() {
-            return Ok(tables);
-        }
-        // 显式路径解析不出内容（文件缺失 / 既无 [runtime] 也无 [properties]）
-        // → 不锁死，回落到 app 自己的侧车。
+    if let Some(tables) = load_explicit_app_config_tables(get)? {
+        return Ok(tables);
     }
     match app_file.and_then(sidecar_for) {
         Some(p) => load_config_tables(&p, "app sidecar"),
@@ -187,4 +189,18 @@ pub fn sidecar_for(app_file: &Path) -> Option<PathBuf> {
     // publish 的 `_pubSidecarOf` 一致。
     let path = app_file.with_extension("runtimeconfig.toml");
     path.is_file().then_some(path)
+}
+
+/// Resolve an explicit app config before deriving the app's sidecar name.
+pub(crate) fn load_explicit_app_config_tables<F>(
+    get: &F,
+) -> Result<Option<(Option<toml::Table>, Option<toml::Table>)>, String>
+where
+    F: Fn(&str) -> Option<String>,
+{
+    let Some(path) = get("Z42_APP_CONFIG").filter(|s| !s.trim().is_empty()) else {
+        return Ok(None);
+    };
+    let tables = load_config_tables(Path::new(path.trim()), "Z42_APP_CONFIG")?;
+    Ok((tables.0.is_some() || tables.1.is_some()).then_some(tables))
 }

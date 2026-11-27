@@ -130,11 +130,11 @@ pub fn lctx_create_collectible(ctx: &VmContext, name: &crate::object::string::vs
 pub fn lctx_load(ctx: &VmContext, this: &Value, path: &crate::object::string::vstr::Str) -> Result<Value, BuiltinError> {
     let cid = ctx_handle_of(this)?;
     let path = path.as_ref();
-    let aid = ctx.loader().load_context_artifact(cid, path).map_err(|error| match error {
+    let aid = ctx.loader().load_context_program(cid, path).map_err(|error| match error {
         ContextLoadError::Inactive => BuiltinError::InvalidOperation(
             "AssemblyLoadContext.Load: context is unloading (cannot load new assemblies)".into(),
         ),
-        ContextLoadError::Artifact(error) => {
+        ContextLoadError::Decode(error) => {
             BuiltinError::Legacy(anyhow::anyhow!("AssemblyLoadContext.Load(\"{path}\"): {error}"))
         }
     })?;

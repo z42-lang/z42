@@ -9,7 +9,7 @@
 // Serve the wasm/ directory over HTTP (file:// URLs cannot load .wasm)
 // and open this demo's index.html. See docs/workflow/building/wasm.md.
 
-import init, { Z42VM, readNamespaces } from '../../pkg-web/z42_wasm.js';
+import init, { Z42VM } from '../../pkg-web/z42_wasm.js';
 import { bundleStdlibBrowser } from '../../js/stdlib-resolver.js';
 
 const ZBC_URL    = new URL('../../js/fixtures/hello.zbc', import.meta.url);
@@ -32,7 +32,7 @@ async function main() {
     // z42_wasm_bg.wasm before any exported class is touched.
     await init();
 
-    const resolver = await bundleStdlibBrowser(STDLIB_URL, readNamespaces);
+    const resolver = await bundleStdlibBrowser(STDLIB_URL);
 
     let captured = '';
     const stdoutHandler = (bytes) => {
@@ -41,7 +41,7 @@ async function main() {
         append(`[host] ${text}`);
     };
 
-    const vm = new Z42VM({ zpkgResolver: resolver, stdoutHandler });
+    const vm = new Z42VM({ fileResolver: resolver, stdoutHandler });
 
     const zbcBytes = new Uint8Array(await (await fetch(ZBC_URL)).arrayBuffer());
     const module   = vm.loadZbc(zbcBytes);

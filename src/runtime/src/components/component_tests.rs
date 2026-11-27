@@ -228,7 +228,7 @@ pub(super) fn fixture() -> &'static std::path::Path {
             .join(crate::pal::dynlib::file_name("z42_component_probe"));
         assert!(
             path.is_file(),
-            "component artifact missing: {}",
+            "component library missing: {}",
             path.display()
         );
         path

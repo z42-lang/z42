@@ -1,7 +1,7 @@
 # z42c.driver
 
 ## 职责
-CLI 入口（命令路由）。唯一 **exe** 子包，对外别名 = 用户 `z42c` 命令。命令面：前端 dump（`--dump-keywords` / `--dump-tokens` / `--dump-ast` / `--dump-bound` / `--dump-ir`）、`--emit-zbc`（源 → IrGen → ZbcWriter → `.zbc`）、`build [<manifest>]`（产 zpkg，含文件级增量 + 运行配置侧车 + `[profile.*.runtime]` 旋钮名校验）、`build --workspace`（多包拓扑序）。编译实现在 `z42c.pipeline` / `z42c.emission` / `z42c.semantics`，本包只做命令路由、构建编排与 dist 装配。
+CLI 入口（命令路由）。唯一 **exe** 子包，对外别名 = 用户 `z42c` 命令。命令面：前端 dump（`--dump-keywords` / `--dump-tokens` / `--dump-ast` / `--dump-bound` / `--dump-ir`）、`--emit-zbc`（源 → IrGen → ZbcWriter → `.zbc` 和可选 `.zbc.deps` 文件依赖清单）、`build [<manifest>]`（产 zpkg，含文件级增量 + 运行配置侧车 + `[profile.*.runtime]` 旋钮名校验）、`build --workspace`（多包拓扑序）。编译实现在 `z42c.pipeline` / `z42c.emission` / `z42c.semantics`，本包只做命令路由、构建编排与 dist 装配。
 
 ## 功能索引
 入口 `Z42.Driver.Main`（auto-detected exe 入口）。

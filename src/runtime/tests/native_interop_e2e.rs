@@ -382,8 +382,8 @@ fn z42_source_calls_numz42_via_native_attr() {
     }
 
     let zbc_str = zbc_path.to_str().expect("zbc path is utf-8");
-    let artifact = z42::loader::load_artifact(&z42::pal::fs::LocalFs, zbc_str)
-        .unwrap_or_else(|e| panic!("load_artifact({zbc_str}) failed: {e}"));
+    let artifact = z42::loader::decode_program_file(&z42::pal::fs::LocalFs, zbc_str)
+        .unwrap_or_else(|e| panic!("decode_program_file({zbc_str}) failed: {e}"));
     let module = artifact.module;
 
     // Pre-register Counter inside a VmGuard scope so `z42_register_type`

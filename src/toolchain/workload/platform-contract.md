@@ -26,16 +26,16 @@ z42c 在构建宿主上生成 `.zbc` 或 `.zpkg`，各平台宿主加载这些�
 | 已解析入口 | `class Z42VMEntry` | `class Z42VMEntry` | `class Z42VMEntry` |
 | 值类型 | `enum Z42VMValue { case null_, i64(Int64), f64(Double), bool(Bool) }` | `sealed class Z42VMValue { ... }` | `type Z42VMValue = null \| { i64: bigint } \| ...` |
 | 错误 | `enum Z42VMError: Error` | `class Z42VMException(val status: Int, val message: String)` | `class Z42VMError extends Error` |
-| zpkg 解析协议 | `protocol ZpkgResolver` | `interface ZpkgResolver` | `type ZpkgResolver = (name: string) => Uint8Array \| null` |
+| 启动文件读取协议 | `protocol FileResolver` | `interface FileResolver` | `type FileResolver = (name: string, kind: FileKind) => Uint8Array \| null` |
 
 ### 同形 API（最小 surface）
 
 ```
-// 构造（接受可选 ZpkgResolver；默认平台-bundle 实现）
-init(zpkgResolver: ZpkgResolver = <platform default>) throws
+// 构造（接受可选 FileResolver；默认平台-bundle 实现）
+init(fileResolver: FileResolver = <platform default>) throws
 
-// 加载用户 .zbc 字节
-loadZbc(bytes: BytesType) -> Z42VMModule
+// 加载程序字节及其可选逻辑名称
+loadBytes(bytes: BytesType, fileName: String? = nil) -> Z42VMModule
 
 // 按 FQN 解析入口
 resolveEntry(_ m: Z42VMModule, fqn: String) -> Z42VMEntry
@@ -54,21 +54,16 @@ setStderrHandler(handler: (BytesType) -> Void)
 
 ---
 
-## ZpkgResolver 协议
+## FileResolver 协议
 
-resolver 把命名空间映射到包字节。iOS 和 Android 的 C 桥使用 `zpkg_resolver_write` 同步提交字节，Wasm 的 JS 桥适配 Rust 的 `ZpkgResolver`。 [C resolver 契约](../../../docs/reference/src/embedding/c-abi.md#zpkg-resolver-回调)
+resolver 按逻辑文件名读取包、字节码和启动侧车。iOS 与 Android 使用 C writer 同步提交字节，Wasm 将 JS
+返回的 Uint8Array 复制给 Rust 文件 resolver。 [C resolver 契约](../../../docs/reference/src/embedding/c-abi.md#文件-resolver-回调)
 
-### 各平台默认实现
-
-| 平台 | 默认 resolver | 自定义路径 |
-|------|--------------|-----------|
-| **iOS** | `BundleZpkgResolver()` 从应用的 `stdlib/` 资源建立命名空间索引 | 实现 `ZpkgResolver` 协议，构造时传入 |
-| **Android** | `AssetZpkgResolver(context.assets)` 从 `assets/stdlib/` 建立命名空间索引 | 实现 `ZpkgResolver` interface |
-| **WASM** | JS 侧提供 resolver，可用 `bundleStdlibNode` 或 `bundleStdlibBrowser` 预建索引 | 任意 `(name: string) => Uint8Array \| null` |
-
-桌面 `search_paths` 与 resolver 可**并存**；runtime 先调 resolver，miss 后回退扫 search_paths。
-
----
+| 平台 | 默认文件来源 |
+|------|--------------|
+| iOS | `BundleFileResolver` 从 Bundle 读取 |
+| Android | `AssetFileResolver` 从 AssetManager 读取 |
+| Wasm | `bundleStdlibNode` 按名读取，`bundleStdlibBrowser` 按部署清单预取 |
 
 ## 命名约定
 

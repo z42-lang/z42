@@ -20,20 +20,20 @@
 ## 基础用法
 
 ```ts
-import init, { Z42VM, readNamespaces } from '@z42/wasm';
+import init, { Z42VM } from '@z42/wasm';
 import { bundleStdlibNode } from '@z42/wasm/stdlib-resolver';
 
 await init();
 const vm = new Z42VM({
-    zpkgResolver: await bundleStdlibNode(readNamespaces),   // 经各 zpkg 的 NSPC 建 namespace→bytes 表
+    fileResolver: await bundleStdlibNode(),
     stdoutHandler: (bytes) => process.stdout.write(bytes),
 });
 vm.invoke(vm.resolveEntry(vm.loadZbc(zbcBytes), 'My.Namespace.Main'));
 vm.dispose();
 ```
 
-`Z42VMOptions`：`zpkgResolver`（函数或 `{ resolve }`）、`stdoutHandler`、`stderrHandler`；完整类型见 `platform/js/index.d.ts`。
-浏览器侧 `bundleStdlibBrowser(baseUrl, readNamespaces)` 读构建生成的 `files.json`（zpkg 文件名列表）。
+`Z42VMOptions`：`fileResolver`（函数或 `{ resolve }`）、`stdoutHandler`、`stderrHandler`；完整类型见 `platform/js/index.d.ts`。
+浏览器侧 `bundleStdlibBrowser(baseUrl)` 读构建生成的 `files.json`（zpkg 文件名列表）。
 
 构建与 demo：
 

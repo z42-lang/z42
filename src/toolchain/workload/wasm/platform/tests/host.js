@@ -6,7 +6,7 @@
 // Spec: 变更 add-wasm-tests/specs/wasm-tests/spec.md
 //       变更 define-platform-test-contract/specs/platform-test-contract/spec.md
 
-import init, { Z42VM, readNamespaces } from '../pkg-web/z42_wasm.js';
+import init, { Z42VM } from '../pkg-web/z42_wasm.js';
 import { mapResolver, bundleStdlibBrowser } from '../js/stdlib-resolver.js';
 
 // ── Bootstrap. ──────────────────────────────────────────────────────
@@ -42,10 +42,10 @@ function makeCollector() {
 }
 
 async function makeVMWithSink() {
-    const resolver = await bundleStdlibBrowser(STDLIB_URL, readNamespaces);
+    const resolver = await bundleStdlibBrowser(STDLIB_URL);
     const collector = makeCollector();
     const vm = new Z42VM({
-        zpkgResolver: resolver,
+        fileResolver: resolver,
         stdoutHandler: collector.handler,
     });
     return { vm, collector };
@@ -120,10 +120,10 @@ window.__test = {
     // R5: MapResolver only knows "Std.Phantom" — load/invoke must fail.
     async runR5() {
         const phantomOnly = mapResolver(new Map([
-            ['Std.Phantom', new Uint8Array(0)],
+            ['phantom.zpkg', new Uint8Array(0)],
         ]));
         const vm = new Z42VM({
-            zpkgResolver: phantomOnly,
+            fileResolver: phantomOnly,
             stdoutHandler: () => { /* discard */ },
         });
         try {

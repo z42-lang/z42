@@ -44,6 +44,7 @@ pub(super) struct SessionConfig {
     pub(super) heap_max_bytes: usize,
     pub(super) search_paths: Vec<String>,
     pub(super) zpkg_resolver: Option<Arc<dyn ZpkgResolver>>,
+    pub(super) file_resolver: Option<Arc<dyn super::FileResolver>>,
     pub(super) vfs: Arc<dyn Vfs>,
 }
 
@@ -61,6 +62,7 @@ impl SessionConfig {
             vfs: Arc::clone(&self.vfs),
             search_dirs: self.search_paths.iter().map(PathBuf::from).collect(),
             resolver: self.zpkg_resolver.clone(),
+            file_resolver: self.file_resolver.clone(),
             eager_dependencies: true,
         }
     }
@@ -146,16 +148,18 @@ pub(super) fn current() -> Result<Token> {
         .ok_or_else(Failure::not_initialized)
 }
 
+fn probe_prelude(vfs: &dyn Vfs, search_paths: &[String]) -> Result<()> {
+    crate::loader::probe_prelude(vfs, search_paths)
+        .map_err(|error| Failure::new(Status::BadConfig, format!("corelib probe failed: {error:#}")))
+}
+
 pub(super) fn initialize(config: SessionConfig, sinks: HostSinks) -> Result<Token> {
     #[cfg(feature = "native-interop")]
     crate::interop::exports::install_panic_hook();
 
-    crate::loader::probe_prelude(&*config.vfs, &config.search_paths).map_err(|error| {
-        Failure::new(
-            Status::BadConfig,
-            format!("corelib probe failed: {error:#}"),
-        )
-    })?;
+    if config.file_resolver.is_none() {
+        probe_prelude(&*config.vfs, &config.search_paths)?;
+    }
 
     let mut registry = write()?;
     if registry.session.is_some() {
@@ -190,7 +194,7 @@ pub(super) fn shutdown(token: Token) -> Result<()> {
     Ok(())
 }
 
-pub(super) fn load(token: Token, bytes: &[u8]) -> Result<Token> {
+pub(super) fn load(token: Token, name: Option<&str>, bytes: &[u8]) -> Result<Token> {
     let (options, cache) = {
         let registry = read()?;
         let session = registry.session(token)?;
@@ -200,7 +204,7 @@ pub(super) fn load(token: Token, bytes: &[u8]) -> Result<Token> {
         )
     };
     let program = Arc::new(
-        LoadedProgram::load_bytes_with_cache(bytes, options, &cache)
+        LoadedProgram::load_named_bytes_with_cache(bytes, name, options, &cache)
             .map_err(|error| Failure::new(Status::BadZbc, format!("{error:#}")))?,
     );
 
@@ -287,13 +291,14 @@ pub(super) fn set_resolver(token: Token, resolver: Arc<dyn ZpkgResolver>) -> Res
 }
 
 pub(super) fn set_vfs(token: Token, vfs: Arc<dyn Vfs>) -> Result<()> {
-    let search_paths = read()?.session(token)?.config.search_paths.clone();
-    crate::loader::probe_prelude(&*vfs, &search_paths).map_err(|error| {
-        Failure::new(
-            Status::BadConfig,
-            format!("corelib probe failed: {error:#}"),
-        )
-    })?;
+    let paths_to_probe = {
+        let registry = read()?;
+        let config = &registry.session(token)?.config;
+        config.file_resolver.is_none().then(|| config.search_paths.clone())
+    };
+    if let Some(paths) = paths_to_probe {
+        probe_prelude(&*vfs, &paths)?;
+    }
     let retired = std::mem::replace(&mut write()?.session_mut(token)?.config.vfs, vfs);
     drop(retired);
     Ok(())
