@@ -90,7 +90,7 @@ void test_path_plan_preserves_the_manifests_of_unique_nodes() {
         string consumerPath = Path.Join(root, "z42.toml");
         PathDepClosure plan = PathDepPlan.Resolve(consumerPath, consumer);
         Assert.Equal(3, plan.Count);
-        Assert.Equal(Path.Join(root, "shared/z42.toml"), Path.Normalize(plan.Tomls[0]));
+        Assert.Equal(Path.Normalize(Path.Join(root, "shared/z42.toml")), Path.Normalize(plan.Tomls[0]));
         Assert.Equal("shared", plan.Manifests[0].Project.Name);
         Assert.Equal("left", plan.Manifests[1].Project.Name);
         Assert.Equal("right", plan.Manifests[2].Project.Name);
