@@ -351,6 +351,11 @@ pub fn pack_struct_elem(ctx: &VmContext, arr: &ArrayObj, i: usize, v: &Value) ->
         Value::BoxedStruct(b) => b.borrow().boxed_blob(),
         Value::StructRef { idx, frame_id } =>
             ctx.exec().with_struct_slot(*idx, *frame_id, |slot| (slot.bytes.to_vec(), slot.refs.to_vec()))?,
+        Value::StructRefHeap { idx, frame_id } => {
+            let element = ctx.exec().struct_elem(*idx, *frame_id)?;
+            let (bytes, refs, _, _) = crate::object::snapshot_struct_element(&element)?;
+            (bytes, refs)
+        }
         Value::Null => return Ok(()),
         other => return Err(OpError::internal(format!(
             "struct array literal element must be a struct value, got {other:?}"))),

@@ -85,8 +85,7 @@ pub fn struct_copy_val(
     ctx: &VmContext, dst_val: &Value, src_val: &Value, size: u32,
 ) -> Result<()> {
     let dst = as_struct_ref(dst_val, "StructCopy dst")?;
-    let src = as_struct_ref(src_val, "StructCopy src")?;
-    ctx.exec().copy_struct_slots(dst, src, Some(size as usize))
+    copy_struct_source(ctx, dst, src_val, Some(size as usize), "StructCopy src")
 }
 
 
@@ -96,8 +95,7 @@ pub fn struct_copy_dynamic(
 ) -> Result<(), Value> {
     let copy = || -> Result<()> {
         let dst = as_struct_ref(dst, "StructCopyDynamic dst")?;
-        let src = as_struct_ref(src, "StructCopyDynamic src")?;
-        ctx.exec().copy_struct_slots(dst, src, None)
+        copy_struct_source(ctx, dst, src, None, "StructCopyDynamic src")
     };
     copy().map_err(|err| {
         let message = err.to_string();
@@ -105,6 +103,30 @@ pub fn struct_copy_dynamic(
             .unwrap_or_else(|_| Value::Str(message.into()))
     })
 }
+
+/// A receiver can be a view into its array. Materialize a value when the
+/// method copies or returns that receiver.
+fn copy_struct_source(
+    ctx: &VmContext, dst: (u32, u32), src: &Value, size: Option<usize>, op: &str,
+) -> Result<()> {
+    let Value::StructRefHeap { idx, frame_id } = src else {
+        return ctx.exec().copy_struct_slots(dst, as_struct_ref(src, op)?, size);
+    };
+    let element = ctx.exec().struct_elem(*idx, *frame_id)?;
+    let (bytes, refs, layout, name) = ty::snapshot_struct_element(&element)?;
+    ctx.exec().with_struct_slot_mut(dst.0, dst.1, |slot| {
+        if bytes.len() != slot.bytes.len() || refs.len() != slot.refs.len()
+            || size.is_some_and(|size| size != slot.bytes.len())
+            || (size.is_none() && (name != slot.type_name || layout != slot.layout))
+        {
+            anyhow::bail!("{op}: incompatible array element `{name}` and destination `{}`", slot.type_name);
+        }
+        slot.bytes.copy_from_slice(&bytes);
+        slot.refs.copy_from_slice(&refs);
+        Ok(())
+    })?
+}
+
 
 /// Resolve a declared field spelling as-is, then under the owner namespace.
 fn qualify_field_type(ctx: &VmContext, tag: &str, owner_fq: &str) -> Option<std::sync::Arc<str>> {

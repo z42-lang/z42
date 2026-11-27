@@ -1,0 +1,49 @@
+namespace ArrayStructReceiver;
+
+struct Counter<T> {
+    public int Count;
+    public string Label;
+
+    public Counter<T> Bump() {
+        this.Count = this.Count + 1;
+        this.Label = "updated";
+        return this;
+    }
+
+    public Counter<T>[] Pack() { return new Counter<T>[] { this }; }
+    public Type Argument() { return typeof(T); }
+    public bool IsInt() { return this is Counter<int>; }
+
+    public void WriteThenThrow() {
+        this.Count = 9;
+        throw new InvalidOperationException("after the write");
+    }
+}
+
+class IndexLog { public static int Calls = 0; }
+int Index() { IndexLog.Calls = IndexLog.Calls + 1; return 0; }
+
+void Main() {
+    Counter<int>[] values = new Counter<int>[1];
+    Counter<int> snapshot = values[Index()].Bump();
+    Assert.Equal(1, IndexLog.Calls);
+    Assert.Equal(1, values[0].Count);
+    Assert.Equal("updated", values[0].Label);
+    Assert.Equal(typeof(int), values[0].Argument());
+    Assert.True(values[0].IsInt());
+    Counter<long>[] other = new Counter<long>[1];
+    Assert.False(other[0].IsInt());
+
+    values[0].Count = 4;
+    Assert.Equal(1, snapshot.Count);
+    Counter<int>[] packed = values[0].Pack();
+    Assert.Equal(4, packed[0].Count);
+    Assert.Equal("updated", packed[0].Label);
+
+    bool threw = false;
+    try { values[0].WriteThenThrow(); }
+    catch (InvalidOperationException) { threw = true; }
+    Assert.True(threw);
+    Assert.Equal(9, values[0].Count);
+    Assert.Equal(4, packed[0].Count);
+}

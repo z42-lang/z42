@@ -253,10 +253,16 @@ impl ThreadExecState {
         self.struct_arena.lock().with(idx, frame_id, read)
     }
 
+    pub(super) fn with_struct_slot_mut<R>(
+        &self, idx: u32, frame_id: u32, write: impl FnOnce(&mut StructSlot) -> R,
+    ) -> anyhow::Result<R> {
+        self.struct_arena.lock().with_mut(idx, frame_id, write)
+    }
+
     pub(super) fn with_struct_bytes_mut<R>(
         &self, idx: u32, frame_id: u32, write: impl FnOnce(&mut [u8]) -> R,
     ) -> anyhow::Result<R> {
-        self.struct_arena.lock().with_mut(idx, frame_id, |slot| write(&mut slot.bytes))
+        self.with_struct_slot_mut(idx, frame_id, |slot| write(&mut slot.bytes))
     }
 
     pub(super) fn struct_ref_leaf(&self, idx: u32, frame_id: u32, offset: u32) -> anyhow::Result<Value> {

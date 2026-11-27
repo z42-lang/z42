@@ -226,6 +226,18 @@ pub fn struct_ref_isa(
     &*name == class_name || is_subclass_or_eq_td(ctx, registry, &name, class_name)
 }
 
+/// A struct receiver may live in an array instead of the frame arena.
+pub fn struct_array_elem_isa(
+    ctx: &VmContext,
+    registry: &rustc_hash::FxHashMap<String, std::sync::Arc<TypeDesc>>,
+    idx: u32, frame_id: u32, class_name: &str,
+) -> bool {
+    let Ok(element) = ctx.exec().struct_elem(idx, frame_id) else { return false };
+    let name = element.arr.borrow().element_type().arc();
+    class_name == "Std.Object" || class_name == "Object"
+        || &*name == class_name || is_subclass_or_eq_td(ctx, registry, &name, class_name)
+}
+
 /// Front cache, then the memo / walk. `td.id` is resolved; `key` is `target`'s key.
 #[inline]
 fn isa_keyed(

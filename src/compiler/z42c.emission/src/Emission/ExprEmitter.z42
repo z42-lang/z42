@@ -102,9 +102,9 @@ public sealed partial class ExprEmitter : IBoundExprVisitor<TypedReg, Unit> {
     public TypedReg VisitMember(BoundMember n, Unit d) { return this._access._emitMember(n); }
     public TypedReg VisitIndex(BoundIndex n, Unit d) { return this._access._emitIndex(n); }
 
-    internal TypedReg _emitStructHashReceiver(BoundExpr receiver) {
-        // The default hash reads the handle immediately. User calls and ordinary array reads
-        // still take a value copy so the element handle cannot escape.
+    internal TypedReg _emitStructReceiver(BoundExpr receiver) {
+        // An array element used as a receiver names the element's storage.
+        // Ordinary array reads still produce independent values.
         if (receiver is BoundIndex) {
             return this._access._emitArrayElemHandle(receiver as BoundIndex);
         }

@@ -35,6 +35,9 @@ void Main() {
 struct 可以有字段、方法、构造器、`static` 方法、运算符重载，也可以
 [实现接口](interfaces.md)、带 [`[Record]`](record-attribute.md)。
 
+调用数组元素上的 struct 实例方法时，方法可以直接修改该元素。例如 `items[0].Increment()` 的字段写入
+会留在数组里。把元素赋给局部变量，或从方法按值返回该元素，都会得到独立副本。
+
 ## 默认对象方法
 
 `Std.ValueType` 提供按字段工作的 `Equals(object?)` 和 `GetHashCode()`。调用这两个签名时，
