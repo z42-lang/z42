@@ -26,7 +26,7 @@ fn obj_get_type_impl(ctx: &VmContext, this: &Value) -> Result<Value> {
         // name (`instance_type`), so `typeof(Box<int>) == o.GetType()` and a lib-made and a
         // main-made `GBox<int>` report equal Types.
         Value::Object(rc) => {
-            let td = rc.type_desc_arc().clone();
+            let td = rc.clone_type_desc();
             Ok(instance_type(ctx, td, rc.type_args()))
         }
         Value::Array(rc) => {
@@ -42,7 +42,7 @@ fn obj_get_type_impl(ctx: &VmContext, this: &Value) -> Result<Value> {
         }
         // add-struct-object-boxing → unify Phase 2 R3: 装箱值类型（struct 或基元）→ 其**精确类型**
         // （type_desc.name：struct 类型 / 基元 wrapper 如 Std.Int64——两者统一为 BoxedStruct）。
-        Value::BoxedStruct(b) => Ok(instance_type(ctx, b.type_desc_arc().clone(), b.type_args())),
+        Value::BoxedStruct(b) => Ok(instance_type(ctx, b.clone_type_desc(), b.type_args())),
         // 未装箱裸基元 → canonical stdlib 类（I64→Std.Int32；装箱后走上面精确类）。
         v @ (Value::I64(_) | Value::F64(_) | Value::Bool(_) | Value::Char(_)) => {
             match crate::metadata::dispatch::receiver::primitive_class_name(v) {

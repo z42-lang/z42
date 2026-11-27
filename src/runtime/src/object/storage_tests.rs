@@ -126,8 +126,22 @@ fn the_meta_word_trails_the_fields_and_only_generic_or_native_objects_have_one()
     assert_eq!(built.type_args(), &["Std.String".to_string()][..]);
 }
 
-/// What compiled field access reads off a handle (`obj_jit_layout`): the TypeId through the
-/// header's `Arc<TypeDesc>`, the field cells, and the age / remembered bits of the block header.
+#[test]
+fn object_type_word_owns_one_strong_reference() {
+    let desc = td("Owned");
+    let weak = Arc::downgrade(&desc);
+    let obj = OwnedObject::new(desc, 16);
+    assert_eq!(weak.strong_count(), 1);
+    let retained = obj.clone_type_desc();
+    assert_eq!(weak.strong_count(), 2);
+    drop(obj);
+    assert_eq!(weak.strong_count(), 1);
+    drop(retained);
+    assert!(weak.upgrade().is_none());
+}
+
+/// What compiled field access reads off a handle (`obj_jit_layout`): the descriptor pointer
+/// and its TypeId, the field cells, and the age / remembered bits of the block header.
 #[cfg(all(feature = "jit", target_pointer_width = "64"))]
 #[test]
 fn jit_layout_matches_the_accessors() {
@@ -139,7 +153,8 @@ fn jit_layout_matches_the_accessors() {
     unsafe {
         // The type word read as a pointer (as compiled code does — a load, no integer round-trip).
         let td_word = std::ptr::read(hdr.add(ol::TYPE_DESC_OFFSET as usize) as *const *const u8);
-        let tid = std::ptr::read(td_word.add(ol::type_id_offset() as usize) as *const u32);
+        assert!(std::ptr::eq(td_word.cast::<TypeDesc>(), r.type_desc()));
+        let tid = std::ptr::read(td_word.add(ol::TYPE_ID_OFFSET as usize) as *const u32);
         assert_eq!(tid, r.type_desc().id.0);
         assert_eq!(hdr.add(ol::FIELDS_OFFSET as usize), r.borrow().cells().base_ptr());
         let tt = || *hdr.add(ol::TYPE_TAG_OFFSET as usize) as i64;
