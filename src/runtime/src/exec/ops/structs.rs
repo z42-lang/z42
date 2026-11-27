@@ -230,7 +230,7 @@ pub fn project_inline_struct(
         .ok_or_else(|| anyhow::anyhow!("unknown inline struct owner `{root}`"))?;
     let field = root_td.fields.get(first as usize)
         .ok_or_else(|| anyhow::anyhow!("inline struct field index {first} outside `{root}`"))?;
-    let (offset, type_name) = resolve_struct_path(ctx, root, path, true)?;
+    let (offset, type_name) = resolve_struct_path_on_owner(ctx, root, path, owner, true)?;
     let descriptor = ctx.loader().try_lookup_type(&type_name)
         .filter(|td| td.is_struct())
         .ok_or_else(|| anyhow::anyhow!("inline field is not a struct: `{type_name}`"))?;
@@ -323,7 +323,29 @@ pub fn resolve_for_access(
     ctx: &VmContext, root_type: &str, path: &[u16], base_val: &Value, who: &str,
 ) -> Result<u32> {
     check_base_space(ctx, root_type, base_val, who)?;
-    resolve_field_path(ctx, root_type, path)
+    Ok(resolve_struct_path_on_owner(ctx, root_type, path, base_val, false)?.0)
+}
+
+fn resolve_struct_path_on_owner(
+    ctx: &VmContext, root_type: &str, path: &[u16], base_val: &Value, project: bool,
+) -> Result<(u32, Arc<str>)> {
+    let declared = resolve_struct_path(ctx, root_type, path, project);
+    if declared.is_ok() || (!project && path.len() < 2) {
+        return declared;
+    }
+
+    // Shared class bodies name the generic definition. An intermediate
+    // inline field can need the receiver's closed descriptor to name its layout.
+    let actual_name = match base_val {
+        Value::Object(object) => object.type_desc().name.clone(),
+        Value::StackObject { idx, frame_id } => ctx.exec()
+            .with_stack_object(*idx, *frame_id, |object| object.type_desc.name.clone())?,
+        _ => return declared,
+    };
+    if crate::object::TypeDesc::erased_definition_name(&actual_name) != Some(root_type) {
+        return declared;
+    }
+    resolve_struct_path(ctx, &actual_name, path, project).or(declared)
 }
 
 
