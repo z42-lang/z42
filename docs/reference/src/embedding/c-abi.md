@@ -304,7 +304,7 @@ Z42HostStatus z42_zpkg_read_namespaces(const uint8_t* bytes, size_t length,
 - 对该 zpkg 的**每一个可解析键**回调一次：先是它的**包名**（`z42.core` 这种，prelude 就是按包名请求的），
   然后是它声明的每一个 namespace。
 - `ns` 是 `len` 个 UTF-8 字节，**不 NUL 结尾**，只在本次回调期间有效——拷走再用。
-- **无状态**：不需要先 `initialize`，也不改动任何 VM 状态。
+- 可在初始化前调用。成功清除当前线程的宿主错误，失败可通过 `z42_host_last_error` 查询。
 - 字节不是可解析的 zpkg → `ERR_BAD_ZBC`；`visit == NULL` → `ERR_BAD_CONFIG`。
 
 ---

@@ -8,7 +8,7 @@
 //!
 //! Sibling: `crate::interop` (interop — native code registering types into z42).
 
-use super::{ZpkgResolver, abi_config, marshal, read_zpkg_namespaces, session};
+use super::{ZpkgResolver, abi_config, marshal, session};
 
 use std::os::raw::{c_char, c_void};
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -17,6 +17,7 @@ use std::sync::Arc;
 
 use super::abi_config::Z42HostConfig;
 use crate::host::error::{Z42HostStatus, clear_error, set_error, snapshot_last_error};
+use crate::loader::program::read_zpkg_namespaces;
 use z42_abi::{Z42Error, Z42Value};
 
 /// Opaque token for the currently initialized embedding session.
@@ -273,9 +274,13 @@ pub unsafe extern "C" fn z42_host_last_error(_host: *mut Z42Host) -> Z42Error {
 /// each key the runtime calls `visit(key, len, user_data)` once.
 ///
 /// This lets embedding hosts build a resolution map from the package
-/// itself — no separate index file. Stateless: does not require an
-/// initialized VM, and never mutates host state. Returns `ERR_BAD_ZBC`
-/// when the bytes aren't a parseable zpkg.
+/// itself. This call requires no session and uses the host's thread-local
+/// last-error record. Returns `BadZbc` when the bytes aren't a parseable zpkg.
+///
+/// # Safety
+/// A non-null `bytes` must point to `length` readable bytes for the duration of
+/// the call. Each key is borrowed only while `visit` is running. Any data that
+/// the callback dereferences via `user_data` must remain valid for the callback.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn z42_zpkg_read_namespaces(
     bytes: *const u8,

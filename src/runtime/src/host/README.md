@@ -12,8 +12,8 @@
 | Rust 嵌入 | `host::rust::{Host, HostConfig, HostError, MapResolver, SearchPathsResolver}` |
 | C 嵌入 | [`z42_host_api.h`](../../include/z42_host_api.h) 声明会话、句柄、回调与状态码。宿主统一包含 [`z42_host.h`](../../include/z42_host.h) |
 | 直接加载并持有程序 | `host::{LoadOptions, LoadedProgram, execution_available}`。程序实现见 [`vm/program.rs`](../vm/program.rs) |
-| 包解析 | `host::resolver::{ZpkgResolver, read_zpkg_namespaces}`。解析契约与包元数据读取见 [`loader/program.rs`](../loader/program.rs) |
-| 崩溃报告和 profiler | `host::signal::install`、`prepare_profiler`、`profiler_loaded`、`write_heap_snapshot`。实现见 [diagnostics](../diagnostics/README.md) |
+| 包解析 | `host::resolver::{ZpkgResolver, read_zpkg_namespaces}`。loader 读取解析键，C 入口负责指针、回调和线程局部错误 |
+| 崩溃报告和 profiler | `host::signal::install`。profiler 的准备、查询和快照函数由 [diagnostics](../diagnostics/README.md) 提供，经宿主根导出 |
 
 ## 基础用法
 
