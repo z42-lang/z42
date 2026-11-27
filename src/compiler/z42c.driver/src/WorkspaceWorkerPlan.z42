@@ -1,0 +1,65 @@
+namespace Z42.Driver;
+
+using Std.IO;
+using Std.Collections;
+using Std.Hashing;
+using Z42.IR.BinaryFormat;
+using Z42.Package;
+using Z42.Project;
+
+// One private snapshot supplies the exact node order and visibility used by the scheduler.
+// It belongs to a single invocation and is removed after all workers exit.
+internal static class WorkspaceWorkerPlan {
+    public static void Write(string file, WorkspaceLayoutPlan plan) {
+        var writer = new ByteWriter();
+        writer.WriteU32(plan.Count);
+        var graph = plan.Graph;
+        for (int i = 0; i < plan.Count; i = i + 1) {
+            writer.WriteStr(plan.Tomls[i]);
+            writer.WriteStr(plan.Names[i]);
+            writer.WriteStr(plan.DistDirs[i]);
+            writer.WriteStr(plan.CacheDirs[i]);
+            writer.WriteStr(Murmur3.Hash128Hex(File.ReadAllBytes(plan.Tomls[i])));
+            writer.WriteU32(graph.DepLen[i]);
+            for (int d = 0; d < graph.DepLen[i]; d = d + 1) {
+                writer.WriteStr(graph.DepFlat[graph.DepOff[i] + d]);
+            }
+        }
+        File.WriteAllBytes(file, writer.ToBytes());
+    }
+
+    public static WorkspaceLayoutPlan Read(string file, int node) {
+        var reader = new ZpkgCursor(File.ReadAllBytes(file), 0);
+        int count = reader.U32();
+        if (node < 0 || node >= count || count > (reader.Data.Length - 4) / 14) {
+            throw new Exception("invalid package worker graph node");
+        }
+        string[] manifests = new string[count];
+        string[] names = new string[count];
+        string[] dists = new string[count];
+        string[] caches = new string[count];
+        int[] offsets = new int[count];
+        int[] lengths = new int[count];
+        var deps = new List<string>();
+        string pin = "";
+        for (int i = 0; i < count; i = i + 1) {
+            manifests[i] = reader.Str(reader.U16());
+            names[i] = reader.Str(reader.U16());
+            dists[i] = reader.Str(reader.U16());
+            caches[i] = reader.Str(reader.U16());
+            string memberPin = reader.Str(reader.U16());
+            if (i == node) { pin = memberPin; }
+            offsets[i] = deps.Count;
+            lengths[i] = reader.U32();
+            if (lengths[i] < 0 || lengths[i] > count) { throw new Exception("invalid package worker dependencies"); }
+            for (int d = 0; d < lengths[i]; d = d + 1) { deps.Add(reader.Str(reader.U16())); }
+        }
+        if (reader.Pos != reader.Data.Length) { throw new Exception("invalid package worker plan size"); }
+        if (Murmur3.Hash128Hex(File.ReadAllBytes(manifests[node])) != pin) {
+            throw new Exception("member manifest changed after package planning: " + manifests[node]);
+        }
+        var plan = new WorkspaceLayoutPlan(manifests, names, dists, caches, new bool[count], count);
+        plan.Graph = new WorkspaceMembers(manifests, names, deps.ToArray(), offsets, lengths, count);
+        return plan;
+    }
+}

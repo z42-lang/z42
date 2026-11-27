@@ -7,47 +7,64 @@ using Z42.Project;
 using Z42.Pipeline;
 using Z42.Build;
 
-int _runWorkspaceGraph(string wsToml, WorkspaceLayoutPlan plan, bool release, int add, int remove, bool noIncremental, int jobs, int fileJobs) {
+int _runWorkspaceGraph(string wsToml, WorkspaceLayoutPlan plan, bool release, int add, int remove, bool noIncremental, int jobs, int fileJobs, bool inProcess) {
     try {
-        _validateWorkspaceWorkers(plan);
-        string vm = _workspaceWorkerVm();
-        string program = _workspaceWorkerProgram();
+        _validateWorkspaceGraphBuild(plan, inProcess);
+        if (inProcess) { return _runWorkspaceGraphSerial(plan, release, add, remove, noIncremental); }
         string absolute = Path.Normalize(Path.IsRooted(wsToml) ? wsToml : Path.Join(Environment.GetCurrentDirectory(), wsToml));
         string pin = Murmur3.Hash128Hex(File.ReadAllBytes(absolute));
-        PackageWorker[] workers = new PackageWorker[plan.Count];
-        int i = 0;
-        while (i < plan.Count) {
-            Process command = new Process(vm);
-            string? mode = RuntimeConfig.Get("mode");
-            if (mode != null) { command.Arg("--mode").Arg(mode); }
-            command.Arg(program).Arg("--").Arg("--package-worker").Arg("workspace-worker-v1")
-                .Arg(absolute).Arg(pin).Arg(i.ToString()).Arg(release ? "release" : "debug")
-                .Arg(noIncremental ? "1" : "0").Arg(add.ToString()).Arg(remove.ToString()).Arg(fileJobs.ToString());
-            workers[i] = new PackageWorker(command); i = i + 1;
-        }
-        PackageRunResult result = PackageScheduler.Run(plan.Graph, workers, jobs);
+        string temp = File.CreateTempDir("workspace-plan");
         try {
-            i = 0;
-            while (i < plan.Count) {
-                BuildLog.Progress("[" + (i + 1).ToString() + "/" + plan.Count.ToString() + "] " + plan.Names[i] + ": " + result.Statuses[i]);
-                if (File.Exists(result.StdoutPath(i))) { BuildLog.Progress(File.ReadAllText(result.StdoutPath(i))); }
-                if (File.Exists(result.StderrPath(i))) { ConsoleError.Write(File.ReadAllText(result.StderrPath(i))); }
-                i = i + 1;
-            }
-            return result.Code;
-        } finally { Directory.Delete(result.LogDir, true); }
+            string snapshot = Path.Join(temp, "plan");
+            WorkspaceWorkerPlan.Write(snapshot, plan);
+            PackageWorker[] workers = _workspaceWorkerCommands(absolute, pin, snapshot, plan.Count,
+                release, add, remove, noIncremental, fileJobs);
+            return _replayWorkspaceWorkers(PackageScheduler.Run(plan.Graph, workers, jobs), plan);
+        } finally { Directory.Delete(temp, true); }
     } catch (Exception e) {
         ConsoleError.WriteLine("z42c build --workspace: " + e.Message);
         return ExitCode.BuildError;
     }
 }
 
-void _validateWorkspaceWorkers(WorkspaceLayoutPlan plan) {
+PackageWorker[] _workspaceWorkerCommands(string manifest, string pin, string snapshot, int count,
+    bool release, int add, int remove, bool noIncremental, int fileJobs) {
+    string vm = _workspaceWorkerVm();
+    string program = _workspaceWorkerProgram();
+    string? mode = RuntimeConfig.Get("mode");
+    PackageWorker[] workers = new PackageWorker[count];
+    for (int i = 0; i < count; i = i + 1) {
+        Process command = new Process(vm);
+        if (mode != null) { command.Arg("--mode").Arg(mode); }
+        command.Arg(program).Arg("--").Arg("--package-worker").Arg("workspace-worker-v2")
+            .Arg(manifest).Arg(pin).Arg(i.ToString()).Arg(release ? "release" : "debug")
+            .Arg(noIncremental ? "1" : "0").Arg(add.ToString()).Arg(remove.ToString()).Arg(fileJobs.ToString())
+            .Arg(snapshot);
+        workers[i] = new PackageWorker(command);
+    }
+    return workers;
+}
+
+int _replayWorkspaceWorkers(PackageRunResult result, WorkspaceLayoutPlan plan) {
+    try {
+        for (int i = 0; i < plan.Count; i = i + 1) {
+            BuildLog.Progress("[" + (i + 1).ToString() + "/" + plan.Count.ToString() + "] " + plan.Names[i] + ": " + result.Statuses[i]);
+            if (File.Exists(result.StdoutPath(i))) { BuildLog.Progress(File.ReadAllText(result.StdoutPath(i))); }
+            if (File.Exists(result.StderrPath(i))) { ConsoleError.Write(File.ReadAllText(result.StderrPath(i))); }
+        }
+        return result.Code;
+    } finally { Directory.Delete(result.LogDir, true); }
+}
+
+void _validateWorkspaceGraphBuild(WorkspaceLayoutPlan plan, bool inProcess) {
     string[] roots = new string[plan.Count * 2];
     int[] owners = new int[roots.Length];
     int i = 0;
     while (i < plan.Count) {
         ProjectManifest pm = ManifestLoader.Load(plan.Tomls[i]);
+        if (inProcess && pm.PluginCount > 0) {
+            throw new Exception("--workspace-in-process does not support compiler plugins: " + pm.Project.Name);
+        }
         int p = 0;
         while (p < pm.PluginCount) {
             DepEntry plugin = pm.Plugins[p];
@@ -75,34 +92,59 @@ void _validateWorkspaceWorkers(WorkspaceLayoutPlan plan) {
 
 int _workspaceWorkerMain(string[] args) {
     try {
-        if (args.Length != 10 || args[1] != "workspace-worker-v1") { throw new Exception("invalid package worker protocol"); }
+        if (args.Length != 11 || args[1] != "workspace-worker-v2") { throw new Exception("invalid package worker protocol"); }
         if (Murmur3.Hash128Hex(File.ReadAllBytes(args[2])) != args[3]) { throw new Exception("workspace changed after package planning"); }
         if ((args[5] != "release" && args[5] != "debug") || (args[6] != "0" && args[6] != "1")) {
             throw new Exception("invalid package worker profile or incremental policy");
         }
         bool release = args[5] == "release";
-        WorkspaceLayoutPlan plan = WorkspacePlan.PlanLayout(args[2], release ? "release" : "debug");
         int node = Int32.Parse(args[4]);
-        if (plan.Graph == null || node < 0 || node >= plan.Count) { throw new Exception("invalid package worker graph node"); }
+        WorkspaceLayoutPlan plan = WorkspaceWorkerPlan.Read(args[10], node);
         int fileJobs = Int32.Parse(args[9]);
         if (fileJobs < 1) { throw new Exception("invalid package worker file budget"); }
         Z42.Package.ParallelConfig.SetJobs(fileJobs);
-        WsTier tier = _workspaceWorkerTier(plan, node);
-        string[] external = _extLibDirs();
-        string[] dirs = new string[plan.Count + external.Length];
-        int i = 0;
-        while (i < plan.Count) { dirs[i] = plan.DistDirs[i]; i = i + 1; }
-        int e = 0;
-        while (e < external.Length) { dirs[i] = external[e]; i = i + 1; e = e + 1; }
-        return _build(plan.Tomls[node], release, plan.DistDirs[node], plan.CacheDirs[node], dirs, dirs.Length,
-            args[6] == "1", Int32.Parse(args[7]), Int32.Parse(args[8]), false, tier, "");
+        return _buildWorkspaceGraphNode(plan, node, _workspaceGraphDirs(plan), release,
+            args[6] == "1", Int32.Parse(args[7]), Int32.Parse(args[8]), false);
     } catch (Exception e) {
         ConsoleError.WriteLine("z42c package worker: " + e.Message);
         return ExitCode.BuildError;
     }
 }
 
-WsTier _workspaceWorkerTier(WorkspaceLayoutPlan plan, int node) {
+int _runWorkspaceGraphSerial(WorkspaceLayoutPlan plan, bool release, int add, int remove, bool noIncremental) {
+    PackageTaskState state = new PackageTaskState(plan.Graph);
+    string[] dirs = _workspaceGraphDirs(plan);
+    int[] codes = new int[plan.Count];
+    while (!state.IsComplete()) {
+        int node = state.TakeReady();
+        if (node < 0) { throw new Exception("package graph has unfinished tasks but no ready member"); }
+        try { codes[node] = _buildWorkspaceGraphNode(plan, node, dirs, release, noIncremental, add, remove, true); }
+        catch (Exception e) { ConsoleError.WriteLine(e.Message); codes[node] = ExitCode.BuildError; }
+        state.Complete(node, codes[node] == 0);
+    }
+    int code = 0;
+    for (int node = 0; node < plan.Count; node = node + 1) {
+        BuildLog.Progress("[" + (node + 1).ToString() + "/" + plan.Count.ToString() + "] " + plan.Names[node] + ": " + state.Status(node));
+        if (code == 0 && codes[node] != 0) { code = codes[node]; }
+    }
+    return code;
+}
+
+string[] _workspaceGraphDirs(WorkspaceLayoutPlan plan) {
+    string[] external = _extLibDirs();
+    string[] dirs = new string[plan.Count + external.Length];
+    Array.Copy(plan.DistDirs, dirs, plan.Count);
+    for (int i = 0; i < external.Length; i = i + 1) { dirs[plan.Count + i] = external[i]; }
+    return dirs;
+}
+
+int _buildWorkspaceGraphNode(WorkspaceLayoutPlan plan, int node, string[] dirs, bool release,
+    bool noIncremental, int add, int remove, bool inProcess) {
+    return _build(plan.Tomls[node], release, plan.DistDirs[node], plan.CacheDirs[node], dirs, dirs.Length,
+        noIncremental, add, remove, false, _workspaceGraphTier(plan, node), "", null, inProcess);
+}
+
+WsTier _workspaceGraphTier(WorkspaceLayoutPlan plan, int node) {
     bool[] needed = WorkspaceGraph.Prerequisites(plan.Graph, node);
     WsTier tier = new WsTier();
     tier.Members = plan.Names; tier.MembersN = plan.Count; tier.MemberDirs = plan.Count;

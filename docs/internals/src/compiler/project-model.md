@@ -290,7 +290,7 @@ mtime 恰好相同。大小与毫秒 mtime 都未变化的原地覆写仍无法�
 和稀疏依赖基准。基准的 `Main` 接收文件数、重复次数、`chain|sparse`，输出累计失效文件数；
 同机比较两版 pipeline，保持 VM、基准字节码和其余依赖相同。
 
-### 显式图的隔离调度
+### 显式图的执行方式
 
 `WorkspaceGraph` 解析完整成员图，`Bind` 保留清单已有依赖约束，默认目标投影包含其前置闭包。
 `PackageTaskState` 克隆图并集中管理 pending/running/succeeded/failed/blocked；领取就绪节点时即标为运行，
@@ -300,6 +300,14 @@ mtime 恰好相同。大小与毫秒 mtime 都未变化的原地覆写仍无法�
 driver 与 builder 复用图、状态机和进程运行器，各自保留单包构建入口。无显式图仍走原串行路径；
 不能把隐式顺序中的缺边当作并行机会。隔离进程避免共享 `DepScanCache`、`WorkspaceMemberDeps`、
 `WsSiblings` 等过程状态，同时也失去跨成员 memo 复用，并引入启动成本；吞吐收益须以真实工作负载验证。
+
+z42c 父进程将已规划的成员顺序、图边、dist 和 cache 路径写入本次构建的临时快照。
+子进程用节点索引读取同一份计划，并校验工作区清单和目标成员清单的指纹。父进程在所有子进程退出后移除快照。
+
+标准库的 `xtask build stdlib` 用自建 z42c 传入 `--workspace-in-process`。显式图仍约束构建顺序、
+成员产物的所有权和依赖可见性。包级串行让成员复用同一进程的依赖扫描缓存，包内仍可使用文件级并行。
+此模式拒绝加载编译器插件，因为模块加载器的状态由整个进程共享。其他显式图构建默认使用隔离 worker，
+可用 `--package-jobs` 设置包级并行度。
 
 builder 将完整 `WorkspaceCompileDomain` 经 `Pipeline`、`CompileRequest` 传给 HostTarget：全成员身份包含
 未选中成员，只有前置闭包可见。`WsTier.OwnedMembers` 将每个成员目录限定为该成员的主包，运行期并置的

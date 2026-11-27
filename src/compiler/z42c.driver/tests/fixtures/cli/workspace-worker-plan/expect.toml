@@ -1,0 +1,48 @@
+desc = "explicit graph executors preserve prerequisite order, UTF-8 paths and cached outputs"
+
+[[step]]
+args = ["build", "--workspace", "--package-jobs", "2", "--release"]
+exit = 0
+stdout_count = [[": succeeded", "2"]]
+
+[[step]]
+tool = "run"
+target = "build 产物/snapshot.app/release/dist/snapshot.app.zpkg"
+exit = 0
+stdout_equals = "42"
+
+[[step]]
+args = ["build", "--workspace", "--package-jobs", "2", "--release"]
+exit = 0
+stdout_count = [[": succeeded", "2"], ["no changes; preserved", "2"]]
+
+[[step]]
+args = ["build", "--workspace", "--workspace-in-process", "--release"]
+exit = 0
+stdout_count = [[": succeeded", "2"], ["no changes; preserved", "2"]]
+
+[[step]]
+args = ["build", "--workspace", "--workspace-in-process", "--release", "--no-incremental"]
+exit = 0
+stdout_count = [[": succeeded", "2"]]
+
+[[step]]
+tool = "run"
+target = "build 产物/snapshot.app/release/dist/snapshot.app.zpkg"
+exit = 0
+stdout_equals = "42"
+
+[[step]]
+args = ["build", "--workspace", "--workspace-in-process", "--package-jobs", "2"]
+exit = 2
+stderr_contains = ["--workspace-in-process requires --package-jobs 1"]
+
+[[step]]
+tool = "copy"
+from = "broken-library.txt"
+to = "lib 源/src/Library.z42"
+
+[[step]]
+args = ["build", "--workspace", "--workspace-in-process", "--release"]
+exit = "nonzero"
+stdout_count = [["snapshot.lib: failed", "1"], ["snapshot.app: blocked", "1"]]
