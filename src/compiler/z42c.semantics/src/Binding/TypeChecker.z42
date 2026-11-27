@@ -33,9 +33,7 @@ public sealed class TypeChecker {
     // 见加载顺序确定性规则的根治说明）。语义内构造 → F2 安全。
     public string[] _currentUsings; public int _currentUsingCount;
     public string _curMemberName;           // PR6b：当前 enclosing 成员名（DeclBinder._bindMethodBody 设）；caller_member!() 注入源。语义内、F2 安全
-    // fix-generic-operator-constraint-dispatch：当前正在绑体的方法声明（DeclBinder._bindMethodBody 设）。
-    // 方法级 `where` **不预登记**符号表（ConstraintChecker.CheckMethod 每个调用点即席建 bundle），
-    // 体内绑定 `a + b` 时唯一能拿到 `where T : INumber<T>` 的地方就是这份 MethodDecl。语义内、F2 安全。
+    // Declaration identity for constraint lookup while binding a method body.
     public MethodDecl _curMethodDecl;
     public CompilationUnit _curCu;          // add-deprecated-directive：当前检查中的 CU（use-site 弃用告警的 #suppress 源）
     public SuppressionSet  _curSuppress;    // add-deprecated-directive：本 CU 的 #suppress 区间集（cu.SuppressRegions，PR3c）；语义内、F2 安全

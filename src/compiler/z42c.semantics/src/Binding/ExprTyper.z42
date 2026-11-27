@@ -707,8 +707,7 @@ public sealed partial class ExprTyper : IExprVisitor<BoundExpr, TypeEnv> {
     // 复用（`T a where T : IEq; a.Same(b)`）。名字改成中性的 `_constraintIfaceMethod`。
     //
     // 两个约束来源，都必须查：
-    //   - **方法级** `T Sum<T>(T a, T b) where T : INumber<T>` —— 方法约束**不预登记**符号表
-    //     （ConstraintChecker.CheckMethod 每个调用点即席建 bundle），只能从当前 MethodDecl 现读。
+    //   - 方法体内的型参成员查找使用当前声明的 where 子句。
     //   - **类级** `class Calc<T> where T : INumber<T>` —— 经 SymbolTable.ClassConstraints 取
     //     ConstraintSet（键须走 ClassConstraintKey：按短名查会让同短名的泛型类互相串味）。
     internal MethodSymbol _constraintIfaceMethod(TypeEnv env, string paramName, string opMethod) {
