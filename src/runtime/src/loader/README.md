@@ -25,7 +25,7 @@
 | `package/` | VFS 读取、LoadedArtifact、模块合并和执行索引准备 |
 | `locate/` | namespace 候选索引、依赖定位及 probing 展开 |
 | `lazy/` | 惰性包加载、符号路由、注册和调试符号 |
-| `context_gc.rs` | 保留 VM 上下文回收适配器的公开路径 |
+| `context_gc.rs` | 用弱引用访问上下文注册表，提供 GC 快照和清扫后的回收 |
 | `image_cache.rs` | 会话级 zpkg 解码缓存（内容哈希键）：已加载即共享定义 Arc，未命中才解码冻结 |
 | `contexts.rs` | ContextRegistry、assembly 身份和惰性卸载关联 |
 | `runtime.rs` | 包和符号查询，通过装配注入的入口发布加载事件 |

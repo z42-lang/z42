@@ -7,6 +7,16 @@ impl Default for Heap {
 }
 
 impl Heap {
+    /// Apply the resolved VM budget and tracing before the first mutator joins.
+    pub(crate) fn configure_vm_collection(&self, max_bytes: Option<u64>, trace: bool) {
+        if let Some(max_bytes) = max_bytes {
+            self.set_max_heap_bytes(Some(max_bytes));
+        }
+        if trace {
+            self.add_observer(Arc::new(crate::gc::trace::GcTracer::default()));
+        }
+    }
+
     pub(super) fn construct(config: crate::gc::GcConfig) -> Self {
         let mode = config.mode;
         let generational = mode == crate::gc::GcMode::GenerationalMarkSweep;

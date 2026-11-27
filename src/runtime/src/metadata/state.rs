@@ -54,6 +54,10 @@ impl ThreadRuntimeState {
 }
 
 impl RuntimeState {
+    pub(crate) fn invalidate_reflection_attributes(&self, heap: &crate::gc::Heap, id: super::ids::tokens::TypeId) {
+        self.reflection_types.invalidate_attributes(heap, id);
+    }
+
     pub fn current_type_desc(&self, declaration: Arc<crate::object::TypeDesc>) -> Arc<crate::object::TypeDesc> {
         self.types.get_arc(declaration.id).unwrap_or(declaration)
     }

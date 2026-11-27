@@ -7,7 +7,7 @@ pub(super) fn wire(core: &Arc<VmCore>, config: &crate::config::VmConfig) {
         let weak = Arc::downgrade(core);
         core.runtime.types.set_update_observer(Arc::new(move |id| {
             if let Some(core) = weak.upgrade() {
-                core.runtime.reflection_types.invalidate_attributes(&core.heap, id);
+                core.runtime().invalidate_reflection_attributes(core.heap(), id);
             }
         }));
     }
@@ -15,25 +15,11 @@ pub(super) fn wire(core: &Arc<VmCore>, config: &crate::config::VmConfig) {
     crate::diagnostics::register_crash_core(core);
     crate::threads::wire_gc_pressure(core);
 
-    // add-gc-runtime-knobs : apply the process-wide GC knobs.
-    //
-    // `Z42_GC_MAX_BYTES` is what *arms* automatic collection at all —
-    // `maybe_auto_collect` returns immediately while `max_bytes` is `None`,
-    // and the three `Z42_GC_*_RATIO` knobs are fractions of this budget, so
-    // without it they are inert. Unset keeps the historical behaviour
-    // (collect only on an explicit `Std.GC.Collect()`).
-    {
-        if let Some(max) = config.gc_max_bytes {
-            core.heap.set_max_heap_bytes(Some(max));
-        }
-        if config.gc_trace {
-            core.heap.add_observer(Arc::new(crate::gc::trace::GcTracer::default()));
-        }
-    }
+    core.heap().configure_vm_collection(config.gc_max_bytes, config.gc_trace);
 
     core.heap.set_external_root_scanner(Box::new(crate::threads::roots::CoreRoots(Arc::downgrade(core))));
 
-    core.heap.set_context_reclaimer(Box::new(super::context_gc::CoreContextReclaimer::new(core)));
+    core.heap().set_context_reclaimer(core.loader().context_reclaimer());
 
     // Both GC and diagnostic walks enumerate the same VM roots. The heap
     // invokes these borrowed-root callbacks only while mutators are paused.

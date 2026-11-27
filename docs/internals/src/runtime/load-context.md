@@ -7,7 +7,7 @@
 
 ## GC 回收适配边界
 
-上下文身份和关联表归 Loader。VM 在 `vm/context_gc.rs` 将其接入 `gc/to_vm.rs` 定义的回收快照契约。
+上下文身份、关联表与回收适配归 Loader。VM 装配时把 Loader 提供的回收服务交给堆。
 标记完成后，GC 将已标记对象交给本轮快照观察；完整清扫或增量 major 的最后一个清扫切片完成后，
 才调用快照回收未保留的 Unloading 上下文。快照及提供方只保存 `Weak<VmCore>`，避免堆与 VM 形成强引用环。
 
@@ -115,8 +115,8 @@ Active ──Unload()──▶ Unloading ──(GC 判定无引用)──▶ Rec
    `AssemblyEntry.module`（`Arc<TypeDesc>`/functions/串池 refcount 归零 → **确定性 free**）+ 清反查表 +
    标 `Reclaimed`。回收只在**精确 gate**（无引用）时发生，故 drop 即能全放。
 
-GC 侧经 `ContextReclaim` trait（`VmCore` 用 `CoreContextReclaimer` 捕 `Weak<VmCore>` 接线，
-`heap.set_context_reclaimer`）驱动，reclaim 只在 major collect 做（minor 不扫全堆，`live_contexts` 不完备）。
+GC 经 `ContextReclaim` 驱动。Loader 在适配器和快照中保存对注册表的弱引用，将注册表锁留在 Loader 内。
+回收只在 major collect 的完整根集合上运行。
 
 ## 边界与后续
 
