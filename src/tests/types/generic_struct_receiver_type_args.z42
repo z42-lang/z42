@@ -1,0 +1,36 @@
+namespace GenericStructReceiverTypeArgs;
+
+interface IArgument { Type ArgumentType(); }
+
+struct Box<T> : IArgument {
+    public int Number;
+    public Type ArgumentType() { return typeof(T); }
+    public T Zero() { return default(T); }
+    public bool Matches(object value) { return value is T; }
+    public override int GetHashCode() {
+        return typeof(T) == typeof(int) ? 7 : 8;
+    }
+}
+
+void Main() {
+    Box<int> ints = new Box<int>();
+    Box<string> strings = new Box<string>();
+    Assert.Equal(typeof(int), ints.ArgumentType());
+    Assert.Equal(typeof(string), strings.ArgumentType());
+    Assert.Equal(0, ints.Zero());
+    Assert.True(strings.Zero() == null);
+    Assert.True(ints.Matches(42));
+    Assert.False(strings.Matches(42));
+
+    IArgument boxed = ints;
+    Assert.Equal(typeof(int), boxed.ArgumentType());
+    object boxedInts = ints;
+    object boxedStrings = strings;
+    Assert.Equal(7, boxedInts.GetHashCode());
+    Assert.Equal(8, boxedStrings.GetHashCode());
+
+    Box<int>[] array = new Box<int>[1];
+    Assert.Equal(typeof(int), array[0].ArgumentType());
+    Assert.Equal(0, array[0].Zero());
+    Assert.True(array[0].Matches(42));
+}

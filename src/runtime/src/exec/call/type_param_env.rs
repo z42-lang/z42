@@ -124,7 +124,10 @@ pub fn class_type_arg(ctx: &VmContext, recv: &Value, idx: usize, owner: Option<&
     use crate::zpkg::index::type_names::erased;
 
     let (name, own_args) = receiver_parts(ctx, recv)?;
-    let Some(owner) = owner else { return own_args.get(idx).cloned() };
+    let Some(owner) = owner else {
+        return own_args.get(idx).cloned()
+            .or_else(|| crate::object::type_args_from_name(&name).get(idx).cloned());
+    };
     let owner = erased(owner);
     if erased(&name) == owner {
         return crate::object::type_args_from_name(&name).get(idx).cloned()
@@ -133,18 +136,25 @@ pub fn class_type_arg(ctx: &VmContext, recv: &Value, idx: usize, owner: Option<&
     inherited_type_arg(ctx, &name, own_args.as_slice(), owner, idx)
 }
 
-/// The receiver's descriptor name and own type arguments. An escape-analysis **stack** object
-/// (`StackObject`, `new Box<int>(..)` that never leaves its frame) is a receiver like a heap one:
-/// its methods' `typeof(T)` / `o is T` read the same two carriers.
-fn receiver_parts(ctx: &VmContext, recv: &Value) -> Option<(String, crate::object::TypeArgs)> {
+/// The receiver's descriptor name and separately stored type arguments.
+/// Struct slots and array element views carry their arguments in the type name.
+fn receiver_parts(ctx: &VmContext, recv: &Value) -> Option<(String, TypeArgs)> {
     match recv {
-        Value::Object(rc) => {
+        Value::Object(rc) | Value::BoxedStruct(rc) => {
             let o = rc.borrow();
             Some((o.type_desc.name.to_string(), o.type_args_handle()))
         }
         Value::StackObject { idx, frame_id } => ctx.exec()
             .with_stack_object(*idx, *frame_id, |o| (o.type_desc.name.to_string(), o.type_args_handle()))
             .ok(),
+        Value::StructRef { idx, frame_id } => ctx.exec()
+            .with_struct_slot(*idx, *frame_id, |slot| (slot.type_name.to_string(), TypeArgs::empty()))
+            .ok(),
+        Value::StructRefHeap { idx, frame_id } => {
+            let element = ctx.exec().struct_elem(*idx, *frame_id).ok()?;
+            let name = element.arr.borrow().element_type().to_string();
+            Some((name, TypeArgs::empty()))
+        }
         _ => None,
     }
 }
