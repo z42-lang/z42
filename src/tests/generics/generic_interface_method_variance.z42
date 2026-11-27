@@ -1,0 +1,21 @@
+namespace GenericMethodVariance;
+
+class Animal {}
+class Cat : Animal {}
+
+interface IMap<TIn,TOut> {
+    TOut Apply<M>(TIn value, M state);
+    M Echo<M>(M value);
+}
+
+class Map : IMap<Animal,Cat> {
+    public Cat Apply<M>(Animal value, M state) { return new Cat(); }
+    public M Echo<M>(M value) { return value; }
+}
+
+void Main() {
+    IMap<Animal,Cat> source = new Map();
+    IMap<Cat,Animal> converted = source;
+    Assert.True(converted.Apply<int>(new Cat(), 3) is Cat);
+    Assert.Equal(7, converted.Echo<int>(7));
+}

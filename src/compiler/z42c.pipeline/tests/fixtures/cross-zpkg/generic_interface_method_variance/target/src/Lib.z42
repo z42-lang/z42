@@ -1,0 +1,14 @@
+namespace GenericMethodVariance;
+
+public class Animal {}
+public class Cat : Animal {}
+
+public interface ITransform<TIn,TOut> {
+    TOut Apply<M>(TIn value, M state);
+    M Echo<M>(M value);
+}
+
+public class Transform : ITransform<Animal,Cat> {
+    public Cat Apply<M>(Animal value, M state) { return new Cat(); }
+    public M Echo<M>(M value) { return value; }
+}
