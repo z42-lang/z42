@@ -376,16 +376,18 @@ public sealed class TypeChecker {
     }
 
     private static bool _allowsVariantArgument(Z42Type source, Z42Type target, InterfaceVariance direction, SymbolTable syms) {
-        if (direction == InterfaceVariance.Invariant || !(source is Z42ClassType) || !(target is Z42ClassType)) {
-            return false;
+        if (direction == InterfaceVariance.Invariant) { return false; }
+        Z42Type derivedType = direction == InterfaceVariance.Covariant ? source : target;
+        Z42Type baseArg = direction == InterfaceVariance.Covariant ? target : source;
+        var baseType = baseArg as Z42ClassType;
+        if (baseType == null || baseType.GenericParamCount > 0) { return false; }
+        var derived = derivedType as Z42ClassType;
+        if (derivedType is Z42InstantiatedType) {
+            derived = (derivedType as Z42InstantiatedType).Def;
         }
-        Z42ClassType a = source as Z42ClassType;
-        Z42ClassType b = target as Z42ClassType;
-        if (a.IsStruct || b.IsStruct || a.IsEnum || b.IsEnum || a.IsScalarType() || b.IsScalarType()) {
-            return false;
-        }
-        Z42ClassType derived = direction == InterfaceVariance.Covariant ? a : b;
-        Z42ClassType baseType = direction == InterfaceVariance.Covariant ? b : a;
+        if (derived == null || derived.IsStruct || baseType.IsStruct || derived.IsEnum || baseType.IsEnum
+            || derived.IsScalarType() || baseType.IsScalarType()) { return false; }
+        // A non-generic ancestor has no type arguments to project through the base chain.
         return baseType.Fqn() == "Std.Object" || baseType.Fqn() == "object" || syms.IsSubclassOfType(derived, baseType);
     }
 

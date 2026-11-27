@@ -1,0 +1,25 @@
+namespace ConstructedVariance;
+
+class Animal {}
+class Cat : Animal {}
+class Box<T> : Animal {}
+interface ISource<T> { T Read(); }
+interface ISink<T> { string Put(T value); }
+class Source : ISource<Box<Cat>> {
+    public Box<Cat> Read() { return new Box<Cat>(); }
+}
+class Sink : ISink<Animal>, ISink<Box<Cat>> {
+    public string Put(Animal value) { return "animal"; }
+    public string Put(Box<Cat> value) { return "box"; }
+}
+void Main() {
+    ISource<Box<Cat>> source = new Source();
+    ISource<Animal> widened = source;
+    Assert.True(widened.Read() is Box<Cat>);
+    Sink sink = new Sink();
+    ISink<Animal> animals = sink;
+    ISink<Box<Cat>> narrowed = animals;
+    ISink<Box<Cat>> exact = sink;
+    Assert.Equal("animal", narrowed.Put(new Box<Cat>()));
+    Assert.Equal("box", exact.Put(new Box<Cat>()));
+}
