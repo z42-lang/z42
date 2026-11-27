@@ -463,6 +463,12 @@ public sealed partial class ExprEmitter {
         return ok;
     }
 
+    // Register the constructed identity separately from the layout used for byte offsets.
+    internal string _blobAllocationName(Z42Type type, string layout) {
+        string identity = this._instIdentityName(type);
+        return this._ctx.QualifyLayout(identity == "" ? layout : identity);
+    }
+
     // blob struct 的**布局名**（调用方已确认 _isBlobStruct）。
     //
     // generic-struct-erased-slot-value-copy：命中闸门的实例化在此给出**实例化规范名**
