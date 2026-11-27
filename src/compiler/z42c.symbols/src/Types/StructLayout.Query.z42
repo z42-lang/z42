@@ -134,6 +134,14 @@ public sealed partial class StructLayout {
         return true;
     }
 
+    // A complete layout may have no payload even when it declares nested struct fields.
+    public bool IsZeroPayloadStruct(string typeName) {
+        Z42ClassType owner = this.OwnerOf(typeName);
+        if (owner == null || !owner.IsStruct) { return false; }
+        StructLayoutInfo layout = this.LayoutOf(typeName);
+        return this.ErrorType == "" && layout.Size == 0 && layout.FieldCount == owner.OwnFieldCount;
+    }
+
     // unify-value-types Phase 1：值类型表示 Repr。返回 "Scalar" / "Blob" / ""（非值类型）。
     // Scalar = 六个基元 wrapper（PrimModel.IsScalarValue：整数族/f32/f64/bool/char，裸 Value 承载不进 arena）；
     // Blob = 多字段复合值 struct（IsBlobStruct，字节 arena）。用户单字段 struct 与 phantom 零字段 wrapper

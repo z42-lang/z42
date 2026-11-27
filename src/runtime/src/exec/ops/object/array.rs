@@ -328,8 +328,8 @@ pub fn elem_mode(ctx: &VmContext, element_type: ElemType, type_param: bool) -> E
     };
     if td.is_struct() {
         if let Some(layout) = td.struct_layout() {
-            // Empty structs have no fields to address; they still need typed, zeroed slots.
-            if layout.size != 0 || td.fields.is_empty() {
+            // Zero-width structs still need typed slots and a logical array length.
+            if layout.size != 0 || td.is_zero_payload_struct() {
                 return ElemMode::Struct(layout);
             }
         }

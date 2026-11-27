@@ -403,6 +403,15 @@ impl TypeDesc {
     }
 
     #[inline] pub fn is_struct(&self)             -> bool { self.class_flags & crate::zpkg::ir::CLASS_FLAG_STRUCT != 0 }
+    /// A delivered zero-width layout whose instance fields are themselves zero-width structs.
+    pub fn is_zero_payload_struct(&self) -> bool {
+        self.is_struct() && self.struct_layout_ref().is_some_and(|layout| {
+            layout.size == 0 && layout.ref_offsets.is_empty()
+                && layout.fields.len() == self.fields.len()
+                && layout.fields.iter().all(|field| field.kind == 3 && field.size == 0)
+        })
+    }
+
     /// add-record-value-semantics: whether this type is a `[Record]` (Type.IsRecord). Used by the
     /// boxed-struct vcall arm to step aside from the native ToString intercept so a record struct's
     /// compiler-synthesized `<Type>.ToString` (record format) is reached instead of the type name.

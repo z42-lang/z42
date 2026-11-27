@@ -192,7 +192,7 @@ pub fn struct_value_hash(ctx: &VmContext, value: &Value) -> Result<Option<i64>> 
             let (mut bytes, refs, layout, name) = crate::object::snapshot_struct_element(&element)?;
             hash_snapshot(ctx, &name, &mut bytes, &refs, Some(&layout))?
         }
-        Value::Object(o) if o.type_desc().is_struct() && o.type_desc().fields.is_empty() =>
+        Value::Object(o) if o.type_desc().is_zero_payload_struct() =>
             hash_struct_payload(&[], &[]),
         _ => return Ok(None),
     };
@@ -256,7 +256,7 @@ fn struct_payload(
             let (bytes, refs, _layout, type_name) = crate::object::snapshot_struct_element(&e)?;
             Ok(Some((type_name.to_string(), bytes, refs)))
         }
-        Value::Object(o) if o.type_desc().is_struct() && o.type_desc().fields.is_empty() => {
+        Value::Object(o) if o.type_desc().is_zero_payload_struct() => {
             let td = o.type_desc();
             let args = o.type_args();
             let name = if args.is_empty() || !td.type_args().is_empty() {
