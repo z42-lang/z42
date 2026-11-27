@@ -189,11 +189,19 @@ impl LoadedProgram {
         })
     }
 
-    /// Low-level channel for the packaged engine verification and JIT harnesses.
-    #[doc(hidden)]
-    pub fn context(&self) -> &VmContext {
+    #[cfg(any(test, feature = "shared-core", feature = "jit-test-support"))]
+    pub(crate) fn context(&self) -> &VmContext {
         &self.ctx
     }
+
+    pub(crate) fn set_program_args(&self, args: Vec<String>) -> Result<()> {
+        super::app_state::set_program_args(&self.ctx, args)
+    }
+
+    pub(crate) fn report_on_exit(&self) {
+        crate::composition::report_on_exit(&self.ctx);
+    }
+
     pub fn module(&self) -> &Module {
         &self.module
     }
@@ -221,7 +229,7 @@ impl LoadedProgram {
         index: usize,
         args: &[Value],
     ) -> Result<Option<Value>, EntryError> {
-        let ctx = self.context();
+        let ctx = &self.ctx;
         crate::exec::invoke_entry(ctx, self.module(), self.mode, index, args, || {
             self.initialized.get_or_init(|| {
                 ctx.statics().clear_for_rerun();

@@ -1,6 +1,6 @@
 //! Static composition exercises real interpreter and JIT through the host.
 use crate::components::bridge::{
-    installed_tier, register_baseline_engine, register_jit_engine, test_engine_registered, VmContext,
+    installed_tier, register_baseline_engine, register_jit_engine, test_engine_registered, verification_context, VmContext,
 };
 use z42::host::{ExecMode, LoadOptions, LoadedProgram, Value};
 use z42::metadata::Module;
@@ -25,7 +25,7 @@ fn empty_zbc() -> Vec<u8> {
 fn jit_mode_registers_both_engines_without_eager_compilation() {
     register_components();
     let program = LoadedProgram::load_bytes(&empty_zbc(), LoadOptions { mode: ExecMode::Jit, ..Default::default() }).unwrap();
-    let ctx = program.context();
+    let ctx = verification_context(&program);
     assert!(test_engine_registered(ctx, ExecMode::Interp));
     assert!(test_engine_registered(ctx, ExecMode::Jit));
     assert!(installed_tier(ctx).is_none());
@@ -53,10 +53,11 @@ fn program(throws: bool) -> LoadedProgram {
 fn jit_host_calls_return_values_compile_and_preserve_static_state() {
     let program = program(false);
     assert_eq!(program.invoke("Demo.Main", &[]).unwrap(), Some(Value::I64(42)));
-    assert!(program.context().core().diagnostics().snapshot(program.context().core().threads()).jit_methods_compiled > 0);
-    program.context().statics().set_named("Demo.sentinel", Value::I64(91)).unwrap();
+    let ctx = verification_context(&program);
+    assert!(ctx.core().diagnostics().snapshot(ctx.core().threads()).jit_methods_compiled > 0);
+    ctx.statics().set_named("Demo.sentinel", Value::I64(91)).unwrap();
     assert_eq!(program.invoke("Demo.Main", &[]).unwrap(), Some(Value::I64(42)));
-    assert_eq!(program.context().statics().get_named("Demo.sentinel"), Value::I64(91));
+    assert_eq!(ctx.statics().get_named("Demo.sentinel"), Value::I64(91));
     assert!(self::program(true).invoke("Demo.Main", &[]).unwrap_err().to_string().contains("uncaught exception"));
 }
 

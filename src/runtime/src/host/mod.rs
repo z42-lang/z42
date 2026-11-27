@@ -1,6 +1,12 @@
 //! Shared Rust host services and C embedding adapters.
+//!
 //! Component management stays private to the VM. Ordinary hosts load and invoke programs.
 //!
+//! ```compile_fail
+//! fn raw_context(program: &z42::host::LoadedProgram) {
+//!     let _ = program.context();
+//! }
+//! ```
 //! ```compile_fail
 //! use z42::host::component_ids;
 //! ```
