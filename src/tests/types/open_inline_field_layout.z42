@@ -3,6 +3,8 @@ namespace OpenInlineFieldLayout;
 struct Counter<T> {
     public int Count;
     public string Label;
+    public void Bump() { Count = Count + 1; }
+    public Type Argument() { return typeof(T); }
 }
 
 struct Group<T> {
@@ -19,6 +21,11 @@ class Host<T> {
         this.Direct.Label = text;
         Nested.Counter.Count = n + 1;
         this.Nested.Counter.Label = text;
+    }
+
+    public void BumpFields() {
+        Direct.Bump();
+        this.Nested.Counter.Bump();
     }
 
     public int Read() { return Direct.Count + this.Nested.Counter.Count; }
@@ -52,6 +59,12 @@ void Main() {
 
     object boxed = host.Direct;
     Assert.Equal(typeof(Counter<int>), boxed.GetType());
+    host.BumpFields();
+    Assert.Equal(14, host.Nested.Counter.Count);
+    Assert.Equal(typeof(int), host.Direct.Argument());
+    host.Direct.Bump();
+    Assert.Equal(14, host.Direct.Count);
+
     host.Update(40, "second");
     Assert.Equal(12, direct.Count);
     Assert.Equal("first", returned.Label);
