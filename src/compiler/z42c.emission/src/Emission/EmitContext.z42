@@ -247,6 +247,7 @@ public sealed class EmitContext {
     // Equals/GetHashCode」的判据会在跨包 struct（如 Std.Guid 自带 Equals(Guid)）上误判「没有」，
     // 把本该走用户实现的调用劫持进快路。struct 无继承，不walk基类链。
     public bool StructDeclaresMethod(Z42Type t, string method) {
+        if (t is Z42InstantiatedType inst) { t = inst.Def; }
         Z42ClassType ct = t as Z42ClassType;
         if (ct == null) { return false; }
         int i = 0;

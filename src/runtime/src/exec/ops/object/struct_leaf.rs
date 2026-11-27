@@ -331,7 +331,11 @@ pub fn value_type_equals(ctx: &VmContext, a: &Value, b: &Value) -> Result<bool> 
     if lhs.is_empty() {
         return Ok(true);
     }
-    equal_scalar_fields(&|n| ctx.loader().try_lookup_type(n), &name, &lhs, &rhs)
+    let layout_name = match &a {
+        Value::BoxedStruct(boxed) => &boxed.type_desc().name,
+        _ => &name,
+    };
+    equal_scalar_fields(&|n| ctx.loader().try_lookup_type(n), layout_name, &lhs, &rhs)
 }
 
 fn equal_scalar_fields(

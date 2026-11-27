@@ -190,8 +190,7 @@ public sealed class CallEmitter {
             if (this._ee._isBlobStruct(c.Receiver.Type())) {
                 // The imported synthesized body can only test against its erased definition.
                 // Pass both closed identities to the existing boxed equality path.
-                if (c.MethodName == "Equals$1$synth" && c.Receiver.Type() is Z42InstantiatedType
-                    && !this._ctx.IsLocalReceiver(c.Receiver.Type())) {
+                if (this._isImportedStructEquals(c)) {
                     return this._emitBoxedStructObjectCall(c, "Equals");
                 }
                 // fix-value-type-object-methods 阶段2：struct **未自声明**的 Object 方法（ToString /
@@ -600,6 +599,18 @@ public sealed class CallEmitter {
     private bool _isBoxedObjectMethod(string method, int argCount) {
         if (argCount == 0 && (method == "ToString" || method == "GetHashCode")) { return true; }
         if (argCount == 1 && method == "Equals") { return true; }
+        return false;
+    }
+
+    private bool _isImportedStructEquals(BoundCall c) {
+        if (c.MethodName != "Equals$1$synth" && c.MethodName != "Equals$1") { return false; }
+        if (c.Receiver.Type() is Z42InstantiatedType inst && !this._ctx.IsLocalReceiver(inst)) {
+            if (c.MethodName == "Equals$1$synth") { return true; }
+            Z42ClassType def = inst.Def as Z42ClassType;
+            if (def == null) { return false; }
+            MethodSymbol method = def.Methods.Get(c.MethodName) as MethodSymbol;
+            return method != null && method.IsSharedFloatStructEquals;
+        }
         return false;
     }
 
