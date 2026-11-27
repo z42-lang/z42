@@ -301,7 +301,7 @@ fn check_empty_struct_write(ctx: &VmContext, field: &str, name: &str, value: &Va
     use crate::zpkg::index::type_names::{canonical, erased};
     let name = canonical(name);
     let Some(td) = ctx.loader().try_lookup_type(erased(&name)) else { return Ok(false) };
-    if !td.is_struct() || !td.fields.is_empty() {
+    if !td.is_zero_payload_struct() {
         return Ok(false);
     }
     anyhow::ensure!(

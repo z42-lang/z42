@@ -11,7 +11,16 @@ internal static class InterfaceVarianceInference {
     public const int Both = 3;
 
     public static int MethodUse(MethodSymbol method, string parameter) {
-        if (method.TypeParamCount > 0) { return Both; }
+        if (method.TypeParamCount > 0) {
+            // Constraints may relate a method parameter to the interface parameter.
+            if (method.Decl == null || method.Decl.WhereCount > 0) { return Both; }
+            int j = 0;
+            while (j < method.TypeParamCount) {
+                // A method parameter shadows the interface parameter throughout this signature.
+                if (method.TypeParamNames[j] == parameter) { return 0; }
+                j = j + 1;
+            }
+        }
         var signature = method.Signature;
         // Static members can participate in constrained dispatch.
         int useMask = TypeUse(signature.Ret, parameter, method.IsStatic ? Both : Output);

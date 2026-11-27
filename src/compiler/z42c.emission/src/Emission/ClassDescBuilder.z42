@@ -686,10 +686,8 @@ public sealed partial class ClassDescBuilder {
         // 使 `CBox<P2>.Item` 真内联进堆对象字节区，而不是存一个栈帧作用域的 arena 句柄（use-after-free）。
         if (!ly.IsStructType(instName)) { return this._instClassDesc(instName); }
         StructLayoutInfo li = ly.LayoutOf(instName);
-        if (li.Size <= 0) {
-            // A declared empty struct still needs its constructed type descriptor.
-            Z42ClassType owner = ly.OwnerOf(instName);
-            if (owner == null || owner.OwnFieldCount != 0) { return null; }
+        if (li.Size <= 0 && (!ly.IsZeroPayloadStruct(instName) || ly.IsBlobStruct(StructLayout.BaseNameOf(instName)))) {
+            return null;
         }
         int n = li.FieldCount;
         IrFieldDesc[] fs = new IrFieldDesc[n];

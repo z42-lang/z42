@@ -26,7 +26,7 @@ pub(crate) fn zero_value_for_type(ctx: &VmContext, tag: &str) -> crate::object::
     if !matches!(prim, Value::Null) { return prim; }
     let Some((td, name)) = lookup_zero_type(ctx, tag) else { return Value::Null };
     if td.is_enum() { return Value::I64(0); }
-    if is_empty_struct(&td) {
+    if td.is_zero_payload_struct() {
         let args = empty_struct_args(&td, &name);
         return ctx.heap().alloc_instance(td, args);
     }
@@ -42,7 +42,7 @@ pub(crate) fn zero_value_for_type(ctx: &VmContext, tag: &str) -> crate::object::
 
 pub(crate) fn empty_struct_type(ctx: &VmContext, tag: &str) -> Option<(std::sync::Arc<TypeDesc>, TypeArgs)> {
     let (td, name) = lookup_zero_type(ctx, tag)?;
-    is_empty_struct(&td).then(|| {
+    td.is_zero_payload_struct().then(|| {
         let args = empty_struct_args(&td, &name);
         (td, args)
     })
@@ -80,9 +80,5 @@ fn lookup_type(ctx: &VmContext, name: &str) -> Option<std::sync::Arc<TypeDesc>> 
     let def = ctx.loader().try_lookup_type(&name[..lt])?;
     if !def.is_struct() { return None; }
     ctx.loader().try_lookup_type(name)
-        .or_else(|| is_empty_struct(&def).then_some(def))
-}
-
-fn is_empty_struct(td: &TypeDesc) -> bool {
-    td.is_struct() && td.fields.is_empty() && td.struct_layout_ref().is_some_and(|layout| layout.size == 0)
+        .or_else(|| (def.fields.is_empty() && def.is_zero_payload_struct()).then_some(def))
 }

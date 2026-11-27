@@ -107,7 +107,7 @@ VM 装配注入 Core；worker 共享所属 Core 的不可变表，不存入 Exec
 不执行托管初始化器。加载会登记初始化事实，真正执行发生在包/类型的访问屏障。
 主线程和 worker 均通过 `vm/mod.rs` 的 `new_with_core` 注册线程上下文。
 主线程在 Core 服务连接完成后加入；worker 加入已有 Core，不重建堆、服务或组件；
-加入时按 `gc_phase → vm_contexts` 的锁顺序等待 Marking 结束后登记。
+加入时由 `ThreadState` 按 GC 阶段锁、注册表锁的顺序登记，遇到 Marking 时先等待。
 
 宿主拥有公开的 `LoadOptions` 和 `LoadedProgram`。它将输入转换为内部 `ProgramInputs` 与
 `AssemblyOptions`，接收装配完成的固定地址 Context，再包装成可调用程序。VFS、包输入、原生加载许可、
@@ -367,7 +367,9 @@ regs，interp `RefKind::Stack` 跨帧 deref 通过 `frame.regs`。
 
 Scanner closure 通过 `Weak<VmCore>` 捕获 VmCore（避免 `VmCore → heap → scanner → Arc<VmCore>` 循环引用），upgrade 失败时 silent skip。
 
-**VmContext 注册表**：VmCore 持 `vm_contexts: Mutex<Vec<VmContextPtr>>` 注册表。`VmContext::new()` 返回 `Pin<Box<VmContext>>` 以保证地址稳定（`PhantomPinned` 标 !Unpin 防 move-out），构造时 push 自身到注册表，Drop 时 retain 移除。GC scanner 改为：**1**) 上锁 vm_contexts → **2**) 遍历每个 VmContext ptr → **3**) `unsafe { &*ptr }` 经执行层扫描异常交接槽、暂停中的帧和帧内 arena。所有 VmContext 的 per-thread roots 在 mark 阶段都被看见 —— multi-thread 安全。Lock 持有期间 Drop 阻塞，无 use-after-free。
+`ThreadState` 持有上下文注册表。`VmContext` 在 `Pin<Box<_>>` 固定地址后登记，Drop 在同一把注册表锁下汇总计数并移除上下文。
+GC 扫描通过 `visit_contexts` 在回调内借用上下文，再经执行层枚举异常交接槽、暂停中的帧和帧内 arena。
+崩溃报告用 `try_visit_contexts` 非阻塞地遍历上下文。
 
 API 方法都用 `&self`（内部 Mutex/RwLock）。详见 [`object-protocol-dispatch.md`](object-protocol-dispatch.md)、[`native-abi.md`](native-abi.md)、[`concurrency.md`](concurrency.md)。
 

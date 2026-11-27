@@ -1,0 +1,7 @@
+namespace ZeroPayloadValues;
+
+public struct Marker {}
+public struct Composite { public Marker Value; }
+
+public Composite Create() { return new Composite(); }
+public Composite Zero() { return default(Composite); }

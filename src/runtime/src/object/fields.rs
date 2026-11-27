@@ -46,6 +46,9 @@ impl ScriptObject {
         if let Some(col) = self.type_desc.composed_object_layout_ref() {
             return col.field_access.get(slot).copied();
         }
+        if self.type_desc.is_zero_payload_struct() && slot < self.type_desc.fields.len() {
+            return Some(FieldAccess::struct_root(0, 0));
+        }
         self.synthesized_field_access(slot)
     }
 
@@ -76,15 +79,24 @@ impl ScriptObject {
     /// Read the cell `fa` describes (`field_value` once the slot is resolved, a `FieldIC` hit).
     #[inline(always)]
     pub fn load_access(&self, fa: FieldAccess) -> Value {
+        self.load_access_with_inline(fa, |value| value, || Value::Null)
+    }
+
+    /// Dispatch the inline root from the same cell-kind branch as ordinary field reads.
+    #[inline(always)]
+    pub(crate) fn load_access_with_inline<T>(
+        &self, fa: FieldAccess, direct: impl FnOnce(Value) -> T, inline: impl FnOnce() -> T,
+    ) -> T {
         let c = self.cells();
-        match fa.cell() {
+        let value = match fa.cell() {
             FieldCell::Ref => ref_word::load(&c, fa.offset as usize),
             FieldCell::TypeParam => tparam_cell::load(&c, fa.offset as usize, fa.aux as usize),
             FieldCell::Prim => c
                 .load_prim(fa.offset as usize, fa.width as usize, fa.tag)
                 .unwrap_or(Value::Null),
-            FieldCell::Struct => Value::Null,
-        }
+            FieldCell::Struct => return inline(),
+        };
+        direct(value)
     }
 
     /// Write direct field `slot` from `v`; `true` iff the target is a reference cell.

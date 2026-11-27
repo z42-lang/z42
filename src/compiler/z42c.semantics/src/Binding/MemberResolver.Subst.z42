@@ -63,12 +63,7 @@ public sealed partial class MemberResolver {
         return TypeSubst.Apply(t, new IfaceArgsMap(inst));
     }
 
-    // 整条签名（形参位 + 返回位）按接口实参代换。与 `_substGenericSig` 同构、同纪律：
-    // ⚠️ 产物是**诊断专用**签名，只喂 `CheckSubstitutedArgs`，**绝不回灌** `_withDefaults` /
-    // `BoxArgs` / `ConvertIfNeeded` / 重载决议（不变式 I1 —— 回灌那四条通道每一条都是确定性的
-    // 自举字节漂移，理由见 MemberResolver 调用点注释）。
-    // `ParamsFrom` / `ParamDefaults` / `ParamCallers` / `ParamNames` 原样搬运（漏搬会让 params
-    // 变长形参退化成定长）。
+    // 实例化接口的静态签名供目标类型与诊断使用；物理调用保留原签名。
     private static Z42FuncType _substIfaceSig(Z42FuncType sig, Z42InstantiatedInterfaceType recv) {
         return TypeSubst.ApplySig(sig, new IfaceArgsMap(recv));
     }

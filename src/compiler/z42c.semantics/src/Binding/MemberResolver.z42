@@ -173,22 +173,26 @@ public sealed partial class MemberResolver {
                         + it.Name() + "`", sp);
                 }
                 ims = MethodTypeArgSubst.ForExplicitTypeArgs(ims, call, env);   // 显式 `<T>` → 先代换签名再绑实参
-                args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, ims.Signature, env);   // add-target-typed-new：接口方法按形参类型回填
+                var iRecv = iown as Z42InstantiatedInterfaceType;
+                Z42FuncType checkSig = ims.Signature;
+                if (iRecv != null && ims.TypeParamCount == 0) {
+                    checkSig = MemberResolver._substIfaceSig(checkSig, iRecv);
+                }
+                args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, checkSig, env);
                 // 实参装箱 / 表示转换：与其它调用形态同一个汇聚步（此前接口收者这条不经 `_withDefaults`，于是
                 // 整数传给 object 形参丢了宽度、struct 传给泛型方法的 T 位裸着逃出帧）。
                 args = this._tc.BoxArgs(args, argCount, ims, env.Symbols);
                 // self-return-type-substitution：返回类型里的 `Self` 换成接收者的静态接口类型，
                 // 否则型参 `Self` 会裸奔到调用方（`var x = c.Copy()` 得到 `:Self`，不可用）。
                 Z42Type ifRet = MemberResolver._substSelf(ims.Signature.Ret, it);
-                // 接口**型参**同样要按接收者实参代换（`IBox<int>.Get()` 返回 int 而非 T）——
-                // 实例化**类**那条路早就做了（下方 GS6 的 `_substGeneric`），接口这条一直没做。
-                // 形参位走 `CheckSubstitutedArgs` 补查：代换后的签名是**诊断专用**，不回灌
-                // `_withDefaults`（不变式 I1，理由见 GS6 分支的长注释）。
-                if (iown is Z42InstantiatedInterfaceType) {
-                    Z42InstantiatedInterfaceType iRecv = iown as Z42InstantiatedInterfaceType;
+                // 泛型方法沿用方法实参绑定后的补查。普通成员已按实例化签名检查；
+                // 两者仍用声明签名决定物理调用约定。
+                if (iRecv != null) {
                     ifRet = MemberResolver._substIfaceArgs(ifRet, iRecv);
-                    this._tc._overload.CheckSubstitutedArgs(args, rawArgs, argCount, ims.Signature,
-                        MemberResolver._substIfaceSig(ims.Signature, iRecv), env);
+                    if (ims.TypeParamCount > 0) {
+                        this._tc._overload.CheckSubstitutedArgs(args, rawArgs, argCount, ims.Signature,
+                            MemberResolver._substIfaceSig(ims.Signature, iRecv), env);
+                    }
                 }
                 BoundCall ifc = BoundCall.Marked(new BoundCall("instance", true, recv, it.Name(), mem.Name, args, argCount,
                                      ifRet, sp), ims.Signature);
