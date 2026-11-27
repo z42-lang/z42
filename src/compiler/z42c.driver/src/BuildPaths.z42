@@ -15,7 +15,7 @@ using Z42.Project;   // WorkspaceMemberDeps（_memberAwarePlan）
 // （SDK / 上一版 nightly 种子 vs 树内 gen1）可能先后往同一处写。cache 按「编译器语义指纹」作 key，
 // 格式 bump 未必伴随指纹变化 ⇒ 若只看 pack 位，新编译器会把旧代写下的**旧格式** zpkg 当「未变」留下，
 // 而当前 VM 按 strict-pin 拒载。核对版本即可把这种跨代残留当成「需要重建」。
-bool _distModeMatches(string zpkgPath, bool isPacked) {
+bool _distModeMatches(string zpkgPath, bool isPacked, CliDependencyState deps) {
     try {
         byte[] d = File.ReadAllBytes(zpkgPath);
         if (d.Length < 10) { return false; }
@@ -24,7 +24,7 @@ bool _distModeMatches(string zpkgPath, bool isPacked) {
         if (major != ZpkgWriterZ.Major || minor != ZpkgWriterZ.Minor) { return false; }
         int flags = (int)d[8] | (((int)d[9]) << 8);
         bool filePacked = (flags & 1) != 0;
-        return filePacked == isPacked;
+        return filePacked == isPacked && deps.ProductMatches(d);
     } catch (Exception e) {
         return false;
     }

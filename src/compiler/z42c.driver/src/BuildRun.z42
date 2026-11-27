@@ -105,10 +105,14 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     if (kn == null) { return ExitCode.UsageError; }
     int effOptSet = kn.OptSet; LanguageFeatures feats = kn.Features;
     // ── ⑧ 依赖身份（缓存键扩展）+ 增量 probe；全命中 → preserved 早退 ──
-    string depsId = BuildCacheIdentity.Of(pm, effOptSet, isRelease, libsDirs, libsDirsN, scanTier);
-    PrepareOut po = _prepareIncremental(pm, srcs, dispSrcs, sh.Texts, sh.Hashes, scanTier, projectDir, bd.EffCacheDir, depsId,
+    CliDependencyState deps = CliDependencyState.Observe(pm, effOptSet, isRelease, libsDirs, libsDirsN, scanTier,
+        bd.EffCacheDir, Path.Join(distDir, pm.Project.Name + ".zpkg"),
+        tier == null && isPacked && srcs.Length >= 8 && azPaths == null && !fix && pm.ExeCount == 0
+            && !noIncremental && pm.Build.Incremental && (outputDirOverride == "" || cacheDirOverride != ""));
+    string depsId = deps.Files;
+    PrepareOut po = _prepareIncremental(pm, srcs, dispSrcs, sh.Texts, sh.Hashes, scanTier, projectDir, bd.EffCacheDir,
         feats, distDir, isPacked, isExe, azPaths, ld.Closure, libsDirs, libsDirsN, isRelease,
-        outputDirOverride, cacheDirOverride, noIncremental, LineLint.Active(kn.Lints), pl.DepNames, pl.DepNamesN);
+        outputDirOverride, cacheDirOverride, noIncremental, LineLint.Active(kn.Lints), pl.DepNames, pl.DepNamesN, deps);
     if (po.Rc != -1) { return po.Rc; }   // preserved 早退已完成（Ok）或失败（诊断已打印）
     IncrPrep prep = po.Prep;
     // ── ⑨ parse-all（增量复用 prep.Cus / 全量 ParseAllTk）──
@@ -146,11 +150,17 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     int wor = _writeSingleOutput(pm, art, distDir, isPacked, isRelease, bd.EffCacheDir, projectDir, srcs, prep);
     if (wor != 0) { return wor; }
     if (bd.WriteCache) { _writeBuildCache(pm, projectDir, isRelease, cacheDirOverride, srcs, sh.Texts, sh.Hashes, art.Cms, art.Mods, prep, metaIdents, metaSurfaces, depsId, feats, art.CuDiags); }
-    // 自包含 exe（.NET bin/ 式）：把非标准库依赖 zpkg 复制进 dist，使 exe 可从自身目录运行。
+    return _finishSingleBuild(pm, isExe, distDir, ld, tier, pl, isRelease, deps);
+}
+
+int _finishSingleBuild(ProjectManifest pm, bool isExe, string distDir, LibsDomainOut ld, WsTier tier,
+                       PluginSetupOut pl, bool isRelease, CliDependencyState deps) {
     if (isExe) {
-        int bc = _finishExeDeployment(pm, ld.Closure, distDir, libsDirs, libsDirsN, tier, pl.DepNames, pl.DepNamesN, isRelease);
-        if (bc != 0) { return bc; }
+        int rc = _finishExeDeployment(pm, ld.Closure, distDir, ld.LibsDirs, ld.LibsDirsN,
+            tier, pl.DepNames, pl.DepNamesN, isRelease);
+        if (rc != 0) { return rc; }
     }
+    deps.SaveProduct();
     return ExitCode.Ok;
 }
 
@@ -430,11 +440,11 @@ KnobResult _resolveKnobs(ProjectManifest pm, string tomlPath, bool isRelease, in
 // 全命中 → 完全跳过重编/重写（沿用 preserved 路径）；部分命中 → 失效子集重编、
 // 其余 IrModule 从 cache 读回（meta 残留已回填）。单工程 --output-dir 平铺不走（workspace 成员走）。
 PrepareOut _prepareIncremental(ProjectManifest pm, string[] srcs, string[] dispSrcs, string[] texts, string[] srcHashes, WsTier tier,
-                               string projectDir, string effCacheDir, string depsId, LanguageFeatures feats,
+                               string projectDir, string effCacheDir, LanguageFeatures feats,
                                string distDir, bool isPacked, bool isExe, string[] azPaths,
                                PathClosureOut closure, string[] libsDirs, int libsDirsN, bool isRelease,
                                string outputDirOverride, string cacheDirOverride, bool noIncremental, bool styleLint,
-                               string[] routedDeps, int routedN) {
+                               string[] routedDeps, int routedN, CliDependencyState deps) {
     PrepareOut o = new PrepareOut();
     o.Rc = -1;   // -1 = 未 preserved，调用方继续正常编译
     // `[build] incremental = false` 关增量（wire-build-incremental）。此前这个键**被解析进
@@ -465,8 +475,8 @@ PrepareOut _prepareIncremental(ProjectManifest pm, string[] srcs, string[] dispS
         // 内建行数 lint 同理（LineLint 每 build 重跑，不走缓存）。
         // 代价只落在带 analyzer / style lint 的工程：全命中时多一次装配 + analyzer 遍历（cached CU 不重做 typecheck）。
         bool canPreserve = pm.ExeCount == 0 && azPaths == null && !styleLint
-            && File.Exists(lastZpkg) && _distModeMatches(lastZpkg, isPacked);
-        o.Prep = IncrementalCompilation.Prepare(srcs, dispSrcs, texts, srcHashes, srcs.Length, projectDir, probeCache, depsId, canPreserve, feats);
+            && File.Exists(lastZpkg) && _distModeMatches(lastZpkg, isPacked, deps);
+        o.Prep = IncrementalCompilation.Prepare(srcs, dispSrcs, texts, srcHashes, srcs.Length, projectDir, probeCache, deps.Files, canPreserve, feats);
         BuildLog.ProgressErr("cached: " + (srcs.Length - o.Prep.Plan.FreshCount).ToString() + "/" + srcs.Length.ToString() + " files");
         if (canPreserve && o.Prep.Plan.AllCached) {
             if (isExe) {

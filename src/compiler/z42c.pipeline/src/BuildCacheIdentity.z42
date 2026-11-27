@@ -8,6 +8,12 @@ public static class BuildCacheIdentity {
         return BuildCacheIdentity._context(pm, effOptSet, isRelease, depsId);
     }
 
+    public static string ForCliFiles(ProjectManifest pm, int effOptSet, bool isRelease, string[] libsDirs,
+                                     int libsDirsN, WsTier scanTier, string cacheDir, string full) {
+        string surface = DependencySurfaceCache.Of(libsDirs, libsDirsN, pm.Project.Name, scanTier, cacheDir, full);
+        return BuildCacheIdentity._context(pm, effOptSet, isRelease, "cli-surface:" + surface);
+    }
+
     public static string ForHost(ProjectManifest pm, int effOptSet, bool isRelease, string[] libsDirs, int libsDirsN, WsTier scanTier, string cacheDir, bool useSurface) {
         if (!useSurface) { return BuildCacheIdentity._context(pm, effOptSet, isRelease,
             "host-bytes:" + DepIdentity.Of(libsDirs, libsDirsN, pm.Project.Name, scanTier)); }

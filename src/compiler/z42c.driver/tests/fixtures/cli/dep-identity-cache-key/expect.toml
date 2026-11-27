@@ -1,4 +1,4 @@
-desc = "依赖身份进缓存键：path 依赖 foo 只改注释（产物不变）→ 消费方 bar 命中缓存；foo 删掉 bar 调用的方法 → bar 重编并编译期报错，而不是 preserved 旧产物"
+desc = "依赖注释改动保留产物，函数体改动复用文件 IR 并重新部署，签名删除必须使缓存失效"
 
 [[step]]
 args = ["build", "depid.bar.z42.toml", "--release"]
@@ -15,6 +15,48 @@ args = ["build", "depid.bar.z42.toml", "--release"]
 cwd = "bar"
 exit = 0
 stdout_contains = ["no changes"]
+
+[[step]]
+tool = "copy"
+from = "variants/foo.body.z42"
+to = "foo/foo.z42"
+
+[[step]]
+args = ["build", "depid.bar.z42.toml", "--release"]
+cwd = "bar"
+exit = 0
+stderr_contains = ["cached: 8/8 files"]
+stdout_count = [["no changes; preserved", "0"]]
+
+[[step]]
+tool = "run"
+target = "bar/dist/depid.bar.zpkg"
+exit = 0
+stdout_equals = "43"
+
+[[step]]
+args = ["build", "depid.bar.z42.toml", "--release"]
+cwd = "bar"
+exit = 0
+stdout_count = [["no changes; preserved", "2"]]
+
+[[step]]
+tool = "copy"
+from = "foo/dist/depid.foo.zpkg"
+to = "bar/dist/depid.bar.zpkg"
+
+[[step]]
+args = ["build", "depid.bar.z42.toml", "--release"]
+cwd = "bar"
+exit = 0
+stderr_contains = ["cached: 8/8 files"]
+stdout_count = [["no changes; preserved", "1"]]
+
+[[step]]
+tool = "run"
+target = "bar/dist/depid.bar.zpkg"
+exit = 0
+stdout_equals = "43"
 
 [[step]]
 tool = "copy"

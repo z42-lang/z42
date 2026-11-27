@@ -5,11 +5,15 @@ using Z42.Package;
 
 public static class DependencySurfaceCache {
     public static string Of(string[] dirs, int count, string self, WsTier tier, string cacheDir) {
+        return DependencySurfaceCache.Of(dirs, count, self, tier, cacheDir, null);
+    }
+
+    public static string Of(string[] dirs, int count, string self, WsTier tier, string cacheDir, string full) {
         string fingerprint = CompilerFingerprint.Value();
         if (fingerprint == "") { return DepIdentity.SurfaceOf(dirs, count, self, tier); }
         string pin = "dependency-surface-2:" + fingerprint
             + ":" + ZpkgWriterZ.Major.ToString() + "." + ZpkgWriterZ.Minor.ToString();
-        string full = DepIdentity.Of(dirs, count, self, tier);
+        if (full == null) { full = DepIdentity.Of(dirs, count, self, tier); }
         string path = Path.Join(cacheDir, "dependency-surface.key");
         string saved = DependencySurfaceCache._read(path, pin, full);
         if (saved != "") { return saved; }

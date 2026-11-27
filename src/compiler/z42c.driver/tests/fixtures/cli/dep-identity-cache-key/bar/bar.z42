@@ -1,3 +1,4 @@
 using DepId.Foo;
+using Std.IO;
 
-int Main() { return Foo.Answer() - 42; }
+void Main() { Console.WriteLine(Foo.Answer()); }
