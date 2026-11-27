@@ -31,6 +31,18 @@ pub struct FieldSlot {
     pub visibility: u8,
 }
 
+/// Check the exact type of an empty struct value. An erased descriptor keeps
+/// its concrete arguments on the instance.
+pub(crate) fn empty_struct_matches(value: &Value, name: &str) -> bool {
+    let (Value::Object(gc) | Value::BoxedStruct(gc)) = value else { return false };
+    let td = gc.type_desc();
+    if !td.is_struct() || !td.fields.is_empty() { return false; }
+    td.name == name || (
+        TypeDesc::erased_definition_name(name).is_some_and(|base| td.name == base)
+            && gc.type_args() == &*type_args_from_name(name)
+    )
+}
+
 /// Returns the default `Value` for a field whose declared type tag is
 /// `type_tag`. Mirrors the C# `EmitStaticInit` defaults. Used by `ObjNew`
 /// (interp + JIT) to initialise fields without an explicit initializer.

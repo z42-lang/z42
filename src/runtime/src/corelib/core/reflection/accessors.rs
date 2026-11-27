@@ -185,6 +185,14 @@ pub(super) fn object_inline_struct_field_set(
     ctx: &VmContext, target: &Value,
     rc: &crate::object::ObjRef, name: &str, value: &Value,
 ) -> Result<Option<()>> {
+    let td = rc.type_desc();
+    if let Some(&slot) = td.field_index.get(name) {
+        if rc.borrow().field_access_of(slot).is_some_and(|access| {
+            access.cell == crate::object::FieldCell::Struct && access.width == 0
+        }) && check_empty_struct_write(ctx, name, &td.fields[slot].type_tag, value)? {
+            return Ok(Some(()));
+        }
+    }
     let class_name = rc.type_desc().name.to_string();
     let resolve = |n: &str| ctx.loader().try_lookup_type(n);
     // `struct_field_fq` returns the field type's fully-qualified struct name.
@@ -280,6 +288,21 @@ pub(super) fn write_struct_leaf(
     Ok(())
 }
 
+/// A zero-width field has no payload to mutate, but still requires its exact value type.
+fn check_empty_struct_write(ctx: &VmContext, field: &str, name: &str, value: &Value) -> Result<bool> {
+    use crate::zpkg::index::type_names::{canonical, erased};
+    let name = canonical(name);
+    let Some(td) = ctx.loader().try_lookup_type(erased(&name)) else { return Ok(false) };
+    if !td.is_struct() || !td.fields.is_empty() {
+        return Ok(false);
+    }
+    anyhow::ensure!(
+        crate::object::empty_struct_matches(value, &name),
+        "FieldInfo.SetValue: field `{field}` requires an empty struct of type `{name}`"
+    );
+    Ok(true)
+}
+
 /// add-boxed-struct-identity (P4b): write `value` into field `name` of a boxed value struct,
 /// in place on the shared box object. Primitive → `encode_prim` into `struct_bytes`;
 /// reference → the `struct_refs` side-table (+ write barrier); nested struct → copy the
@@ -301,6 +324,9 @@ pub(super) fn boxed_struct_field_set(
         anyhow::anyhow!("FieldInfo.SetValue: field `{name}` not present on `{type_name}`")
     })?.clone();
     if leaf.is_struct {
+        if leaf.size == 0 && check_empty_struct_write(ctx, name, &leaf.type_name, value)? {
+            return Ok(Value::Null);
+        }
         // Nested value-struct field ← the supplied box's blob (shared with the object path).
         let src = match value {
             Value::BoxedStruct(s) => s,
