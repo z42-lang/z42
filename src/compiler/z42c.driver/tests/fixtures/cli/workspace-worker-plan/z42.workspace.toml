@@ -1,0 +1,10 @@
+[workspace]
+members = ["app 入口", "lib 源"]
+
+[workspace.build]
+output_dir = "build 产物/${project_name}/${profile}"
+cache_dir = "cache 数据/${project_name}/${profile}"
+
+[workspace.build.graph]
+"snapshot.app" = ["snapshot.lib"]
+"snapshot.lib" = []

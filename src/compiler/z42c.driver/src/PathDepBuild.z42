@@ -77,7 +77,7 @@ PathClosureOut _buildPathDepClosure(string tomlPath, bool isRelease, bool noIncr
             int bi = 0;
             while (bi < libsDirsN) { depOverride[depOverrideN] = libsDirs[bi]; depOverrideN = depOverrideN + 1; bi = bi + 1; }
             BundleDomain memberDomain = new BundleDomain(depPm);
-            int dbc = _build(depToml, isRelease, "", "", depOverride, depOverrideN, noIncremental, cliAdd, cliRemove, false, null, "", memberDomain);
+            int dbc = _build(depToml, isRelease, "", "", depOverride, depOverrideN, noIncremental, cliAdd, cliRemove, false, null, "", memberDomain, false);
             if (dbc != 0) { o.Rc = dbc; return o; }
             if (memberDomain.Dirs != null) {
                 if (o.BundleDomains == null) { o.BundleDomains = new StrMap(); }

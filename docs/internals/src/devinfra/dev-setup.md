@@ -77,10 +77,10 @@ mkdir -p artifacts && cp -R <warm 树>/artifacts/xtask artifacts/
 绕开 xtask 直接调编译器时（例如复现一次 stdlib workspace 构建）：
 
 ```bash
-( cd src/libraries && Z42_LIBS=... z42c build --workspace --release )
+( cd src/libraries && Z42_LIBS=... z42c build --workspace --workspace-in-process --release )
 ```
 
-增量编译默认开，`--no-incremental` 强制全量。
+使用当前仓库自建的 z42c。增量编译默认开，`--no-incremental` 强制全量。
 
 ## 3. VM 的 cargo feature
 

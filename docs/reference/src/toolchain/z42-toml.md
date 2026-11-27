@@ -1142,7 +1142,7 @@ output_dir = "artifacts/${project_name}/${profile}"
 | `exclude` | 从展开结果中剔除的成员路径 |
 | `default_members` | 默认成员子集：编排器（`z42 build` / `test` / `bench` / `clean` 在工作区上）缺省只对它们执行，`--workspace` 才覆盖全部；`run` / `publish` / `export` 在工作区上要求它恰好选中一个成员（见 [`z42` · 工作区](cli-z42.md#工作区)）。条目写成员目录（相对工作区根）或成员的 `[project].name`；没写或写 `[]` = 全部成员；有条目匹配不到成员 → WS031。**声明序同时是构建序优先级**：`z42c build --workspace` 恒编全部成员，但按这份序逐个发射（未列成员殿后、名字序决胜；成员声明了依赖边时边优先）——成员 import 了谁，谁就得排在它前面，排错是当场「找不到依赖」的硬错误。旧拼写 `default-members` 已删除，写了按未知键报错 |
 | `dependencies` | 中央依赖声明，条目写法同 `[dependencies]`。当前只解析与校验键名，构建不消费 |
-| `build` | 只接受 `output_dir` / `cache_dir`，见 [L6.5](#l65-workspacebuild-集中产物) |
+| `build` | 接受 `output_dir`、`cache_dir` 和可选的 `graph` 子表，见 [L6.5](#l65-workspacebuild-集中产物) |
 
 **成员发现规则**（z42c `build --workspace`）：
 
@@ -1206,7 +1206,9 @@ z42c build --workspace --output-dir out   # flat 产物：全部成员写进同�
 每个成员最多执行一次，前置成员全部成功后才可启动；失败会阻断其下游，已运行的独立成员会完成并收尾。
 日志按规划顺序输出。缺失成员、未知边、重复边、自环和环图均在启动 worker 前报错。
 
-图模式使用隔离进程，编译时只看前置成员自己的主产物，其他成员和旧 SDK 副本不可见。
+图模式默认使用隔离进程。没有编译器插件的工作区可用
+`z42c build --workspace --workspace-in-process` 在同一进程内逐包构建，以复用依赖扫描缓存。
+两种执行方式都只让编译器看到前置成员自己的主产物，其他成员和旧 SDK 副本不可见。
 打包复用已完成的依赖，不递归重编共享成员。输出和缓存目录必须独占；不支持共享 flat 输出布局。
 源码 path 依赖必须纳入工作区图；插件须预先编译，不能在 worker 内代建插件源码。
 builder 图模式的外部运行期依赖还须预先位于 `Z42_LIBS`；普通无图构建不受这些图模式限制。

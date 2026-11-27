@@ -183,8 +183,30 @@ fn run_isolated(path: &str, entry: Option<&str>, libs: Option<PathBuf>, vfs: &Ar
     })
 }
 
-/// Apply the optional app sidecar for the Rust one-shot host before configuration freezes.
-pub(crate) fn install_app_config(file: &str) {
+/// Resolve the shared defaults for a one-shot embedded application.
+pub(crate) fn embedded_app_options(
+    file: &str,
+    libs: Option<&std::path::Path>,
+    mode: Option<crate::zpkg::ExecMode>,
+    program_args: Vec<String>,
+) -> crate::host::RunOpts {
+    install_app_config(file);
+    let config = crate::config::runtime_config();
+    let vfs = crate::pal::fs::default_vfs();
+    crate::host::RunOpts {
+        mode: mode.unwrap_or_else(crate::host::default_mode),
+        search_dirs: resolve_search_dirs(file, libs, &*vfs, config),
+        vfs,
+        resolver: None,
+        program_args,
+        print_stats: false,
+        stats_json: false,
+        exit_after_run: false,
+    }
+}
+
+/// Apply the optional app sidecar before the process configuration freezes.
+fn install_app_config(file: &str) {
     let getenv = |n: &str| std::env::var(n).ok();
     let user = crate::config::load_layer_lenient(&getenv, "Z42_CONFIG");
     // 显式 `Z42_APP_CONFIG` 优先，解析不出内容则回落到 app 旁边的侧车。判据与理由见

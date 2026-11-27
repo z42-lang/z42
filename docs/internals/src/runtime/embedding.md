@@ -276,7 +276,9 @@ facade 的 API 细节由各平台自己定，这里只规定最小语义契约�
 - `workload/desktop/shell/apphost_embed.c`（81 行）—— 自己解析可执行文件所在目录，
   跑同目录下的 `app.zpkg` + `./libs`，`z42 publish --self-contained` 直接拷它，发布时不编译。
 
-`z42_host_run_app` 在 native 平台上**不在调用线程跑 VM**，而是 spawn 一条 16 MB 栈的
+`z42_host_run_app` 和 Rust 一次性入口共享应用侧车、VFS 默认值和搜索目录的准备。
+C 入口在启动 VM 线程前解析进程配置，专用栈大小取 `thread-stack-bytes`，默认 16 MiB。
+`z42_host_run_app` 在 native 平台上 spawn 一条
 `z42-embedded-run` 线程再 join。原因：解释器在 native 调用栈上递归（一次 z42 调用一个 native 帧），
 而 Android 的 `AndroidJUnitRunner` 和 iOS XCTest 的线程栈只有 ~512 KB–1 MB，
 桌面 8 MB 下跑得好好的深递归程序在嵌入环境里会直接 SIGSEGV 整个进程。

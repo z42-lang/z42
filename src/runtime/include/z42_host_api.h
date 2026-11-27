@@ -128,8 +128,8 @@ typedef struct Z42HostConfig {
     uint32_t      struct_size;        /* MUST be sizeof(Z42HostConfig) */
 
     Z42ExecMode   exec_mode;
-    size_t        heap_initial_bytes; /* 0 = VM default */
-    size_t        heap_max_bytes;     /* 0 = unbounded */
+    size_t        heap_initial_bytes; /* reserved, set to 0 */
+    size_t        heap_max_bytes;     /* reserved, set to 0 */
 
     Z42WriteSink  stdout_sink;        /* NULL = real stdout */
     Z42WriteSink  stderr_sink;        /* NULL = real stderr */

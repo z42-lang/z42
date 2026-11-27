@@ -226,14 +226,13 @@ pub fn struct_ref_isa(
     &*name == class_name || is_subclass_or_eq_td(ctx, registry, &name, class_name)
 }
 
-/// A struct receiver may live in an array instead of the frame arena.
-pub fn struct_array_elem_isa(
+/// Test a projected struct value using the type of the viewed storage.
+pub fn struct_view_isa(
     ctx: &VmContext,
     registry: &rustc_hash::FxHashMap<String, std::sync::Arc<TypeDesc>>,
     idx: u32, frame_id: u32, class_name: &str,
 ) -> bool {
-    let Ok(element) = ctx.exec().struct_elem(idx, frame_id) else { return false };
-    let name = element.arr.borrow().element_type().arc();
+    let Ok(name) = super::structs::struct_view_type_name(ctx, idx, frame_id) else { return false };
     class_name == "Std.Object" || class_name == "Object"
         || &*name == class_name || is_subclass_or_eq_td(ctx, registry, &name, class_name)
 }

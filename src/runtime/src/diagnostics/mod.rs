@@ -49,6 +49,7 @@ pub struct DiagnosticsState {
     pub lock_contentions: AtomicU64,
     pub lock_wait_us: AtomicU64,
     pub(crate) sampler: Sampling,
+    exit_report: exit_report::ExitReport,
 }
 
 /// Observation-only shard; transferred under the registry lock before deregistration.
@@ -68,6 +69,7 @@ impl DiagnosticsState {
             lock_contentions: AtomicU64::new(0),
             lock_wait_us: AtomicU64::new(0),
             sampler,
+            exit_report: Default::default(),
         }
     }
 
