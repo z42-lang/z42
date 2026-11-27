@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "tests/data/component", "crates/z42-profiler", "crates/z42-interp", "crates/z42-jit", "crates/z42-zpkg", "crates/z42-abi", "crates/z42-rs", "crates/z42-macros", "crates/z42-compression", "crates/z42-repl"]
+members = [".", "tests/data/component", "tests/data/engine-fixtures", "crates/z42-profiler", "crates/z42-interp", "crates/z42-jit", "crates/z42-zpkg", "crates/z42-abi", "crates/z42-rs", "crates/z42-macros", "crates/z42-compression", "crates/z42-repl"]
 default-members = [".", "crates/z42-zpkg", "crates/z42-compression"]
 
 [workspace.package]

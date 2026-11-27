@@ -186,24 +186,25 @@ pub fn test_loaded_program(ctx: std::pin::Pin<Box<VmContext>>, mode: crate::zpkg
 pub unsafe fn test_bind_execution(
     ctx: &VmContext,
     baseline: (super::abi::ComponentId, super::abi::ComponentInit),
-    optimizing: (super::abi::ComponentId, super::abi::ComponentInit),
+    optimizing: Option<(super::abi::ComponentId, super::abi::ComponentInit)>,
 ) -> anyhow::Result<()> {
     use super::{api::ExecutionRole, execution_roles::ExecutionBindings};
+    use crate::{loader::NativeOrigin::StaticLink, zpkg::ExecMode};
 
-    let bindings = ExecutionBindings::new([
-        (ExecutionRole::Baseline, baseline.0),
-        (ExecutionRole::Optimizing, optimizing.0),
-    ])?;
-    let components = unsafe {
-        use crate::loader::NativeOrigin::StaticLink;
-
-        super::api::ComponentOptions::default()
-            .with_linked(baseline.0, baseline.1, StaticLink)
-            .with_linked(optimizing.0, optimizing.1, StaticLink)
+    let mut roles = vec![(ExecutionRole::Baseline, baseline.0)];
+    let mut components = unsafe {
+        super::api::ComponentOptions::default().with_linked(baseline.0, baseline.1, StaticLink)
     };
-    components.install_bound(ctx, bindings)?;
+    let mode = if let Some((id, init)) = optimizing {
+        roles.push((ExecutionRole::Optimizing, id));
+        components = unsafe { components.with_linked(id, init, StaticLink) };
+        ExecMode::Jit
+    } else {
+        ExecMode::Interp
+    };
+    components.install_bound(ctx, ExecutionBindings::new(roles)?)?;
     super::api::attach_execution(
-        ctx, crate::zpkg::ExecMode::Jit, &crate::config::runtime_config_snapshot().jit_config(),
+        ctx, mode, &crate::config::runtime_config_snapshot().jit_config(),
     )
 }
 

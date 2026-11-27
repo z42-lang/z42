@@ -56,7 +56,7 @@ fn program(throws: bool) -> LoadedProgram {
         test_bind_execution(
             &ctx,
             (INTERP_COMPONENT, z42_interp::component::z42_interp_init),
-            (JIT_COMPONENT, z42_jit::jit::component::z42_jit_init),
+            Some((JIT_COMPONENT, z42_jit::jit::component::z42_jit_init)),
         ).unwrap();
     }
     z42::components::bridge::test_loaded_program(ctx, ExecMode::Jit, Some("Demo.Main".into())).unwrap()
@@ -129,7 +129,7 @@ fn jit_fallback_uses_the_bound_baseline_provider() {
 
     let ctx = VmContext::new();
     unsafe {
-        test_bind_execution(&ctx, (ALTERNATE, init), (JIT_COMPONENT, z42_jit::jit::component::z42_jit_init)).unwrap();
+        test_bind_execution(&ctx, (ALTERNATE, init), Some((JIT_COMPONENT, z42_jit::jit::component::z42_jit_init))).unwrap();
     }
     let module = Module::new(zpkg::image::ModuleData {
         name: "Demo".into(), string_pool: Vec::new(), classes: Vec::new(), func_index: Default::default(),

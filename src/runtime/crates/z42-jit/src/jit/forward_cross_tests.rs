@@ -110,7 +110,7 @@ fn idx(m: &Module, name: &str) -> usize { m.func_index[name] }
 
 /// Run `name` on the interpreter.
 fn interp(vm: &VmContext, m: &Module, name: &str) -> anyhow::Result<ExecOutcome> {
-    crate::interp::run_outcome(vm, m, &m.functions[idx(m, name)], &[])
+    crate::jit::test_support::invoke_baseline(vm, m, &m.functions[idx(m, name)], &[])
 }
 
 /// What a run produced: `Ok(value)` or `Err(trace / error text)`.
