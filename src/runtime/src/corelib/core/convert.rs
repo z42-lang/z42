@@ -496,16 +496,23 @@ pub mod typed {
         }
     }
 
-    /// Box a statically closed imported struct while preserving its erased storage layout.
+    /// Box an imported struct with the closed identity of this activation.
     #[builtin(name = "__box_imported_struct")]
     pub fn box_imported_struct(
-        ctx: &VmContext, value: &Value, identity: &crate::object::string::vstr::Str,
+        ctx: &VmContext, value: &Value, identity: &Value,
     ) -> Result<Value, BuiltinError> {
         use crate::object::{type_args_from_name, TypeArgs};
         use crate::zpkg::index::type_names::{canonical, erased};
 
         let map_error = |error: anyhow::Error| BuiltinError::Internal(error.to_string());
-        let identity = identity.to_string();
+        let identity = match identity {
+            Value::Str(name) => name.to_string(),
+            type_value => crate::corelib::reflection::type_value_name(type_value)
+                .ok_or_else(|| BuiltinError::Internal("missing imported struct type identity".into()))?,
+        };
+        if crate::zpkg::index::type_param_markers::has_markers(&identity) {
+            return box_struct(ctx, value);
+        }
         let args = type_args_from_name(&identity);
         let (name, bytes, refs) = match value {
             Value::StructRef { idx, frame_id } => ctx.exec().snapshot_struct(*idx, *frame_id).map_err(map_error)?,

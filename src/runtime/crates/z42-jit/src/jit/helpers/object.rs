@@ -118,8 +118,9 @@ pub unsafe extern "C" fn jit_typeof(
         .unwrap_or("<invalid>");
     let type_args = std::slice::from_raw_parts(type_args_ptr, type_args_count);
     let ctx = vm_ctx_ref(ctx);
-    let v = (z42::components::bridge::object_protocol(ctx).make_constructed_type)(ctx, type_name, type_args);
-    (*frame).regs[dst as usize] = v;
+    let frame = &mut *frame;
+    let env = crate::exec::type_param_env::TypeParamEnv::new(frame.method_type_args, frame.regs.first());
+    frame.regs[dst as usize] = env.reflect_type(ctx, type_name, type_args);
 }
 
 /// Read the receiver's own class parameter for legacy `DefaultOf` bytecode.

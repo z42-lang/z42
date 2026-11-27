@@ -233,11 +233,14 @@ public sealed class TypeOpEmitter {
         if (this._ee._isBlobStruct(b.E.Type())) {
             TypedReg sval = this._ee.Emit(b.E);
             TypedReg sdst = this._ctx.Alloc(IrType.Ref);
-            Z42Type sourceType = b.E.Type();
-            if (sourceType is Z42InstantiatedType && !this._ctx.IsLocalReceiver(sourceType)
-                && !this._ee._hasTypeParam(sourceType)) {
-                TypedReg name = this._ctx.Alloc(IrType.Str);
-                this._ctx.Emit(new ConstStrInstr(name, this._ctx.Gen.Intern(this._ee._rtArgName(sourceType))));
+            string identity = this._importedStructIdentity(b.E.Type());
+            if (identity != "") {
+                TypedReg name = this._ctx.Alloc(IrType.Ref);
+                if (this._ee._hasTypeParam(b.E.Type())) {
+                    this._ctx.Emit(new TypeofInstr(name, identity, new string[0], 0));
+                } else {
+                    this._ctx.Emit(new ConstStrInstr(name, this._ctx.Gen.Intern(identity)));
+                }
                 this._ctx.Emit(new BuiltinInstr(sdst, "__box_imported_struct", new TypedReg[] { sval, name }, 2));
             } else {
                 this._ctx.Emit(new BuiltinInstr(sdst, "__box_struct", new TypedReg[] { sval }, 1));
@@ -257,6 +260,13 @@ public sealed class TypeOpEmitter {
         // `Type.z42`「z42 一律以 i64 背书 enum」。类名按 enum 类型自己的声明 ns 限定（语义期存的是短名）。
         if (_boxEnum) { return this._emitBoxPrim(val, this._ctx.QualifyType(_bet, b.PrimFQ)); }
         return this._emitBoxPrim(val, b.PrimFQ);
+    }
+
+    private string _importedStructIdentity(Z42Type type) {
+        if (type is Z42InstantiatedType && !this._ctx.IsLocalReceiver(type)) {
+            return this._ee._rtArgName(type);
+        }
+        return "";
     }
 
     // `__box_prim(%value, %classFQ)` 的发射原语——`_emitBox`（擦除点装箱）与 `_emitEnumBox`
@@ -415,10 +425,9 @@ public sealed class TypeOpEmitter {
         // 匹配 → 拷回当前帧 arena StructRef）。类名用 QualifyClass 与 StructAlloc 的 arena type_name 对齐。
         // （`(P)somePexpr` 源已是值 struct → 不进此支，走下方 Ref==Ref 透传。）
         if (this._ee._isBlobStruct(c.Type()) && !this._ee._isBlobStruct(c.E.Type())) {
-            string name = c.Type() is Z42InstantiatedType && !this._ctx.IsLocalReceiver(c.Type())
-                && !this._ee._hasTypeParam(c.Type()) ? this._ee._rtArgName(c.Type())
-                : this._ctx.QualifyLayout(this._ee._blobStructName(c.Type()));
-            return this._emitStructUnbox(src, name);
+            string identity = this._importedStructIdentity(c.Type());
+            if (identity == "") { identity = this._ctx.QualifyLayout(this._ee._blobStructName(c.Type())); }
+            return this._emitStructUnbox(src, identity);
         }
         if (TypeFacts.CanBoxToValueBase(c.Type(), c.E.Type())) {
             string target = this._typeOpTargetName(c.Type(), c.Type().Name());

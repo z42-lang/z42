@@ -1,5 +1,12 @@
 namespace ImportedStructBoxIdentity;
 
+object ThroughMethod<T>(ValueTuple2<T, T> value) { return value; }
+ValueTuple2<T, T> UnboxMethod<T>(object value) { return (ValueTuple2<T, T>)value; }
+
+class ThroughClass<T> {
+    public object Wrap(ValueTuple2<T, T> value) { return value; }
+}
+
 void Main() {
     object first = (1, 2);
     object same = (1, 2);
@@ -19,8 +26,22 @@ void Main() {
     object boxedAgain = value;
     Assert.Equal(first.GetType(), boxedAgain.GetType());
 
+    object fromMethod = ThroughMethod<int>(value);
+    object fromClass = new ThroughClass<int>().Wrap(value);
+    Assert.Equal(first.GetType(), fromMethod.GetType());
+    Assert.Equal(first.GetType(), fromClass.GetType());
+    object fromMethodLong = ThroughMethod<long>((1L, 2L));
+    Assert.Equal(wider.GetType(), fromMethodLong.GetType());
+    Assert.False(fromMethod.Equals(fromMethodLong));
+    Assert.True(first.Equals(fromMethod));
+    Assert.Equal(2, UnboxMethod<int>(fromClass).Item2);
+
     bool rejected = false;
     try { ValueTuple2<long, long> wrong = (ValueTuple2<long, long>)first; }
     catch (InvalidCastException) { rejected = true; }
     Assert.True(rejected);
+    bool sharedRejected = false;
+    try { UnboxMethod<long>(fromClass); }
+    catch (InvalidCastException) { sharedRejected = true; }
+    Assert.True(sharedRejected);
 }
