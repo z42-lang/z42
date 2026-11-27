@@ -141,6 +141,13 @@ pub unsafe fn install_profiler_backend(
     crate::diagnostics::install_profiler_backend(ctx, backend)
 }
 
+/// Inspect a loaded program in the packaged-component and JIT verification harnesses.
+#[cfg(any(feature = "shared-core", feature = "jit-test-support"))]
+#[doc(hidden)]
+pub fn verification_context(program: &crate::vm::program::LoadedProgram) -> &VmContext {
+    program.context()
+}
+
 #[cfg(feature = "jit-test-support")]
 #[doc(hidden)]
 pub use crate::vm::jit_test_context;

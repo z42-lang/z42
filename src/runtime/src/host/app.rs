@@ -1,6 +1,5 @@
 //! One-shot application execution through the Rust host service.
 use super::{LoadOptions, LoadedProgram};
-use crate::vm::app_state::set_program_args;
 use crate::zpkg::ExecMode;
 use anyhow::Result;
 /// A host implementation resolves loading inputs, program arguments and reporting.
@@ -35,10 +34,10 @@ pub fn run_app(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
             ..Default::default()
         },
     )?;
-    set_program_args(program.context(), opts.program_args)?;
+    program.set_program_args(opts.program_args)?;
     crate::diagnostics::configure_exit_report(opts.print_stats, opts.stats_json);
     let result = program.run_entry(entry);
-    crate::composition::report_on_exit(program.context());
+    program.report_on_exit();
     if opts.exit_after_run {
         std::mem::forget(program);
     }

@@ -6,7 +6,7 @@ use z42::host::{
     ExecMode,
     LoadOptions, LoadedProgram, Value,
 };
-use z42::vm::VmContext;
+use z42::components::bridge::{verification_context, VmContext};
 
 fn input(name: &str) -> PathBuf {
     std::env::var_os(name).map(PathBuf::from).expect("component verification must supply packaged fixture paths")
@@ -37,7 +37,8 @@ fn actual_dynamic_object_protocol_callbacks_and_execution_bridges_agree() {
             assert!(matches!(program.invoke("EngineComponentProbe.ObjectProtocolRoundtrip", &[]).unwrap(), Some(Value::I64(42))));
         }
         if mode == ExecMode::Jit {
-            assert!(program.context().core().diagnostics().snapshot(program.context().core().threads()).jit_methods_compiled > 0);
+            let core = verification_context(&program).core();
+            assert!(core.diagnostics().snapshot(core.threads()).jit_methods_compiled > 0);
         }
     }
 }
@@ -55,7 +56,7 @@ fn actual_dynamic_engines_preserve_vm_isolation_worker_gc_and_exceptions() {
         assert!(first.invoke("EngineComponentProbe.Boom", &[]).unwrap_err().to_string().contains("component-exception"));
         assert_eq!(echo(&first, 40), 43, "a failed invocation must not poison subsequent calls");
         if mode == ExecMode::Jit {
-            let ctx = first.context();
+            let ctx = verification_context(&first);
             assert!(ctx.core().diagnostics().snapshot(ctx.core().threads()).jit_methods_compiled > 0);
             let before = ctx.core().diagnostics().snapshot(ctx.core().threads()).jit_native_from_interp;
             let module = ctx.module().unwrap();
@@ -64,7 +65,8 @@ fn actual_dynamic_engines_preserve_vm_isolation_worker_gc_and_exceptions() {
             assert!(matches!(result, z42::exec::outcome::ExecOutcome::Returned(Some(Value::I64(199_990_000)))));
             assert!(ctx.core().diagnostics().snapshot(ctx.core().threads()).jit_native_from_interp > before, "dynamic interpreter must hand its hot loop to the dynamic JIT");
         } else {
-            assert_eq!(first.context().core().diagnostics().snapshot(first.context().core().threads()).jit_methods_compiled, 0);
+            let core = verification_context(&first).core();
+            assert_eq!(core.diagnostics().snapshot(core.threads()).jit_methods_compiled, 0);
         }
         drop(first);
         assert_eq!(echo(&second, 40), 42);
@@ -74,9 +76,10 @@ fn actual_dynamic_engines_preserve_vm_isolation_worker_gc_and_exceptions() {
 fn worker_retains_dynamic_execution_after_host_release() {
     let program = load(ExecMode::Jit, native_loading()).unwrap();
     assert_eq!(echo(&program, 5), 6);
-    let weak = Arc::downgrade(program.context().core());
-    let worker = VmContext::new_with_core(program.context().core_arc());
-    let module = Arc::clone(program.context().module().unwrap());
+    let ctx = verification_context(&program);
+    let weak = Arc::downgrade(ctx.core());
+    let worker = VmContext::new_with_core(ctx.core_arc());
+    let module = Arc::clone(ctx.module().unwrap());
     drop(program);
     assert!(weak.upgrade().is_some());
     let function = module.functions.iter().find(|f| f.name == "EngineComponentProbe.Echo").unwrap();
@@ -167,7 +170,7 @@ fn dynamic_interpreter_preserves_native_pin_instructions() {
         branch_targets: vec![], frame_meta: None,
     })], Default::default());
     let program = load(ExecMode::Interp, native_loading()).unwrap();
-    let ctx = program.context();
+    let ctx = verification_context(&program);
     let outcome = z42::exec::invoke(ctx, &module, &module.functions[0], &[]).unwrap();
     assert!(matches!(outcome, ExecOutcome::Returned(Some(Value::I64(11)))));
 }
@@ -176,15 +179,16 @@ fn dynamic_interpreter_preserves_native_pin_instructions() {
 fn actual_dynamic_profiler_is_lazy_isolated_and_releases_its_core() {
     let a = load(ExecMode::Interp, native_loading()).unwrap();
     let b = load(ExecMode::Interp, native_loading()).unwrap();
-    assert!(!z42::host::profiler_loaded(a.context()));
+    let ctx = verification_context(&a);
+    assert!(!z42::host::profiler_loaded(ctx));
     assert_eq!(echo(&a, 40), 41);
-    assert!(!z42::host::profiler_loaded(a.context()));
-    let weak = Arc::downgrade(a.context().core());
+    assert!(!z42::host::profiler_loaded(ctx));
+    let weak = Arc::downgrade(ctx.core());
     assert!(matches!(a.invoke("EngineComponentProbe.HeapInspection", &[]).unwrap(), Some(Value::I64(42))));
-    assert!(z42::host::profiler_loaded(a.context()));
-    assert!(!z42::host::profiler_loaded(b.context()));
+    assert!(z42::host::profiler_loaded(ctx));
+    assert!(!z42::host::profiler_loaded(verification_context(&b)));
     let file = input("Z42_TEST_ENGINE_BYTECODE").with_extension("heapsnapshot");
-    let bytes = z42::host::write_heap_snapshot(a.context(), file.to_str().unwrap()).unwrap();
+    let bytes = z42::host::write_heap_snapshot(ctx, file.to_str().unwrap()).unwrap();
     assert!(bytes > 0);
     let json: serde_json::Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
     assert!(json.get("snapshot").is_some());
@@ -199,6 +203,6 @@ fn disabled_profiler_fails_only_when_requested() {
         search_dirs: vec![input("Z42_TEST_ENGINE_LIBS")], ..Default::default()
     }).unwrap();
     assert_eq!(echo(&program, 40), 41);
-    let error = z42::host::prepare_profiler(program.context()).unwrap_err().to_string();
+    let error = z42::host::prepare_profiler(verification_context(&program)).unwrap_err().to_string();
     assert!(error.contains("profiler") && error.contains("disabled"), "{error}");
 }

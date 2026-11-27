@@ -17,7 +17,7 @@
 
 ## 基础用法
 
-只运行一次应用时调用 `host::run_app`。它使用 `RunOpts` 中的搜索目录，默认路径与侧车配置由各启动入口处理。
+只运行一次应用时调用 `host::run_app`。搜索目录来自 `RunOpts`，默认路径与侧车配置由各启动入口处理。该入口通过 `LoadedProgram` 设置应用参数、调用入口并报告退出。
 
 需要多次调用时，Rust 使用 `Host::new → load_zbc → resolve_entry → invoke`，由 `Host` 的 Drop 关闭会话。C 使用 `z42_host_initialize → z42_host_load_zbc → z42_host_resolve_entry → z42_host_invoke → z42_host_shutdown`。关闭使会话发出的句柄失效，重新初始化会建立新的会话。
 
