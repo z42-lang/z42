@@ -1,6 +1,8 @@
 //! Static composition exercises real interpreter and JIT through the host.
-use crate::components::bridge::{
-    installed_tier, register_baseline_engine, register_jit_engine, test_engine_registered, verification_context, VmContext,
+#![cfg(all(feature = "jit", feature = "jit-test-support", z42_jit_supported))]
+
+use z42::components::bridge::{
+    installed_tier, register_baseline_engine, test_engine_registered, verification_context, VmContext,
 };
 use z42::host::{ExecMode, LoadOptions, LoadedProgram, Value};
 use z42::metadata::Module;
@@ -10,7 +12,7 @@ fn register_components() {
     use z42::components::abi::{register_static_component, INTERP_COMPONENT, JIT_COMPONENT};
     unsafe {
         register_static_component(INTERP_COMPONENT, z42_interp::component::z42_interp_init).unwrap();
-        register_static_component(JIT_COMPONENT, crate::jit::component::z42_jit_init).unwrap();
+        register_static_component(JIT_COMPONENT, z42_jit::jit::component::z42_jit_init).unwrap();
     }
 }
 fn empty_zbc() -> Vec<u8> {
@@ -45,10 +47,17 @@ fn program(throws: bool) -> LoadedProgram {
     let module = Module::new(zpkg::image::ModuleData { name: "Demo".into(), string_pool: Vec::new(), classes: Vec::new(),
         func_index: [("Demo.Main".into(), 0)].into_iter().collect() }, vec![demo_function(throws)], Default::default());
     let ctx = VmContext::with_module(module);
-    // SAFETY: both backend engines are linked into this test process.
+    use z42::components::{
+        abi::{INTERP_COMPONENT, JIT_COMPONENT},
+        bridge::test_bind_execution,
+    };
+    // Both factories are linked into this integration test's Core.
     unsafe {
-        register_baseline_engine(&ctx, &z42_interp::interp::engine::ENGINE).unwrap();
-        register_jit_engine(&ctx, &super::engine::ENGINE, z42::config::runtime_config().jit_config()).unwrap();
+        test_bind_execution(
+            &ctx,
+            (INTERP_COMPONENT, z42_interp::component::z42_interp_init),
+            (JIT_COMPONENT, z42_jit::jit::component::z42_jit_init),
+        ).unwrap();
     }
     z42::components::bridge::test_loaded_program(ctx, ExecMode::Jit, Some("Demo.Main".into())).unwrap()
 }
@@ -120,7 +129,7 @@ fn jit_fallback_uses_the_bound_baseline_provider() {
 
     let ctx = VmContext::new();
     unsafe {
-        test_bind_execution(&ctx, (ALTERNATE, init), (JIT_COMPONENT, super::component::z42_jit_init)).unwrap();
+        test_bind_execution(&ctx, (ALTERNATE, init), (JIT_COMPONENT, z42_jit::jit::component::z42_jit_init)).unwrap();
     }
     let module = Module::new(zpkg::image::ModuleData {
         name: "Demo".into(), string_pool: Vec::new(), classes: Vec::new(), func_index: Default::default(),
@@ -144,10 +153,15 @@ fn c_host_jit_mode_uses_the_shared_engine_and_returns_values() {
     let output = Mutex::new(Vec::new());
     let libs = CString::new(libs).unwrap();
     let paths = [libs.as_ptr(), ptr::null()];
-    let cfg = Z42HostConfig { abi_version: Z42_HOST_ABI_VERSION, struct_size: std::mem::size_of::<Z42HostConfig>() as u32,
-        exec_mode: Z42ExecMode::Jit as i32, heap_initial_bytes: 0, heap_max_bytes: 0, stdout_sink: Some(sink), stderr_sink: None,
-        sink_user_data: (&output as *const Mutex<Vec<u8>>).cast_mut().cast(), search_paths: paths.as_ptr(),
-        zpkg_resolver: None, zpkg_resolver_user_data: ptr::null_mut() };
+    // Match a C caller's zero-initialized config. All fields are scalar values,
+    // raw pointers, or nullable callback pointers.
+    let mut cfg: Z42HostConfig = unsafe { std::mem::zeroed() };
+    cfg.abi_version = Z42_HOST_ABI_VERSION;
+    cfg.struct_size = std::mem::size_of::<Z42HostConfig>() as u32;
+    cfg.exec_mode = Z42ExecMode::Jit as i32;
+    cfg.stdout_sink = Some(sink);
+    cfg.sink_user_data = (&output as *const Mutex<Vec<u8>>).cast_mut().cast();
+    cfg.search_paths = paths.as_ptr();
     unsafe {
         let mut host_ptr: *mut Z42Host = ptr::null_mut();
         assert_eq!(host::z42_host_initialize(&cfg, &mut host_ptr), Z42HostStatus::Ok);
