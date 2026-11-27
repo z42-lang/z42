@@ -1,6 +1,6 @@
 //! Connect VM-owned services after the core has a stable shared owner.
 use std::sync::Arc;
-use super::{VmCore, VM_CORES};
+use super::VmCore;
 
 pub(super) fn wire(core: &Arc<VmCore>, config: &crate::config::VmConfig) {
     {
@@ -12,16 +12,7 @@ pub(super) fn wire(core: &Arc<VmCore>, config: &crate::config::VmConfig) {
         }));
     }
 
-    // add-os-signal-handler : register this Arc<VmCore> into
-    // the process-wide VM_CORES registry so the POSIX signal handler
-    // can walk it to capture z42 call stacks on hard crash. Lazy-prune
-    // dead Weak entries at the same time (cheap O(n) sweep amortized
-    // across VmCore creations).
-    if let Ok(mut g) = VM_CORES.lock() {
-        g.retain(|w| w.strong_count() > 0);
-        g.push(Arc::downgrade(core));
-    }
-
+    crate::diagnostics::register_crash_core(core);
     crate::threads::wire_gc_pressure(core);
 
     // add-gc-runtime-knobs : apply the process-wide GC knobs.

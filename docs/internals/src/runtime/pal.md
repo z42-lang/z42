@@ -147,7 +147,7 @@ pub fn symlink(src: &str, dst: &str) -> Result<()>; // unix symlink；非 unix b
 
 > **边界裁决**：`diagnostics/crash_report.rs` **不整文件**迁入 PAL，
 > 否则与「OS-neutral surface」不变量冲突——该文件混了 OS 原语**和** z42 崩溃 reporter
-> （`write_call_stacks` 走 `VM_CORES`/`vm_contexts`，是 runtime 内省，非 OS 代码）。整文件
+> （`write_call_stacks` 遍历诊断模块登记的 Core 和线程上下文）。整文件
 > 搬会把 VM 内部知识塞进 `pal/`。故**只抽 OS 原语**，z42 崩溃逻辑归 `diagnostics/crash_report.rs`。
 
 抽到 `pal/signal.rs`（async-signal-safe）。接口在所有目标上都存在：没有 POSIX 信号的目标（Windows、wasm）上
@@ -171,9 +171,8 @@ pub mod sigsafe { pub fn write_str / write_dec_u32 / write_hex_u64 }
 `pthread_get_stackaddr_np` + `pthread_get_stacksize_np`，Linux / Android 用 `pthread_getattr_np`，
 Windows 用 `GetCurrentThreadStackLimits`；其他平台返回 `None`，栈检查对该线程关闭。
 
-`diagnostics/crash_report.rs` 保留 z42 崩溃 reporter（`install` / `handler` / `write_call_stacks`
-走 VM_CORES），call `crate::pal::signal::*`（async-signal-safe 约束）。Windows VEH
-走 `pal::signal` 同接口不同 impl，尚未实现。
+`diagnostics/crash_report.rs` 持有进程级 Core 注册表并负责输出 z42 崩溃报告。
+通过 `crate::pal::signal` 安装和恢复信号处理，报告也通过该模块的文件描述符写入操作输出。Windows VEH 仍待实现。
 
 ### `pal/net.rs` — socket 的 OS 部分
 

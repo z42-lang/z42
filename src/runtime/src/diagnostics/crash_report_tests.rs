@@ -1,4 +1,4 @@
-//! Unit test for the crash reporter — install idempotency. The `sigsafe` write
+//! Crash reporter registration, contention, and frame access. The `sigsafe` write
 //! primitives + signal-name table moved to `pal::signal` (Phase 3) and are
 //! tested in `pal/signal_tests.rs`; the actual signal-firing path is covered by
 //! the `tests/signal_handler_e2e.rs` integration tests.
@@ -44,6 +44,40 @@ fn walk() -> String {
         std::thread::yield_now();
     }
     panic!("VM registry stayed contended");
+}
+
+#[test]
+fn core_snapshot_observes_registration_without_retaining_retired_cores() {
+    use crate::vm::{self, VmContext};
+    use std::sync::{Arc, Weak};
+
+    let ctx = VmContext::new();
+    let core = Arc::downgrade(ctx.core());
+    assert!(vm::vm_cores_snapshot().iter().any(|live| Arc::ptr_eq(live, ctx.core())));
+    drop(ctx);
+
+    // The next registration removes the previous Core's weak entry.
+    let _replacement = VmContext::new();
+    let registry = super::VM_CORES.lock().unwrap();
+    assert!(core.upgrade().is_none());
+    assert!(!registry.iter().any(|entry| Weak::ptr_eq(entry, &core)));
+}
+
+#[test]
+fn walk_reports_core_registry_contention() {
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let registry = super::VM_CORES.lock().unwrap();
+    let (send, receive) = mpsc::channel();
+    let walker = std::thread::spawn(move || {
+        send.send(capture(super::write_call_stacks)).unwrap();
+    });
+    let report = receive.recv_timeout(Duration::from_secs(5));
+    drop(registry);
+    walker.join().unwrap();
+
+    assert_eq!(report.unwrap(), "=== z42 call stack: unavailable (VM_CORES lock contended) ===\n");
 }
 
 #[test]

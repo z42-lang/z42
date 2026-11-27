@@ -18,10 +18,8 @@
 //!
 //! # Stack walk strategy
 //!
-//! The handler walks [`crate::vm::VM_CORES`] → each `Arc<VmCore>` → each
-//! registered `VmContext`. The two registries are behind `Mutex`es and are
-//! taken with `try_lock` — on contention it writes a placeholder and
-//! continues, trading completeness for deadlock safety.
+//! The handler walks the process-wide Core registry, then each Core's registered
+//! contexts. Both walks use `try_lock` and write a placeholder on contention.
 //!
 //! A context's frame stack is owner-thread only (`exec/call/frame_stack.rs`),
 //! so the handler prints full frames only for the contexts **the crashing
@@ -40,12 +38,34 @@
 //! [`install`] only records that it ran.
 
 use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::{Arc, Mutex, Weak};
 
 // PAL Phase 3 (add-pal-signal): OS signal primitives live in `pal::signal`;
 // the call sites below (`sigsafe::*`, `signal_name(sig)`) resolve to them via
 // these imports, so the z42 crash-report logic in this file stays unchanged.
 use crate::exec::stack::CrashFrames;
 use crate::pal::signal::{self, sigsafe, signal_name, STDERR_FD};
+use crate::vm::VmCore;
+
+/// Weak entries let Core teardown proceed independently of diagnostics.
+static VM_CORES: Mutex<Vec<Weak<VmCore>>> = Mutex::new(Vec::new());
+
+/// Register a Core and discard expired entries.
+pub(crate) fn register_crash_core(core: &Arc<VmCore>) {
+    if let Ok(mut cores) = VM_CORES.lock() {
+        cores.retain(|entry| entry.strong_count() > 0);
+        cores.push(Arc::downgrade(core));
+    }
+}
+
+/// Build a snapshot for ordinary diagnostics outside the signal handler.
+pub(crate) fn live_cores_snapshot() -> Vec<Arc<VmCore>> {
+    VM_CORES
+        .lock()
+        .ok()
+        .map(|cores| cores.iter().filter_map(Weak::upgrade).collect())
+        .unwrap_or_default()
+}
 
 /// File descriptor for the optional `Z42_CRASH_DIR` persistence file.
 /// `-1` = no file (env var not set or open failed). Opened once at
@@ -149,8 +169,6 @@ fn write_banner(fd: i32) {
 /// Walk live Cores and contexts without blocking. A contended registry gets
 /// a placeholder. Only the crashing thread's frames are printed.
 fn write_call_stacks(fd: i32) {
-    use crate::vm::VM_CORES;
-
     let cores_guard = match VM_CORES.try_lock() {
         Ok(g) => g,
         Err(_) => {

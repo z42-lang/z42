@@ -25,7 +25,7 @@
 mod counters;
 pub use counters::{RuntimeCounters, Snapshot as CounterSnapshot, ProfileSnapshot};
 mod crash_report;
-pub(crate) use crash_report::install as install_crash_report;
+pub(crate) use crash_report::{install as install_crash_report, live_cores_snapshot, register_crash_core};
 mod exit_report;
 pub(crate) use exit_report::{configure_exit_report, report_on_exit};
 mod observer;
