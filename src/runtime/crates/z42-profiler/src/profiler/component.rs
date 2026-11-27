@@ -18,7 +18,11 @@ unsafe extern "C" fn attach(vm: *const c_void, hz: u32, trace: u32) -> Component
     }));
     match result { Ok(Ok(())) => ComponentStatus::OK, _ => ComponentStatus::ERROR }
 }
-static API: ProfilerApi = ProfilerApi { header: ApiHeader::of::<ProfilerApi>(1), core_identity: identity, attach };
+static API: ProfilerApi = ProfilerApi {
+    header: ApiHeader::of::<ProfilerApi>(ProfilerApi::VERSION),
+    core_identity: identity,
+    attach,
+};
 unsafe extern "C" fn create(runtime: *const RuntimeApi, _vm: VmHandle, out: *mut InstanceHandle) -> ComponentStatus {
     if runtime.is_null() || out.is_null() { return ComponentStatus::INVALID_ARGUMENT; }
     unsafe { *out = core::ptr::null_mut(); }
