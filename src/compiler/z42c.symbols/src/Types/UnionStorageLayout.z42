@@ -1,0 +1,54 @@
+namespace Z42.Symbols;
+
+// Field offsets are relative to their aggregate. A branch's aggregate starts
+// at PayloadOffset. A nested union retains its tag and branch layouts.
+public sealed class UnionStorageField {
+    public Z42Type Type;
+    public int Offset;
+    public int Size;
+    public int Kind;
+    public UnionStorageLayout Nested;
+
+    internal UnionStorageField(Z42Type type, int offset, int size, int kind, UnionStorageLayout nested) {
+        this.Type = type;
+        this.Offset = offset;
+        this.Size = size;
+        this.Kind = kind;
+        this.Nested = nested;
+    }
+}
+
+public sealed class UnionPayloadLayout {
+    public UnionStorageField[] Fields;
+    public int Size;
+    public int Align;
+
+    internal UnionPayloadLayout(UnionStorageField[] fields, int size, int align) {
+        this.Fields = fields;
+        this.Size = size;
+        this.Align = align;
+    }
+}
+
+public sealed class UnionStorageLayout {
+    public int Size;
+    public int Align;
+    public int TagBytes;
+    public int PayloadOffset;
+    public UnionPayloadLayout[] Cases;
+    public UnionPayloadLayout StructFields;
+
+    internal UnionStorageLayout(UnionPayloadLayout fields) {
+        this.Size = fields.Size;
+        this.Align = fields.Align;
+        this.StructFields = fields;
+    }
+
+    internal UnionStorageLayout(int size, int align, int tagBytes, int payloadOffset, UnionPayloadLayout[] cases) {
+        this.Size = size;
+        this.Align = align;
+        this.TagBytes = tagBytes;
+        this.PayloadOffset = payloadOffset;
+        this.Cases = cases;
+    }
+}

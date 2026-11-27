@@ -20,6 +20,7 @@ public static class StructLeafKind {
     // **判据保守**：只把「确定 object/array」标出来内联；delegate/func/unknown 一律 GcRefClosure（侧表安全默认）。
     public static int GcRefArray   = 4;   // 数组 T[]（Value::Array，8B GcRef<ArrayObj>）：可内联，重建为 Array
     public static int GcRefClosure = 5;   // delegate/func/未解析（Value::Closure/FuncRef，**非 8B GcRef**）：留侧表，永不内联
+    public static int Union        = 6;   // 内联带标签值，引用由当前分支的布局描述
     // 是否引用叶子（占 8B 引用槽、参与 GC 位图）——布局尺寸/对齐用（四类引用等宽同对齐）。
     public static bool IsRef(int kind) {
         return kind == StructLeafKind.ArcString || kind == StructLeafKind.GcRef
@@ -247,16 +248,18 @@ public sealed partial class StructLayout {
         return sl;
     }
 
-    // 第 j 个自有字段的布局类型名：取字段符号的已解析类型（auto-property 的后备字段 `__prop_X` 登记在 `X` 下）。
-    // 解析不到（未知 / 错误类型）→ 退回源拼写，短名唯一时换成它的布局键。
-    private static string _ownFieldType(Z42ClassType ct, int j, StrMap shortIdx) {
+    internal static Z42Type OwnFieldStorageType(Z42ClassType ct, int j) {
         string fname = ct.OwnFieldNames[j];
         FieldSymbol fs = ct.Fields.Get(fname) as FieldSymbol;
         if (fs == null && fname.StartsWith("__prop_")) { fs = ct.Fields.Get(fname.Substring(7)) as FieldSymbol; }
-        if (fs != null) {
-            string tn = LayoutKey.Of(fs.StorageType != null ? fs.StorageType : fs.FieldType);
-            if (tn != "") { return tn; }
-        }
+        if (fs == null) { return null; }
+        return fs.StorageType != null ? fs.StorageType : fs.FieldType;
+    }
+
+    // 解析不到类型时退回源拼写，短名唯一时换成布局键。
+    private static string _ownFieldType(Z42ClassType ct, int j, StrMap shortIdx) {
+        string tn = LayoutKey.Of(StructLayout.OwnFieldStorageType(ct, j));
+        if (tn != "") { return tn; }
         string sp = ct.OwnFieldSpellings[j];
         object hit = shortIdx.Get(StructLayout.BaseNameOf(sp));
         if (hit != null && sp.IndexOf('<') < 0 && (hit as StrBox).Value != "") { return (hit as StrBox).Value; }
@@ -373,7 +376,7 @@ public sealed partial class StructLayout {
     // 引用宽度 8B 版 _sizeOf（对象布局终点；基元宽度不变）。
     private int _objSizeOf(string typeName, int kind) {
         if (StructLeafKind.IsRef(kind)) { return 8; }
-        return this._sizeOf(typeName, kind);
+        return StructLayout.LeafSize(typeName, kind);
     }
 
     // 8B 引用版 struct 展平布局（内联 struct 字段扁平进对象布局时用）。twin of LayoutOf/_compute，
@@ -606,7 +609,7 @@ public sealed partial class StructLayout {
                     k = k + 1;
                 }
             } else {
-                size = this._sizeOf(ftype, kind);
+                size = StructLayout.LeafSize(ftype, kind);
                 align = this._alignOf(kind, size);
                 offset = StructLayout._alignUp(offset, align);
                 info.AddField(fname, offset, size, kind, ftype);
@@ -677,7 +680,7 @@ public sealed partial class StructLayout {
     }
 
     // 基元字节大小（char=4B Unicode 标量）。
-    private int _sizeOf(string typeName, int kind) {
+    internal static int LeafSize(string typeName, int kind) {
         // unify-object-byte-layout PR-3 chunk 2c：引用叶子 16→8B。GcRef 已 8B（chunk 1）、对象直接
         // 引用已内联 8B（chunk 2b），此处把 struct 字节布局的引用宽度也塌到 8B → 全局 8B 引用一致
         // （消除 D13 的 struct=16B / 对象=8B 分裂）。runtime 反射镜像 `struct_reflect.rs::_sizeOf` 同步。

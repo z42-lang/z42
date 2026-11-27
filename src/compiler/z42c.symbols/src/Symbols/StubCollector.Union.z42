@@ -50,6 +50,26 @@ public sealed partial class StubCollector {
         }
     }
 
+    internal void _computeUnionLayouts(SymbolTable table, CompilationUnit[] cus, int cuCount) {
+        var builder = new UnionLayoutBuilder();
+        for (int c = 0; c < cuCount; c = c + 1) {
+            CompilationUnit cu = cus[c];
+            SymbolTable scoped = null;
+            for (int i = 0; i < cu.DeclCount; i = i + 1) {
+                UnionDecl decl = this._sc._unwrap(cu.Decls[i]) as UnionDecl;
+                if (decl == null) { continue; }
+                if (scoped == null) { scoped = table.WithScopeOf(cu); }
+                string fqn = SymbolTable.QualOf(scoped.ScopeNs, this._unionKey(scoped, decl));
+                Z42ClassType owner = table.ClassesByFqn.Get(fqn) as Z42ClassType;
+                if (owner == null || owner.UnionCases == null) { continue; }
+                owner.UnionStorage = builder.Build(owner);
+                if (builder.Error != "") {
+                    this._sc.Diags.Error(DiagnosticCodes.InvalidUnionLayout, builder.Error, decl.Span);
+                }
+            }
+        }
+    }
+
     private void _bindUnionDeclaration(SymbolTable table, UnionDecl decl) {
         string fqn = SymbolTable.QualOf(table.ScopeNs, this._unionKey(table, decl));
         Z42ClassType owner = table.ClassesByFqn.Get(fqn) as Z42ClassType;

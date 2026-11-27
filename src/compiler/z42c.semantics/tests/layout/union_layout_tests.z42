@@ -1,0 +1,101 @@
+namespace Z42cSemanticsUnionLayoutTests;
+
+using Std.Harness;
+using Std.Text;
+using Z42.Semantics;
+using Z42.Symbols;
+using Z42.Syntax;
+
+SymbolTable collect(string source) {
+    var collector = new SymbolCollector();
+    SymbolTable symbols = collector.Collect(new Parser(source, "union-layout.z42").ParseCompilationUnit());
+    Assert.Equal(0, collector.Diags.ErrorCount());
+    return symbols;
+}
+
+UnionStorageLayout layout(SymbolTable symbols, string name) {
+    return (symbols.ClassesByFqn.Get(name) as Z42ClassType).UnionStorage;
+}
+
+[Test]
+void test_shared_payload_uses_the_largest_branch_and_natural_alignment() {
+    var symbols = collect("union Small { End, Bytes(int), Error(int) }"
+        + " union Wide { End, Bytes(int), Range(int start, int end) }");
+    var small = layout(symbols, "Small");
+    var wide = layout(symbols, "Wide");
+    Assert.Equal(1, small.TagBytes);
+    Assert.Equal(4, small.Align);
+    Assert.Equal(4, small.PayloadOffset);
+    Assert.Equal(8, small.Size);
+    Assert.Equal(12, wide.Size);
+    Assert.Equal(0, small.Cases[0].Fields.Length);
+    Assert.Equal(0, small.Cases[1].Fields[0].Offset);
+    Assert.Equal(0, small.Cases[2].Fields[0].Offset);
+    Assert.Equal(4, wide.Cases[2].Fields[1].Offset);
+}
+
+[Test]
+void test_empty_payload_and_tag_width_boundary() {
+    var source = new StringBuilder();
+    for (int i = 0; i < 256; i = i + 1) { source.Append("V").Append(i.ToString()).Append(","); }
+    string cases = source.ToString();
+    var symbols = collect("union Few { Red, Blue } union Narrow {" + cases + "} union Many {" + cases + "Extra }");
+    Assert.Equal(1, layout(symbols, "Few").Size);
+    Assert.Equal(1, layout(symbols, "Narrow").TagBytes);
+    var many = layout(symbols, "Many");
+    Assert.Equal(2, many.TagBytes);
+    Assert.Equal(2, many.Size);
+    Assert.Equal(257, many.Cases.Length);
+}
+
+[Test]
+void test_nested_values_preserve_per_branch_reference_information() {
+    var symbols = collect("union Inner { Number(int), Text(string) }"
+        + " struct Pair { public byte Flag; public Inner Field; }"
+        + " union Outer { End, Wrap(Pair), Children(Outer[]) }");
+    var outer = layout(symbols, "Outer");
+    Assert.Equal(8, outer.Align);
+    Assert.Equal(8, outer.PayloadOffset);
+    Assert.Equal(32, outer.Size);
+    var pair = outer.Cases[1].Fields[0];
+    Assert.Equal(StructLeafKind.Struct, pair.Kind);
+    var inner = pair.Nested.StructFields.Fields[1];
+    Assert.Equal(8, inner.Offset);
+    Assert.Equal(StructLeafKind.Union, inner.Kind);
+    Assert.Equal(StructLeafKind.Prim, inner.Nested.Cases[0].Fields[0].Kind);
+    Assert.Equal(StructLeafKind.ArcString, inner.Nested.Cases[1].Fields[0].Kind);
+    Assert.Equal(StructLeafKind.GcRefArray, outer.Cases[2].Fields[0].Kind);
+    Assert.True(outer.Cases[2].Fields[0].Nested == null);
+}
+
+[Test]
+void test_inline_cycles_are_rejected_and_reference_cycles_are_finite() {
+    Assert.Equal("E0511", SemanticDump.FirstErrorCode("union Bad { End, Child(Bad) }"));
+    Assert.Equal("E0511", SemanticDump.FirstErrorCode("union A { Next(B) } union B { Prev(A) }"));
+    Assert.Equal("E0511", SemanticDump.FirstErrorCode("union A { Next(B) } struct B { public A Back; }"));
+    var symbols = collect("union Tree { Empty, Child(Node) } class Node { public Tree Value; }");
+    var child = layout(symbols, "Tree").Cases[1].Fields[0];
+    Assert.Equal(8, child.Size);
+    Assert.Equal(StructLeafKind.GcRef, child.Kind);
+    Assert.True(child.Nested == null);
+}
+
+[Test]
+void test_layout_is_keyed_by_qualified_type_identity() {
+    var collector = new SymbolCollector();
+    var units = new CompilationUnit[] {
+        new Parser("namespace One; union Id { Key(int) }", "one.z42").ParseCompilationUnit(),
+        new Parser("namespace Two; union Id { Key(long) }", "two.z42").ParseCompilationUnit()
+    };
+    var symbols = collector.CollectAll(units, new string[] { "one.z42", "two.z42" }, units.Length, null);
+    Assert.Equal(0, collector.Diags.ErrorCount());
+    Assert.Equal(8, layout(symbols, "One.Id").Size);
+    Assert.Equal(16, layout(symbols, "Two.Id").Size);
+}
+
+[Test]
+void test_open_generic_layouts_remain_unspecialized() {
+    var symbols = collect("union Box<T> { Empty, Item(T) } union Wrap { Item(Box<int>) }");
+    Assert.True(layout(symbols, "Box") == null);
+    Assert.True(layout(symbols, "Wrap") == null);
+}
