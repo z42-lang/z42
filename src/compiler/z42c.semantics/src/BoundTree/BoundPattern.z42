@@ -54,6 +54,7 @@ public sealed class BoundBindingPattern : BoundPattern {
 // 位置模式（record 解构）：IsInstance(subj, TypeName) + 逐字段 field_get subj.FieldNames[i] + 子模式递归。
 // FieldNames = record 主构造器声明序字段名（PatternBinder 从 OwnFieldNames 填）。
 public sealed class BoundPositionalPattern : BoundPattern {
+    public UnionCaseSymbol UnionCase;
     public string         TypeName;
     public Z42Type        Type;
     public string[]       FieldNames;

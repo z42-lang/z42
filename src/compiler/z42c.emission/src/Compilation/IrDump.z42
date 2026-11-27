@@ -166,6 +166,7 @@ public static class IrDump {
         CuPreprocess._injectGlobalUsings(cus, count);   // add-global-using：包级 using 注入每个 CU（须在符号收集前）
         SymbolCollector coll = new SymbolCollector();
         SymbolTable symbols = coll.CollectAll(cus, files, count, imported);   // add-partial-types：files 供主碎片跟踪 + 合并校验
+        CuCompile.CheckUnionEmission(symbols, coll.Diags);
         // Resolve declaration bounds before initializer or body binding.
         var constraints = new ConstraintChecker(coll.Diags);
         for (int ci = 0; ci < count; ci = ci + 1) {
@@ -229,7 +230,7 @@ public static class IrDump {
         int _cf = 0;
         while (_cf < count) { if (cachedModules == null || cachedModules[_cf] == null) { _anyFresh = true; } _cf = _cf + 1; }
         StructLayout layouts = null;
-        if (_anyFresh) { layouts = StructLayout.BuildFromSymbols(symbols); }
+        if (_anyFresh && symbols.FirstUnionDeclaration == null) { layouts = StructLayout.BuildFromSymbols(symbols); }
         // complete-generic-instantiation S1：**包级**泛型体登记表。
         // `IrGen` 按 CU 创建（`_compileCu`），若只扫本 CU 的 decls，泛型声明在**别的文件**时调用点
         // 就判不出该改派 ⇒ 落到擦除体 ⇒ 布局不符（实测：a.z42 声明、b.z42 调用，`UseInB` 报

@@ -143,6 +143,7 @@ public static class DiagnosticCodes {
 
     // IrGen
     public static string UnsupportedSyntax   = "E0501";
+    public static string UnionSwitchNotExhaustive = "E0510";
 
     // Package / import resolution
     // report-crosspkg-duplicate-type（接线）：**同一个 FQN 被多个依赖包声明**。

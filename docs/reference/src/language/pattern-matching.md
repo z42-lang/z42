@@ -317,6 +317,15 @@ string name = c switch {
 **无条件兜底** = 任一臂无 pattern（`default`），或 pattern 恒匹配（通配 `_` / 裸绑定）且**无守卫**。
 带守卫的臂不计入无条件覆盖（守卫可能为假）。`or`-模式 `Red | Green | Blue` 递归展开各 alt 计入覆盖。
 
+### union 分支的穷尽检查
+
+union 的 `switch` 表达式和语句需要覆盖所有分支及其载荷值，遗漏时报告 `E0510`。
+`ReadResult.End` 匹配无载荷的分支，`ReadResult.Bytes(n)` 按位置绑定载荷。
+带守卫的臂只在守卫成立时匹配，穷尽检查由无守卫的臂提供覆盖。
+对 `bool` 和嵌套 union 载荷，多个臂可组合覆盖全部值。其它载荷可用绑定或通配覆盖。
+
+目前可以通过编译器前端检查这些模式。生成可执行产物需要 union 运行时支持，当前发射入口报告 `E0501`。
+
 ### 运行期：switch **表达式**落空抛 `SwitchExpressionException`
 
 `W0700` 只覆盖**封闭域**——subject 是 `int` / `string` / `char` 这类**开放域**时编译期不可能

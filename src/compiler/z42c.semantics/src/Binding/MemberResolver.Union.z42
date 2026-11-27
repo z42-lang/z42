@@ -1,0 +1,75 @@
+namespace Z42.Semantics;
+
+using Z42.Core;
+using Z42.Syntax;
+using Z42.Symbols;
+
+public sealed partial class MemberResolver {
+    private BoundExpr _tryBindUnionCase(MemberExpr member, CallExpr call, TypeEnv env) {
+        string path = MemberResolver._dottedPath(member.Target);
+        if (path == "" || env.LookupVar(MemberResolver._rootIdent(member.Target)) != null) { return null; }
+
+        IdentExpr ident = member.Target as IdentExpr;
+        int typeArgCount = ident != null ? ident.TypeArgCount : 0;
+        Z42ClassType owner = null;
+        if (typeArgCount > 0) {
+            owner = env.Symbols.GetClass(path + "$" + typeArgCount.ToString());
+        }
+        if (owner == null) { owner = env.Symbols.GetClass(path); }
+        if (owner == null || owner.UnionCases == null) { return null; }
+
+        this._tc._chkStaticOwnerQualified(env.Symbols, owner, path, member.NameSpan);
+        this._tc.ChkAmbiguousBareName(env.Symbols, path, member.NameSpan);
+        if (typeArgCount != owner.GenericParamCount) {
+            this._tc._diags.Error(DiagnosticCodes.TypeMismatch,
+                "union `" + path + "` requires " + owner.GenericParamCount.ToString() + " type argument(s)", member.Span);
+            return new BoundError("union type arguments", new Z42ErrorType(), member.Span);
+        }
+
+        UnionCaseSymbol branch = UnionCaseSymbol.Find(owner, member.Name);
+        if (branch == null) {
+            this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
+                "union `" + path + "` has no case `" + member.Name + "`", member.NameSpan);
+            return new BoundError("unknown union case", new Z42ErrorType(), member.Span);
+        }
+        Z42Type ownerType = owner;
+        if (typeArgCount > 0) {
+            ownerType = env.ResolveType(new NamedType(path, ident.TypeArgs, typeArgCount, ident.Span));
+            this._tc._chkTypeRef(ownerType, env, ident.Span);
+        }
+        return this._bindUnionConstruction(member, call, ownerType, branch, env);
+    }
+
+    private BoundExpr _bindUnionConstruction(MemberExpr member, CallExpr call, Z42Type ownerType, UnionCaseSymbol branch, TypeEnv env) {
+        Z42FuncType signature = branch.ForType(ownerType);
+        int count = call == null ? 0 : call.ArgCount;
+        Span span = call == null ? member.Span : call.Span;
+        if (call != null && call.TypeArgCount > 0) {
+            this._tc._diags.Error(DiagnosticCodes.TypeMismatch,
+                "type arguments belong on the union type, not its case", span);
+            return new BoundError("union case type arguments", new Z42ErrorType(), span);
+        }
+        if (count != signature.ParamCount) {
+            string code = count < signature.ParamCount ? DiagnosticCodes.MissingRequiredArgument : DiagnosticCodes.TooManyArguments;
+            this._tc._diags.Error(code, "union case `" + branch.Name + "` takes "
+                + signature.ParamCount.ToString() + " argument(s), got " + count.ToString(), span);
+            return new BoundError("union case arity", new Z42ErrorType(), span);
+        }
+        BoundExpr[] args = new BoundExpr[0];
+        if (count > 0) {
+            var parameters = new MethodSymbol(branch.Name, "public", signature, true, ownerType.Name(), false, null);
+            args = this._tc._overload._adaptArgs(parameters, call.Args, count, env, span, true);
+            if (args == null) { return new BoundError("union case arguments", new Z42ErrorType(), span); }
+            int i = 0;
+            while (i < args.Length) {
+                if (args[i] is BoundRefArg) {
+                    this._tc._diags.Error(DiagnosticCodes.TypeMismatch, "union payload arguments are passed by value", args[i].Span);
+                }
+                i = i + 1;
+            }
+        }
+        var value = new BoundCall("union", false, null, ownerType.Name(), branch.Name, args, count, ownerType, span);
+        value.UnionCase = branch;
+        return value;
+    }
+}

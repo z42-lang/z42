@@ -1,0 +1,164 @@
+namespace Z42.Semantics;
+
+using Std.Collections;
+using Z42.Core;
+using Z42.Symbols;
+
+sealed class UnionCoverageColumn {
+    public Z42Type Type;
+    public UnionCoverageColumn Tail;
+
+    public UnionCoverageColumn(Z42Type type, UnionCoverageColumn tail) {
+        this.Type = type;
+        this.Tail = tail;
+    }
+}
+
+sealed class UnionCoverageRow {
+    public BoundPattern Head;
+    public UnionCoverageRow Tail;
+
+    public UnionCoverageRow(BoundPattern head, UnionCoverageRow tail) {
+        this.Head = head;
+        this.Tail = tail;
+    }
+}
+
+internal static class UnionCoverage {
+    internal static void CheckStmt(BoundSwitch sw, Z42ClassType owner, DiagnosticBag diags) {
+        var rows = new List<UnionCoverageRow>();
+        int i = 0;
+        while (i < sw.CaseCount) {
+            BoundSwitchCase arm = sw.Cases[i];
+            if (arm.Guard == null) {
+                if (!arm.HasPattern) { return; }
+                rows.Add(new UnionCoverageRow(arm.Pattern, null));
+            }
+            i = i + 1;
+        }
+        UnionCoverage.ReportMissing(sw.Subject.Type(), owner, rows, diags, sw.Span);
+    }
+
+    internal static void CheckExpr(BoundSwitchExpr sw, Z42ClassType owner, DiagnosticBag diags) {
+        var rows = new List<UnionCoverageRow>();
+        int i = 0;
+        while (i < sw.ArmCount) {
+            BoundSwitchArm arm = sw.Arms[i];
+            if (arm.Guard == null) {
+                if (!arm.HasPattern) { return; }
+                rows.Add(new UnionCoverageRow(arm.Pattern, null));
+            }
+            i = i + 1;
+        }
+        UnionCoverage.ReportMissing(sw.Subject.Type(), owner, rows, diags, sw.Span);
+    }
+
+    private static void ReportMissing(Z42Type subject, Z42ClassType owner, List<UnionCoverageRow> rows, DiagnosticBag diags, Span span) {
+        string missing = "";
+        int i = 0;
+        while (i < owner.UnionCases.Length) {
+            UnionCaseSymbol branch = owner.UnionCases[i];
+            if (branch != null && !UnionCoverage.CoversCase(subject, null, rows, branch)) {
+                if (missing != "") { missing = missing + ", "; }
+                missing = missing + owner.Name() + "." + branch.Name;
+            }
+            i = i + 1;
+        }
+        if (missing != "") {
+            diags.Error(DiagnosticCodes.UnionSwitchNotExhaustive, "switch on union is not exhaustive: missing " + missing, span);
+        }
+    }
+
+    private static bool Covers(UnionCoverageColumn columns, List<UnionCoverageRow> rows) {
+        if (rows.Count == 0) { return false; }
+        if (columns == null) { return true; }
+
+        // Drop a column covered by a wildcard when those rows alone already cover the remaining columns.
+        List<UnionCoverageRow> defaults = UnionCoverage.Specialize(rows, columns.Type, null, null, 0);
+        if (UnionCoverage.Covers(columns.Tail, defaults)) { return true; }
+        bool hasRefutableHead = false;
+        foreach (var row in rows) {
+            if (!UnionCoverage.IsTotal(row.Head, columns.Type)) { hasRefutableHead = true; break; }
+        }
+        if (!hasRefutableHead) { return false; }
+
+        Z42ClassType owner = UnionCaseSymbol.UnionOf(columns.Type);
+        if (owner != null) {
+            int i = 0;
+            while (i < owner.UnionCases.Length) {
+                UnionCaseSymbol branch = owner.UnionCases[i];
+                if (branch == null || !UnionCoverage.CoversCase(columns.Type, columns.Tail, rows, branch)) { return false; }
+                i = i + 1;
+            }
+            return owner.UnionCases.Length > 0;
+        }
+        if (columns.Type.CanonName() != "bool") { return false; }
+        return UnionCoverage.Covers(columns.Tail, UnionCoverage.Specialize(rows, columns.Type, null, "true", 0))
+            && UnionCoverage.Covers(columns.Tail, UnionCoverage.Specialize(rows, columns.Type, null, "false", 0));
+    }
+
+    private static bool CoversCase(Z42Type subject, UnionCoverageColumn tail, List<UnionCoverageRow> rows, UnionCaseSymbol branch) {
+        int arity = branch.Signature.ParamCount;
+        List<UnionCoverageRow> selected = UnionCoverage.Specialize(rows, subject, branch, null, arity);
+        if (selected.Count == 0) { return false; }
+        Z42FuncType signature = branch.ForType(subject);
+        var columns = tail;
+        int i = arity - 1;
+        while (i >= 0) {
+            columns = new UnionCoverageColumn(signature.ParamTypes[i], columns);
+            i = i - 1;
+        }
+        return UnionCoverage.Covers(columns, selected);
+    }
+
+    private static List<UnionCoverageRow> Specialize(List<UnionCoverageRow> rows, Z42Type type, UnionCaseSymbol branch, string boolean, int arity) {
+        var result = new List<UnionCoverageRow>();
+        foreach (var row in rows) {
+            UnionCoverage.AddHead(result, row.Head, row.Tail, type, branch, boolean, arity);
+        }
+        return result;
+    }
+
+    private static void AddHead(List<UnionCoverageRow> result, BoundPattern head, UnionCoverageRow tail,
+                                Z42Type type, UnionCaseSymbol branch, string boolean, int arity) {
+        if (head is BoundAtPattern) {
+            UnionCoverage.AddHead(result, (head as BoundAtPattern).Sub, tail, type, branch, boolean, arity);
+            return;
+        }
+        if (head is BoundOrPattern) {
+            BoundOrPattern alternative = head as BoundOrPattern;
+            int i = 0;
+            while (i < alternative.Count) {
+                UnionCoverage.AddHead(result, alternative.Alts[i], tail, type, branch, boolean, arity);
+                i = i + 1;
+            }
+            return;
+        }
+        if (UnionCoverage.IsTotal(head, type)) {
+            while (arity > 0) { tail = new UnionCoverageRow(null, tail); arity = arity - 1; }
+            result.Add(tail);
+            return;
+        }
+        if (branch != null && head is BoundPositionalPattern) {
+            BoundPositionalPattern pattern = head as BoundPositionalPattern;
+            if (pattern.UnionCase != branch) { return; }
+            int j = arity - 1;
+            while (j >= 0) {
+                tail = new UnionCoverageRow(pattern.Elems[j], tail);
+                j = j - 1;
+            }
+            result.Add(tail);
+            return;
+        }
+        if (boolean != null && head is BoundConstantPattern) {
+            BoundLitBool value = (head as BoundConstantPattern).Value as BoundLitBool;
+            if (value != null && value.Value == (boolean == "true")) { result.Add(tail); }
+        }
+    }
+
+    private static bool IsTotal(BoundPattern pattern, Z42Type type) {
+        if (pattern == null || pattern is BoundWildcardPattern || pattern is BoundBindingPattern) { return true; }
+        BoundTypePattern test = pattern as BoundTypePattern;
+        return test != null && UnionCaseSymbol.UnionOf(type) != null && type.IsAssignableTo(test.BoundType);
+    }
+}

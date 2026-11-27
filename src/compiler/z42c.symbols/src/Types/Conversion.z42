@@ -146,6 +146,11 @@ public static class Conversion {
         // A: error / unknown 吸收
         if ((from is Z42ErrorType) || (from is Z42UnknownType)) { return new ConvResult(ConvKind.Absorb); }
         if ((to is Z42ErrorType) || (to is Z42UnknownType)) { return new ConvResult(ConvKind.Absorb); }
+        if (symbols != null && symbols.FirstUnionDeclaration != null
+            && (UnionCaseSymbol.UnionOf(from) != null || UnionCaseSymbol.UnionOf(to) != null)) {
+            if (from != null && to != null && from.IsAssignableTo(to)) { return new ConvResult(ConvKind.Identity); }
+            return new ConvResult(ConvKind.None);
+        }
         // B: 恰一侧**含**泛型形参 → 擦除放行。
         // add-argument-type-check R1b：判定从「顶层是否 Z42GenericParamType」改为**结构化递归**
         // （数组元素 / 实例化类型实参 / func 形参·返回）。裸型参的行为逐位不变（裸 GP 自身即"含"），

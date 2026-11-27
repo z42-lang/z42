@@ -1,0 +1,38 @@
+namespace Z42.Symbols;
+
+public sealed class UnionCaseSymbol {
+    public string Name;
+    public int Tag;
+    public Z42FuncType Signature;
+
+    public UnionCaseSymbol(string name, int tag, Z42FuncType signature) {
+        this.Name = name;
+        this.Tag = tag;
+        this.Signature = signature;
+    }
+
+    public static Z42ClassType UnionOf(Z42Type type) {
+        Z42ClassType definition = type as Z42ClassType;
+        if (type is Z42InstantiatedType) { definition = (type as Z42InstantiatedType).Def; }
+        if (definition != null && definition.UnionCases != null) { return definition; }
+        return null;
+    }
+
+    public static UnionCaseSymbol Find(Z42ClassType owner, string name) {
+        int i = 0;
+        while (i < owner.UnionCases.Length) {
+            UnionCaseSymbol branch = owner.UnionCases[i];
+            if (branch != null && branch.Name == name) { return branch; }
+            i = i + 1;
+        }
+        return null;
+    }
+
+    public Z42FuncType ForType(Z42Type ownerType) {
+        if (!(ownerType is Z42InstantiatedType)) { return this.Signature; }
+        Z42FuncType signature = TypeSubst.ApplySig(this.Signature, new ClassArgsMap(ownerType as Z42InstantiatedType));
+        var closed = new Z42FuncType(signature.ParamTypes, signature.ParamCount, ownerType);
+        closed.ParamNames = signature.ParamNames;
+        return closed;
+    }
+}

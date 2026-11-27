@@ -17,7 +17,7 @@ public sealed class PatBindCtx {
     public PatBindCtx(Z42Type subj, TypeEnv env) { this.Subj = subj; this.Env = env; }
 }
 
-public sealed class PatternBinder : IPatternVisitor<BoundPattern, PatBindCtx> {
+public sealed partial class PatternBinder : IPatternVisitor<BoundPattern, PatBindCtx> {
     private TypeChecker _tc;
     public PatternBinder(TypeChecker tc) { this._tc = tc; }
 
@@ -53,6 +53,10 @@ public sealed class PatternBinder : IPatternVisitor<BoundPattern, PatBindCtx> {
         if (bp is BoundBindingPattern) { return; }
         if (bp is BoundPositionalPattern) {
             BoundPositionalPattern pp = bp as BoundPositionalPattern;
+            if (pp.UnionCase != null) {
+                this._tc._diags.Error(DiagnosticCodes.TypeMismatch, "use `is` or `switch` to match a union case", sp);
+                return;
+            }
             if (expected.Name() != pp.Type.Name()) {
                 this._tc._diags.Error(DiagnosticCodes.TypeMismatch, "destructuring declaration requires the value's static type to match the pattern exactly: " + expected.Name() + " vs " + pp.TypeName, sp);
             }
@@ -188,6 +192,10 @@ public sealed class PatternBinder : IPatternVisitor<BoundPattern, PatBindCtx> {
 
     // 名字/类型模式：`T x`（恒类型+绑定）/ `T`（类型）/ 点分名（常量）/ 单裸名（绑定）。
     private BoundPattern _bindName(NamePattern np, Z42Type subjType, TypeEnv env) {
+        if (np.Bind == "") {
+            BoundPattern branch = this.TryBindUnionCase(np.Type, null, 0, subjType, env, np.Span);
+            if (branch != null) { return branch; }
+        }
         Z42Type resolved = env.ResolveType(np.Type);
         string tn = PatternBinder._rawTypeName(np.Type, resolved);
         // 显式 `T x` → 恒类型模式 + 绑定
@@ -259,6 +267,8 @@ public sealed class PatternBinder : IPatternVisitor<BoundPattern, PatBindCtx> {
     // MemberResolver._substGeneric 把类形参（T）替换成实参（int）再递归绑定。运行时擦除（IsInstance 只测基类
     // Box，同 is 表达式）。inst==null（非泛型）走原路径 byte-identical。
     private BoundPattern _bindPositional(PositionalPattern pp, Z42Type subjType, TypeEnv env) {
+        BoundPattern branch = this.TryBindUnionCase(pp.Type, pp.Elems, pp.ElemCount, subjType, env, pp.Span);
+        if (branch != null) { return branch; }
         Z42Type resolved = env.ResolveType(pp.Type);
         string tn = PatternBinder._rawTypeName(pp.Type, resolved);
         this._tc._chkTypeRef(resolved, env, pp.Span);

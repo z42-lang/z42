@@ -177,6 +177,34 @@ public sealed partial class ExprParser {
         return null;
     }
 
+    private int _switchGuardArrow = -1;
+
+    private Expr _parseSwitchGuard() {
+        int previousArrow = this._switchGuardArrow;
+        this._switchGuardArrow = this._findSwitchGuardArrow();
+        Expr guard = this._parseExpr(ParseTable.AboveAssign());
+        this._switchGuardArrow = previousArrow;
+        return guard;
+    }
+
+    // Only the arm's delimiter is excluded from lambda lookahead.
+    private int _findSwitchGuardArrow() {
+        int depth = 0;
+        int offset = 0;
+        while (true) {
+            int kind = this._p._peekAt(offset).Kind;
+            if (kind == TokenKind.Eof) { return -1; }
+            if (depth == 0) {
+                if (kind == TokenKind.FatArrow) { return this._p._mark() + offset; }
+                if (kind == TokenKind.RBrace || kind == TokenKind.RParen || kind == TokenKind.RBracket
+                    || kind == TokenKind.Semicolon) { return -1; }
+            }
+            if (kind == TokenKind.LParen || kind == TokenKind.LBracket || kind == TokenKind.LBrace) { depth = depth + 1; }
+            if (kind == TokenKind.RParen || kind == TokenKind.RBracket || kind == TokenKind.RBrace) { depth = depth - 1; }
+            offset = offset + 1;
+        }
+    }
+
     // ── led：switch 表达式（`subject switch { p => b, _ => d }`，臂收集）──────────────────
     private Expr _parseSwitchExpr(Expr left) {
         Span swsp = this._p._peek().Span;
@@ -198,7 +226,7 @@ public sealed partial class ExprParser {
             else {
                 this._p._requireFeature(FeatureNames.PatternMatch, this._p._peek().Span);
                 pat = this._p._patP._parsePattern();
-                if (this._p._peek().Kind == TokenKind.If) { this._p._advance(); guard = this._parseExpr(ParseTable.AboveAssign()); }
+                if (this._p._peek().Kind == TokenKind.If) { this._p._advance(); guard = this._parseSwitchGuard(); }
             }
             this._p._expect(TokenKind.FatArrow, "=>");
             Expr armBody = this._parseExpr(ParseTable.AboveAssign());
@@ -622,7 +650,9 @@ public sealed partial class ExprParser {
     }
 
     private bool _isLambdaStart() {
-        if (this._p._peek().Kind == TokenKind.Identifier && this._p._peekAt(1).Kind == TokenKind.FatArrow) { return true; }
+        if (this._p._peek().Kind == TokenKind.Identifier && this._p._peekAt(1).Kind == TokenKind.FatArrow) {
+            return this._p._mark() + 1 != this._switchGuardArrow;
+        }
         if (this._p._peek().Kind == TokenKind.LParen) {
             int depth = 0;
             int o = 0;
@@ -631,7 +661,10 @@ public sealed partial class ExprParser {
                 if (k == TokenKind.LParen) { depth = depth + 1; }
                 else if (k == TokenKind.RParen) {
                     depth = depth - 1;
-                    if (depth == 0) { return this._p._peekAt(o + 1).Kind == TokenKind.FatArrow; }
+                    if (depth == 0) {
+                        return this._p._peekAt(o + 1).Kind == TokenKind.FatArrow
+                            && this._p._mark() + o + 1 != this._switchGuardArrow;
+                    }
                 }
                 else if (k == TokenKind.Eof) { return false; }
                 o = o + 1;
