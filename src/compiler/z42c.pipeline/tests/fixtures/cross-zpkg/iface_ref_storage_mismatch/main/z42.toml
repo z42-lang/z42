@@ -1,0 +1,8 @@
+[project]
+name = "demo.iface_ref_storage_app"
+version = "0.1.0"
+kind = "exe"
+pack = true
+
+[dependencies]
+"demo.iface_ref_storage_lib" = "0.1.0"

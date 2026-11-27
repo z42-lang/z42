@@ -22,7 +22,7 @@ public static class RefArgCheck {
         bool paramRef = sig.IsRefParam(i);
         bool argRef = args[i] is BoundRefArg;
         if (paramRef && argRef) {
-            RefArgCheck._checkClosedInterfaceSlot(tc, args[i] as BoundRefArg, sig.ParamTypes[i]);
+            RefArgCheck._checkClosedStorage(tc, args[i] as BoundRefArg, sig.ParamTypes[i]);
             return;
         }
         if (!paramRef && !argRef) { return; }
@@ -42,17 +42,16 @@ public static class RefArgCheck {
         int i = 0;
         while (i < args.Length && i < sig.ParamCount) {
             if (sig.IsRefParam(i) && args[i] is BoundRefArg) {
-                RefArgCheck._checkClosedInterfaceSlot(tc, args[i] as BoundRefArg, sig.ParamTypes[i]);
+                RefArgCheck._checkClosedStorage(tc, args[i] as BoundRefArg, sig.ParamTypes[i]);
             }
             i = i + 1;
         }
     }
 
-    // The address register is Unknown. Compare the writable lvalue's type
-    // directly when both ends identify a closed generic interface.
-    private static void _checkClosedInterfaceSlot(TypeChecker tc, BoundRefArg arg, Z42Type target) {
-        if (arg.Inner == null || !(arg.Inner.Type() is Z42InstantiatedInterfaceType)
-            || !(target is Z42InstantiatedInterfaceType)) { return; }
+    // The address register is Unknown; only the lvalue identifies the writable storage.
+    // Inline declarations and discards do not have a previously declared type.
+    private static void _checkClosedStorage(TypeChecker tc, BoundRefArg arg, Z42Type target) {
+        if (arg.Inner == null || arg.IsVarDecl || arg.IsDiscard) { return; }
         Z42Type source = arg.Inner.Type();
         if (!IfaceSlotKeys.IsClosed(source) || !IfaceSlotKeys.IsClosed(target)) { return; }
 
