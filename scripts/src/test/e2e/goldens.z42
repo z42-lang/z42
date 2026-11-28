@@ -12,7 +12,7 @@
 //
 // For each case: derive entry name from the .z42 source (`<namespace>.Main` > `Main` >
 // `<namespace>.main` > `main`), then run `z42vm <artifact> <entry> --mode <mode>` and
-// diff stdout against the expected file.
+// require a zero exit and empty stderr, then compare stdout against the expected file.
 //
 // Parallel mode: spawn `jobs` subprocesses per batch via Process.Spawn,
 // wait on the batch, then aggregate. Output is collected into per-job
@@ -108,10 +108,25 @@ int _runVmGoldensF(string[] modes, int jobs, int shardK, int shardN, string dirF
 // Run all cases for one mode — sequential (jobs<=1) or parallel batches.
 // Returns [pass, fail].
 int[] _runVmCases(_Case[] cases, string vmBin, string libs, string mode, int jobs) {
-    if (jobs > 1) { return _runVmBatch(cases, vmBin, libs, mode, jobs); }
-    int pass = 0;
+    var runnable = new List<_Case>();
     int fail = 0;
     foreach (var c in cases) {
+        if (File.Exists(c.artifact)) {
+            runnable.Add(c);
+        } else {
+            Console.WriteLine("  FAIL: " + c.name + " (missing bytecode)");
+            Console.WriteLine("    " + c.artifact);
+            fail = fail + 1;
+        }
+    }
+    if (fail > 0) { Console.WriteLine("    Hint: run `xtask build test` to regenerate golden bytecode."); }
+    if (jobs > 1) {
+        int[] result = _runVmBatch(runnable.ToArray(), vmBin, libs, mode, jobs);
+        result[1] = result[1] + fail;
+        return result;
+    }
+    int pass = 0;
+    foreach (var c in runnable) {
         if (_runOneCase(vmBin, libs, c, mode)) { pass = pass + 1; }
         else { fail = fail + 1; }
     }
@@ -140,10 +155,9 @@ int[] _runVmBatch(_Case[] cases, string vmBin, string libs, string mode, int job
         b = 0;
         while (b < batchSize) {
             ProcessResult r = handles[b].Wait();
-            if (_judgeResult(batch[b], r)) {
+            if (_checkGoldenResult(batch[b], r)) {
                 pass = pass + 1;
             } else {
-                _printFailLine(batch[b], r);
                 fail = fail + 1;
             }
             b = b + 1;
@@ -182,9 +196,7 @@ bool _runOneCase(string vmBin, string libs, _Case c, string mode) {
         Console.WriteLine("    (spawn error: " + e.Message + ")");
         return false;
     }
-    bool ok = _judgeResult(c, r);
-    if (!ok) { _printFailLine(c, r); }
-    return ok;
+    return _checkGoldenResult(c, r);
 }
 
 ProcessHandle _spawnCase(string vmBin, string libs, _Case c, string mode) {
@@ -195,41 +207,44 @@ ProcessHandle _spawnCase(string vmBin, string libs, _Case c, string mode) {
         .Spawn();
 }
 
-bool _judgeResult(_Case c, ProcessResult r) {
-    // stderr is merged into stdout by concatenation (stderr is empty on pass, so
-    // ordering doesn't matter); trailing newlines are stripped on both sides.
-    string actual = _stripTrailingNewlines(r.Stdout + r.Stderr);
-    string expected = "";
-    if (File.Exists(c.expected)) {
-        expected = _stripTrailingNewlines(File.ReadAllText(c.expected));
-    }
-    return actual == expected;
-}
-
-void _printFailLine(_Case c, ProcessResult r) {
-    Console.WriteLine("  FAIL: " + c.name);
-    string actual = r.Stdout + r.Stderr;
+bool _checkGoldenResult(_Case c, ProcessResult r) {
     string expected = "";
     if (File.Exists(c.expected)) { expected = File.ReadAllText(c.expected); }
-    if (expected.Length == 0) {
-        Console.WriteLine("    expected: <empty>");
-    } else {
-        Console.WriteLine("    expected: " + _firstLine(expected));
+    string failure = _goldenResultFailure(expected, r);
+    if (failure.Length == 0) { return true; }
+    Console.WriteLine("  FAIL: " + c.name);
+    Console.WriteLine(failure);
+    return false;
+}
+
+string _goldenResultFailure(string expected, ProcessResult r) {
+    string failure = "";
+    if (r.ExitCode != 0) { failure = "    expected exit 0, got " + r.ExitCode.ToString() + "\n"; }
+    if (r.Stderr.Length > 0) { failure = failure + "    stderr: " + _firstLines(r.Stderr, 4) + "\n"; }
+    string expectedStdout = _stripTrailingNewlines(expected);
+    string actualStdout = _stripTrailingNewlines(r.Stdout);
+    if (actualStdout != expectedStdout) {
+        string[] wanted = expectedStdout.Length == 0 ? new string[0] : expectedStdout.Split("\n");
+        string[] actual = actualStdout.Length == 0 ? new string[0] : actualStdout.Split("\n");
+        int i = 0;
+        while (i < wanted.Length && i < actual.Length && wanted[i] == actual[i]) { i = i + 1; }
+        failure = failure + "    stdout line " + (i + 1).ToString() + "\n"
+            + "      expected: " + (i < wanted.Length ? wanted[i] : "<end of output>") + "\n"
+            + "      actual:   " + (i < actual.Length ? actual[i] : "<end of output>");
     }
-    Console.WriteLine("    actual:   " + _firstLine(actual));
+    return _stripTrailingNewlines(failure);
 }
 
 // ── Enumeration ──────────────────────────────────────────────────────────
 
 // Run-golden selection over the shared walk (_walkGoldenCorpus, common/golden.z42).
-// The runner drives PREBUILT `.zbc` from the artifacts mirror, so "the case exists"
-// here means the MIRROR ARTIFACT exists — a case whose .zbc was never regenerated
-// drops out on its own (that is also why the flat segment needs no cat filter of
-// its own: `build test` never emitted a .zbc for a non-regen category).
+// Select and shard by source so missing mirror artifacts fail on the owning shard
+// without changing the assignment of the remaining cases.
 _Case[] _enumerateCasesF(string root, string mode, string dirFilter, string fileFilter) {
     List<_Case> cases = new List<_Case>();
     foreach (var e in _walkGoldenCorpus(root)) {
-        if (e.seg == "lib-file") { continue; }       // stdlib [Test] file units — z42b's, not golden
+        if (e.seg == "lib-file" || !e.hasSource) { continue; }
+        if (mode == "jit" && e.interpOnly) { continue; }
         if (e.isLib) {
             // Library golden tests are not a src/tests category, so a --dir <cat>
             // filter excludes them entirely.
@@ -245,10 +260,7 @@ _Case[] _enumerateCasesF(string root, string mode, string dirFilter, string file
         }
         // run-golden .zbc lives in the artifacts mirror, not beside source.z42. Sidecars
         // (expected_output.txt, interp_only, source.z42 for entry derivation) stay in src.
-        string artifact = _entryZbc(root, e);
-        if (!File.Exists(artifact)) { continue; }
-        if (mode == "jit" && e.interpOnly) { continue; }
-        cases.Add(new _Case(e.name, artifact, e.expected, _deriveEntry(e.src)));
+        cases.Add(new _Case(e.name, _entryZbc(root, e), e.expected, _deriveEntry(e.src)));
     }
     return cases.ToArray();
 }

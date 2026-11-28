@@ -100,6 +100,9 @@ layout 检查同样按 workspace 的声明包名识别产物 owner，允许成�
 代码不真实——假绿和假红都出过。`--no-rebuild` 只在**确认上一次重建是新的**、且正在反复迭代
 同一个用例时用。
 
+VM golden 按源文件选择与分片，选中的用例缺少镜像 `.zbc` 时计为失败。通过要求退出码为 0、stderr
+为空、stdout 与期望相符（忽略末尾换行）。输出不符时显示首个不同的行。缺少期望文件时 stdout 期望为空。
+
 `test e2e`、`test stdlib`、`bench stdlib` 与 `test app` 的 `--shard k/n` 必须满足
 `1 <= k <= n`；非法参数在构建前报错并返回 2，不退回全量运行。e2e 分片只选择 golden，
 不能与 `--dir cross-zpkg` 或 `--dir multi-exe` 同用；`test app --zbc` 点名单个产物，也不能同时分片。
