@@ -15,20 +15,24 @@ public sealed class CallEmitter {
     public CallEmitter(EmitContext ctx, ExprEmitter ee) { this._ctx = ctx; this._ee = ee; }
 
     // A-use：实参发射 + **struct 实参 copy-in**（值语义：callee 收独立副本，改参数不影响 caller）。
-    private TypedReg[] _emitStructAwareArgs(BoundCall c) {
-        TypedReg[] args = new TypedReg[c.ArgCount];
-        int i = 0;
-        while (i < c.ArgCount) {
-            TypedReg a = this._ee.Emit(c.Args[i]);
-            if (!(c.Args[i] is BoundRefArg) && this._ee._isBlobStruct(c.Args[i].Type())) {
-                string sn = this._ee._blobStructName(c.Args[i].Type());
+    // Snapshot each union argument before later arguments can modify its source.
+    private TypedReg[] _emitArgs(BoundExpr[] expressions, int count, bool copyStructs) {
+        TypedReg[] args = new TypedReg[count];
+        for (int i = 0; i < count; i = i + 1) {
+            BoundExpr expression = expressions[i];
+            TypedReg a = this._ee.Emit(expression);
+            if (expression is BoundRefArg) {
+                args[i] = a;
+            } else if (UnionCaseSymbol.UnionOf(expression.Type()) != null) {
+                args[i] = this._ee._snapshotUnion(a, expression.Type());
+            } else if (copyStructs && this._ee._isBlobStruct(expression.Type())) {
+                string sn = this._ee._blobStructName(expression.Type());
                 int sz = this._ctx.Gen.Layouts.StructSize(sn);
                 TypedReg cp = this._ctx.Alloc(IrType.Ref);
-                this._ctx.Emit(new StructAllocInstr(cp, this._ee._blobAllocationName(c.Args[i].Type(), sn), sz));
+                this._ctx.Emit(new StructAllocInstr(cp, this._ee._blobAllocationName(expression.Type(), sn), sz));
                 this._ctx.Emit(new StructCopyInstr(cp, a, sz));
                 args[i] = cp;
             } else { args[i] = a; }
-            i = i + 1;
         }
         return args;
     }
@@ -134,14 +138,14 @@ public sealed class CallEmitter {
     [Suppress("style.fnLinesHard", "144 body lines；拆分见 code-organization.md")]
     internal TypedReg _emitCall(BoundCall c) {
         if (c.Kind == "witness") {
-            TypedReg[] args = this._emitStructAwareArgs(c);
+            TypedReg[] args = this._emitArgs(c.Args, c.ArgCount, true);
             TypedReg function = this._ctx.Alloc(IrType.Ref);
             this._ctx.Emit(new LoadMethodWitnessInsn(function, c.WitnessSlot));
             return this._emitIndirectCall(function, args, c.ArgCount, c.Type());
         }
         // base ctor call：call @QualBaseCls.CtorKey %0, ...args（静态 direct call，args 含 this）
         if (c.Kind == "base_ctor") {
-            TypedReg[] bargs = this._emitArgs(c);
+            TypedReg[] bargs = this._emitArgs(c.Args, c.ArgCount, false);
             string fqCtor = this._qualifyOwner(c) + "." + c.MethodName;
             TypedReg bdst = this._ctx.Alloc(IrType.Ref);
             this._ctx.Emit(new CallInstr(bdst, fqCtor, bargs, c.ArgCount));
@@ -233,7 +237,7 @@ public sealed class CallEmitter {
                     }
                     return this._emitBoxedStructObjectCall(c, c.MethodName);
                 }
-                TypedReg[] sargs = this._emitStructAwareArgs(c);
+                TypedReg[] sargs = this._emitArgs(c.Args, c.ArgCount, true);
                 // Object-protocol overrides operate on the array element's value snapshot.
                 TypedReg srecv = objectMethod ? this._ee.Emit(c.Receiver) : this._ee._emitStructReceiver(c.Receiver);
                 string sname = this._ee._blobStructName(c.Receiver.Type());
@@ -241,7 +245,7 @@ public sealed class CallEmitter {
                 return this._emitCallSretAware(fqm, srecv, sargs, c.ArgCount, c.Type());
             }
             // 镜像 C# EmitBoundCall：实参先于 receiver（寄存器编号序——byte-identical）
-            TypedReg[] iargs = this._emitArgs(c);
+            TypedReg[] iargs = this._emitArgs(c.Args, c.ArgCount, false);
             TypedReg recv = this._ee.Emit(c.Receiver);
             // feat/delegate-base-class：委托族基类成员（`d.Target` / `d.FnName`，收者是函数类型
             // 或经 `(Delegate)` 上转后的 Delegate 类）→ **静态 Call 直呼** `Std.Delegate` 的
@@ -387,7 +391,7 @@ public sealed class CallEmitter {
             this._ctx.Emit(vci);
             return idst;
         }
-        TypedReg[] args = this._emitStructAwareArgs(c);   // A-use：struct 实参 copy-in（值语义）
+        TypedReg[] args = this._emitArgs(c.Args, c.ArgCount, true);   // A-use：struct 实参 copy-in（值语义）
         // 静态调用先查 DepIndex（stdlib；арity 键→bare 键，镜像 C# EmitStaticBoundCall）
         // path C：本包自有类（LocalClasses）恒走本地 emit，不查 DepIndex——否则当某依赖含**同短类名**
         // 类（converge 期 z42.project 的 SourceDiscovery/ManifestLoader 与 z42c.project 自有同名）时，
@@ -574,13 +578,6 @@ public sealed class CallEmitter {
         return this._emitCallSretAware(q + "." + accessor, null, args, argCount, retType);
     }
 
-    private TypedReg[] _emitArgs(BoundCall c) {
-        TypedReg[] args = new TypedReg[c.ArgCount];
-        int i = 0;
-        while (i < c.ArgCount) { args[i] = this._ee.Emit(c.Args[i]); i = i + 1; }
-        return args;
-    }
-
     // make-enum-distinct-type 1.5：静态类型就是 enum 本身？只认 `IsEnum` 标志（唯一置位点
     // `Z42ClassType.Enum`），不查 `EnumTypes` 表——ToString 拦截必须与本变更建立的类型身份同源，
     // 用名字查表会把「名字碰巧撞上某 enum 的非 enum 类型」也拦下来。
@@ -671,7 +668,7 @@ public sealed class CallEmitter {
     // 实参先于 receiver（match struct 发射序），receiver 经 __box_struct 得 BoxedStruct 句柄 → VCall
     // 命中 runtime 装箱-struct Object 协议。GetHashCode/ToString 0 参、Equals 1 参。
     private TypedReg _emitBoxedStructObjectCall(BoundCall c, string method) {
-        TypedReg[] oargs = this._emitStructAwareArgs(c);
+        TypedReg[] oargs = this._emitArgs(c.Args, c.ArgCount, true);
         TypedReg boxed = this._ee._emitStructBox(c.Receiver);
         TypedReg odst = this._ctx.Alloc(this._ctx.ToIrType(c.Type()));
         this._ctx.Emit(new VCallInstr(odst, boxed, method, oargs, c.ArgCount));
@@ -732,9 +729,7 @@ public sealed class CallEmitter {
             this._ctx.Emit(new BuiltinInstr(acdst, "__activator_create", acargs, 1));
             return acdst;
         }
-        TypedReg[] args = new TypedReg[n.ArgCount];
-        int i = 0;
-        while (i < n.ArgCount) { args[i] = this._ee.Emit(n.Args[i]); i = i + 1; }
+        TypedReg[] args = this._emitArgs(n.Args, n.ArgCount, false);
         this._boxErasedCtorArgs(n, args);
         return this._emitNewValue(n.Type(), n.TypeName, n.CtorName, args, n.ArgCount);
     }

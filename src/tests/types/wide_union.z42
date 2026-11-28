@@ -28,6 +28,23 @@ class Counter {
     }
 }
 
+class Service {
+    public static int Sum = RangeResult.Range(20, 22) switch {
+        RangeResult.Range(a, b) => a + b,
+        _ => 0,
+    };
+
+    internal Service(RangeResult value) {
+        value = RangeResult.End;
+        Assert.True(value is RangeResult.End);
+    }
+
+    internal RangeResult Replace(RangeResult value) {
+        value = RangeResult.End;
+        return value;
+    }
+}
+
 RangeResult Copy(RangeResult value) => value;
 
 RangeResult Replace(RangeResult value) {
@@ -89,6 +106,10 @@ void Main() {
     Assert.True(ReturnThroughFinally(source) is RangeResult.Range(-2147483648, 2147483647));
     Assert.Equal(-1, Read(source));
     Assert.Equal(-1, ReadStatement(source));
+    var service = new Service(source);
+    Assert.Equal(42, Service.Sum);
+    Assert.True(service.Replace(source) is RangeResult.End);
+    Assert.True(source is RangeResult.Range(-2147483648, 2147483647));
     if (source is RangeResult binding) {
         binding = RangeResult.End;
         Assert.True(binding is RangeResult.End);
