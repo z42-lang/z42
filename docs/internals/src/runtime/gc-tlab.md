@@ -76,7 +76,7 @@ region free list 弹出来的死槽，外加三张 class 位掩码（`avail` 有
 
 ```
 tlab_alloc_var(payload):
-  sc = class_for(payload)
+  sc = class_for_with_limit(payload, heap.loh_bytes)
   if avail[sc]                       → fill（无锁）
   elif !dry[sc] && take_holes(sc)    → fill（锁一次，弹至多 64 个槽）
   else                               → bump claim（原路径）
@@ -153,7 +153,7 @@ z42c 产物逐字节一致。固定 nursery（16M）并关掉自适应晋升时�
 
 ### ⚠️ size class：四分之一八度，不是 2 的幂
 
-`class_for(payload)` 把「头 16B + payload」向上取整到一个 **size class 的 footprint**，
+`class_for_with_limit(payload, heap.loh_bytes)` 把「头 16B + payload」向上取整到一个 **size class 的 footprint**，
 块实际占的就是这个 footprint。free-list 按 class 分桶，`alloc` 弹槽时**不复查容量** ——
 这条捷径成立的前提是**一个 class 索引只对应唯一一个 footprint**。改分档规则时这是首要不变量。
 

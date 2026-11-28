@@ -339,11 +339,10 @@ chunk 内存还给系统 malloc，新堆可能在**同一地址**重分配块，
 换堆必变 ⇒ 缓存整清 ⇒ 复用地址永不被误判为旧堆的活条目。
 
 **同一个堆里也有一种地址会还给 malloc：超大块的独占 chunk。** bump chunk 空了只进池、region 活着就一直映射，
-所以 gen 守卫对它们够用；> 64 KB（`Z42_GC_LOH_BYTES`）的块独占一个 chunk，块一死该 chunk 就 `dealloc`，
+所以 gen 守卫对它们够用。足迹超过所属堆大对象门槛（默认 64 KiB）的块独占一个 chunk，块一死该 chunk 就 `dealloc`，
 malloc 下一次在同址放下的块（另一个超大块，或新 bump chunk 的首块）从 `FIRST_GEN` 起——与死串的
-generation 相同，旧条目照样假命中。所以 `str_meta` 条目在块**可能**位于独占 chunk 时
-（`chunk::may_be_dedicated`）记下弱引用同款的 `(chunk, epoch)` 戳（`Heap::var_chunk_stamp`，
-chunk 被释放时 epoch 前进）；每次查表比一次进程级的「独占 chunk 释放计数」（`chunk::dedicated_free_count`，
+generation 相同，旧条目照样假命中。`str_meta` 通过 `Heap::dedicated_var_chunk_stamp` 为独占 chunk 的条目
+记录 `(chunk, epoch)`，chunk 被释放时 epoch 前进。每次查表比一次进程级的「独占 chunk 释放计数」（`chunk::dedicated_free_count`，
 一次 load；epoch 与计数都经 `ambient::cache_scope` 这一个入口取），计数变了才在 region 锁下逐条核对带戳条目、丢掉 chunk 已释放的——在读它的块头之前。
 bump chunk 里的条目从不核对，别处释放大块只让带戳条目多一次加锁、不重算。
 

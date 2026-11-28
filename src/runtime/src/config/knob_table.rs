@@ -101,7 +101,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         value: ValueKind::Str,
         description: "block-footprint threshold above which a variable-length GC block gets its own exactly-sized chunk (whose memory goes straight back to the allocator when the block dies). Capped at the 64 KB bump-chunk size",
         default_hint: "unset; defaults to 64K (the bump-chunk size, which is also the ceiling)",
-        consumed_by: "gc/var_region/chunk.rs (class_for), applied once in vm/mod.rs",
+        consumed_by: "gc/heap/construct.rs (per-heap), gc/var_region/chunk.rs (classification)",
         ..TUNING
     },
     KnobSpec {

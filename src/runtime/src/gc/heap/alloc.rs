@@ -115,18 +115,15 @@ impl crate::gc::Heap {
     /// **add-gc-tlab (stage 3)**: variable-length region fast path (strings /
     /// closures / var blocks). Bump-fills the calling thread's TLAB var claim
     /// lock-free; borrows a fresh chunk (retiring the full one) when needed.
-    /// Returns `None` for an **oversized** block (→ locked `alloc` path, which
-    /// carves a dedicated chunk) or when this thread's TLAB holds foreign-heap
-    /// claims. The caller writes the payload into the returned block.
-    pub(super) fn tlab_alloc_var(
+    /// Called for a block whose size class fits a bump chunk. Returns `None` when
+    /// this thread's TLAB holds foreign-heap claims.
+    fn tlab_alloc_var(
         &self,
         payload: usize,
         block_type: BlockType,
+        footprint: usize,
+        size_class: u8,
     ) -> Option<crate::object::header::VarGcRef> {
-        let (footprint, size_class) = crate::gc::var_region::class_for(payload);
-        if size_class == crate::gc::var_region::OVERSIZED_CLASS {
-            return None; // oversized → dedicated-chunk locked path
-        }
         crate::gc::tlab::with_current_tlab(|tlab| {
             if tlab.heap_epoch != self.epoch {
                 if tlab.is_unbound() {
@@ -162,7 +159,7 @@ impl crate::gc::Heap {
 
     /// **add-gc-tlab (stage 3)**: acquire a fresh var block of `payload` bytes —
     /// via the lock-free TLAB fast path when armed + non-strict + non-oversized,
-    /// else the locked `VarRegion::alloc`. Returns the block handle plus whether
+    /// else the locked `VarRegion::alloc_classified`. Returns the block handle plus whether
     /// the fast path was taken (so the caller records via the lock-free
     /// `record_alloc_fast` vs the locked `record_alloc` + `maybe_auto_collect`).
     /// The caller writes the payload into the returned (zeroed) block, then **publishes** it
@@ -173,14 +170,19 @@ impl crate::gc::Heap {
         payload: usize,
         block_type: BlockType,
     ) -> (crate::object::header::VarGcRef, bool) {
-        if crate::gc::tlab::is_armed()
+        let (footprint, size_class) = crate::gc::var_region::class_for_with_limit(payload, self.loh_bytes);
+        if size_class != crate::gc::var_region::OVERSIZED_CLASS
+            && crate::gc::tlab::is_armed()
             && !self.strict_oom_atomic.load(std::sync::atomic::Ordering::Relaxed)
         {
-            if let Some(vref) = self.tlab_alloc_var(payload, block_type) {
+            if let Some(vref) = self.tlab_alloc_var(payload, block_type, footprint, size_class) {
                 return (self.shade_var_newborn(vref), true); // 3.2 allocate-black
             }
         }
-        (self.shade_var_newborn(self.region_var.lock().alloc(payload, block_type)), false)
+        (
+            self.shade_var_newborn(self.region_var.lock().alloc_classified(payload, block_type, footprint, size_class)),
+            false,
+        )
     }
 
     /// **add-gc-tlab (stage 2/3)**: retire the calling thread's TLAB — merge all

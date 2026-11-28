@@ -54,9 +54,8 @@ engine/init、counters/observer、protocol 实现模块私有；实现文件移�
 宿主启动入口通过 `LoadedProgram` 设置应用参数、调用入口和报告退出。打包组件与 JIT 验证通过
 `components::bridge::verification_context` 借用程序的上下文，以检查实际装配的后端、隔离状态和生命周期。
 
-LOH 进程策略与每 VM 输入已分离：`VmConfig` 不再携带 `process_loh_bytes`，旋钮在进程配置发布
-（`init_runtime_config` 成功一次或惰性首读）时经 `apply_process_policy` 恰好应用一次——任意后续 VM
-构造不再改写其它 VM 可见的全局策略，TLB 快路径仍只付一次静态读。
+配置门面把大对象分配门槛交给 `GcConfig`。每个堆构造时固定门槛，TLAB 和加锁分配共用该堆的块分类，
+字符串元数据缓存查询所属堆的策略。
 
 gc / object / metadata 的实现子模块可见性棘轮第一档：零 crate 外消费者的子模块（gc×12——heap 内部/
 epoch/footprint/tlab/var_region/side_bits/soft_registry/trace/types/mode/to_vm/config，metadata 的 types/

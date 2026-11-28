@@ -192,7 +192,7 @@ fn an_array_finalizer_fires_when_it_dies() {
 #[test]
 fn a_large_array_lives_in_its_own_chunk() {
     let heap = stw_heap();
-    let n = crate::gc::var_region::loh_bytes() / 8 + 1;
+    let n = heap.loh_bytes / 8 + 1;
     let a = ArrayObj::alloc_typed_filled(&heap, ElemType::intern("long"), n, Value::I64(0));
     let Value::Array(r) = a else { panic!() };
     let addr = r.var_ref().addr();

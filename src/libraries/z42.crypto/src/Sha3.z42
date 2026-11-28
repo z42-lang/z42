@@ -141,7 +141,7 @@ public static class Sha3 {
                 int laneIdx = j / 8;
                 int byteIdx = j % 8;
                 long lane = state[laneIdx];
-                out_[produced + j] = (byte)(Sha3._lshr64(lane, byteIdx * 8) & 0xFFL);
+                out_[produced + j] = (byte)((lane >>> (byteIdx * 8)) & 0xFFL);
                 j = j + 1;
             }
             produced = produced + chunk;
@@ -260,17 +260,10 @@ public static class Sha3 {
 
     // ── 64-bit bit-twiddling helpers ─────────────────────────────────────────
 
-    // i64 逻辑右移。算术 `>>` 对负数会符号扩展；掩掉引入的 1。
-    static long _lshr64(long x, int n) {
-        if (n == 0) return x;
-        if (x >= 0L) return x >> n;
-        return (x >> n) ^ ((-1L) << (64 - n));
-    }
-
     // i64 循环左移 n 位（n ∈ [0, 63]）。
     static long _rotl64(long x, int n) {
-        if (n == 0) return x;
-        return (x << n) | Sha3._lshr64(x, 64 - n);
+        // A shift by 64 uses count zero, so rotating by zero returns x.
+        return (x << n) | (x >>> (64 - n));
     }
 
     // ── Byte-order helpers (little-endian per FIPS 202 §B.1) ─────────────────

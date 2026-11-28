@@ -1,11 +1,11 @@
 // xtask — cross-zpkg e2e runner.
 //
 // Each fixture under src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/<name>/ ships z42.toml
-// packages target / [ext] / main (+ optional oldtarget/) plus expected_output.txt (or
-// expected_build_error.txt for a negative case; see that directory's README). Packages are built in
+// packages target / [ext] / main (+ optional oldtarget/). A fixture may have
+// expected_output.txt or a nonempty expected_build_error.txt. Packages are built in
 // dependency order, each <pkg>/libs/ seeded with the prior zpkgs so cross-package symbols resolve;
 // then main's zpkg runs on z42vm with a temp libs dir (stdlib + the fixture's packages) and
-// stdout+stderr is diffed against expected:
+// stdout+stderr is diffed against expected (empty when omitted):
 //   1. z42c build <target>/z42.toml   (no deps)
 //   2. z42c build <ext>/z42.toml      (deps on target)
 //   3. z42c build <main>/z42.toml     (deps on target + ext)
@@ -14,6 +14,7 @@ namespace Z42Xtask;
 
 using Std.IO;
 using Std.Collections;
+using Z42.Project;
 
 // 硬链接写穿透门。本 stage 把 stdlib **硬链接**进每个 fixture 的临时
 // `Z42_LIBS`（`_copyStdlibZpkgs`），而 `File.Copy` 是
@@ -78,7 +79,11 @@ int _testCrossZpkgImpl(string mode) {
     string driverZpkg = ts.DriverZpkg;
 
     // ── Enumerate test directories ───────────────────────────────────────
-    string[] names = _enumDirsSorted(testsDir);
+    string[] act = _enumDirsSorted(testsDir);
+    if (act.Length == 0) {
+        ConsoleError.WriteLine("error: no cross-zpkg fixture directories in " + testsDir);
+        return 1;
+    }
 
     int pass = 0;
     var failures = new List<string>();
@@ -91,21 +96,13 @@ int _testCrossZpkgImpl(string mode) {
     //
     // ⚠️ 成本由每进程 z42c 启动主导：**瓶颈是进程数，不是 I/O**（stdlib 拷贝换成硬链接实测
     // 只是噪声）。别往 I/O 方向猜。
-    var actList = new List<string>();
-    foreach (var name in names) {
-        // `expected_build_error.txt` = **期望 main 编译失败**的负例 fixture（内容 = stderr 必须包含的
-        // 子串）。两个都没有的目录不是 fixture。
-        string _fxDir = Path.Join(testsDir, name);
-        if (File.Exists(Path.Join(_fxDir, "expected_output.txt"))
-            || File.Exists(Path.Join(_fxDir, "expected_build_error.txt"))) {
-            actList.Add(name);
-        }
-    }
-    string[] act = actList.ToArray();
     int nAct = act.Length;
 
     string[] label = new string[nAct];   // "" = 仍存活；非空 = 失败标签（后续波次跳过它）
-    for (int i = 0; i < nAct; i++) { label[i] = ""; }
+    for (int i = 0; i < nAct; i++) {
+        string issue = _crossFixtureIssue(Path.Join(testsDir, act[i]));
+        label[i] = issue.Length == 0 ? "" : act[i] + " (" + issue + ")";
+    }
 
     _crossBuildWave(act, label, testsDir, "target", compileVm, driverZpkg, stdlibDist);
     // 可选 `oldtarget/` —— 与 target **同工程名**、但成员更少的
@@ -128,6 +125,24 @@ int _testCrossZpkgImpl(string mode) {
     return _fixtureSummary(pass, failures);
 }
 
+
+// Required manifests identify the case independently of its expected output.
+string _crossFixtureIssue(string dir) {
+    try {
+        foreach (var project in new string[]{ "target", "main" }) {
+            if (_findManifest(Path.Join(dir, project)).Kind != ManifestLocateKind.Project) {
+                return project + ": missing project manifest";
+            }
+        }
+        foreach (var marker in new string[]{ "expected_build_error.txt", "expected_build_warning.txt" }) {
+            string path = Path.Join(dir, marker);
+            if (File.Exists(path) && File.ReadAllText(path).Trim().Length == 0) {
+                return marker + ": expected diagnostic must be nonempty";
+            }
+        }
+        return "";
+    } catch (Exception e) { return e.Message; }
+}
 
 // ── 波次 build / run ─────────────────────────────────────────────────────
 
@@ -248,7 +263,8 @@ bool _awaitCrossRun(CrossRunZ run, string dir) {
         ok = true;
     } catch (Exception e) { error = e.Message; }
     Directory.Delete(run.Libs, true);
-    string expected = File.ReadAllText(Path.Join(dir, "expected_output.txt"));
+    string output = Path.Join(dir, "expected_output.txt");
+    string expected = File.Exists(output) ? File.ReadAllText(output) : "";
     if (ok && actual == expected) { return true; }
     Console.WriteLine("  ── " + Path.GetFileName(dir) + " ──");
     if (error.Length > 0) { Console.WriteLine("    run: " + error); }

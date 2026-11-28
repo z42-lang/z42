@@ -38,6 +38,13 @@ void _flowScopeChecks(FlowConfig cfg) {
             && !_strIn(flags, "runtime_checks") && !_strIn(flags, "sdk_checks"),
             "VM golden executor validates interp and JIT without unrelated jobs: " + file);
     }
+    foreach (var file in new string[]{ "scripts/src/test/e2e/cross_zpkg.z42", "scripts/src/test/e2e/cross_discovery_selfcheck.z42" }) {
+        FlowPlan p = _flowSelect(cfg, new string[]{ file }, root);
+        string[] flags = _flowOutputs(cfg, p);
+        _gateAssert(!p.Full && !p.Publish && _strIn(flags, "host_checks") && flags.Length == 1
+            && _strIn(_flowLocalCommands(cfg, p), "xtask check xtask") && _ciBenchOnly(cfg, new string[]{ file }, root),
+            "cross-zpkg executor selects host verification without platform, packaging or benchmarks: " + file);
+    }
     foreach (var file in new string[]{ "scripts/src/common/harness/tooling.z42", "scripts/src/common/harness/package_units.z42", "scripts/src/test/tooling.z42", "scripts/src/test/toolchain/example_build.z42" }) {
         string[] flags = _flowOutputs(cfg, _flowSelect(cfg, new string[]{ file }, root));
         bool shared = !file.Contains("/toolchain/");

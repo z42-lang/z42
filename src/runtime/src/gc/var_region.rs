@@ -79,12 +79,9 @@ mod objects;
 use crate::object::header::block::{BlockType, GcBlockHeader, PayloadDropGlue};
 pub use objects::{DetachedBlock, VarMinorSweep};
 use crate::object::header::block::payload_ptr_of;
-pub(crate) use chunk::{class_for, dedicated_free_count, may_be_dedicated, OVERSIZED_CLASS};
+pub(crate) use chunk::{class_for, class_for_with_limit, dedicated_free_count, resolve_loh_bytes, OVERSIZED_CLASS};
 use crate::object::header::block::{ALIVE_GEN_BIT, FIRST_GEN};
 use chunk::payload_class;
-pub use chunk::set_loh_bytes;
-#[cfg(test)]
-pub use chunk::loh_bytes;
 pub use chunk::VarChunkClaim;
 #[cfg(test)]
 pub use chunk::VarChunkReclaim;
@@ -373,15 +370,25 @@ impl VarRegion {
         }
     }
 
-    /// Allocate a block with `payload` bytes of the given `block_type`. Returns a stable 8-byte
+    #[cfg(all(test, z42_test_facade))]
+    fn alloc(&mut self, payload: usize, block_type: BlockType) -> VarGcRef {
+        let (footprint, size_class) = class_for(payload);
+        self.alloc_classified(payload, block_type, footprint, size_class)
+    }
+
+    /// Allocate a block classified by the owning heap. Returns a stable 8-byte
     /// [`VarGcRef`]. The payload is **zero-initialized**; the caller writes into it via
     /// [`VarGcRef::payload_mut`].
     ///
     /// Fast path: reuse a same-size-class tombstoned slot (its generation was bumped at
     /// tombstone, so the returned handle carries the current generation). Slow path: bump.
-    pub fn alloc(&mut self, payload: usize, block_type: BlockType) -> VarGcRef {
-        let (footprint, size_class) = class_for(payload);
-
+    pub(super) fn alloc_classified(
+        &mut self,
+        payload: usize,
+        block_type: BlockType,
+        footprint: usize,
+        size_class: u8,
+    ) -> VarGcRef {
         // Fast path: reuse a tombstoned slot of the same class.
         //
         // **lazy-var-free-list **: a loop rather than one `pop`, because entries
