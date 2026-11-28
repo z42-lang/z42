@@ -2,7 +2,7 @@ use anyhow::Result;
 use std::path::PathBuf;
 use crate::pal::fs::Vfs;
 use crate::metadata::Module;
-use crate::loader::locate::namespace_index;
+use crate::loader::locate::namespace_index::NamespaceLookup;
 
 // ── Namespace resolution ──────────────────────────────────────────────────────
 
@@ -11,31 +11,10 @@ use crate::loader::locate::namespace_index;
 /// Multiple zpkgs may legitimately declare the same namespace (C# assembly
 /// model). Returns **all** matching `.zpkg` files under `libs_paths`.
 ///
-/// Used by compiler tooling and diagnostics. The VM's lazy loader no longer
-/// routes by namespace; it uses zpkg file names (`resolve_dependency`).
-///
-/// retire-z42-path : 此前还有一个 `module_paths` 参数，用来先扫散装 `.zbc`
-/// 并**覆盖** `libs_paths` 里的 zpkg。那一级由 `Z42_PATH` 供给，而 `Z42_PATH` 解析出来只
-/// 进日志 ⇒ **五个生产调用方全传 `&[]`**，覆盖语义从未生效过。旋钮退役时连参数一起删。
+/// Provides a one-shot query for tooling. Loads with legacy namespace imports share a lookup.
 pub fn resolve_namespace(fs: &dyn Vfs, ns: &str, libs_paths: &[PathBuf]) -> Result<Vec<PathBuf>> {
-    // Delegates the disk scan + NSPC parse to the stateless `namespace_index`
-    // primitive; this resolver is the *transient* consumer — it filters by exact
-    // namespace match and drops the candidates on return (refactor-metadata-
-    // namespace-index, runtime_review #6 step 2). The lazy loader is the
-    // *retaining* consumer of the same primitive.
-    Ok(matching_paths(namespace_index::scan_zpkg_candidates(fs, libs_paths), ns))
-}
-
-/// Exact-match filter over scanned candidates → their paths, deduplicated in
-/// first-seen order. The module-path-over-libs override lives in the caller.
-fn matching_paths(candidates: Vec<namespace_index::ZpkgCandidate>, ns: &str) -> Vec<PathBuf> {
-    let mut found: Vec<PathBuf> = Vec::new();
-    for cand in candidates {
-        if cand.namespaces.iter().any(|n| n == ns) && !found.contains(&cand.file_path) {
-            found.push(cand.file_path);
-        }
-    }
-    found
+    let mut lookup = NamespaceLookup::new(fs, libs_paths);
+    Ok(lookup.matching(ns).map(|candidate| candidate.file_path.clone()).collect())
 }
 
 /// Resolve a zpkg dependency by its file name (e.g. `"z42.collections.zpkg"`).

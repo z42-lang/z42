@@ -706,12 +706,10 @@ struct ZpkgCandidate {
 ```
 
 > **解析 vs 生命周期分层**：
-> `ZpkgCandidate` 与「扫目录 → 逐 zpkg 读 NSPC → 建 namespace↔path 候选」这段
-> **无状态解析**逻辑住在 `loader/locate/namespace_index.rs`（`scan_zpkg_candidates` /
-> `scan_zbc_candidates`，返回 owned 候选）。两个消费者按「弃/留」分工同一原语：
-> **loader**（`resolve_namespace`，编译期工具/诊断）扫完精确匹配即 **drop** 候选（transient）；
-> **lazy_loader** 把候选**留存**进 `declared_zpkgs`、配 `loaded_zpkgs` 管加载/释放
-> 生命周期（retaining）。生命周期不进原语——「何时加载/加载什么/何时释放」只在 lazy_loader。
+> `loader/locate/namespace_index.rs` 扫描各搜索目录，从 zpkg 的 NSPC 段提取候选。
+> 一次加载中的裸 `.zbc` 命名空间查询共享延迟建立的候选快照，首次查询时扫描，后续按命名空间精确匹配。
+> 搜索目录顺序优先，同目录按文件名排序。快照随本次查询操作释放，后续加载可以发现新包。
+> 已声明的文件依赖按包名定位。按需加载候选由 `declared_zpkgs` 和 `loaded_zpkgs` 管理。
 
 ### Call miss 触发策略（引用表精确路由 → 策略 C → 回退 B）
 
@@ -998,12 +996,12 @@ needs_fixup = td.fields.len() != expected || td.vtable.len() != expected_v
 
 ## resolve_namespace / resolve_dependency 的分工
 
-位置：`src/runtime/src/loader/`
+位置 `src/runtime/src/loader/locate/namespace.rs`
 
 | 函数 | 签名 | 语义 | 调用方 |
 |------|------|------|--------|
-| `resolve_namespace(ns, libs_paths)` | `-> Result<Vec<PathBuf>>` | 返回**所有**声明该 namespace 的 zbc/zpkg 文件（不 bail on ambiguous）| 编译期诊断 / 启动依赖反查 (.zbc → zpkg) |
-| `resolve_dependency(zpkg_file, libs_paths)` | `-> Result<Option<PathBuf>>` | 按 zpkg 文件名直接查找 | LazyLoader 内部（按文件名精确定位）|
+| `resolve_namespace(fs, ns, libs_paths)` | `-> Result<Vec<PathBuf>>` | 返回所有声明该 namespace 的 zpkg 路径 | 编译工具与诊断的单次查询 |
+| `resolve_dependency(zpkg_file, libs_paths)` | `-> Result<Option<PathBuf>>` | 在本地文件系统按 zpkg 文件名直接查找 | 按文件名定位的调用方 |
 
 **设计权衡**：`resolve_namespace` 保留（返回所有声明者而非 bail），而非彻底删除。
 理由：编译器 / 诊断工具仍可能问"哪些 zpkg 提供某 namespace"，保留此 API

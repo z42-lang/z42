@@ -37,7 +37,6 @@ use crate::metadata::Function;
 use crate::loader::package::{decode_program_file_with_fusion, decode_program_bytes_with_fusion, DecodedProgram};
 use super::fusion_inputs::FusionInputSource;
 use crate::object::TypeDesc;
-use crate::loader::locate::namespace_index;
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
