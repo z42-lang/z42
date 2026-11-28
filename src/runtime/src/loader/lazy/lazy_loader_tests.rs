@@ -236,13 +236,15 @@ fn fixture_zpkg() -> PathBuf {
 fn dependency_candidates_require_the_declared_file_name() {
     use crate::loader::dependency_candidates::build_declared_candidates;
     use crate::loader::test_support::empty_zbc;
-    use crate::pal::fs::MemoryFs;
+    use crate::pal::fs::LocalFs;
     use crate::zpkg::format::ZpkgDep;
 
-    let fs = MemoryFs::new();
-    let bytes = std::fs::read(fixture_zpkg()).unwrap();
-    let dirs = [PathBuf::from("/libs")];
-    fs.mount("/libs/other.zpkg", bytes.clone());
+    let dir = std::env::temp_dir().join(format!("z42-declared-dependency-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let other = dir.join("other.zpkg");
+    let chosen = dir.join("chosen.zpkg");
+    std::fs::copy(fixture_zpkg(), &other).unwrap();
+    let dirs = std::slice::from_ref(&dir);
 
     let mut entry = crate::loader::decode_program_bytes(&empty_zbc()).unwrap();
     entry.dependencies.push(ZpkgDep {
@@ -250,11 +252,15 @@ fn dependency_candidates_require_the_declared_file_name() {
         namespaces: vec!["Demo.Minimal".into()],
         symbols: vec![],
     });
-    let candidates = build_declared_candidates(&fs, &entry, &dirs, &[]);
-    assert!(candidates.is_empty());
+    let same_namespace = crate::loader::resolve_namespace(&LocalFs, "Demo.Minimal", dirs).unwrap();
+    let with_missing_file = build_declared_candidates(&LocalFs, &entry, dirs, &[]);
 
-    fs.mount("/libs/chosen.zpkg", bytes);
-    let candidates = build_declared_candidates(&fs, &entry, &dirs, &[]);
+    std::fs::copy(&other, chosen).unwrap();
+    let candidates = build_declared_candidates(&LocalFs, &entry, dirs, &[]);
+    std::fs::remove_dir_all(&dir).unwrap();
+
+    assert_eq!(same_namespace, vec![other]);
+    assert!(with_missing_file.is_empty());
     assert_eq!(candidates.len(), 1);
     assert_eq!(candidates[0].0, "chosen.zpkg");
 }
@@ -272,8 +278,9 @@ fn missing_exact_symbol_owner_does_not_load_other_candidates() {
         .expect("fixture entry")
         .name.clone();
     let type_name = "Demo.Minimal.Greeter";
-    fs.mount("/libs/other.zpkg", bytes);
-    let dirs = vec![PathBuf::from("/libs")];
+    let dir = PathBuf::from("/libs");
+    fs.mount(dir.join("other.zpkg").to_str().unwrap(), bytes);
+    let dirs = vec![dir];
     let other = ZpkgCandidate::build_in_dirs(&*fs, &dirs, "other.zpkg").unwrap();
     let mut loader = LazyLoader::new(dirs, 0, vec![("other.zpkg".into(), other)], vec![]);
     loader.vfs = fs;
