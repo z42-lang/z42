@@ -15,7 +15,7 @@ public sealed partial class ExprEmitter {
             int slot = call.UnionArgumentOrder[i];
             UnionStorageField field = branch.Fields[slot];
             TypedReg value = this.Emit(call.Args[slot]);
-            TypedReg bits = this._unionPayloadBits(value);
+            TypedReg bits = this._unionPayloadBits(value, field.Type);
             TypedReg masked = this._unionMask(bits, field.Size);
             TypedReg shifted = this._ctx.Alloc(IrType.I64);
             this._ctx.Emit(new ShlInstr(shifted, masked, this._unionI64((long)(layout.PayloadOffset + field.Offset) * 8L)));
@@ -49,9 +49,13 @@ public sealed partial class ExprEmitter {
         if (tag == IrType.Bool) {
             TypedReg bits = this._unionMask(shifted, field.Size);
             this._ctx.Emit(new EqInstr(result, bits, this._unionI64(1L)));
+        } else if (tag == IrType.F32 || tag == IrType.F64) {
+            string intrinsic = tag == IrType.F32 ? "__single_from_bits" : "__double_from_bits";
+            this._ctx.Emit(new BuiltinInstr(result, intrinsic, new TypedReg[] { shifted }, 1));
         } else {
-            // The target integer conversion truncates to the field width and restores its signedness.
-            this._ctx.Emit(new ConvertInstr(result, shifted));
+            // Character conversion checks the code point, so remove adjacent fields first.
+            TypedReg bits = tag == IrType.Char ? this._unionMask(shifted, field.Size) : shifted;
+            this._ctx.Emit(new ConvertInstr(result, bits));
         }
         return result;
     }
@@ -65,7 +69,7 @@ public sealed partial class ExprEmitter {
             int slot = call.UnionArgumentOrder[i];
             UnionStorageField field = branch.Fields[slot];
             int offset = layout.PayloadOffset + field.Offset;
-            TypedReg value = this._unionPayloadBits(this.Emit(call.Args[slot]));
+            TypedReg value = this._unionPayloadBits(this.Emit(call.Args[slot]), field.Type);
             int at = offset / width;
             int shift = (offset % width) * 8;
             TypedReg bits = this._unionMask(value, field.Size);
@@ -131,9 +135,15 @@ public sealed partial class ExprEmitter {
         return copy;
     }
 
-    private TypedReg _unionPayloadBits(TypedReg value) {
+    private TypedReg _unionPayloadBits(TypedReg value, Z42Type type) {
         TypedReg result = this._ctx.Alloc(IrType.I64);
-        if (value.Type != IrType.Bool) {
+        int tag = this._ctx.ToIrType(type);
+        if (tag == IrType.F32 || tag == IrType.F64) {
+            string intrinsic = tag == IrType.F32 ? "__single_to_bits" : "__double_to_bits";
+            this._ctx.Emit(new BuiltinInstr(result, intrinsic, new TypedReg[] { value }, 1));
+            return result;
+        }
+        if (tag != IrType.Bool) {
             this._ctx.Emit(new ConvertInstr(result, value));
             return result;
         }

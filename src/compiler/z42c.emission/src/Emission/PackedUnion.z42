@@ -22,8 +22,8 @@ internal static class PackedUnion {
     private static string _packageError(SymbolTable symbols) {
         foreach (var owner in symbols.SortedClasses()) {
             if (owner.IsImported) { continue; }
-            if (owner.UnionCases != null && (owner.UnionStorage == null || !owner.UnionStorage.SupportsIntegralStorage())) {
-                return "union `" + owner.Fqn() + "` requires a concrete integer or boolean payload layout";
+            if (owner.UnionCases != null && (owner.UnionStorage == null || !owner.UnionStorage.SupportsScalarStorage())) {
+                return "union `" + owner.Fqn() + "` requires a concrete scalar payload layout";
             }
             foreach (var name in owner.Fields.Keys()) {
                 var field = owner.Fields.Get(name) as FieldSymbol;
