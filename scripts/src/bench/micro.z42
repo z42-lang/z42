@@ -35,6 +35,7 @@ int _benchMicroAbRun(string root, BenchCommand cmd, MicroCapture capture) {
     Console.WriteLine("micro scope: " + (owners.Length > 0 ? owners : "all packages"));
     string dir = _benchDir(root); Directory.Create(dir);
     var pr = new List<string>(); var baseline = new List<string>();
+    var firstSuspects = new List<MicroBenchmarkKey>();
     var diff = new BenchCommand();
     diff.ThresholdTime = cmd.ThresholdTime.Length > 0 ? cmd.ThresholdTime : "0.15";
     string suspects = Path.Join(dir, "micro-suspects.txt");
@@ -43,29 +44,19 @@ int _benchMicroAbRun(string root, BenchCommand cmd, MicroCapture capture) {
     if (File.Exists(regressions)) { File.Delete(regressions); }
     // Rounds 2+ recapture only the suspects' packages (fail-safe: an unmappable
     // suspect name keeps the full scope). The resampled verdict requires every
-    // gated entry in every round, so the narrowed rounds cannot blind the gate.
+    // first-round suspect in every round, including the confirmation window.
     string resampleOwners = "";
     for (int round = 1; round <= 3; round = round + 1) {
         string suffix = round == 1 ? ".json" : "-r" + round.ToString() + ".json";
         string current = Path.Join(dir, "micro-pr" + suffix); pr.Add(current);
         string previous = Path.Join(dir, "micro-base" + suffix); baseline.Add(previous);
         string scope = round == 1 ? owners : resampleOwners;
-        foreach (var head in new bool[]{ true, false }) {
-            string tree = head ? cmd.PrTree : cmd.BaseTree;
-            string vm = head ? cmd.PrVm : cmd.BaseVm;
-            string libs = _microPath(root, head ? cmd.PrLibs : cmd.BaseLibs);
-            string driver = head ? cmd.PrDriver : cmd.BaseDriver;
-            string output = head ? current : previous;
-            if (File.Exists(output)) { File.Delete(output); }
-            int rc = capture.Capture(_microPath(root, tree), _microPath(root, vm), libs,
-                driver.Length > 0 ? _microPath(root, driver) : Path.Join(libs, "z42c.driver.zpkg"), output, scope);
-            if (rc != 0) { return rc; }
-            if (!File.Exists(output)) { ConsoleError.WriteLine("micro capture did not write " + output); return 2; }
-        }
+        int rc = _microCapturePair(root, cmd, capture, round, current, previous, scope);
+        if (rc != 0) { return rc; }
         if (round == 2) { continue; }
         diff.Current = String.Join(",", pr.ToArray()); diff.Baseline = String.Join(",", baseline.ToArray());
         diff.Suspects = round == 1 ? suspects : regressions;
-        int verdict = _benchMicroDiff(diff);
+        int verdict = round == 1 ? _benchMicroDiff(diff, null, firstSuspects) : _benchMicroDiff(diff, firstSuspects);
         if (verdict > 1) { return verdict; }
         if (round == 1) {
             if (!File.Exists(suspects)) { throw new Exception("micro round 1 did not write suspects"); }
@@ -84,27 +75,36 @@ int _benchMicroAbRun(string root, BenchCommand cmd, MicroCapture capture) {
                 Console.WriteLine("── single flagged regression; one confirmation round (verdict over rounds 2-4) ──");
                 string r4pr = Path.Join(dir, "micro-pr-r4.json"); pr.RemoveAt(0);
                 string r4base = Path.Join(dir, "micro-base-r4.json"); baseline.RemoveAt(0);
-                foreach (var head in new bool[]{ true, false }) {
-                    string tree = head ? cmd.PrTree : cmd.BaseTree;
-                    string vm = head ? cmd.PrVm : cmd.BaseVm;
-                    string libs = _microPath(root, head ? cmd.PrLibs : cmd.BaseLibs);
-                    string driver = head ? cmd.PrDriver : cmd.BaseDriver;
-                    string output = head ? r4pr : r4base;
-                    if (File.Exists(output)) { File.Delete(output); }
-                    int rc = capture.Capture(_microPath(root, tree), _microPath(root, vm), libs,
-                        driver.Length > 0 ? _microPath(root, driver) : Path.Join(libs, "z42c.driver.zpkg"), output, resampleOwners);
-                    if (rc != 0) { return rc; }
-                    if (!File.Exists(output)) { ConsoleError.WriteLine("micro capture did not write " + output); return 2; }
-                }
+                rc = _microCapturePair(root, cmd, capture, 4, r4pr, r4base, resampleOwners);
+                if (rc != 0) { return rc; }
                 pr.Add(r4pr); baseline.Add(r4base);
                 diff.Current = String.Join(",", pr.ToArray()); diff.Baseline = String.Join(",", baseline.ToArray());
                 diff.Suspects = "";
-                return _benchMicroDiff(diff);
+                return _benchMicroDiff(diff, firstSuspects);
             }
             return verdict;
         }
     }
     return 2;
+}
+
+int _microCapturePair(
+    string root, BenchCommand cmd, MicroCapture capture, int round, string current, string previous, string owners
+) {
+    bool prFirst = _abPrFirst(true, round);
+    foreach (var head in new bool[]{ prFirst, !prFirst }) {
+        string tree = head ? cmd.PrTree : cmd.BaseTree;
+        string vm = head ? cmd.PrVm : cmd.BaseVm;
+        string libs = _microPath(root, head ? cmd.PrLibs : cmd.BaseLibs);
+        string driver = head ? cmd.PrDriver : cmd.BaseDriver;
+        string output = head ? current : previous;
+        if (File.Exists(output)) { File.Delete(output); }
+        int rc = capture.Capture(_microPath(root, tree), _microPath(root, vm), libs,
+            driver.Length > 0 ? _microPath(root, driver) : Path.Join(libs, "z42c.driver.zpkg"), output, owners);
+        if (rc != 0) { return rc; }
+        if (!File.Exists(output)) { ConsoleError.WriteLine("micro capture did not write " + output); return 2; }
+    }
+    return 0;
 }
 
 int _countLines(string text) {

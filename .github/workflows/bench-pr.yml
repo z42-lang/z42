@@ -258,7 +258,7 @@ jobs:
               --pr-libs     "${{ steps.prepare.outputs.head_libs }}" \
               --pr-driver   "${{ steps.prepare.outputs.head_driver }}"
 
-      # The native gate captures whole rounds in head/base order and resamples
+      # The native gate alternates the side that runs first each round and resamples
       # suspicious results twice, sharing the same policy with local development.
       - name: Micro A/B gate (symmetric capture; resample-on-suspicion; >15% time fails)
         if: ${{ success() && steps.scope.outputs.bench_stdlib == 'true' && steps.fmtgap.outputs.gap == '0' && steps.prepare.outcome == 'success' }}
