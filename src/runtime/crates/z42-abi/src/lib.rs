@@ -201,19 +201,5 @@ unsafe extern "C" {
         type_name: *const c_char,
     ) -> Z42TypeRef;
 
-    pub fn z42_invoke(
-        ty: Z42TypeRef,
-        method: *const c_char,
-        args: *const Z42Value,
-        arg_count: usize,
-    ) -> Z42Value;
-
-    pub fn z42_invoke_method(
-        receiver: Z42Value,
-        method: *const c_char,
-        args: *const Z42Value,
-        arg_count: usize,
-    ) -> Z42Value;
-
     pub fn z42_last_error() -> Z42Error;
 }

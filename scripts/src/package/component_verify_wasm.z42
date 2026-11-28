@@ -20,7 +20,7 @@ int _componentWasmVerify(string root, string pkg, string zbc, string work) {
         if (profiler) { compile = compile.Arg("--cfg").Arg("profiler"); }
         int c = _exec(compile); if (c != 0) { return c; }
         Process link = new Process(lld).Arg("-flavor").Arg("wasm").Arg("--no-entry")
-            .Arg("--export=input").Arg("--export=index_package").Arg("--export=run").Arg("--export-memory")
+            .Arg("--export=input").Arg("--export=run").Arg("--export-memory")
             .Arg("--allow-undefined").Arg("-z").Arg("stack-size=16777216").Arg(obj)
             .Arg(Path.Join(native, "libz42_interp.a"));
         if (compression) { link = link.Arg(Path.Join(native, "libz42_compression.a")); }

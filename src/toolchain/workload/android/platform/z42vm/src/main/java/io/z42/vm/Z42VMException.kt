@@ -18,7 +18,6 @@ class Z42VMException(
         const val BAD_CONFIG      = 3
         const val FEATURE_OFF     = 4
         const val BAD_ZBC         = 10
-        const val VERIFICATION    = 11
         const val ENTRY_NOT_FOUND = 20
         const val ARG_MISMATCH    = 21
         const val VM_EXCEPTION    = 30

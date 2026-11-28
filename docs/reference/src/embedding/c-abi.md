@@ -33,9 +33,7 @@ typedef struct Z42Entry*  Z42EntryRef;    /* 解析后的入口 */
 三种句柄都是**不透明**的。成功的调用返回非 NULL 句柄，调用方不得解引用、比较大小或跨进程传递。
 `z42_host_shutdown` 使该会话的 Host、Module 和 Entry 句柄失效。即使已重新初始化，使用旧句柄调用会话操作也返回 `ERR_NOT_INIT`。
 
-**ABI 演进规则**：`abi_version` 永远在偏移 0；新字段只往结构体尾部追加，不重排；主版本号变更 = 显式 break。
-调用方必须把 `struct_size` 设为 `sizeof(Z42HostConfig)`：运行时只读 `struct_size` 覆盖到的尾部字段，用老头文件编译的调用方不会被越界读，新字段对它们等于「没配置」。
-各平台使用同一份配置。调用方将 `abi_version` 设为头文件提供的 `Z42_HOST_ABI_VERSION`，运行时发现版本不匹配时返回 `ERR_BAD_CONFIG`。
+各平台使用同一份配置。调用方将偏移 0 的 `abi_version` 设为头文件提供的 `Z42_HOST_ABI_VERSION`，并将 `struct_size` 设为 `sizeof(Z42HostConfig)`。同一布局版本的新增字段附加在尾部，运行时只读取声明尺寸覆盖的字段。头文件和运行库的布局版本必须匹配，旧布局会在读取配置字段前收到 `ERR_BAD_CONFIG`。
 
 ---
 
@@ -51,23 +49,11 @@ typedef enum Z42ExecMode {
 
 typedef void (*Z42WriteSink)(const char* bytes, size_t length, void* user_data);
 
-typedef int (*Z42ZpkgResolverFn)(
-    const char*     namespace_name,
-    const uint8_t** out_bytes,
-    size_t*         out_length,
-    void*           user_data);
-
-typedef int (*Z42ZpkgByteSink)(const uint8_t* bytes, size_t length, void* write_data);
-typedef int (*Z42ZpkgResolverWriteFn)(const char* namespace_name, Z42ZpkgByteSink write,
-                                    void* write_data, void* user_data);
-
 typedef struct Z42HostConfig {
     uint32_t      abi_version;        /* 必须 == Z42_HOST_ABI_VERSION */
     uint32_t      struct_size;        /* 必须 == sizeof(Z42HostConfig) */
 
     Z42ExecMode   exec_mode;
-    size_t        heap_initial_bytes;
-    size_t        heap_max_bytes;
 
     Z42WriteSink  stdout_sink;        /* NULL = 真 stdout */
     Z42WriteSink  stderr_sink;        /* NULL = 真 stderr */
@@ -75,9 +61,6 @@ typedef struct Z42HostConfig {
 
     const char* const* search_paths;  /* NULL 结尾的字符串数组；NULL = 只走内存 */
 
-    Z42ZpkgResolverFn  zpkg_resolver;
-    void*              zpkg_resolver_user_data;
-    Z42ZpkgResolverWriteFn zpkg_resolver_write;
     Z42FileResolverFn file_resolver;
     void* file_resolver_user_data;
 } Z42HostConfig;
@@ -88,11 +71,10 @@ typedef struct Z42HostConfig {
 | `abi_version` | 不等于 `Z42_HOST_ABI_VERSION` → `ERR_BAD_CONFIG` |
 | `struct_size` | 调用方编译时的 `sizeof(Z42HostConfig)`。小于要求的前缀 `Z42_HOST_CONFIG_MIN_SIZE` 时返回 `ERR_BAD_CONFIG` |
 | `exec_mode` | 值不在 0–3 → `ERR_BAD_CONFIG`；`JIT` 未开启构建能力或平台不支持 → `ERR_FEATURE_OFF`；组件来源在加载程序时校验，缺失或不兼容返回 `ERR_BAD_ZBC`；`AOT` 未开启对应 feature 也返回此错误。`Default` 使用构建默认后端，`Interp` 使用解释器，`JIT` 使用 JIT；AOT 尚未实现，执行时明确返回错误 |
-| `heap_initial_bytes` / `heap_max_bytes` | **当前被忽略**，填 0 即可 |
 | `stdout_sink` / `stderr_sink` | 见 [stdout / stderr 重定向](#stdout--stderr-重定向) |
 | `sink_user_data` | 原样透传给上面两个回调。一份 config 只有一个，两个 sink 共用；要分开就 init 之后用 `z42_host_set_*_sink` 各设各的 |
 | `search_paths` | 每个元素是一个**目录**。`z42.core.zpkg` 在哪个目录里被找到，哪个目录就是 stdlib 的 `libs/`，`using` 到的其他 zpkg 也从那里找。数组必须 NULL 结尾，且长度不超过 4096（否则 `ERR_BAD_CONFIG`）；路径必须是合法 UTF-8 |
-| `file_resolver` / `file_resolver_user_data` | 可选的[文件 resolver 回调](#文件-resolver-回调)及其宿主数据。旧配置的命名空间回调通过 ABI 适配层保留 |
+| `file_resolver` / `file_resolver_user_data` | 可选的[文件 resolver 回调](#文件-resolver-回调)及其宿主数据 |
 
 `search_paths` 为空且没给 resolver 也是合法的——只是任何用到 stdlib 的 z42 代码会在 `invoke` 时失败。
 
@@ -102,7 +84,7 @@ typedef struct Z42HostConfig {
 
 ## 状态码
 
-除 `z42_host_run_app` 外，每个函数都返回 `Z42HostStatus`：
+宿主操作使用以下状态码。
 
 ```c
 typedef enum Z42HostStatus {
@@ -112,7 +94,6 @@ typedef enum Z42HostStatus {
     Z42_HOST_ERR_BAD_CONFIG      = 3,
     Z42_HOST_ERR_FEATURE_OFF     = 4,
     Z42_HOST_ERR_BAD_ZBC         = 10,
-    Z42_HOST_ERR_VERIFICATION    = 11,
     Z42_HOST_ERR_ENTRY_NOT_FOUND = 20,
     Z42_HOST_ERR_ARG_MISMATCH    = 21,
     Z42_HOST_ERR_VM_EXCEPTION    = 30,
@@ -126,10 +107,9 @@ typedef enum Z42HostStatus {
 | `OK` (0) | 成功。副作用：清空本线程的 last_error（`code` 归 0、`message` 变空串） |
 | `ERR_ALREADY_INIT` (1) | 进程内已有活着的 VM 时再次 `initialize` |
 | `ERR_NOT_INIT` (2) | 未初始化（或已 shutdown）时调用任何需要 VM 的 API，含拿失效句柄调用 |
-| `ERR_BAD_CONFIG` (3) | `cfg == NULL`、`out_host == NULL`、`abi_version` 不匹配、`struct_size` 过小、`exec_mode` 越界、`search_paths` 非法（含非 UTF-8 路径、数组超 4096 项）、`search_paths` 里的 `z42.core.zpkg` 解析不了；另外 `resolve_entry` 的 `fqn == NULL` 或非 UTF-8、`shutdown` 的 `host == NULL`、`z42_zpkg_read_namespaces` 的 `visit == NULL` 也归这一档 |
+| `ERR_BAD_CONFIG` (3) | `cfg == NULL`、`out_host == NULL`、`abi_version` 不匹配、`struct_size` 过小、`exec_mode` 越界、`search_paths` 非法（含非 UTF-8 路径、数组超 4096 项）、`search_paths` 里的 `z42.core.zpkg` 解析不了；另外 `resolve_entry` 的 `fqn == NULL` 或非 UTF-8、`shutdown` 的 `host == NULL`也归这一档 |
 | `ERR_FEATURE_OFF` (4) | 请求 `JIT`，但构建未开启或平台不支持；或请求未开启的 `AOT` feature |
 | `ERR_BAD_ZBC` (10) | 字节不是可解析的 `.zbc` / `.zpkg`；`bytes == NULL` 而 `length != 0`；依赖 zpkg 解析失败；程序准备所需组件缺失或不兼容；**IR 约束校验失败也走这一档** |
-| `ERR_VERIFICATION` (11) | **当前运行时从不返回**。枚举值保留，宿主不必为它写分支 |
 | `ERR_ENTRY_NOT_FOUND` (20) | FQN 不在模块的函数表里；`module` 句柄为 NULL；`invoke` 的 `entry` 句柄为 NULL |
 | `ERR_ARG_MISMATCH` (21) | 实参个数与入口签名不符；`args == NULL` 而 `n != 0`；实参或返回值的 `Z42Value` tag 不受支持 |
 | `ERR_VM_EXCEPTION` (30) | z42 侧 `throw` 跨出入口顶层；静态初始化抛异常；调用到未解析的符号（stdlib 没找到时的典型表现） |
@@ -164,7 +144,7 @@ Z42HostStatus z42_host_initialize(const Z42HostConfig* cfg, Z42HostRef* out_host
 所以调用方不需要自己预清零。`shutdown` 之后可以再 `initialize`（可以反复循环），
 但两个宿主会话**不能同时**存在——第二次会拿到 `ERR_ALREADY_INIT`。
 
-初始化只检查执行模式的构建与平台支持，不搜索或打开执行组件库。缺库、入口及组件协议错误由 `load_zbc` 报告。
+初始化只检查执行模式的构建与平台支持，不搜索或打开执行组件库。缺库、入口及组件协议错误由 `load_bytes` 报告。
 
 内部已串行化，从多个线程同时调用不会数据竞争；但语义上只有一个会赢。
 
@@ -179,7 +159,7 @@ Z42HostStatus z42_host_load_bytes(Z42HostRef host, const char* file_name,
 ```
 
 `bytes` 可传裸 `.zbc` 或包含模块内容的 `.zpkg`，缓冲只需在调用期间有效。
-传入逻辑文件名可让 Runtime 发现应用的侧车。已有的 `z42_host_load_zbc` 按无文件名的字节调用处理。
+传入逻辑文件名可让配置的文件 resolver 发现应用配置和裸 ZBC 的依赖清单。匿名加载传 NULL。
 `out_module` 可以为 NULL。
 
 ### `z42_host_resolve_entry`
@@ -285,15 +265,12 @@ Z42HostStatus z42_host_set_stderr_sink(Z42HostRef host, Z42WriteSink sink, void*
 ZPKG 的依赖名来自包清单。裸 ZBC 的精确依赖来自 `z42c --emit-zbc` 生成的 `.zbc.deps`，部署时与字节码一起提供。
 Resolver 读取依赖时使用清单里的名称。缺失的可选依赖仍可按原有延迟加载行为诊断。
 
-旧调用者可继续使用原配置前缀及其命名空间回调。配置 `file_resolver` 时，按文件名加载，旧回调由 ABI 兼容层保留。
-`z42_zpkg_read_namespaces` 可查询包名和命名空间元数据。visitor 接收调用期内有效的 UTF-8 字节。
-
 ---
 
 ## 一次性入口：`z42_host_run_app`
 
 ```c
-int z42_host_run_app(const char* app_zpkg, const char* entry,
+int z42_host_run_app(const char* app_path, const char* entry,
                      const char* libs_dir, int argc, const char* const* argv);
 ```
 
@@ -302,7 +279,7 @@ int z42_host_run_app(const char* app_zpkg, const char* entry,
 
 | 参数 | 语义 |
 |---|---|
-| `app_zpkg` | app 产物路径。必填，NULL 直接失败 |
+| `app_path` | app 产物路径。必填，NULL 直接失败 |
 | `entry` | 覆盖入口 FQN；NULL = 用产物里记录的入口 |
 | `libs_dir` | stdlib `libs/` 目录（放着 `z42.core.zpkg` 及依赖）；可为 NULL |
 | `argc` / `argv` | 转发给 app 的 `GetCommandLineArgs()` |
@@ -313,7 +290,7 @@ int z42_host_run_app(const char* app_zpkg, const char* entry,
 |---|---|
 | 0 | 正常跑完 |
 | 1 | 加载或运行出错（消息已打到 stderr） |
-| 2 | `app_zpkg` 为 NULL |
+| 2 | `app_path` 为 NULL |
 | 70 | VM 线程 panic / panic 跨过 FFI 线 |
 | 71 | 起 VM 线程失败 |
 
@@ -429,12 +406,10 @@ CPU 采样和堆分析由可选的 profiler 组件提供。静态组装时按需
 | 多 VM 实例 | 每进程一个。第二次 `initialize` 返回 `ERR_ALREADY_INIT`。`shutdown` 后可重来，但不能并存 |
 | `invoke` 传 / 收 `string`、数组、对象 | 只支持 `Z42_VALUE_TAG_NULL` / `_I64` / `_F64` / `_BOOL`。其他 tag 一律 `ERR_ARG_MISMATCH` |
 | 实参**类型**检查 | 只查个数和 tag 支持度，不比对声明类型 |
-| `heap_initial_bytes` / `heap_max_bytes` | 被忽略。堆上限请用运行时设置那套旋钮 |
 | 从宿主 catch z42 异常对象 | 只有 `ERR_VM_EXCEPTION` + `last_error` 里的消息串，拿不到异常对象本身 |
 | 异步 / 协程式 invoke | 没有。`invoke` 一律同步；UI 线程切换由宿主自己做 |
 | 运行时自动加锁 | 没有。并发调用要宿主自己串行化 |
 | 卸载单个 module | 没有。只能整个 `shutdown` |
-| `ERR_VERIFICATION` (11) | 枚举里有，运行时不产生。IR 校验失败走 `ERR_BAD_ZBC` |
 
 关闭宿主会释放 VM、堆和 JIT 状态。原生代码映像按进程寿命保留。宿主运行时库应至少保持映射到使用过它的线程全部退出。
 

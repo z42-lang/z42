@@ -25,8 +25,8 @@
 
 #include "z42.h"
 
-_Static_assert(offsetof(Z42HostConfig, zpkg_resolver_write) == Z42_HOST_CONFIG_MIN_SIZE,
-               "the resolver extension follows the original v2 prefix");
+_Static_assert(offsetof(Z42HostConfig, file_resolver) == Z42_HOST_CONFIG_MIN_SIZE,
+               "the optional resolver follows the required config prefix");
 
 /* ── stdout capture sink (no prefix; raw bytes) ─────────────────────────── */
 static char   g_buf[65536];
@@ -85,10 +85,10 @@ int main(int argc, char** argv) {
     {
         Z42HostConfig c = mkcfg(paths); Z42HostRef h = NULL;
         c.struct_size = Z42_HOST_CONFIG_MIN_SIZE;
-        if (z42_host_initialize(&c, &h) != Z42_HOST_OK) { fail("R1", "initialize with v2 prefix"); }
+        if (z42_host_initialize(&c, &h) != Z42_HOST_OK) { fail("R1", "initialize with required prefix"); }
         else {
             Z42ModuleRef m = NULL; Z42EntryRef e = NULL; Z42Value r; reset_capture();
-            if      (z42_host_load_zbc(h, hb, (size_t)hl, &m)      != Z42_HOST_OK) fail("R1", "load_zbc");
+            if      (z42_host_load_bytes(h, NULL, hb, (size_t)hl, &m)      != Z42_HOST_OK) fail("R1", "load_bytes");
             else if (z42_host_resolve_entry(h, m, "Hello.Main", &e) != Z42_HOST_OK) fail("R1", "resolve_entry");
             else if (z42_host_invoke(e, NULL, 0, &r)               != Z42_HOST_OK) fail("R1", "invoke");
             else if (strstr(g_buf, "hello, world") == NULL)        fail("R1", "stdout mismatch");
@@ -102,7 +102,7 @@ int main(int argc, char** argv) {
         Z42HostConfig c = mkcfg(paths); Z42HostRef h = NULL; z42_host_initialize(&c, &h);
         unsigned char garbage[32]; for (int i = 0; i < 32; i++) garbage[i] = (unsigned char)(i + 1);
         Z42ModuleRef m = NULL;
-        Z42HostStatus s = z42_host_load_zbc(h, garbage, sizeof garbage, &m);
+        Z42HostStatus s = z42_host_load_bytes(h, NULL, garbage, sizeof garbage, &m);
         if (s == Z42_HOST_ERR_BAD_ZBC) pass("R2"); else fail("R2", "expected ERR_BAD_ZBC (10)");
         z42_host_shutdown(h);
     }
@@ -111,7 +111,7 @@ int main(int argc, char** argv) {
     {
         Z42HostConfig c = mkcfg(paths); Z42HostRef h = NULL; z42_host_initialize(&c, &h);
         Z42ModuleRef m = NULL; Z42EntryRef e = NULL;
-        z42_host_load_zbc(h, hb, (size_t)hl, &m);
+        z42_host_load_bytes(h, NULL, hb, (size_t)hl, &m);
         Z42HostStatus s = z42_host_resolve_entry(h, m, "Nope.Missing", &e);
         if (s == Z42_HOST_ERR_ENTRY_NOT_FOUND) pass("R3"); else fail("R3", "expected ERR_ENTRY_NOT_FOUND (20)");
         z42_host_shutdown(h);
@@ -121,7 +121,7 @@ int main(int argc, char** argv) {
     {
         Z42HostConfig c = mkcfg(paths); Z42HostRef h = NULL; z42_host_initialize(&c, &h);
         Z42ModuleRef m = NULL; Z42EntryRef e = NULL; Z42Value r;
-        z42_host_load_zbc(h, hb, (size_t)hl, &m);
+        z42_host_load_bytes(h, NULL, hb, (size_t)hl, &m);
         z42_host_resolve_entry(h, m, "Hello.Main", &e);
         Z42Value args[1]; memset(args, 0, sizeof args);
         Z42HostStatus s = z42_host_invoke(e, args, 1, &r);
@@ -134,7 +134,7 @@ int main(int argc, char** argv) {
         const char* no_paths[1] = { NULL };
         Z42HostConfig c = mkcfg(no_paths); Z42HostRef h = NULL; z42_host_initialize(&c, &h);
         Z42ModuleRef m = NULL; Z42EntryRef e = NULL; Z42Value r; reset_capture();
-        Z42HostStatus ls = z42_host_load_zbc(h, hb, (size_t)hl, &m);
+        Z42HostStatus ls = z42_host_load_bytes(h, NULL, hb, (size_t)hl, &m);
         Z42HostStatus is = Z42_HOST_OK;
         if (ls == Z42_HOST_OK && z42_host_resolve_entry(h, m, "Hello.Main", &e) == Z42_HOST_OK)
             is = z42_host_invoke(e, NULL, 0, &r);
@@ -150,7 +150,7 @@ int main(int argc, char** argv) {
             Z42HostConfig c = mkcfg(paths); Z42HostRef h = NULL;
             if (z42_host_initialize(&c, &h) != Z42_HOST_OK) { all_ok = 0; break; }
             Z42ModuleRef m = NULL; Z42EntryRef e = NULL; Z42Value r; reset_capture();
-            if (z42_host_load_zbc(h, hb, (size_t)hl, &m) == Z42_HOST_OK &&
+            if (z42_host_load_bytes(h, NULL, hb, (size_t)hl, &m) == Z42_HOST_OK &&
                 z42_host_resolve_entry(h, m, "Hello.Main", &e) == Z42_HOST_OK &&
                 z42_host_invoke(e, NULL, 0, &r) == Z42_HOST_OK) {
                 if (strstr(g_buf, "hello, world") == NULL) all_ok = 0;
@@ -164,7 +164,7 @@ int main(int argc, char** argv) {
     {
         Z42HostConfig c = mkcfg(paths); Z42HostRef h = NULL; z42_host_initialize(&c, &h);
         Z42ModuleRef m = NULL; Z42EntryRef e = NULL; Z42Value r; reset_capture();
-        if      (z42_host_load_zbc(h, mb, (size_t)ml, &m)          != Z42_HOST_OK) fail("R7", "load_zbc");
+        if      (z42_host_load_bytes(h, NULL, mb, (size_t)ml, &m)          != Z42_HOST_OK) fail("R7", "load_bytes");
         else if (z42_host_resolve_entry(h, m, "MultiLine.Main", &e) != Z42_HOST_OK) fail("R7", "resolve_entry");
         else if (z42_host_invoke(e, NULL, 0, &r)                   != Z42_HOST_OK) fail("R7", "invoke");
         else if (strstr(g_buf, "a\nb\nc") == NULL)                fail("R7", "multi-line order");

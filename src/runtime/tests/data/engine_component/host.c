@@ -37,7 +37,7 @@ static HMODULE open_library(const char* path) {
 #endif
 
 typedef Z42HostStatus (*Initialize)(const Z42HostConfig*, Z42HostRef*);
-typedef Z42HostStatus (*Load)(Z42HostRef, const uint8_t*, size_t, Z42ModuleRef*);
+typedef Z42HostStatus (*Load)(Z42HostRef, const char*, const uint8_t*, size_t, Z42ModuleRef*);
 typedef Z42HostStatus (*Resolve)(Z42HostRef, Z42ModuleRef, const char*, Z42EntryRef*);
 typedef Z42HostStatus (*Invoke)(Z42EntryRef, const Z42Value*, size_t, Z42Value*);
 typedef Z42HostStatus (*Shutdown)(Z42HostRef);
@@ -105,7 +105,7 @@ int main(int argc, char** argv) {
     REQUIRE(SYMBOL(library, "z42_host_register_static_component") == NULL);
     BIND(native, RegisterNative, "z42_native_register_static");
     BIND(initialize, Initialize, "z42_host_initialize");
-    BIND(load, Load, "z42_host_load_zbc");
+    BIND(load, Load, "z42_host_load_bytes");
     BIND(resolve, Resolve, "z42_host_resolve_entry");
     BIND(invoke, Invoke, "z42_host_invoke");
     BIND(shutdown, Shutdown, "z42_host_shutdown");
@@ -115,7 +115,7 @@ int main(int argc, char** argv) {
     LinkedInit linked_init = (LinkedInit)SYMBOL(library, "z42_linked_components_init");
     if (!linked_init || linked_init() != 0) return 1;
 #else
-    api = (struct Api){ z42_native_register_static, z42_host_initialize, z42_host_load_zbc, z42_host_resolve_entry,
+    api = (struct Api){ z42_native_register_static, z42_host_initialize, z42_host_load_bytes, z42_host_resolve_entry,
         z42_host_invoke, z42_host_shutdown, z42_host_last_error, z42_component_register_static };
     if (api.reg(Z42_COMPONENT_INTERP, NULL) != Z42_COMPONENT_INVALID_ARGUMENT) return 1;
     if (api.reg(Z42_COMPONENT_INTERP, z42_interp_init) != Z42_COMPONENT_OK) return 1;
@@ -157,7 +157,7 @@ int main(int argc, char** argv) {
     if (!bytes || fread(bytes, 1, (size_t)length, file) != (size_t)length) return 1;
     fclose(file);
     Z42ModuleRef module = NULL;
-    if (api.load(host, bytes, (size_t)length, &module) != Z42_HOST_OK) return failure(&api, host, expect_missing);
+    if (api.load(host, NULL, bytes, (size_t)length, &module) != Z42_HOST_OK) return failure(&api, host, expect_missing);
     if (expect_missing == 1 || expect_missing == 3 || expect_missing == 4) { fprintf(stderr, "missing component unexpectedly loaded\n"); return 1; }
     Z42EntryRef entry = NULL;
     if (api.resolve(host, module, "EngineComponentProbe.Echo", &entry) != Z42_HOST_OK) return failure(&api, host, 0);

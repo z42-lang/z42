@@ -631,7 +631,7 @@ host application (iOS / Android / IDE 插件 / 其他 native)
    ▼
 host::session（进程级嵌入会话）
    │
-   │ z42_host_load_zbc(handle, bytes, len, &mod)
+   │ z42_host_load_bytes(handle, NULL, bytes, len, &mod)
    │ z42_host_resolve_entry(handle, mod, fqn, &entry)
    │ z42_host_invoke(entry, args, n, &result)
    ▼

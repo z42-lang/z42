@@ -29,12 +29,12 @@ pub fn decode_program_file(fs: &dyn Vfs, path: &str) -> anyhow::Result<DecodedPr
 
 /// Decode Z42 program bytes. The header magic selects the format.
 ///
-/// Used by the embedding API (`z42_host_load_zbc`) where the host hands
+/// Used by the embedding API (`z42_host_load_bytes`) where the host hands
 /// the runtime raw bytes rather than a filesystem path. Behaviour
 /// mirrors [`decode_program_file`] modulo the source of the byte stream;
 /// the same registry / verification / index passes run.
 ///
-/// Spec: docs/internals/src/runtime/embedding.md §4.4 (z42_host_load_zbc),
+/// Spec: docs/internals/src/runtime/embedding.md §4.4 (z42_host_load_bytes),
 ///       变更 add-embedding-api/.
 pub fn decode_program_bytes(raw: &[u8]) -> anyhow::Result<DecodedProgram> {
     package::decode_program_bytes_with_fusion(raw, FUSION_INPUTS)

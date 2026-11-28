@@ -166,7 +166,7 @@ fn c_host_jit_mode_uses_the_shared_engine_and_returns_values() {
         let mut host_ptr: *mut Z42Host = ptr::null_mut();
         assert_eq!(host::z42_host_initialize(&cfg, &mut host_ptr), Z42HostStatus::Ok);
         let mut module: *mut Z42Module = ptr::null_mut();
-        assert_eq!(host::z42_host_load_zbc(host_ptr, bytes.as_ptr(), bytes.len(), &mut module), Z42HostStatus::Ok);
+        assert_eq!(host::z42_host_load_bytes(host_ptr, ptr::null(), bytes.as_ptr(), bytes.len(), &mut module), Z42HostStatus::Ok);
         for name in ["UserStatic", "UserStatic", "Main"] {
             let is_static = name == "UserStatic";
             let name = CString::new(format!("Embedding.Hello.{name}")).unwrap();

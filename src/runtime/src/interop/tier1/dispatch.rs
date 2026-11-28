@@ -154,8 +154,7 @@ fn write_slot(z: &Z42Value, ty: &SigType, slot: &mut Slot) {
 /// - `cif` was built from `params` / `ret` that match `fn_ptr`'s real signature
 /// - `args.len() == params.len()`
 /// - `fn_ptr` is a valid function pointer alive for the call duration
-/// - z42 thread-local state (`CURRENT_VM`, panic guards) is set if `fn_ptr`
-///   may re-enter z42 via `z42_invoke`
+/// - The caller establishes the active VM and panic guard for the native call.
 pub unsafe fn call(
     cif: &Cif,
     fn_ptr: *mut c_void,

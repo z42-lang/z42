@@ -5,22 +5,11 @@
  *
  * Contract: docs/reference/src/embedding/c-abi.md.
  *   - `abi_version` MUST stay at offset 0 across all versions.
- *   - New struct fields are appended only; layout never reordered.
- *   - Callers set `Z42HostConfig.struct_size = sizeof(Z42HostConfig)`; the
- *     runtime reads an appended field only when struct_size covers it, so a
- *     caller built against an older header is never read past its struct.
- *   - Access opaque handles through z42_host_* functions.
- *   - Major version bumps are explicit semver-major breaks.
+ *   - Within a layout version, new fields are appended. Set struct_size to
+ *     sizeof(Z42HostConfig); the runtime reads only fields covered by it.
  *
- * Lifecycle: one session per process (config, sinks and the shared
- *   zpkg decode cache). Each z42_host_load_zbc returns its own load unit:
- *   entry artifact plus its dependency closure merged into one linked
- *   module owning a private VM (type table / statics / dispatch caches are
- *   not shared between units). A dependency zpkg already loaded anywhere in
- *   the session is shared by content (the C# ALC rule) — decoded
- *   definitions live once per session. z42_host_initialize() succeeds at
- *   most once at a time; shutdown returns the process to "uninitialized" so
- *   initialize may be called again.
+ * One session may be active per process. Each load returns an independent
+ * program with its own VM state. Shutdown invalidates all session handles.
  */
 
 #ifndef Z42_HOST_H
@@ -34,17 +23,14 @@ extern "C" {
 
 /* ── Version ─────────────────────────────────────────────────────────────── */
 
-#define Z42_HOST_ABI_VERSION 2
-
-/* Integer argument/result tag shared with z42::host::Z42_VALUE_TAG_I64. */
-#define Z42_VALUE_TAG_I64 1u
+#define Z42_HOST_ABI_VERSION 3
 
 /* ── Opaque handles ──────────────────────────────────────────────────────── */
 
 /* Handle to the process's host session. NULL = invalid. */
 typedef struct Z42Host*   Z42HostRef;
 
-/* Handle to a loaded .zbc module. NULL = invalid. */
+/* Handle to a loaded .zbc or .zpkg program. NULL = invalid. */
 typedef struct Z42Module* Z42ModuleRef;
 
 /* Handle to a resolved entry (function / static method). NULL = invalid. */
@@ -53,7 +39,7 @@ typedef struct Z42Entry*  Z42EntryRef;
 /* ── Execution mode ──────────────────────────────────────────────────────── */
 
 typedef enum Z42ExecMode {
-    Z42_EXEC_MODE_DEFAULT = 0,  /* decided by .zbc metadata + compile-time features */
+    Z42_EXEC_MODE_DEFAULT = 0,  /* runtime build default */
     Z42_EXEC_MODE_INTERP  = 1,
     Z42_EXEC_MODE_JIT     = 2,  /* feature=jit must be enabled */
     Z42_EXEC_MODE_AOT     = 3   /* feature=aot must be enabled */
@@ -101,58 +87,6 @@ typedef struct Z42FileWriter Z42FileWriter;
 typedef int32_t (*Z42FileResolverFn)(const Z42FileRequest* request,
                                     Z42FileWriter* writer, void* user_data);
 
-/* ── Legacy namespace resolver ──────────────────────────────────────────────────── */
-
-/*
- * Resolve a namespace to its zpkg bytes. The runtime can call a resolver
- * while loading a module or resolving a lazy dependency during execution.
- * Protect shared user_data and keep it valid until host shutdown.
- *
- * Contract:
- *   - On hit, write *out_bytes / *out_length and return non-zero.
- *     The runtime copies after the callback returns. The bytes must
- *     remain readable and unchanged through that copy. Session-owned
- *     immutable storage works with concurrent or background resolution.
- *   - On miss, return 0. The runtime ignores *out_bytes / *out_length
- *     and falls back to search_paths (if set).
- *
- * The `int` return (instead of Z42HostStatus) is intentional: a resolver
- * has only hit/miss semantics, not a runtime error space.
- *
- * Spec: 变更 add-zpkg-resolver-hook/
- */
-typedef int (*Z42ZpkgResolverFn)(
-    const char*     namespace_name,
-    const uint8_t** out_bytes,
-    size_t*         out_length,
-    void*           user_data);
-
-/*
- * Resolve from a temporary buffer. On hit, call write(bytes, length,
- * write_data) with a readable buffer and return its result. The runtime
- * copies the bytes before write returns. On miss, return 0.
- * Call write at most once, on the invoking thread and within the resolver
- * call. Its function pointer and write_data are borrowed for that call.
- */
-typedef int (*Z42ZpkgByteSink)(const uint8_t* bytes, size_t length, void* write_data);
-typedef int (*Z42ZpkgResolverWriteFn)(
-    const char*     namespace_name,
-    Z42ZpkgByteSink write,
-    void*           write_data,
-    void*           user_data);
-
-/* ── zpkg namespace introspection ────────────────────────────────────────── */
-
-/*
- * Visitor for z42_zpkg_read_namespaces: called once per resolution key a
- * zpkg answers to — its package name (e.g. "z42.core") and each namespace
- * it declares in NSPC (e.g. "Std", "Std.IO"). `ns` is `len` UTF-8 bytes
- * (NOT NUL-terminated), valid only for the duration of the call — copy
- * before returning. Lets a resolver build its map from the package
- * itself, so no separate index file is needed.
- */
-typedef void (*Z42NamespaceVisitor)(const char* ns, size_t len, void* user_data);
-
 /* ── Configuration ───────────────────────────────────────────────────────── */
 
 typedef struct Z42HostConfig {
@@ -160,9 +94,6 @@ typedef struct Z42HostConfig {
     uint32_t      struct_size;        /* MUST be sizeof(Z42HostConfig) */
 
     Z42ExecMode   exec_mode;
-    size_t        heap_initial_bytes; /* reserved, set to 0 */
-    size_t        heap_max_bytes;     /* reserved, set to 0 */
-
     Z42WriteSink  stdout_sink;        /* NULL = real stdout */
     Z42WriteSink  stderr_sink;        /* NULL = real stderr */
     void*         sink_user_data;
@@ -170,25 +101,14 @@ typedef struct Z42HostConfig {
     /* NULL-terminated array of module search paths. NULL = in-memory only. */
     const char* const* search_paths;
 
-    /*
-     * Optional pointer-returning resolver. The runtime tries the configured
-     * resolver for each namespace lookup and searches search_paths on miss.
-     *
-     * Part of the original v2 prefix. Both resolver variants share user_data.
-     */
-    Z42ZpkgResolverFn  zpkg_resolver;
-    void*              zpkg_resolver_user_data;
-    /* Optional v2 extension. When present and non-NULL, this takes
-     * precedence over zpkg_resolver. A miss proceeds to search_paths. */
-    Z42ZpkgResolverWriteFn zpkg_resolver_write;
-    /* Optional file resolver. Takes precedence over the legacy resolvers. */
+    /* Optional exact-name resolver and its callback context. */
     Z42FileResolverFn file_resolver;
     void* file_resolver_user_data;
 } Z42HostConfig;
 
 /* Required configuration prefix. Callers normally advertise sizeof(Z42HostConfig). */
 #define Z42_HOST_CONFIG_MIN_SIZE \
-    (offsetof(Z42HostConfig, zpkg_resolver_user_data) + sizeof(void*))
+    (offsetof(Z42HostConfig, file_resolver))
 
 /* ── Status codes ────────────────────────────────────────────────────────── */
 
@@ -203,7 +123,6 @@ typedef enum Z42HostStatus {
 
     /* Module loading */
     Z42_HOST_ERR_BAD_ZBC         = 10,  /* magic / checksum failure */
-    Z42_HOST_ERR_VERIFICATION    = 11,  /* IR verification failure */
 
     /* Resolution / invocation */
     Z42_HOST_ERR_ENTRY_NOT_FOUND = 20,
@@ -254,22 +173,6 @@ Z42HostStatus z42_host_load_bytes(Z42HostRef host, const char* file_name,
                                   const uint8_t* bytes, size_t length,
                                   Z42ModuleRef* out_module);
 
-/* Compatibility entry point for unnamed program bytes. */
-Z42HostStatus z42_host_load_zbc(Z42HostRef host,
-                                const uint8_t* bytes, size_t length,
-                                Z42ModuleRef* out_module);
-
-/*
- * Read the keys a zpkg can be resolved by — its package name plus every
- * namespace it declares in NSPC — invoking `visit` once per key.
- * Requires no initialized session. For nonzero length, bytes must point to
- * a readable buffer for the duration of the call. Each key is valid only
- * during its callback. Returns ERR_BAD_CONFIG for a null visitor and
- * ERR_BAD_ZBC for invalid bytes. Updates z42_host_last_error on this thread.
- */
-Z42HostStatus z42_zpkg_read_namespaces(const uint8_t* bytes, size_t length,
-                                       Z42NamespaceVisitor visit, void* user_data);
-
 /*
  * Resolve an entry by fully qualified name. FQN format:
  *   "namespace.Type::method"  (static method or member)
@@ -290,8 +193,8 @@ Z42HostStatus z42_host_invoke(Z42EntryRef entry,
                               Z42Value* out_result);
 
 /*
- * Replace stdout / stderr sink at runtime. NULL restores the configured
- * default. user_data is passed to subsequent callbacks.
+ * Replace stdout / stderr sink at runtime. NULL clears the callback.
+ * user_data is passed to subsequent callbacks.
  */
 Z42HostStatus z42_host_set_stdout_sink(Z42HostRef host,
                                        Z42WriteSink sink, void* user_data);
@@ -313,10 +216,10 @@ Z42Error z42_host_last_error(Z42HostRef host);
 Z42HostStatus z42_host_shutdown(Z42HostRef host);
 
 /*
- * One-shot: load a self-contained app (.zbc / .zpkg) at `app_zpkg` and run its
+ * One-shot: load an app (.zbc / .zpkg) at `app_path` and run its
  * entry, then tear down.
  *
- *   app_zpkg  path to the app artifact (required)
+ *   app_path  path to the application (required)
  *   entry     entry FQN override, or NULL for the app's baked-in entry
  *   libs_dir  stdlib `libs/` dir (holds z42.core.zpkg + deps), or NULL
  *   argc/argv program args forwarded to the app's GetCommandLineArgs()
@@ -324,7 +227,7 @@ Z42HostStatus z42_host_shutdown(Z42HostRef host);
  * Does NOT use the Z42HostRef handle (it builds + tears down its own VM).
  * Returns a process-style exit code: 0 ok, 1 run error, 2 null app, 70 panic.
  */
-int z42_host_run_app(const char* app_zpkg, const char* entry,
+int z42_host_run_app(const char* app_path, const char* entry,
                      const char* libs_dir, int argc, const char* const* argv);
 
 #ifdef __cplusplus

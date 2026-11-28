@@ -11,7 +11,6 @@ public enum Z42VMError: Error, CustomStringConvertible {
     case badConfig(String)
     case featureOff(String)
     case badZbc(String)
-    case verification(String)
     case entryNotFound(String)
     case argMismatch(String)
     case vmException(String)
@@ -27,7 +26,6 @@ public enum Z42VMError: Error, CustomStringConvertible {
         case .badConfig:      return 3
         case .featureOff:     return 4
         case .badZbc:         return 10
-        case .verification:   return 11
         case .entryNotFound:  return 20
         case .argMismatch:    return 21
         case .vmException:    return 30
@@ -39,7 +37,7 @@ public enum Z42VMError: Error, CustomStringConvertible {
     public var message: String {
         switch self {
         case let .alreadyInit(m), let .notInit(m), let .badConfig(m),
-             let .featureOff(m), let .badZbc(m), let .verification(m),
+             let .featureOff(m), let .badZbc(m),
              let .entryNotFound(m), let .argMismatch(m),
              let .vmException(m), let .fatal(m), let .internal(m):
             return m
@@ -58,7 +56,6 @@ public enum Z42VMError: Error, CustomStringConvertible {
         case 3:  return .badConfig(message)
         case 4:  return .featureOff(message)
         case 10: return .badZbc(message)
-        case 11: return .verification(message)
         case 20: return .entryNotFound(message)
         case 21: return .argMismatch(message)
         case 30: return .vmException(message)

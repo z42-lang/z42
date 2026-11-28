@@ -16,7 +16,6 @@ pub(crate) fn to_js_error(e: HostError) -> JsValue {
         HostError::BadConfig(m) => ("BadConfig", 3, m.clone()),
         HostError::FeatureOff(m) => ("FeatureOff", 4, m.clone()),
         HostError::BadZbc(m) => ("BadZbc", 10, m.clone()),
-        HostError::Verification(m) => ("Verification", 11, m.clone()),
         HostError::EntryNotFound(m) => ("EntryNotFound", 20, m.clone()),
         HostError::ArgMismatch(m) => ("ArgMismatch", 21, m.clone()),
         HostError::VmException(m) => ("VmException", 30, m.clone()),

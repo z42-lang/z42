@@ -23,7 +23,6 @@ pub enum Z42HostStatus {
     FeatureOff = 4,
 
     BadZbc = 10,
-    Verification = 11,
 
     EntryNotFound = 20,
     ArgMismatch = 21,

@@ -340,7 +340,7 @@ fn no_eager_merge_unit_registration_lands_in_func_table() {
 
 /// M4 dry-run CI repro shape: bare entry zbc + a single libs search dir
 /// holding the full stdlib (the C component-verify harness's exact shape —
-/// `cfg.search_paths = [pkg/libs]`, `z42_host_load_zbc(bytes)`). The entry
+/// `cfg.search_paths = [pkg/libs]`, `z42_host_load_bytes(host, NULL, bytes, ...)`). The entry
 /// reaches `Std.Compression.*` with NO declared deps: cross-package symbols
 /// must resolve through the lazy loader's on-demand path on BOTH tracks.
 #[test]
