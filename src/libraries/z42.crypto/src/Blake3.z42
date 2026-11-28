@@ -408,9 +408,7 @@ public static class Blake3 {
     // ── 32-bit helpers ───────────────────────────────────────────────────────
 
     static int _rotr32(int x, int n) {
-        long lx = ((long)x) & 0xFFFFFFFFL;
-        long shifted = ((lx >> n) | (lx << (32 - n))) & 0xFFFFFFFFL;
-        return (int)shifted;
+        return (x >>> n) | (x << (32 - n));
     }
 
     // Overwrite every word: the final partial block must not retain bytes

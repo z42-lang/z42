@@ -152,6 +152,16 @@ C ABI 的外部扩展。
 `__time_now_*`），归 core `Std.Runtime.Entropy`——core 的 `Guid.NewGuid` 要用它，而 prelude 不能反
 依赖 crypto。`z42.crypto.SecureRandom` 作为安全语义门面留在 crypto，委托 core 的熵原语。
 
+### BLAKE3 的公开 API 与加速
+
+`Std.Crypto.Blake3` 由 `z42.crypto` 提供，编译器的部署收据和散装 `.zbc` 索引复用
+`HashLen(data, 16)`。Rust loader 直接用 `blake3` crate 验证索引，双方使用 BLAKE3 摘要的
+前 16 字节并编码为小写十六进制。Core 已有的 Murmur3 继续用于增量缓存和变更检测。
+
+优先验证纯 Z42 的优化。有通用 SIMD 能力后，可评估用它加速同一个 BLAKE3 实现，并保留标量路径。
+用相同的测试向量核对各实现及其产物。如果以后为 `z42.crypto` 引入独立 native 后端，可按上述
+`lib=` 规则在包内接入，在现有 API 背后选择实现。OpenSSL 等外部加密库的依赖随独立后端发布。
+
 ### 配套纪律
 
 1. **Script-First**：逻辑尽量放脚本；interop 只提供最小基础机制 / 原语，不在 native 侧堆高层逻辑。
