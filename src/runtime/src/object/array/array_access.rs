@@ -11,7 +11,6 @@ impl ArrayObj {
     /// Clear a checked range. MIXED and FROZEN use the caller's ordinary stores.
     pub fn try_clear_elems(&self, index: usize, length: usize) -> anyhow::Result<bool> {
         let mode = self.mode();
-        let range = index..index + length;
         if mode.is_prim() {
             let cells = self.cells();
             let width = self.width();
@@ -20,20 +19,7 @@ impl ArrayObj {
         }
         match mode {
             ArrayMode::Ref => {
-                let cells = self.cells();
-                let end = range.end;
-                let mut i = range.start;
-                // Retain every atomic store and SATB deletion barrier while amortizing
-                // the range branch over four reference words.
-                while end - i >= 4 {
-                    for offset in 0..4 {
-                        ref_word::store_word_recorded(&cells, (i + offset) * REF_STRIDE, 0);
-                    }
-                    i += 4;
-                }
-                for i in i..end {
-                    ref_word::store_word_recorded(&cells, i * REF_STRIDE, 0);
-                }
+                anyhow::ensure!(ref_word::clear_range(&self.cells(), index, length), "invalid reference clear range");
             }
             ArrayMode::Struct => {
                 let (cells, layout) = self.struct_cells()

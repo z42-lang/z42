@@ -256,6 +256,36 @@ impl<'a> Cells<'a> {
         true
     }
 
+    /// Clear a checked range of contiguous reference cells. The caller records the
+    /// replaced words while marking and does not enter a safepoint inside the range.
+    pub(crate) fn clear_ref_words(&self, index: usize, n: usize, mut record_old: impl FnMut(u64)) -> bool {
+        const WIDTH: usize = std::mem::size_of::<AtomicU64>();
+        if index.checked_add(n).and_then(|end| end.checked_mul(WIDTH))
+            .is_none_or(|end| end > self.len)
+        {
+            return false;
+        }
+        if n == 0 { return true; }
+        // SAFETY: the complete range is in bounds and aligned, and the caller
+        // supplies a range of same-width reference cells. All accesses stay atomic.
+        let words = unsafe {
+            std::slice::from_raw_parts(self.base.add(index * WIDTH).cast::<AtomicU64>(), n)
+        };
+        // The owning heap starts marking only at a safepoint pause. The loop
+        // cannot park, so a mark cannot begin for these cells partway through it.
+        if crate::gc::satb::marking_any() {
+            for word in words {
+                let old = word.swap(0, Ordering::AcqRel);
+                if old != 0 { record_old(old); }
+            }
+        } else {
+            for word in words {
+                word.store(0, Ordering::Release);
+            }
+        }
+        true
+    }
+
     /// Element-wise move of `n` packed `w`-byte primitives from `src` (element `si` on) into this
     /// view (element `di` on): one relaxed load and one relaxed store of exactly the element width
     /// per element, so no element is ever torn. `src` may be this very view (overlapping ranges
