@@ -626,9 +626,9 @@ public static class Aes {
             // Test bit i of x in MSB-first order.
             long bit;
             if (i < 64) {
-                bit = Aes._lshr64(x[0], 63 - i) & 1L;
+                bit = (x[0] >>> (63 - i)) & 1L;
             } else {
-                bit = Aes._lshr64(x[1], 127 - i) & 1L;
+                bit = (x[1] >>> (127 - i)) & 1L;
             }
             if (bit != 0L) {
                 z0 = z0 ^ v0;
@@ -637,8 +637,8 @@ public static class Aes {
             // v >>>= 1 (across the 128-bit value), then conditional XOR
             // with the reduction polynomial in the high byte if LSB was 1.
             long carry = v1 & 1L;
-            v1 = Aes._lshr64(v1, 1) | (v0 << 63);
-            v0 = Aes._lshr64(v0, 1);
+            v1 = (v1 >>> 1) | (v0 << 63);
+            v0 = v0 >>> 1;
             if (carry != 0L) {
                 // R = 0xE1 placed at the top byte = 0xE100000000000000
                 v0 = v0 ^ 0xE100000000000000L;
@@ -649,13 +649,6 @@ public static class Aes {
         out_[0] = z0;
         out_[1] = z1;
         return out_;
-    }
-
-    // long 的逻辑右移（`>>` 对负数算术扩展）。
-    static long _lshr64(long x, int n) {
-        if (n == 0) return x;
-        if (x >= 0L) return x >> n;
-        return (x >> n) ^ ((-1L) << (64 - n));
     }
 
     // 16 字节块 → (hi64, lo64) 大端。
@@ -694,13 +687,13 @@ public static class Aes {
     }
 
     static void _gcmWriteBE64(byte[] b, int o, long v) {
-        b[o]     = (byte)(Aes._lshr64(v, 56) & 0xFFL);
-        b[o + 1] = (byte)(Aes._lshr64(v, 48) & 0xFFL);
-        b[o + 2] = (byte)(Aes._lshr64(v, 40) & 0xFFL);
-        b[o + 3] = (byte)(Aes._lshr64(v, 32) & 0xFFL);
-        b[o + 4] = (byte)(Aes._lshr64(v, 24) & 0xFFL);
-        b[o + 5] = (byte)(Aes._lshr64(v, 16) & 0xFFL);
-        b[o + 6] = (byte)(Aes._lshr64(v,  8) & 0xFFL);
+        b[o]     = (byte)((v >>> 56) & 0xFFL);
+        b[o + 1] = (byte)((v >>> 48) & 0xFFL);
+        b[o + 2] = (byte)((v >>> 40) & 0xFFL);
+        b[o + 3] = (byte)((v >>> 32) & 0xFFL);
+        b[o + 4] = (byte)((v >>> 24) & 0xFFL);
+        b[o + 5] = (byte)((v >>> 16) & 0xFFL);
+        b[o + 6] = (byte)((v >>>  8) & 0xFFL);
         b[o + 7] = (byte)(v & 0xFFL);
     }
 

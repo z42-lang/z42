@@ -47,6 +47,14 @@ void bench_sha512_64k(Bencher b) {
 }
 
 [Benchmark]
+void bench_sha3_256_4k(Bencher b) {
+    byte[] msg = _mkPayload(4096);
+    b.iter(() => {
+        GC.KeepAlive(Sha3.Hash256(msg));
+    });
+}
+
+[Benchmark]
 void bench_blake2s_4k(Bencher b) {
     byte[] msg = _mkPayload(4096);
     b.iter(() => {
