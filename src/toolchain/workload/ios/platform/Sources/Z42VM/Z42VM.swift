@@ -3,7 +3,7 @@ import Z42VMC
 
 /// Single-instance z42 VM for iOS / macOS hosts. Mirror of the Tier 2
 /// `z42_host::Host` Rust API. Construct with an optional
-/// `ZpkgResolver`; `deinit` runs `z42_host_shutdown` automatically.
+/// `FileResolver`; `deinit` runs `z42_host_shutdown` automatically.
 ///
 /// Spec: 变更 add-platform-ios/
 ///       docs/design/runtime/embedding.md §6.2 (Tier 3 iOS)
@@ -50,26 +50,26 @@ public final class Z42VM {
     /// Construct a new VM.
     ///
     /// - Parameters:
-    ///   - zpkgResolver: handles `Console.WriteLine`-class dependency
+    ///   - fileResolver: handles `Console.WriteLine`-class dependency
     ///     loading. Default reads from `Bundle.main/stdlib/`.
     ///   - stdoutHandler / stderrHandler: optional output sinks. If
     ///     `nil`, output goes to the process stdout / stderr.
     public init(
-        zpkgResolver: ZpkgResolver = BundleZpkgResolver(),
+        fileResolver: FileResolver = BundleZpkgResolver(),
         stdoutHandler: ((Data) -> Void)? = nil,
         stderrHandler: ((Data) -> Void)? = nil,
         execMode: ExecMode = .interp
     ) throws {
         self.stdoutHandler = stdoutHandler
         self.stderrHandler = stderrHandler
-        self.resolverBox = ResolverBox(resolver: zpkgResolver)
+        self.resolverBox = ResolverBox(resolver: fileResolver)
 
         var cfg = Z42HostConfig()
         cfg.abi_version = UInt32(Z42_HOST_ABI_VERSION)
         cfg.struct_size = UInt32(MemoryLayout<Z42HostConfig>.stride)
         cfg.exec_mode = execMode.native
-        cfg.zpkg_resolver_write = zpkgResolverTrampoline
-        cfg.zpkg_resolver_user_data = UnsafeMutableRawPointer(
+        cfg.file_resolver = fileResolverTrampoline
+        cfg.file_resolver_user_data = UnsafeMutableRawPointer(
             Unmanaged.passUnretained(resolverBox!).toOpaque()
         )
 
@@ -128,16 +128,25 @@ public final class Z42VM {
     // ── load_zbc / resolve_entry / invoke ─────────────────────────────
 
     public func loadZbc(_ bytes: Data) throws -> Z42VMModule {
+        try loadBytes(bytes)
+    }
+
+    public func loadBytes(_ bytes: Data, fileName: String? = nil) throws -> Z42VMModule {
         guard let h = handle else {
-            throw Z42VMError.notInit("Z42VM.loadZbc: VM already disposed")
+            throw Z42VMError.notInit("Z42VM.loadBytes: VM already disposed")
         }
         var mod: OpaquePointer? = nil
         let status = bytes.withUnsafeBytes { rawBuf -> Int32 in
             let ptr = rawBuf.baseAddress?.assumingMemoryBound(to: UInt8.self)
-            return Int32(z42_host_load_zbc(h, ptr, bytes.count, &mod).rawValue)
+            if let fileName = fileName {
+                return fileName.withCString {
+                    Int32(z42_host_load_bytes(h, $0, ptr, bytes.count, &mod).rawValue)
+                }
+            }
+            return Int32(z42_host_load_bytes(h, nil, ptr, bytes.count, &mod).rawValue)
         }
         guard Int(status) == Int(Z42_HOST_OK.rawValue), let m = mod else {
-            throw Self.lastError(prefix: "z42_host_load_zbc")
+            throw Self.lastError(prefix: "z42_host_load_bytes")
         }
         return Z42VMModule(handle: m)
     }
@@ -186,12 +195,12 @@ public final class Z42VM {
     }
 }
 
-/// Wraps a `ZpkgResolver` for the C trampoline. Kept alive by the
+/// Wraps a `FileResolver` for the C trampoline. Kept alive by the
 /// `Z42VM` instance.
 final class ResolverBox {
-    let resolver: ZpkgResolver
+    let resolver: FileResolver
 
-    init(resolver: ZpkgResolver) {
+    init(resolver: FileResolver) {
         self.resolver = resolver
     }
 }
@@ -204,19 +213,24 @@ final class SinkBox {
     }
 }
 
-/// Trampoline matching the C `Z42ZpkgResolverWriteFn` signature.
-func zpkgResolverTrampoline(
-    namespace: UnsafePointer<CChar>?,
-    write: Z42ZpkgByteSink?,
-    writeData: UnsafeMutableRawPointer?,
+func fileResolverTrampoline(
+    request: UnsafePointer<Z42FileRequest>?,
+    writer: OpaquePointer?,
     userData: UnsafeMutableRawPointer?
 ) -> Int32 {
-    guard let ns = namespace, let write = write, let ud = userData else { return 0 }
-    let box = Unmanaged<ResolverBox>.fromOpaque(ud).takeUnretainedValue()
-    let name = String(cString: ns)
-    guard let data = box.resolver.resolve(namespace: name) else { return 0 }
-    return data.withUnsafeBytes { rawBuf in
-        write(rawBuf.baseAddress?.assumingMemoryBound(to: UInt8.self), rawBuf.count, writeData)
+    guard let request = request?.pointee, let name = request.file_name,
+          let writer = writer, let userData = userData else { return -1 }
+    let box = Unmanaged<ResolverBox>.fromOpaque(userData).takeUnretainedValue()
+    do {
+        guard let data = try box.resolver.resolve(fileName: String(cString: name), kind: request.kind) else {
+            return 0
+        }
+        return data.withUnsafeBytes { buffer in
+            let bytes = buffer.bindMemory(to: UInt8.self)
+            return z42_file_write(writer, bytes.baseAddress, bytes.count) == Z42_HOST_OK ? 1 : -1
+        }
+    } catch {
+        return -1
     }
 }
 

@@ -16,18 +16,18 @@ fn explicit_libs_never_silently_switch_to_the_sdk_directory() {
 }
 
 #[test]
-fn startup_does_not_probe_development_artifacts() {
+fn startup_does_not_probe_development_programs() {
     const MARKER: &str = "Z42_STARTUP_REPOSITORY_TRAP";
     if let Some(executable) = std::env::var_os(MARKER) {
         assert_eq!(resolve_libs_dir_from(None, Some(Path::new(&executable))), None);
         return;
     }
-    let root = std::env::temp_dir().join(format!("z42-startup-artifacts-{}", std::process::id()));
+    let root = std::env::temp_dir().join(format!("z42-startup-programs-{}", std::process::id()));
     for profile in ["release", "debug"] {
         std::fs::create_dir_all(root.join("artifacts/intermediate/libraries/flat").join(profile)).unwrap();
     }
     let output = std::process::Command::new(std::env::current_exe().unwrap())
-        .args(["startup_does_not_probe_development_artifacts", "--nocapture"])
+        .args(["startup_does_not_probe_development_programs", "--nocapture"])
         .current_dir(&root).env(MARKER, root.join("unconfigured/bin/z42vm"))
         .output().unwrap();
     std::fs::remove_dir_all(root).unwrap();

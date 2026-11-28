@@ -289,10 +289,10 @@ fn ll_empty_module(name: &str) -> crate::metadata::Module {
     }, vec![], rustc_hash::FxHashMap::default())
 }
 
-fn ll_inmem_artifact(
+fn ll_inmem_program(
     module_name: &str, pkg: Option<&str>, deps: &[&str],
-) -> crate::loader::package::LoadedArtifact {
-    crate::loader::package::LoadedArtifact {
+) -> crate::loader::package::DecodedProgram {
+    crate::loader::package::DecodedProgram {
         module: ll_empty_module(module_name),
         entry_hint: None,
         dependencies: deps
@@ -317,7 +317,7 @@ fn inmemory_package_registers_zpkg_file_as_resident() {
 
     // R1: `class A {}` → package `repl_r1` (namespace `Repl.R1`), in memory only.
     loader
-        .register_loaded_artifact(ll_inmem_artifact("Repl.R1", Some("repl_r1"), &[]))
+        .register_loaded_program(ll_inmem_program("Repl.R1", Some("repl_r1"), &[]))
         .expect("register R1");
     assert!(
         loader.loaded_zpkgs.contains("repl_r1.zpkg"),
@@ -328,7 +328,7 @@ fn inmemory_package_registers_zpkg_file_as_resident() {
     // R2: `A a = new A()` → dep on `repl_r1.zpkg`. Registers without probing disk;
     // the dependency stays resolved via `loaded_zpkgs`, not `declared_zpkgs`.
     loader
-        .register_loaded_artifact(ll_inmem_artifact("Repl.R2", Some("repl_r2"), &["repl_r1.zpkg"]))
+        .register_loaded_program(ll_inmem_program("Repl.R2", Some("repl_r2"), &["repl_r1.zpkg"]))
         .expect("register R2");
     assert!(
         loader.loaded_zpkgs.contains("repl_r1.zpkg"),
@@ -345,7 +345,7 @@ fn inmemory_package_registers_zpkg_file_as_resident() {
 // loading <sdk>/programs/z42c/z42c.pipeline.zpkg) must let that zpkg's colocated
 // transitive deps (z42c.semantics + siblings, sitting in the SAME dir) resolve —
 // even though that dir isn't in the VM's startup search_dirs. The loader adds the
-// loaded artifact's own directory to search_dirs (appended, lowest priority).
+// loaded decoded's own directory to search_dirs (appended, lowest priority).
 
 #[test]
 fn load_module_from_path_adds_loaded_module_dir_to_search_dirs() {
@@ -486,9 +486,9 @@ fn negative_cache_is_dropped_when_a_package_registers() {
 
     // Registering a package that *does* declare it must not be masked by the
     // stale negative entry — the length fingerprint moves, so the cache drops.
-    let mut artifact = ll_inmem_artifact("Late.Pkg", Some("late_pkg"), &[]);
-    artifact.module.functions.push(ll_stub_function("Late.Pkg.F$0"));
-    loader.register_loaded_artifact(artifact).expect("register late pkg");
+    let mut decoded = ll_inmem_program("Late.Pkg", Some("late_pkg"), &[]);
+    decoded.module.functions.push(ll_stub_function("Late.Pkg.F$0"));
+    loader.register_loaded_program(decoded).expect("register late pkg");
 
     assert!(
         loader.resolve_function("Late.Pkg.F$0").is_some(),
@@ -612,7 +612,7 @@ fn inserting_a_loaded_type_registers_its_static_ctor() {
 // 声明了同一个名字」。不区分的话，歧义函数**一调用就抛**（`exec_call` 的 use-site 判定），
 // 而「库内部用了元组、主程序也用了」就已经撞上 —— 这是常态形状，不是边角。
 
-use super::registry::{is_instantiation_artifact, same_function_shape, same_type_shape};
+use super::registry::{is_generic_instantiation, same_function_shape, same_type_shape};
 use crate::zpkg::{BasicBlock, ExecMode, Terminator};
 
 fn td_shape(name: &str, class_flags: u8, field_count: usize) -> TypeDesc {
@@ -664,17 +664,17 @@ fn fn_shape(name: &str, param_count: usize, instr_count: usize) -> Function {
 }
 
 #[test]
-fn instantiation_artifacts_are_recognised_by_their_angle_brackets() {
+fn generic_instantiations_are_recognised_by_their_angle_brackets() {
     // 合成实例化：类型与其成员（owner 前缀就是实例化名）
-    assert!(is_instantiation_artifact("Std.ValueTuple2<Int32,String>"));
-    assert!(is_instantiation_artifact("Std.ValueTuple2<Int32,String>.ValueTuple2$2"));
-    assert!(is_instantiation_artifact("Demo.Pair<Demo.P2, Int64>"));
+    assert!(is_generic_instantiation("Std.ValueTuple2<Int32,String>"));
+    assert!(is_generic_instantiation("Std.ValueTuple2<Int32,String>.ValueTuple2$2"));
+    assert!(is_generic_instantiation("Demo.Pair<Demo.P2, Int64>"));
 
     // 用户源码写不出带尖括号的类型名 —— 泛型**定义**按裸名发、arity mangle 走 `Name$N`。
-    assert!(!is_instantiation_artifact("Demo.GBox"));
-    assert!(!is_instantiation_artifact("Demo.GBox$1"));
-    assert!(!is_instantiation_artifact("Demo.Shared.Widget"));
-    assert!(!is_instantiation_artifact("Demo.Shared.W.Who$0"));
+    assert!(!is_generic_instantiation("Demo.GBox"));
+    assert!(!is_generic_instantiation("Demo.GBox$1"));
+    assert!(!is_generic_instantiation("Demo.Shared.Widget"));
+    assert!(!is_generic_instantiation("Demo.Shared.W.Who$0"));
 }
 
 #[test]
@@ -705,12 +705,12 @@ fn a_differing_shape_is_still_treated_as_ambiguity() {
 
 // ── FuncTable registration (P1-2 PR 1) ───────────────────────────────────────
 
-fn ll_artifact_with_functions(
+fn ll_zpkg_with_functions(
     module_name: &str, pkg: &str, fns: &[&str],
-) -> crate::loader::package::LoadedArtifact {
-    let mut artifact = ll_inmem_artifact(module_name, Some(pkg), &[]);
-    artifact.module.functions.extend(fns.iter().map(|n| ll_stub_function(n)));
-    artifact
+) -> crate::loader::package::DecodedProgram {
+    let mut decoded = ll_inmem_program(module_name, Some(pkg), &[]);
+    decoded.module.functions.extend(fns.iter().map(|n| ll_stub_function(n)));
+    decoded
 }
 
 #[test]
@@ -722,11 +722,11 @@ fn package_registration_appends_fn_ids_first_wins() {
     loader.set_func_table(Arc::clone(&table));
 
     loader
-        .register_loaded_artifact(ll_artifact_with_functions("P1", "p1", &["P1.A$0", "P1.B$0"]))
+        .register_loaded_program(ll_zpkg_with_functions("P1", "p1", &["P1.A$0", "P1.B$0"]))
         .expect("register p1");
     // `P1.A$0` again (a REPL-style redefinition) plus one new name.
     loader
-        .register_loaded_artifact(ll_artifact_with_functions("P2", "p2", &["P1.A$0", "P2.C$0"]))
+        .register_loaded_program(ll_zpkg_with_functions("P2", "p2", &["P1.A$0", "P2.C$0"]))
         .expect("register p2");
 
     assert_eq!(table.len(), 3, "the duplicate name allocated no id");
@@ -755,7 +755,7 @@ fn vm_core_registers_entry_functions_and_the_loader_appends() {
 
     ctx.loader().install_lazy_loader(None, 0);
     ctx.core.loader.lazy_loader.write().as_mut().unwrap()
-        .register_loaded_artifact(ll_artifact_with_functions("Lazy", "lazy", &["Lazy.F$0"]))
+        .register_loaded_program(ll_zpkg_with_functions("Lazy", "lazy", &["Lazy.F$0"]))
         .expect("register lazy pkg");
     assert_eq!(funcs.len(), 3);
     assert_eq!(funcs.id_of("Lazy.F$0"), Some(FnId(2)));

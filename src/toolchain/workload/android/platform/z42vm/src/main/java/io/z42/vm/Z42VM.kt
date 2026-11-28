@@ -3,7 +3,7 @@ package io.z42.vm
 /**
  * Single-instance z42 VM for Android hosts. Mirror of the Tier 2
  * `z42_host::Host` Rust API. Construct with an optional
- * [ZpkgResolver]; `close()` (or `use { ... }`) runs `z42_host_shutdown`.
+ * [FileResolver]; `close()` (or `use { ... }`) runs `z42_host_shutdown`.
  *
  * Spec: 变更 add-platform-android/
  *       docs/design/runtime/embedding.md §6.2 (Tier 3 Android)
@@ -14,7 +14,7 @@ package io.z42.vm
  * route stdout back via the handler on the main thread.
  */
 class Z42VM(
-    zpkgResolver: ZpkgResolver,
+    fileResolver: FileResolver,
     /**
      * Receives `Console.WriteLine` output bytes (raw UTF-8). Called
      * once per write. Defaults to `null` → output goes to logcat /
@@ -28,7 +28,7 @@ class Z42VM(
     enum class ExecMode(internal val nativeValue: Int) { INTERP(1), JIT(2) }
 
     private var nativeHandle: Long = 0L
-    private val resolverRef = zpkgResolver  // kept alive for JNI callback duration
+    private val resolverRef = fileResolver  // kept alive for JNI callback duration
 
     init {
         nativeHandle = nativeInitialize(resolverRef, stdoutHandler, stderrHandler, execMode.nativeValue)
@@ -41,9 +41,11 @@ class Z42VM(
         }
     }
 
-    /** Load a `.zbc` byte buffer. */
-    fun loadZbc(bytes: ByteArray): Z42VMModule =
-        Z42VMModule(nativeLoadZbc(nativeHandle, bytes))
+    fun loadZbc(bytes: ByteArray): Z42VMModule = loadBytes(bytes)
+
+    /** Load Z42 program bytes with an optional name for runtimeconfig discovery. */
+    fun loadBytes(bytes: ByteArray, fileName: String? = null): Z42VMModule =
+        Z42VMModule(nativeLoadBytes(nativeHandle, fileName, bytes))
 
     /** Resolve an entry by fully qualified name (e.g. `"App.Main"`). */
     fun resolveEntry(module: Z42VMModule, fqn: String): Z42VMEntry =
@@ -77,13 +79,13 @@ class Z42VM(
     // ── JNI surface ───────────────────────────────────────────────────
 
     private external fun nativeInitialize(
-        resolver: ZpkgResolver,
+        resolver: FileResolver,
         stdoutHandler: ((ByteArray) -> Unit)?,
         stderrHandler: ((ByteArray) -> Unit)?,
         execMode: Int,
     ): Long
 
-    private external fun nativeLoadZbc(host: Long, bytes: ByteArray): Long
+    private external fun nativeLoadBytes(host: Long, fileName: String?, bytes: ByteArray): Long
 
     private external fun nativeResolveEntry(host: Long, module: Long, fqn: String): Long
 
@@ -105,14 +107,5 @@ class Z42VM(
             System.loadLibrary("z42")
             System.loadLibrary("z42vm_jni")
         }
-
-        /**
-         * Read the namespaces a zpkg provides (its NSPC section) via
-         * `z42_zpkg_read_namespaces`. Stateless — needs no VM instance.
-         * [AssetZpkgResolver] uses it to map namespace → bytes from the
-         * asset packages directly, so no index file is shipped.
-         */
-        @JvmStatic
-        external fun readNamespaces(bytes: ByteArray): Array<String>
     }
 }

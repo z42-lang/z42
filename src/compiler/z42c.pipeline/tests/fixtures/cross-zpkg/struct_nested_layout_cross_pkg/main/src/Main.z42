@@ -61,6 +61,12 @@ void CheckImportedUnboxLayout() {
 }
 
 void CheckImportedEquals() {
+    Pair<string, string> direct = new Pair<string, string>("a", "b");
+    object producerBox = BoxStringPair();
+    object consumerBox = direct;
+    Assert.True(consumerBox.Equals(producerBox));
+    Assert.True(direct.Equals((Pair<string, string>)producerBox));
+
     FloatCell<int> value = new FloatCell<int>(1, 0.0f);
     object same = new FloatCell<int>(1, -0.0f);
     object differentValue = new FloatCell<int>(1, 1.0f);

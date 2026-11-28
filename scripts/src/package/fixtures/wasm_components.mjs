@@ -4,14 +4,19 @@ import assert from 'node:assert/strict';
 import { pathToFileURL } from 'node:url';
 const [modulePath, libs, zbc, withCompression, withProfiler] = process.argv.slice(2);
 if (withCompression === 'default') {
-  const { Z42VM, readNamespaces } = await import(pathToFileURL(modulePath));
-  const byNamespace = new Map();
-  for (const file of fs.readdirSync(libs).filter(file => file.endsWith('.zpkg'))) {
-    const bytes = new Uint8Array(fs.readFileSync(path.join(libs, file)));
-    for (const namespace of readNamespaces(bytes)) byNamespace.set(namespace, bytes);
-  }
-  const vm = new Z42VM({ zpkgResolver: name => byNamespace.get(name) ?? null });
-  const module = vm.loadZbc(new Uint8Array(fs.readFileSync(zbc)));
+  const { Z42VM } = await import(pathToFileURL(modulePath));
+  const vm = new Z42VM({
+    fileResolver(name, kind) {
+      try {
+        const dir = kind === 3 || kind === 4 ? path.dirname(zbc) : libs;
+        return fs.readFileSync(path.join(dir, name));
+      } catch (error) {
+        if (error.code === 'ENOENT') return null;
+        throw error;
+      }
+    },
+  });
+  const module = vm.loadBytes(new Uint8Array(fs.readFileSync(zbc)), path.basename(zbc));
   assert.equal(vm.invoke(vm.resolveEntry(module, 'EngineComponentProbe.Echo'), [40]), 41);
   assert.equal(vm.invoke(vm.resolveEntry(module, 'EngineComponentProbe.CompressionRoundtrip'), []), 36);
   assert.throws(() => vm.invoke(vm.resolveEntry(module, 'EngineComponentProbe.HeapInspection'), []), /profiler/);

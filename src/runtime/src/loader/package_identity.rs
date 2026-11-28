@@ -1,4 +1,4 @@
-use super::LoadedArtifact;
+use super::DecodedProgram;
 use crate::zpkg::reader::read_zpkg_meta;
 
 #[derive(Clone)]
@@ -9,14 +9,14 @@ pub(super) struct PackageIdentity {
 }
 
 impl PackageIdentity {
-    pub(super) fn from_artifact(artifact: &LoadedArtifact) -> Option<Self> {
-        if !artifact.import_namespaces.is_empty() {
+    pub(super) fn from_program(decoded: &DecodedProgram) -> Option<Self> {
+        if !decoded.import_namespaces.is_empty() {
             return None;
         }
         Some(Self {
-            file: format!("{}.zpkg", artifact.package_name.as_ref()?),
-            digest: artifact.content_id.clone()?,
-            dependencies: artifact.dependencies.iter().map(|dep| dep.file.clone()).collect(),
+            file: format!("{}.zpkg", decoded.package_name.as_ref()?),
+            digest: decoded.content_id.clone()?,
+            dependencies: decoded.dependencies.iter().map(|dep| dep.file.clone()).collect(),
         })
     }
 

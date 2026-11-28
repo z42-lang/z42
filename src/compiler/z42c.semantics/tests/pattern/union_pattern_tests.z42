@@ -1,0 +1,95 @@
+namespace Z42cSemanticsUnionPatternTests;
+
+using Z42.Semantics;
+using Z42.Symbols;
+using Std.Harness;
+
+[Test]
+void test_union_constructors_and_payload_binding() {
+    string src = "union U { End, Bytes(int), Error(int), Range(int start, int end) }"
+        + " U Start() => U.End;"
+        + " U Construct() => U.Range(end: 20, start: 10);"
+        + " int Read(U v) => v switch { U.End => 0, U.Bytes(n) => n, U.Error(n) => -n, U.Range(a, b) => b - a };"
+        + " bool Empty(U v) => v is U.End;"
+        + " int IsBytes(U v) { if (v is U.Bytes(n)) { return n; } return 0; }";
+    var result = FrontEnd.Check(src, "union.z42", null);
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+    BoundStmt body = result.Model.GetBody("Construct");
+    if (body is BoundBlock) { body = (body as BoundBlock).Stmts[0]; }
+    BoundCall call = (body as BoundReturn).Value as BoundCall;
+    UnionCaseSymbol branch = call.UnionCase;
+    Assert.Equal("Range", branch.Name);
+    Assert.Equal(3, branch.Tag);
+    Assert.True(call.Args[0].Dump().Contains("lit-int 10"));
+    Assert.True(call.Args[1].Dump().Contains("lit-int 20"));
+}
+
+[Test]
+void test_union_value_construction_checks_argument_types_and_names() {
+    string prefix = "union U { Bytes(int), Range(int start, int end) } ";
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(prefix + "U F() => U.Bytes(\"bad\");"));
+    Assert.Equal("E1002", SemanticDump.FirstErrorCode(prefix + "U F() => U.Bytes(count: 3);"));
+    Assert.Equal("E1003", SemanticDump.FirstErrorCode(prefix + "U F() => U.Range(start: 1, start: 2);"));
+    Assert.Equal("E1001", SemanticDump.FirstErrorCode(prefix + "U F() => U.Range(end: 2, 1);"));
+    Assert.Equal("E1004", SemanticDump.FirstErrorCode(prefix + "U F() => U.Range(1, start: 2);"));
+    Assert.Equal("E1005", SemanticDump.FirstErrorCode(prefix + "U F() => U.Range(1);"));
+}
+
+[Test]
+void test_union_case_identity_is_independent_of_payload_types() {
+    string prefix = "union U { Bytes(int), Error(int) } ";
+    Assert.Equal("E0510", SemanticDump.FirstErrorCode(prefix
+        + "int F(U u) => u switch { U.Bytes(_) => 1 };"));
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(prefix
+        + "union V { Bytes(int) } bool F(V v) => v is U.Bytes(_);"));
+}
+
+[Test]
+void test_union_switch_statement_and_guarded_arms_are_checked() {
+    string prefix = "union U { End, Bytes(int) } ";
+    Assert.Equal("E0510", SemanticDump.FirstErrorCode(prefix
+        + "void F(U u) { switch (u) { case U.End: break; } }"));
+    Assert.Equal("E0510", SemanticDump.FirstErrorCode(prefix
+        + "int F(U u, bool ok) => u switch { U.End => 0, U.Bytes(n) if ok => n };"));
+    Assert.Equal("E0510", SemanticDump.FirstErrorCode(prefix
+        + "int F(U u) => u switch { U.End => 0, U.Bytes(0) => 1 };"));
+    Assert.Equal("", SemanticDump.FirstErrorCode(prefix
+        + "int F(U u, bool ok) => u switch { U.End => 0, U.Bytes(n) if ok => n, U.Bytes(_) => 1 };"));
+}
+
+[Test]
+void test_union_payload_exhaustiveness_composes_nested_cases_and_booleans() {
+    string prefix = "union Part { Empty, Flag(bool) } union U { End, Pair(Part, bool) } ";
+    string arms = " U.End => 0, U.Pair(Part.Empty, _) => 1, U.Pair(Part.Flag(false), _) => 2,"
+        + " U.Pair(Part.Flag(true), false) => 3";
+    Assert.Equal("", SemanticDump.FirstErrorCode(prefix
+        + "int F(U u) => u switch {" + arms + ", U.Pair(Part.Flag(true), true) => 4 };"));
+    Assert.Equal("E0510", SemanticDump.FirstErrorCode(prefix
+        + "int F(U u) => u switch {" + arms + " };"));
+}
+
+[Test]
+void test_closed_generic_union_uses_its_concrete_payload_signature() {
+    string prefix = "union Response<T, E> { Ok(T), Err(E) } ";
+    Assert.Equal("", SemanticDump.FirstErrorCode(prefix
+        + "Response<int, int> Make() => Response<int, int>.Ok(5);"
+        + "int F(Response<int, int> r) => r switch { Response.Ok(n) => n + 1, Response.Err(n) => n - 1 };"));
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(prefix
+        + "Response<int, int> Make() => Response<int, int>.Ok(\"bad\");"));
+}
+
+[Test]
+void test_union_case_pattern_checks_arity_and_literal_type() {
+    string prefix = "union U { End, Bytes(int) } ";
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(prefix + "bool F(U u) => u is U.Bytes(_, _);"));
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(prefix + "bool F(U u) => u is U.Bytes(\"bad\");"));
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(prefix + "U F() => new U();"));
+}
+
+[Test]
+void test_union_requires_explicit_case_construction() {
+    const string prefix = "union U { End, Number(int) } ";
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(prefix + "U F() => 1;"));
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(prefix + "object F() => U.End;"));
+    Assert.Equal("E0475", SemanticDump.FirstErrorCode(prefix + "U F() => null;"));
+}

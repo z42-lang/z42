@@ -188,9 +188,21 @@ public sealed class CallEmitter {
             // （struct 无继承/虚方法；receiver 是 StructRef 句柄非 object，走 VCall 会崩）。含返回 struct 的
             // sret。绕过下方 devirt/DepIndex/VCall。实参先于 receiver（保发射序）+ struct 实参 copy-in。
             if (this._ee._isBlobStruct(c.Receiver.Type())) {
-                // The imported synthesized body can only test against its erased definition.
-                // Pass both closed identities to the existing boxed equality path.
+                // A closed, statically identical pair already has the identity check
+                // that boxed equality would perform. A local receiver read cannot
+                // mutate the argument between evaluation and comparison.
                 if (this._isImportedStructEquals(c)) {
+                    Z42Type receiverType = c.Receiver.Type();
+                    if (c.MethodName == "Equals$1$synth" && c.Args[0] is BoundBox arg
+                        && c.Receiver is BoundIdent receiver && this._ctx.Locals.ContainsKey(receiver.Name)
+                        && !this._ee._hasTypeParam(receiverType) && this._ee._isBlobStruct(arg.E.Type())
+                        && this._ee._rtArgName(receiverType) == this._ee._rtArgName(arg.E.Type())) {
+                        TypedReg other = this._ee.Emit(arg.E);
+                        TypedReg recv = this._ee.Emit(c.Receiver);
+                        TypedReg eq = this._ctx.Alloc(IrType.Bool);
+                        this._ctx.Emit(new BuiltinInstr(eq, "__struct_eq_same_type", new TypedReg[] { recv, other }, 2));
+                        return eq;
+                    }
                     return this._emitBoxedStructObjectCall(c, "Equals");
                 }
                 // fix-value-type-object-methods 阶段2：struct **未自声明**的 Object 方法（ToString /

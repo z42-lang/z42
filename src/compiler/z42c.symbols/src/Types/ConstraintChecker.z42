@@ -50,7 +50,7 @@ public sealed class ConstraintChecker {
                 // 模型 → 既无声明期诊断（型参写错/约束名拼错/class+struct 互斥全静默），也无从持久化
                 // （ClassDescBuilder._interfaceDesc 只能建全空 bundle）。接口存独立表，见 SymbolTable。
                 if (c.TypeParams.Count > 0 && c.WhereCount > 0) {
-                    ConstraintSet cs = this._buildSet(symbols, c);
+                    ConstraintSet cs = this._buildSet(symbols, c.Name, c.TypeParams, c.Wheres, c.WhereCount);
                     if (cs.AnyNonEmpty()) {
                         string ns = cu.HasNamespace ? cu.Namespace : "";
                         if (c.Kind == "interface") {
@@ -63,6 +63,14 @@ public sealed class ConstraintChecker {
                 symbols.EnclosingClass = c.Name;
                 this._resolveMemberWheres(symbols, c.Members, c.MemberCount, c.TypeParams.Names, c.TypeParams.Count);
                 symbols.EnclosingClass = "";
+            } else if (d is UnionDecl) {
+                UnionDecl u = d as UnionDecl;
+                if (u.WhereCount > 0) {
+                    ConstraintSet cs = this._buildSet(symbols, u.Name, u.TypeParams, u.Wheres, u.WhereCount);
+                    if (cs.AnyNonEmpty()) {
+                        symbols.ClassConstraints.Put(symbols.ClassConstraintKey(symbols.ScopeNs, u.Name, u.TypeParams.Count), cs);
+                    }
+                }
             } else if (d is ImplDecl) {
                 var implementation = d as ImplDecl;
                 this._resolveMemberWheres(symbols, implementation.Methods, implementation.MethodCount,
@@ -145,23 +153,23 @@ public sealed class ConstraintChecker {
     }
 
     // 一个泛型类的 where 子句 → ConstraintSet（bundle 与型参声明序对齐）。
-    private ConstraintSet _buildSet(SymbolTable symbols, ClassDecl c) {
-        string[] pnames = c.TypeParams.Names;
-        int pc = c.TypeParams.Count;
+    private ConstraintSet _buildSet(SymbolTable symbols, string name, TypeParamList typeParams, WhereClause[] clauses, int count) {
+        string[] pnames = typeParams.Names;
+        int pc = typeParams.Count;
         ConstraintBundle[] bundles = new ConstraintBundle[pc];
         int b = 0;
         while (b < pc) { bundles[b] = new ConstraintBundle(); b = b + 1; }
         var cs = new ConstraintSet(pnames, bundles, pc);
         int w = 0;
-        while (w < c.WhereCount) {
-            WhereClause wc = c.Wheres[w];
+        while (w < count) {
+            WhereClause wc = clauses[w];
             int pi = cs.IndexOf(wc.TypeParam);
             if (pi < 0) {
                 this._diags.Error(DiagnosticCodes.UndefinedSymbol,
-                    "where clause references unknown type parameter `" + wc.TypeParam + "` on `" + c.Name + "`",
+                    "where clause references unknown type parameter `" + wc.TypeParam + "` on `" + name + "`",
                     wc.Span);
             } else {
-                this._fillBundle(symbols, c.Name, bundles[pi], wc, pnames, pc, true);
+                this._fillBundle(symbols, name, bundles[pi], wc, pnames, pc, true);
             }
             w = w + 1;
         }

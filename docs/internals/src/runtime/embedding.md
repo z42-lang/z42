@@ -103,63 +103,15 @@ Rust 和 C 两个适配层共用 `session.rs` 的会话操作。会话持有配�
 
 初始化由 `LoadedProgram::initialized` 保证每个程序只准备一次，失败保持终态；静态字段、初始化器及 VM 资源在后续调用之间保留。调用参数检查、执行模式选择、异常和 fatal 收尾由统一调用服务负责，C 层只转换结果。
 
-## zpkg 依赖解析顺序
+## 文件解析与依赖加载
 
-`load_zbc` 里对每个 namespace 走同一棵决策树：
+`loader::FileResolver` 是宿主提供启动文件的契约。C 适配层用借用 writer 将字节同步交付给 loader，
+Rust 和 Wasm 共用同一个 trait。启动先读可选配置侧车，再沿 ZPKG 的 `DEPS.file` 或裸 ZBC 的
+`.zbc.deps` 遍历依赖。一个加载单元内按精确文件名去重，包的命名空间仍在符号查找中使用。
+文件回调返回缺失时，loader 使用配置的 VFS 与搜索目录。
 
-```
-for ns in ["z42.core"] + user_artifact.import_namespaces:
-    1. resolver.resolve(ns)     hit → 用 resolver 给的字节
-    2. corelib / search_paths   hit → 扫文件系统
-    3. silent miss              → load_zbc 仍返回 OK
-```
-
-`z42.core` 是**隐式 prelude**：用户 `.zbc` 一句 `using` 都没有，运行时也会请求一次 corelib。
-
-第 3 步「静默 miss」是有意的：自包含产物可能真的不需要 corelib。
-代价是错误延后到 invoke——解释器派发时报 `undefined function`，被归类成 `ERR_VM_EXCEPTION`。
-
-`search_paths` 分支的两个细节：
-
-- `probe_corelib` 在 `initialize` 时就扫一遍 `search_paths` 找 `z42.core.zpkg`，并**试解析一次**
-  （结果丢弃），这样坏 corelib 在 `initialize` 就报 `ERR_BAD_CONFIG`，而不是在第一次 `load_zbc` 时
-  变成一条令人困惑的错误。找到它的那个目录就成了 `libs_dir`，其余 namespace 从那里找。
-- 文件系统分支用 canonical 路径去重：同一个 zpkg 常常同时提供多个 namespace，
-  不去重就会把 `z42.core.zpkg` 合并进去好几遍。
-
-### 两种 resolver 形态收敛到一个 trait
-
-```rust
-pub trait ZpkgResolver: Send + Sync {
-    fn resolve(&self, namespace: &str) -> Option<Vec<u8>>;
-}
-```
-
-- **C 函数指针 + user_data** 由 `host/abi_config.rs` 的 `CHookResolver` 适配到同一个 loader 接口。
-  原始指针回调在返回后复制字节，宿主持有缓冲到复制结束。写入回调在宿主提供的缓冲借用期间同步复制。
-  Swift 在 `withUnsafeBytes` 作用域内提交数据，Android JNI 在释放借用的数组元素前提交。
-- **Rust `Arc<dyn ZpkgResolver>`** 由 Tier 2 经 `host::install_zpkg_resolver()` 直接塞进
-  `HostState::config`，不绕 C 回调。这个函数**不是** `extern "C"`，是 Tier 2 专用的逃生口。
-
-### Tier 3 各平台的默认 resolver
-
-平台 facade 自己的「namespace → 字节」表**由读 zpkg 的 `NSPC` section 派生**，没有索引文件。
-一份 zpkg 通常提供多个 namespace（`z42.core.zpkg` 同时 ship `z42.core` / `Std` / `Std.Exceptions` …），
-所以不能假设 `namespace == 文件名`；手维护的 `index.json` 会是 `NSPC` 之外的**第二真相源**、
-必然漂移，所以不用。
-
-| 平台 | 默认 resolver | 位置 |
-|---|---|---|
-| iOS | `BundleZpkgResolver(bundle: .main, subdirectory: "stdlib")` —— 枚举 `Bundle.urls(forResourcesWithExtension:"zpkg",subdirectory:)`，逐个读 NSPC 建表。`Z42VM.init` 的**默认参数**，不传就自动装 | `ios/platform/Sources/Z42VM/ZpkgResolver.swift` |
-| Android | `AssetZpkgResolver(assets, subdir = "stdlib")` —— `AssetManager.list` 枚举，逐个经 `Z42VM.readNamespaces`（JNI 桥到同一个 C ABI）读 NSPC。另有 `MapZpkgResolver`。`Z42VM` 构造器里 resolver 是**必填参数** | `android/.../io/z42/vm/ZpkgResolver.kt` |
-| wasm | `bundleStdlibNode(readNamespaces)` / `bundleStdlibBrowser(baseUrl, readNamespaces)` / `mapResolver(map)` —— Node 侧 `readdir`，浏览器侧 fetch 构建期生成的 `files.json`（HTTP 枚举不了目录，这是文件名清单的派生替身，**不是** namespace 映射） | `wasm/platform/js/stdlib-resolver.js` |
-
-包解析键统一由 `loader::program::read_zpkg_namespaces` 读取：
-C ABI `z42_zpkg_read_namespaces`、Rust `z42::host::read_zpkg_namespaces` 与 `z42::host::rust::read_zpkg_namespaces`、
-wasm 导出 `readNamespaces` / Android JNI `Z42VM.readNamespaces`。
-Host 的 C 入口转译状态码和回调，并更新宿主线程局部错误。Swift、Kotlin 和 JS 共用这条解析路径。
-
-`./xtask build stdlib` 产 flat view 时不写任何索引文件；各平台 `build.sh` 只拷 `*.zpkg`。
+iOS 用 Bundle 资源名，Android 用 AssetManager 资源路径，Node 用文件名，浏览器预取构建清单中的文件。
+平台桥接统一使用文件名与文件类型。旧 C 配置前缀继续通过命名空间适配层工作。
 
 ---
 
@@ -237,7 +189,7 @@ pub struct HostConfig {
     pub stdout:        Option<Box<dyn Fn(&[u8]) + Send + Sync + 'static>>,
     pub stderr:        Option<Box<dyn Fn(&[u8]) + Send + Sync + 'static>>,
     pub search_paths:  Vec<PathBuf>,
-    pub zpkg_resolver: Option<Arc<dyn ZpkgResolver>>,
+    pub file_resolver: Option<Arc<dyn FileResolver>>,
     pub vfs:           Option<Arc<dyn Vfs>>,   // VM 的文件系统；None = pal::fs::default_vfs()
 }
 

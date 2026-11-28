@@ -1,0 +1,83 @@
+namespace Z42.Symbols;
+
+using Z42.Core;
+using Z42.Syntax;
+
+public sealed partial class StubCollector {
+    private string _unionKey(SymbolTable table, UnionDecl decl) {
+        if (decl.TypeParams.Count > 0 && table.MultiArityNames.ContainsKey(decl.Name)) {
+            return decl.Name + "$" + decl.TypeParams.Count.ToString();
+        }
+        return decl.Name;
+    }
+
+    private void _putUnionStub(SymbolTable table, UnionDecl decl) {
+        string key = this._unionKey(table, decl);
+        string fqn = SymbolTable.QualOf(table.ScopeNs, key);
+        if (table.ClassesByFqn.ContainsKey(fqn) || table.InterfacesByFqn.ContainsKey(fqn) || table.EnumTypes.ContainsKey(fqn)) {
+            this._sc.Diags.Error(DiagnosticCodes.DuplicateTypeName,
+                "duplicate type declaration `" + fqn + "`", decl.Span);
+            return;
+        }
+        var owner = new Z42ClassType(decl.Name, false, "");
+        owner.Namespace = table.ScopeNs;
+        owner.DeclFile = decl.Span.File;
+        owner.Visibility = DeclFacts.classVis(decl.ModFlags, false);
+        owner.IsStruct = true;
+        owner.IsSealed = true;
+        owner.GenericParamNames = decl.TypeParams.Names;
+        owner.GenericParamCount = decl.TypeParams.Count;
+        owner.HasArityMangle = key != decl.Name;
+        owner.ArityMangleCount = decl.TypeParams.Count;
+        owner.UnionCases = new UnionCaseSymbol[decl.CaseCount];
+        table.NoteClassNs(key, table.ScopeNs);
+        table.ClassesByFqn.Put(fqn, owner);
+    }
+
+    internal void _bindUnionPayloads(SymbolTable table, CompilationUnit cu) {
+        SymbolTable scoped = null;
+        int i = 0;
+        while (i < cu.DeclCount) {
+            Decl node = this._sc._unwrap(cu.Decls[i]);
+            if (node is UnionDecl) {
+                if (scoped == null) {
+                    scoped = table.WithScopeOf(cu);
+                    scoped.CurrentAliases = SymbolTable.BuildAliases(cu);
+                }
+                this._bindUnionDeclaration(scoped, node as UnionDecl);
+            }
+            i = i + 1;
+        }
+    }
+
+    private void _bindUnionDeclaration(SymbolTable table, UnionDecl decl) {
+        string fqn = SymbolTable.QualOf(table.ScopeNs, this._unionKey(table, decl));
+        Z42ClassType owner = table.ClassesByFqn.Get(fqn) as Z42ClassType;
+        if (owner == null || owner.UnionCases == null || owner.UnionCases.Length != decl.CaseCount) { return; }
+        if (decl.CaseCount > 0 && owner.UnionCases[0] != null) { return; }
+        int i = 0;
+        while (i < decl.CaseCount) {
+            UnionCaseDecl branch = decl.Cases[i];
+            Z42Type[] types = new Z42Type[branch.FieldCount];
+            string[] names = new string[branch.FieldCount];
+            int j = 0;
+            while (j < branch.FieldCount) {
+                UnionPayloadField field = branch.Fields[j];
+                Z42Type type = table.ResolveTypeP(field.Type, owner.GenericParamNames, owner.GenericParamCount);
+                this._sc._chkTypeRefT(type, field.Type, owner.Name(), table, field.Span);
+                TypeRefAccess.CheckExposure(owner.Visibility, type, table, this._sc.Diags, field.Span);
+                if (type is Z42VoidType) {
+                    this._sc.Diags.Error(DiagnosticCodes.TypeMismatch,
+                        "a union payload field cannot have type `void`", field.Span);
+                }
+                types[j] = type;
+                names[j] = field.Name;
+                j = j + 1;
+            }
+            var signature = new Z42FuncType(types, types.Length, owner);
+            signature.ParamNames = names;
+            owner.UnionCases[i] = new UnionCaseSymbol(branch.Name, i, signature);
+            i = i + 1;
+        }
+    }
+}

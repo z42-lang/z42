@@ -65,6 +65,7 @@ const UNDECLARED_ALLOWLIST: &[(&str, &str)] = &[
     // Emitted by the compiler for struct `==`/`!=` and unoverridden `Equals` on float-free
     // layouts — a single-instruction value comparison over any struct representation.
     ("__struct_eq", "compiler-emitted: add-struct-value-eq-fastpath"),
+    ("__struct_eq_same_type", "compiler-emitted: same closed imported struct type"),
     // 🪦 store-sync-values-in-heap 阶段 2 已落地：旧同步原语的 19 条豁免连同它们的
     // 表槽、`corelib/sync.rs`、三个 registry 一并删除 —— 所以这里**不再需要**对应条目。
     //

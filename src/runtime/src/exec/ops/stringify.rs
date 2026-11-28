@@ -64,7 +64,7 @@ fn tostring_result(ctx: &VmContext, module: &Module, val: &Value) -> Result<ToSt
         }
     }
     if let Value::Object(rc) = val {
-        let type_desc = rc.type_desc_arc().clone();
+        let type_desc = rc.clone_type_desc();
         // Try vtable first (O(1))
         let func_name_opt = type_desc.vtable_index.get("ToString")
             .map(|&slot| type_desc.vtable[slot].1.clone());

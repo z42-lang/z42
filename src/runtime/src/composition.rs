@@ -231,3 +231,43 @@ fn install_app_config(file: &str) {
         let _ = resolution.into_result(false);   // warn-only，同 from_env
     }
 }
+
+/// Read and apply the entry program's configuration before VM assembly.
+pub(crate) fn install_resolved_app_config(
+    name: &str,
+    resolver: &dyn crate::loader::FileResolver,
+    fs: &dyn crate::pal::fs::Vfs,
+) -> anyhow::Result<()> {
+    let getenv = |key: &str| std::env::var(key).ok();
+    let (app, props) = if let Some(tables) = crate::config::load_explicit_app_config_tables(&getenv).map_err(anyhow::Error::msg)? {
+        tables
+    } else {
+        let path = std::path::Path::new(name).with_extension("runtimeconfig.toml");
+        let sidecar_name = path.to_str().ok_or_else(|| anyhow::anyhow!("invalid runtimeconfig name"))?;
+        let bytes = match resolver.resolve(sidecar_name, crate::loader::FileKind::RuntimeConfig)? {
+            Some(bytes) => bytes,
+            None => match fs.read(sidecar_name) {
+                Ok(bytes) => bytes,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+                Err(error) => return Err(error.into()),
+            },
+        };
+        let text = std::str::from_utf8(&bytes)
+            .map_err(|err| anyhow::anyhow!("invalid UTF-8 in `{sidecar_name}`: {err}"))?;
+        crate::config::parse_config_tables(text, sidecar_name).map_err(anyhow::Error::msg)?
+    };
+    if app.is_none() && props.is_none() {
+        return Ok(());
+    }
+    let user = crate::config::load_layer_lenient(&getenv, "Z42_CONFIG");
+    let inputs = crate::config::Inputs {
+        user_config: user.as_ref(),
+        app_config: app.as_ref(),
+        ..Default::default()
+    };
+    let (config, resolution) =
+        crate::config::RuntimeConfig::resolve_with(&getenv, &inputs, &crate::config::BuildCtx::current());
+    resolution.into_result(false).map_err(anyhow::Error::msg)?;
+    let _ = crate::config::init_runtime_config(config.with_app_properties(props));
+    Ok(())
+}

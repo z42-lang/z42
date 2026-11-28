@@ -1,30 +1,18 @@
-/* z42_host.h — Tier 1 Embedding / Hosting ABI
+/* z42_host.h — C ABI for embedding and driving the z42 VM.
  *
- * Stable C ABI for host applications to embed the z42 VM:
- *   initialize → load .zbc → resolve entry → invoke → shutdown.
+ * Initialize a host, load a program, resolve and invoke an entry, then shut
+ * down. Available directly and through the z42.h SDK entry point.
  *
- * Sibling to z42_abi.h, which covers "native code registers types into z42".
- * This header covers the opposite direction: "host app drives the VM".
- * Published through the z42.h umbrella (Rust mirrors: src/host/abi_config.rs
- * and src/host/ffi.rs).
- *
- * Spec: docs/design/runtime/embedding.md (Tier 1 C ABI §4)
- *       变更 add-embedding-api/
- *
- * Status: H1 scaffold — declarations + single-instance lifecycle.
- *         load_zbc / resolve_entry / invoke return ERR_INTERNAL
- *         (placeholder for H2 implementation).
- *
- * ABI evolution rules (mirror z42_abi.h):
+ * Contract: docs/reference/src/embedding/c-abi.md.
  *   - `abi_version` MUST stay at offset 0 across all versions.
  *   - New struct fields are appended only; layout never reordered.
  *   - Callers set `Z42HostConfig.struct_size = sizeof(Z42HostConfig)`; the
  *     runtime reads an appended field only when struct_size covers it, so a
  *     caller built against an older header is never read past its struct.
- *   - All access is through z42_host_* functions, not direct struct manipulation.
+ *   - Access opaque handles through z42_host_* functions.
  *   - Major version bumps are explicit semver-major breaks.
  *
- * v0.1 lifecycle: one session per process (config, sinks and the shared
+ * Lifecycle: one session per process (config, sinks and the shared
  *   zpkg decode cache). Each z42_host_load_zbc returns its own load unit:
  *   entry artifact plus its dependency closure merged into one linked
  *   module owning a private VM (type table / statics / dispatch caches are
@@ -32,8 +20,7 @@
  *   the session is shared by content (the C# ALC rule) — decoded
  *   definitions live once per session. z42_host_initialize() succeeds at
  *   most once at a time; shutdown returns the process to "uninitialized" so
- *   initialize may be called again. Multi-VM handles are tracked in
- *   docs/design/runtime/embedding.md §12 Deferred.
+ *   initialize may be called again.
  */
 
 #ifndef Z42_HOST_H
@@ -54,7 +41,7 @@ extern "C" {
 
 /* ── Opaque handles ──────────────────────────────────────────────────────── */
 
-/* Handle to the (singleton, in v0.1) VM instance. NULL = invalid. */
+/* Handle to the process's host session. NULL = invalid. */
 typedef struct Z42Host*   Z42HostRef;
 
 /* Handle to a loaded .zbc module. NULL = invalid. */
@@ -84,7 +71,37 @@ typedef enum Z42ExecMode {
  */
 typedef void (*Z42WriteSink)(const char* bytes, size_t length, void* user_data);
 
-/* ── zpkg resolver hook ──────────────────────────────────────────────────── */
+/*
+ * Read program code, package dependencies and application configuration by
+ * their exact logical names. The request and writer are valid for the
+ * duration of the callback on the calling thread. Keep user_data alive
+ * until host shutdown. Implementations must synchronize shared state.
+ */
+#define Z42_FILE_ZPKG           1
+#define Z42_FILE_ZBC            2
+#define Z42_FILE_RUNTIME_CONFIG 3
+#define Z42_FILE_ZBC_DEPS       4
+#define Z42_FILE_ERROR          (-1)
+#define Z42_FILE_NOT_FOUND      0
+#define Z42_FILE_FOUND          1
+
+typedef struct Z42FileRequest {
+    uint32_t struct_size;
+    uint32_t kind;
+    const char* file_name; /* NUL-terminated UTF-8 logical name */
+} Z42FileRequest;
+
+typedef struct Z42FileWriter Z42FileWriter;
+
+/*
+ * On success call z42_file_write once and return Z42_FILE_FOUND.
+ * Return Z42_FILE_NOT_FOUND without writing to allow normal lookup.
+ * A read or submission failure returns Z42_FILE_ERROR.
+ */
+typedef int32_t (*Z42FileResolverFn)(const Z42FileRequest* request,
+                                    Z42FileWriter* writer, void* user_data);
+
+/* ── Legacy namespace resolver ──────────────────────────────────────────────────── */
 
 /*
  * Resolve a namespace to its zpkg bytes. The runtime can call a resolver
@@ -164,6 +181,9 @@ typedef struct Z42HostConfig {
     /* Optional v2 extension. When present and non-NULL, this takes
      * precedence over zpkg_resolver. A miss proceeds to search_paths. */
     Z42ZpkgResolverWriteFn zpkg_resolver_write;
+    /* Optional file resolver. Takes precedence over the legacy resolvers. */
+    Z42FileResolverFn file_resolver;
+    void* file_resolver_user_data;
 } Z42HostConfig;
 
 /* Required configuration prefix. Callers normally advertise sizeof(Z42HostConfig). */
@@ -219,12 +239,22 @@ Z42HostStatus z42_host_initialize(const Z42HostConfig* cfg,
                                   Z42HostRef* out_host);
 
 /*
- * Load a .zbc module from a byte buffer. The bytes must remain valid
- * for the duration of the call; the VM copies what it needs.
- *
- * H1 status: returns ERR_INTERNAL with message "H2: load_zbc not yet
- * implemented". Real loading lands in H2.
+ * Copy bytes during a file resolver callback. bytes is borrowed until
+ * this function returns. A zero-length buffer may use a NULL pointer.
  */
+Z42HostStatus z42_file_write(Z42FileWriter* writer,
+                            const uint8_t* bytes, size_t length);
+
+/*
+ * Load program code in either Z42 format. file_name is optional. A
+ * supplied name can locate the application's runtimeconfig sidecar.
+ * The input pointers are borrowed for the duration of the call.
+ */
+Z42HostStatus z42_host_load_bytes(Z42HostRef host, const char* file_name,
+                                  const uint8_t* bytes, size_t length,
+                                  Z42ModuleRef* out_module);
+
+/* Compatibility entry point for unnamed program bytes. */
 Z42HostStatus z42_host_load_zbc(Z42HostRef host,
                                 const uint8_t* bytes, size_t length,
                                 Z42ModuleRef* out_module);
@@ -245,7 +275,6 @@ Z42HostStatus z42_zpkg_read_namespaces(const uint8_t* bytes, size_t length,
  *   "namespace.Type::method"  (static method or member)
  *   "namespace::function"     (top-level function)
  *
- * H1 status: returns ERR_INTERNAL ("H2: resolve_entry not yet implemented").
  */
 Z42HostStatus z42_host_resolve_entry(Z42HostRef host, Z42ModuleRef module,
                                      const char* fqn,
@@ -255,7 +284,6 @@ Z42HostStatus z42_host_resolve_entry(Z42HostRef host, Z42ModuleRef module,
  * Synchronously invoke an entry. `args` and `n` must match the entry's
  * signature. `out_result` may be NULL to discard the return value.
  *
- * H1 status: returns ERR_INTERNAL ("H2: invoke not yet implemented").
  */
 Z42HostStatus z42_host_invoke(Z42EntryRef entry,
                               const Z42Value* args, size_t n,
@@ -286,9 +314,7 @@ Z42HostStatus z42_host_shutdown(Z42HostRef host);
 
 /*
  * One-shot: load a self-contained app (.zbc / .zpkg) at `app_zpkg` and run its
- * entry, then tear down. This is the embedded-app-run path (add-embedded-app-run
- * / add-wasm-testhost G6) shared by every platform's test-host and by workload
- * apps — desktop C shell, iOS Swift, Android JNI all call this one symbol.
+ * entry, then tear down.
  *
  *   app_zpkg  path to the app artifact (required)
  *   entry     entry FQN override, or NULL for the app's baked-in entry

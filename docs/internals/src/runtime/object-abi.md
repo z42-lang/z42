@@ -21,7 +21,7 @@
 
   块头（`GcBlockHeader`，[object/header/block.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/object/header/block.rs)）对所有变长块同形：
   前 8 字节是 GC 字（`GcWord`：16 位 generation，最低位即存活位 / mark / `type_tag` / 32 位 payload 长度），后 8 字节是「种类字」——
-  对象的 `Arc<TypeDesc>`，其余块恒为空。所以对象头**就是**块头，类型字之后直接是字段单元（布局与取舍见 [gc.md](gc.md)「变长块堆」）。
+  对象的类型字直接指向 `TypeDesc` 并拥有一个强引用。所以对象头**就是**块头，类型字之后直接是字段单元（布局与取舍见 [gc.md](gc.md)「变长块堆」）。
   `ScriptObject`（[object/storage.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/object/storage.rs)）是一个 `#[repr(C)]` **动态大小类型**：
   `{ gc: GcWord, type_desc, payload: [UnsafeCell<u8>] }`，盖在整个块上；`&ScriptObject` 是胖引用，元数据是 payload 长度，
   **引用的范围恰好盖住头 + 字段 + meta 字**。`payload_len()`（字段区长度）= payload 长度减去 meta 字（有 meta 时 8 B，看块头 `type_tag`
@@ -198,7 +198,7 @@ ObjectHeader {
 }
 ```
 > 注:当前对象头就是这个形状（对象模型 R8）：16 B 块头 = 8 B GC 字（generation + 存活位、mark、`type_tag`（种类 / 代龄 / 记忆集 / 侧表位）、
-> payload 长度）+ 8 B 类型字（对象的 `Arc<TypeDesc>`；数组是 `&'static ArrayDesc`，R9）。GC 字目前不能兼作 forwarding pointer（非移动堆），**移动 GC 需要的转发字是 §6 的事**。
+> payload 长度）+ 8 B 类型字（对象指向 `TypeDesc`，数组指向 `ArrayDesc`，R9）。GC 字目前不能兼作 forwarding pointer（非移动堆），**移动 GC 需要的转发字是 §6 的事**。
 
 ### 对象种类
 | kind | payload | 精确 GC 扫描 |
@@ -397,7 +397,7 @@ MIXED 的零种类（3 位）：读写元素、求长度、JIT 取元素基址�
     （`NativeData`、驻留的泛型实参句柄）不再变。
   - 数组同样在发布之前建好：所有构造器经 `Heap::alloc_array_with`，在未发布的块上写描述符与元素再发布。
   - 栈数组（逃逸分析）以 `Vec<Value>` 存在执行状态的私有 arena 中。执行层校验帧句柄后，在锁内借出元素切片。
-  - GC：对象块被 tombstone 时由 drop glue 释放对象头（`Arc<TypeDesc>`、extras 盒子），值 struct 数组的块释放它的布局字。
+  - GC：对象块被 tombstone 时由 drop glue 释放类型描述符的强引用和 extras 盒子，值 struct 数组的块释放它的布局字。
     此时块已死、持 region 锁或在停顿里。
   - 原生数据自带同步：`NativeData::Monitor`（`Std.Threading.Mutex/RwLock/Channel` 的底座）用自己的内部锁，
     WeakRef / Type / LoadContext / Assembly 句柄发布后只读。
@@ -416,9 +416,8 @@ MIXED 的零种类（3 位）：读写元素、求长度、JIT 取元素基址�
 
 - JIT 的引用字内联读不覆盖型参字段（标记字按引用字查表会读成 `null`），型参字段读写仍走 helper；MIXED 数组的基元元素读也走 helper。
 - 原生字段 IC 只比 entry 0：同一站点见到多个接收者类型（继承字段经基类方法访问）时，其余类型走 helper 的 4 槽扫描。
-- 对象的类型字是一个 `Arc<TypeDesc>`：每次分配一次原子 +1、每次回收一次 −1。描述符的生存期并不统一（按分配新建的回落描述符、
-  只被加载上下文持有的类型、继承 fixup 的 copy-on-write 新版本），改成不计数的细指针 / 32 位类型号之前要先让描述符由一个只增不减的
-  arena 持有（R8 没做）。
+- 对象的类型字指向 `TypeDesc` 的数据地址，并持有一个强引用。JIT 根据 Core 提供的两个偏移读取类型指针和类型 ID。读取模式参考 CoreCLR 的类型表指针。 [CoreCLR Object](https://github.com/dotnet/runtime/blob/main/src/coreclr/vm/object.h)
+- 回落描述符、可卸载上下文的类型和继承补齐后复制的描述符各有生存期。对象回收时释放它拥有的强引用，仍需要使用描述符的调用方可另持一个强引用。
 
 ### 槽位零初始化
 

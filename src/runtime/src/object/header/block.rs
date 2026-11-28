@@ -163,15 +163,15 @@ pub struct GcWord {
 /// payload always starts 8-aligned at `DATA_OFFSET` (a `Value` element needs 8-alignment).
 ///
 /// **Object model R8**: an object block's whole header is these 16 bytes — the kind word holds
-/// the object's `Arc<TypeDesc>` (`object::ObjHeader` is the object view of the same
+/// the object's owned pointer to `TypeDesc` (`object::ObjHeader` is the object view of the same
 /// bytes) and the field cells start right after. The block's chunk is not recorded: a sweep
 /// knows which chunk it walks, and the few callers that start from a handle ask the region
 /// (`VarRegion::chunk_of`). The size class is derived from `size`.
 #[repr(C, align(8))]
 pub struct GcBlockHeader {
     pub word: GcWord,
-    /// Per-kind word, owned by the payload layer: an object's type descriptor (an
-    /// `Arc<TypeDesc>`'s pointer, released by the drop glue, which leaves it null again), an
+    /// Per-kind word, owned by the payload layer: an object's type descriptor (a
+    /// data pointer owning a strong reference, released by the drop glue), an
     /// array's interned descriptor (`object::ArrayDesc`, object model R9). Written before
     /// the block is published; null in strings and closures. The region writes it null when it
     /// carves a block and never reads it.

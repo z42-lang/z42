@@ -561,13 +561,14 @@ public sealed partial class OverloadBinder {
     // fix-crosspkg-named-args：`ms` 可以是本地方法（按 MethodDecl 归位、补默认值表达式）或导入方法（按签名上的
     // ParamNames 归位、缺位走 `_crossPkgDefault`）。形参名 → 序号统一经 `CallParams`，与重载决议同一份判据。
     // 导入方法没有形参名 → 不可适配（null，交既有路径）。
-    internal BoundExpr[] _adaptArgs(MethodSymbol ms, Expr[] callArgs, int callArgCount, TypeEnv env, Span sp) {
+    internal BoundExpr[] _adaptArgs(MethodSymbol ms, Expr[] callArgs, int callArgCount, TypeEnv env, Span sp, bool strict = false) {
         if (!CallParams.CanName(ms)) { return null; }
         MethodDecl md = CallParams.DeclOf(ms);
         int pc = CallParams.Count(ms);
         if (callArgCount > pc) { return null; }
         BoundExpr[] slots = new BoundExpr[pc];
         bool[] filled = new bool[pc];
+        bool seenNamed = false;
         int pos = 0;
         int i = 0;
         while (i < callArgCount) {
@@ -583,8 +584,16 @@ public sealed partial class OverloadBinder {
                 AssignExpr ae = a as AssignExpr;
                 string nm = (ae.Target as IdentExpr).Name;
                 int idx = CallParams.IndexOf(ms, nm);
-                if (idx < 0) { return null; }                 // 命名实参无匹配形参 → 不可适配
-                if (filled[idx]) { return null; }
+                seenNamed = true;
+                if (idx < 0 || filled[idx]) {
+                    if (strict) {
+                        string code = idx < 0 ? DiagnosticCodes.UnknownArgumentName
+                            : (idx < pos ? DiagnosticCodes.ParameterDoublySpecified : DiagnosticCodes.DuplicateArgumentName);
+                        string reason = idx < 0 ? "unknown argument name" : "argument supplied more than once";
+                        this._tc._diags.Error(code, reason + " `" + nm + "` for `" + ms.Name + "`", a.Span);
+                    }
+                    return null;
+                }
                 // add-target-typed-new：命名实参按对应形参类型绑定（支持 `f(x: new())`）。
                 Z42Type npt = this._adaptParamType(ms, md, idx, env);
                 slots[idx] = this._tc._expr.BindWithTarget(ae.Value, npt, env); filled[idx] = true;
@@ -594,6 +603,10 @@ public sealed partial class OverloadBinder {
                     slots[idx] = this._checkAndProjectArg(slots[idx], npt, ae.Value.Span, env);
                 }
             } else {
+                if (strict && seenNamed) {
+                    this._tc._diags.Error(DiagnosticCodes.PositionalAfterNamed, "positional argument after a named argument", a.Span);
+                    return null;
+                }
                 if (pos >= pc) { return null; }
                 // add-target-typed-new：位置实参按对应形参类型绑定（支持 `f(new())`）。
                 Z42Type ppt = this._adaptParamType(ms, md, pos, env);
@@ -618,8 +631,12 @@ public sealed partial class OverloadBinder {
             }
             i = i + 1;
         }
+        return this._fillAdaptedDefaults(ms, md, slots, filled, env, sp) ? slots : null;
+    }
+
+    private bool _fillAdaptedDefaults(MethodSymbol ms, MethodDecl md, BoundExpr[] slots, bool[] filled, TypeEnv env, Span sp) {
         int k = 0;
-        while (k < pc) {
+        while (k < slots.Length) {
             if (!filled[k] && this._isParamsSlot(ms, md, k) && (this._adaptParamType(ms, md, k, env) is Z42ArrayType)) {
                 // fix-crosspkg-named-args：`params` 尾参没被给（`P(head: "h")`）= 空尾包，与位置调用
                 // `_withParamsExpansion` 打的包同形。此前这里当「缺实参且无默认」返回 null ⇒ 命名实参调用 params 方法一律失败。
@@ -627,11 +644,11 @@ public sealed partial class OverloadBinder {
                 slots[k] = new BoundArrayLit(new BoundExpr[0], 0, PrimModel.SurfaceName(pelem.Name()), new Z42ArrayType(pelem), sp);
             } else if (!filled[k] && md == null) {
                 // 导入：缺位必须有 `$Default` / caller 宏，取值与位置调用的跨包补位同一条（_crossPkgDefault）。
-                if (this._crossPkgMissingRequired(ms.Signature, k) == k) { return null; }
+                if (this._crossPkgMissingRequired(ms.Signature, k) == k) { return false; }
                 slots[k] = this._crossPkgDefault(ms.Signature, k, env, sp);
             } else if (!filled[k]) {
                 Expr dflt = md.Params[k].Default;
-                if (dflt == null) { return null; }   // 缺实参且无默认 → 不可适配
+                if (dflt == null) { return false; }   // 缺实参且无默认 → 不可适配
                 if (MacroRegistry.IsMacro(dflt)) {
                     // PR6b：同包 caller 宏注入（跨包对称走 _crossPkgDefault）。截在 _bindExpr 前——
                     // 否则 IdentExpr("$macro:*") 会落到 ExprTyper._bindIdent 报 E0450（误用检测）。
@@ -642,7 +659,7 @@ public sealed partial class OverloadBinder {
             }
             k = k + 1;
         }
-        return slots;
+        return true;
     }
 
     private bool _isParamsSlot(MethodSymbol ms, MethodDecl md, int i) {

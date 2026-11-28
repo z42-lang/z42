@@ -86,6 +86,7 @@ pub struct HostConfig {
     /// `search_paths` on miss. See
     /// [`docs/internals/src/runtime/embedding.md §11`].
     pub zpkg_resolver: Option<Arc<dyn ZpkgResolver>>,
+    pub file_resolver: Option<Arc<dyn super::FileResolver>>,
     /// The file system the host's VMs load packages from and run on (`search_paths`
     /// are looked up on it too). `None` = the runtime's default: the OS file system,
     /// or a fresh in-memory one where the target has none. A host that mounts files
@@ -103,6 +104,7 @@ impl Default for HostConfig {
             stderr: None,
             search_paths: Vec::new(),
             zpkg_resolver: None,
+            file_resolver: None,
             vfs: None,
         }
     }
@@ -192,7 +194,7 @@ pub fn read_zpkg_namespaces(bytes: &[u8]) -> Result<Vec<String>, HostError> {
 }
 
 /// One-shot: load a z42 app (`.zbc` / `.zpkg`) at `file` and run its entry
-/// (`entry` overrides the artifact's baked-in entry hint; `None` uses it).
+/// (`entry` overrides the program's entry hint; `None` uses it).
 ///
 /// add-embedded-app-run: shares z42vm's own app-run core (`z42::host::run_app`), so
 /// desktop self-contained + wasm / iOS / Android + any user cross-platform app
@@ -354,6 +356,7 @@ impl Host {
             heap_max_bytes: cfg.heap_max.unwrap_or(0),
             search_paths,
             zpkg_resolver: cfg.zpkg_resolver,
+            file_resolver: cfg.file_resolver,
             vfs: cfg.vfs.unwrap_or_else(crate::pal::fs::default_vfs),
         };
         let sinks = HostSinks {
@@ -368,7 +371,11 @@ impl Host {
     }
 
     pub fn load_zbc(&self, bytes: &[u8]) -> Result<Module, HostError> {
-        session_call("z42_host_load_zbc", || session::load(self.token, bytes)).map(|token| Module {
+        self.load_bytes(None, bytes)
+    }
+
+    pub fn load_bytes(&self, name: Option<&str>, bytes: &[u8]) -> Result<Module, HostError> {
+        session_call("z42_host_load_bytes", || session::load(self.token, name, bytes)).map(|token| Module {
             token,
             _not_sync: PhantomData,
         })
@@ -377,7 +384,7 @@ impl Host {
     pub fn load_zbc_path<P: AsRef<Path>>(&self, path: P) -> Result<Module, HostError> {
         let bytes = std::fs::read(&path)
             .map_err(|e| HostError::BadZbc(format!("read {}: {e}", path.as_ref().display())))?;
-        self.load_zbc(&bytes)
+        self.load_bytes(path.as_ref().to_str(), &bytes)
     }
 
     pub fn resolve_entry(&self, module: &Module, fqn: &str) -> Result<Entry, HostError> {

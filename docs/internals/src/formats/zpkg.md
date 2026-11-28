@@ -146,7 +146,7 @@ zbc_hash       pool idx（散装 zbc 内容 SHA-256，一致性校验）
 > 保证值恒非负、`>>` 等价逻辑右移，无需模拟 64 位无符号移位。
 >
 > **注意**：indexed 包的散装 `.zbc` 内容哈希（`FILE` 段的 `zbc_hash`）**仍是 BLAKE3-128** ——
-> 那个值 Rust 侧 `loader/artifact.rs` 会**重算校验**，是真的跨语言契约，与本节的 BLID 无关。
+> 那个值 Rust 侧 `loader/decode.rs` 会**重算校验**，是真的跨语言契约，与本节的 BLID 无关。
 
 ### 跨 zpkg `impl` 块传播 — IMPL section + Phase 3 merge
 

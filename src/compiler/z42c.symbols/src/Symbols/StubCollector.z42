@@ -5,7 +5,7 @@ using Z42.IR;
 using Z42.Syntax;
 using Z42.Core;
 
-public sealed class StubCollector {
+public sealed partial class StubCollector {
     private SymbolCollector _sc;   // hub 反向引用：共享辅助 + partial 状态 + 编排
     public StubCollector(SymbolCollector sc) { this._sc = sc; }
 
@@ -375,7 +375,10 @@ public sealed class StubCollector {
         int i = 0;
         while (i < cu.DeclCount) {
             Decl d = this._sc._unwrap(cu.Decls[i]);
-            if (d is ClassDecl) {
+            if (d is UnionDecl) {
+                if (table.FirstUnionDeclaration == null) { table.FirstUnionDeclaration = d.Span; }
+                this._putUnionStub(scoped, d as UnionDecl);
+            } else if (d is ClassDecl) {
                 ClassDecl c = d as ClassDecl;
                 if (c.Kind == "class" || c.Kind == "struct") {
                     bool hasBase = false;
@@ -422,7 +425,7 @@ public sealed class StubCollector {
                     // 任一方是 partial 时就把两个不相干的类并成一个。
                     string declFqn = SymbolTable.QualOf(cu.HasNamespace ? cu.Namespace : "", key);
                     Z42ClassType prevSame = table.ClassesByFqn.Get(declFqn) as Z42ClassType;
-                    bool mergePartial = prevSame != null && (c.IsPartial || prevSame.IsPartial);
+                    bool mergePartial = prevSame != null && prevSame.UnionCases == null && (c.IsPartial || prevSame.IsPartial);
                     if (mergePartial) {
                         Z42ClassType prev = prevSame;
                         if (hasBase) {

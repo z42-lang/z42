@@ -241,6 +241,7 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 | E0507 | `fieldof(T.F)` 的目标不是可见的实例/静态字段：不存在、其实是属性（诊断给出 `propertyof(T.F)` 写法）、或是 `const` 字段（编译期折叠、无运行期槽，`GetFields` 也从不列出它）。诊断列出该类型上可用的字段名 | ✅ TypeOpTyper.z42（`_bindFieldOfExpr`） | `fieldof(Logger.Nope)`、`fieldof(Logger.Prop)`（Prop 是属性） |
 | E0508 | `fieldof(...)` / `propertyof(...)` 括号内形态错：缺 `Type.Member`、任何一段带类型实参（泛型类共享一份字段布局，`Box<int>.F` 与 `Box<string>.F` 是同一个槽）、或成员后带参数列表（字段/属性无重载，名字即身份） | ✅ MethodOfParser.z42（`_parseDataMember`） | `fieldof(Logger)`、`fieldof(Box<int>.Item)`、`fieldof(Logger.Level(int))` |
 | E0509 | `propertyof(T.P)` 的目标不是属性：不存在（含跨包访问器回落后仍无 `get_P`/`set_P`）、其实是字段（诊断给出 `fieldof(T.P)` 写法）。诊断列出该类型上可用的属性名 | ✅ TypeOpTyper.z42（`_bindFieldOfExpr`） | `propertyof(Logger.Nope)`、`propertyof(Logger.Level)`（Level 是字段） |
+| E0510 | union 的 `switch` 遗漏一个或多个分支，或遗漏分支的一些载荷值 | ✅ UnionCoverage.z42 | 只匹配 `ReadResult.End` 的 `switch` 漏掉 `ReadResult.Bytes(_)` |
 
 ### `[Forward]` 转发生成（⚠️ 常量名与实际发射不符，以本表为准）
 
@@ -272,9 +273,9 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 
 ## E05xx — IR 代码生成
 
-| 码 | 含义 | 状态 |
-|---|---|---|
-| E0501 | 语法合法但尚未降解到 IR 的构造 | ⚠️ 零发射点 |
+| 码 | 含义 | 状态 | 触发示例 |
+|---|---|---|---|
+| E0501 | 编译器无法为当前语法生成可执行产物 | ✅ CuCompile.z42 | 编译含有 `union ReadResult { End, Bytes(int) }` 声明的程序 |
 
 ---
 
@@ -360,10 +361,10 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 
 | 码 | 含义 | 状态 | 触发示例 |
 |---|---|---|---|
-| E1001 | 位置实参出现在具名实参之后 | ⚠️ 零发射点 | — |
-| E1002 | 具名实参用了未知的形参名 | ⚠️ 零发射点 | — |
-| E1003 | 同一个具名实参重复出现 | ⚠️ 零发射点 | — |
-| E1004 | 同一个形参被位置实参与具名实参重复指定 | ⚠️ 零发射点 | — |
+| E1001 | union 分支构造的位置实参出现在命名实参之后 | ✅ OverloadBinder.z42 | `ReadResult.Range(start: 1, 2)` |
+| E1002 | union 分支构造的命名实参使用了未知的载荷字段名 | ✅ OverloadBinder.z42 | `ReadResult.Range(first: 1, end: 2)` |
+| E1003 | union 分支构造重复使用同一个命名实参 | ✅ OverloadBinder.z42 | `ReadResult.Range(start: 1, start: 2)` |
+| E1004 | union 分支构造的位置实参与命名实参指定了同一载荷字段 | ✅ OverloadBinder.z42 | `ReadResult.Range(1, start: 2)` |
 | E1005 | 实参太少：缺位形参没有默认值。**也覆盖函数类型值的调用**：`(int,int) -> int add; add(1)` 报本码（否则少传让形参拿到 `Null`、崩在**别处**，栈顶指 lambda 体而非调用点）。⚠️ 委托形参写了默认值**不生效**（`delegate void D(int a, int b = 5)` 调 `d(1)` 得 `b=null`），故按精确个数判；型参收者（`where T : Func<..>`）**不校验**（擦除后形参表不可信） | ✅ OverloadBinder.z42（`_withDefaults`）、`_checkFuncValueArity`（函数类型值） | `void f(int a, int b)` 调成 `f(1)`；`(int,int) -> int add; add(1)` |
 | E1006 | 实参太多（非 `params` 调用）。**也覆盖函数类型值的调用**：`(int) -> int f; f(1, 2)` 报本码（否则多余实参被**静默丢掉**，比崩溃更坏） | ✅ OverloadBinder.z42（`_withDefaults`）、`_checkFuncValueArity`（函数类型值） | `void f(int a)` 调成 `f(1, 2)`；`(int) -> int f; f(1, 2)` |
 

@@ -3,8 +3,8 @@ use anyhow::Context;
 use std::path::{Path, PathBuf};
 
 use super::{
-    artifact::load_artifact_cached, dependency_candidates::version_mismatch_hint, ImageCache,
-    LoadedArtifact,
+    decode::decode_program_file_cached, dependency_candidates::version_mismatch_hint, ImageCache,
+    DecodedProgram,
 };
 use crate::pal::fs::Vfs;
 
@@ -13,7 +13,7 @@ pub(crate) const PRELUDE_FILE: &str = "z42.core.zpkg";
 pub(crate) struct LoadedPrelude {
     pub(crate) path: PathBuf,
     pub(crate) canonical_path: PathBuf,
-    pub(crate) artifact: LoadedArtifact,
+    pub(crate) decoded: DecodedProgram,
 }
 
 fn prelude_candidates(fs: &dyn Vfs, search_dirs: &[PathBuf]) -> Vec<PathBuf> {
@@ -33,7 +33,14 @@ pub(crate) fn probe_prelude(
         let candidate = dir.as_ref().join(PRELUDE_FILE);
         let Some(path) = candidate.to_str() else { continue; };
         if fs.exists(path) && !fs.is_dir(path) {
-            super::load_artifact(fs, path).with_context(|| format!("validating corelib at {path}"))?;
+            // Validation must leave the process configuration open for an app sidecar.
+            super::package::decode_program_file_with_fusion(
+                fs, path, || super::fusion_inputs::FusionInputs {
+                    no_fusion: true,
+                    no_typed_fusion: true,
+                    fusion_debug: false,
+                }
+            ).with_context(|| format!("validating corelib at {path}"))?;
             break;
         }
     }
@@ -58,13 +65,13 @@ pub(crate) fn load_prelude(
         tried_candidate = true;
         let canonical_path = path.canonicalize().unwrap_or_else(|_| path.clone());
         let path_str = path.to_string_lossy();
-        match load_artifact_cached(fs, &path_str, cache) {
-            Ok(artifact) => {
+        match decode_program_file_cached(fs, &path_str, cache) {
+            Ok(decoded) => {
                 tracing::debug!("loaded stdlib z42.core from {path_str}");
                 return Ok(Some(LoadedPrelude {
                     path,
                     canonical_path,
-                    artifact,
+                    decoded,
                 }));
             }
             Err(error) => match version_mismatch_hint(&path_str, &error) {

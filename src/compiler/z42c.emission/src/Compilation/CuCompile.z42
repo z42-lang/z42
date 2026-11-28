@@ -143,8 +143,17 @@ public static class CuCompile {
     // `s.Nope = 5`（S 是 struct）曾抛 `struct field path: layout lookup failed`，编译器崩栈退出，那条
     // 「no field `Nope`」反倒一个字都没打出来。代码生成在有错时也没有别的产出要交：依赖集来自绑定期 +
     // `DepUseCollector`（`DepRefsOf`），using 告警在有错时本就跳过。回空模块。
+    internal static bool CheckUnionEmission(SymbolTable symbols, DiagnosticBag diags) {
+        Span span = symbols.FirstUnionDeclaration;
+        if (span == null) { return true; }
+        diags.Error(DiagnosticCodes.UnsupportedSyntax, "emitting code for union declarations requires union runtime support", span);
+        return false;
+    }
+
     public static IrModule GenerateIfClean(IrGen gen, CompilationUnit cu, SemanticModel model, int optSet) {
-        if (!gen.HasTypeErrors) { return gen.Generate(cu, model, optSet); }
+        if (!gen.HasTypeErrors && CuCompile.CheckUnionEmission(model.Symbols, gen.Diags)) {
+            return gen.Generate(cu, model, optSet);
+        }
         string[] pool = new string[1]; pool[0] = "";
         return new IrModule("main", pool, 1, new IrClassDesc[0], 0, new IrFunction[0], 0);
     }

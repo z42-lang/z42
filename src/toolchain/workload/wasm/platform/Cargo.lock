@@ -702,6 +702,7 @@ dependencies = [
 name = "z42-platform-wasm"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "js-sys",
  "wasm-bindgen",
  "z42",

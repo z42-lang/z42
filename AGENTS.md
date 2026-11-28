@@ -14,8 +14,7 @@
 
 完整规则见 [workflow.md](docs/agent/rules/workflow.md)；本节只列触发条件 + 一行结论：
 
-1. **提交 / 合并前先确认基于最新 main**：`git fetch` 后同步 `origin/main`，不带着落后的 base 合并
-   （workflow.md 阶段 6「合并前置」）。
+1. **按 CI 状态安排基线更新**：见 [CI 期间的基线同步](docs/agent/rules/workflow.md#ci-期间的基线同步)。
 2. **PR 冲突自动解决**：保留双方有效意图、适配调用点与测试、重新验证并推送；仅未授权的设计取舍需要裁决
    （workflow.md 阶段 6）。
 3. **没问题自动合并并清理**：并入最新 main 后完整 `xtask test` 全绿，即 squash 合并并清理本轮临时工作文件、

@@ -267,3 +267,24 @@ void test_interpolated_string_edges_and_nested() {
     Assert.Equal("n", (e3.Parts[2] as InterpHole).Inner.Dump());   // 第二个洞：复用的子解析器已 Reset
     Assert.Equal(0, p3.Diagnostics().Count());
 }
+
+[Test]
+void test_switch_guard_keeps_the_arm_delimiter_out_of_lambda_lookahead() {
+    var parser = new Parser("value switch { 0 if ready => 1, 1 if (ready) => 2, 2 if ok && ready => 3, _ => 4 }", "guard.z42");
+    SwitchExpr expr = parser.ParseExpression() as SwitchExpr;
+    Assert.Equal(0, parser.Diagnostics().ErrorCount());
+    Assert.Equal("ready", expr.Arms[0].Guard.Dump());
+    Assert.Equal("ready", expr.Arms[1].Guard.Dump());
+    Assert.Equal("(&& ok ready)", expr.Arms[2].Guard.Dump());
+}
+
+[Test]
+void test_switch_guard_still_parses_nested_lambdas() {
+    var parser = new Parser("value switch { 0 if P<int, bool>(x => x > 0) && ready => 1, _ => 0 }", "guard.z42");
+    SwitchExpr expr = parser.ParseExpression() as SwitchExpr;
+    Assert.Equal(0, parser.Diagnostics().ErrorCount());
+    BinaryExpr guard = expr.Arms[0].Guard as BinaryExpr;
+    CallExpr predicate = guard.Left as CallExpr;
+    Assert.True(predicate.Args[0] is LambdaExpr);
+    Assert.Equal("ready", guard.Right.Dump());
+}

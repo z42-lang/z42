@@ -570,7 +570,7 @@ JIT 的冷回落和热点提升通过已注册的基线引擎 / `TierApi` 交接
 
 ### 加载策略：eager + 同步
 
-`loader::load_artifact`（zbc / zpkg 两条路径）加载主 artifact 完成后**立即**探测同目录 `<basename>.zsym` 并按 BLID 校验合并。设计选择：
+`loader::decode_program_file`（zbc / zpkg 两条路径）加载主 artifact 完成后**立即**探测同目录 `<basename>.zsym` 并按 BLID 校验合并。设计选择：
 
 | 选项 | 选择 | 理由 |
 |------|------|------|
@@ -596,7 +596,7 @@ for ((module, ns, _tidx), (sym_ns, fns)) in module_pairs.iter_mut().zip(sidecar.
 
 ### 与 `merge_modules` 的顺序
 
-`load_zpkg_bytes_with_sidecar`（`loader/package/artifact.rs`）调用顺序：
+`load_zpkg_bytes_with_sidecar`（`loader/package/decode.rs`）调用顺序：
 
 1. `read_zpkg_modules(raw)` → `Vec<(Module, ns, TestEntry[])>` 拥有可变 Module
 2. `apply_zpkg_sidecar(&mut module_pairs, raw, sym, sym_path)` — 把 sidecar DBUG 合入 per-module funcs
@@ -893,7 +893,7 @@ load_zpkg_file(file_name):
   if file_name in loaded_zpkgs → return    # 已加载/正在加载（防 re-entry）
   loaded_zpkgs.insert(file_name)           # ★ 着色：先标记后加载
 
-  artifact = load_artifact(file_path)
+  artifact = decode_program_file(file_path)
   remap ConstStr indices + 并入函数注册表 / type_registry（first-wins）
 
   # 递归展开该 zpkg 自己的 ZpkgDep 进 declared 集合

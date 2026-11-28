@@ -80,7 +80,7 @@ owned `Module`）。root context(0) + root assembly(0) 由 `ContextRegistry::new
 
 ### 加载路径分叉（`loader/runtime_contexts.rs`）
 root 的执行加载沿用 `merge_modules`。`AssemblyLoadContext.Load` 调用
-`RuntimeLoader::load_context_artifact`，由 Loader 检查 context 活动状态，通过配置的 VFS 读取并解码产物，
+`RuntimeLoader::load_context_program`，由 Loader 检查 context 活动状态，通过配置的 VFS 读取并解码产物，
 再将模块注册到指定 context 的反射表。此操作不向 root 执行注册表发布符号。Builtin 将返回的 assembly ID
 包装为托管对象，并负责映射加载错误。`GetTypes()` 按 FQ 名有序返回（`assembly_types` sort，避免 HashMap 非确定序）。
 

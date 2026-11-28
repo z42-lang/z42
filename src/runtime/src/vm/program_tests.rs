@@ -149,6 +149,7 @@ fn resolver_overrides_disk_prelude() {
         vfs: fs,
         search_dirs: vec!["/libs".into()],
         resolver: Some(Arc::new(Resolver)),
+        file_resolver: None,
         eager_dependencies: true,
         native: Default::default(), allow_profiling: true,
     };
@@ -175,12 +176,12 @@ fn fatal_error_keeps_the_report_for_the_cli_adapter() {
 fn malformed_selected_eager_dependency_fails_during_load() {
     let fs = Arc::new(MemoryFs::new());
     fs.mount(std::path::Path::new("/libs").join("broken.zpkg").to_str().unwrap(), b"broken dependency".to_vec());
-    let mut artifact = crate::loader::load_artifact_from_bytes(&empty_zbc()).unwrap();
-    artifact.dependencies.push(zpkg::format::ZpkgDep {
+    let mut decoded = crate::loader::decode_program_bytes(&empty_zbc()).unwrap();
+    decoded.dependencies.push(zpkg::format::ZpkgDep {
         file: "broken.zpkg".into(), namespaces: Vec::new(), symbols: Vec::new(),
     });
     let error = crate::loader::prepare_startup(
-        artifact, None, &*fs, vec!["/libs".into()], None, true, None,
+        decoded, None, None, &*fs, vec!["/libs".into()], None, None, true, None,
     )
     .err()
     .expect("must reject a corrupt dependency");
@@ -188,13 +189,13 @@ fn malformed_selected_eager_dependency_fails_during_load() {
 }
 
 /// The session image cache shares decoded definitions across programs (the
-/// C# ALC "already loaded ⇒ shared" rule): identical artifact content loaded
+/// C# ALC "already loaded ⇒ shared" rule): identical decoded content loaded
 /// twice through one cache decodes exactly once and hands every program a
 /// shallow view whose function-definition `Arc`s are pointer-equal.
 #[test]
 fn session_cache_shares_definitions_between_programs() {
     use crate::zpkg::ir::{self, Instruction};
-    fn artifact() -> crate::loader::LoadedArtifact {
+    fn decoded() -> crate::loader::DecodedProgram {
         let module = crate::metadata::Module::from_ir(ir::Module {
             name: "Shared".into(),
             string_pool: vec!["constant".into()],
@@ -223,7 +224,7 @@ fn session_cache_shares_definitions_between_programs() {
             }],
             func_index: Default::default(),
         });
-        crate::loader::LoadedArtifact {
+        crate::loader::DecodedProgram {
             module,
             entry_hint: None,
             dependencies: Vec::new(),
@@ -235,9 +236,9 @@ fn session_cache_shares_definitions_between_programs() {
     }
     let cache = crate::loader::ImageCache::default();
     let id = crate::loader::content_id(b"identical-bytes");
-    let decode = || Ok::<_, anyhow::Error>(artifact());
-    let first = cache.artifact_for(&id, decode).expect("first decode");
-    let second = cache.artifact_for(&id, decode).expect("second load shares the decode");
+    let decode = || Ok::<_, anyhow::Error>(decoded());
+    let first = cache.program_for(&id, decode).expect("first decode");
+    let second = cache.program_for(&id, decode).expect("second load shares the decode");
     assert_eq!(cache.len(), 1, "identical content decodes exactly once per session");
     assert_eq!(first.module.functions.len(), second.module.functions.len());
     for (fa, fb) in first.module.functions.iter().zip(second.module.functions.iter()) {
@@ -282,13 +283,13 @@ fn no_eager_merge_track_registers_packages_and_runs() {
     assert!(value.is_none(), "embedding hello Main is void; got {value:?}");
 }
 
-/// Unit-level repro: drive `register_decoded_artifact` directly against a
+/// Unit-level repro: drive `register_decoded_program` directly against a
 /// fresh VM (bypassing prepare's VFS-driven collection) and assert the
 /// dependency's function lands in the global FuncTable.
 #[test]
 fn no_eager_merge_unit_registration_lands_in_func_table() {
     use crate::zpkg::ir::{self, Instruction, Terminator};
-    let dep = crate::loader::LoadedArtifact {
+    let dep = crate::loader::DecodedProgram {
         module: crate::metadata::Module::from_ir(ir::Module {
             name: "Dep".into(),
             string_pool: Vec::new(),
@@ -330,7 +331,7 @@ fn no_eager_merge_unit_registration_lands_in_func_table() {
     };
     let program = LoadedProgram::load_bytes(&empty_zbc(), options).expect("loads");
     let ctx = program.context();
-    ctx.loader().register_eager_artifact(dep).expect("registration runs");
+    ctx.loader().register_eager_program(dep).expect("registration runs");
     assert!(
         ctx.funcs().id_of("Dep.Work").is_some(),
         "registered dep function must be resolvable by name after explicit registration"

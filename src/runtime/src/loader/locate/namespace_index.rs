@@ -3,7 +3,7 @@
 //!
 //! Both the compile-time resolver (`loader::resolve_namespace`) and the runtime
 //! lazy loader (`lazy_loader`) need to answer "which zpkg(s) declare namespace
-//! X?" by scanning the search dirs and reading each artifact's NSPC section.
+//! X?" by scanning the search dirs and reading each decoded's NSPC section.
 //! That scan is the shared **parse** concern; it is stateless and returns owned
 //! [`ZpkgCandidate`]s that the caller either drops after matching (loader —
 //! transient) or retains in `declared_zpkgs` for on-demand load (lazy_loader).
@@ -31,7 +31,7 @@ use crate::zpkg::reader::read_zpkg_meta;
 pub struct ZpkgCandidate {
     /// Absolute path to the zpkg file.
     pub file_path: PathBuf,
-    /// Namespaces exported by this artifact (from its NSPC section).
+    /// Namespaces exported by this decoded (from its NSPC section).
     pub namespaces: Vec<String>,
 }
 
@@ -172,7 +172,7 @@ fn read_zpkg_namespaces(data: &[u8]) -> Result<Vec<String>> {
 }
 
 /// Reads the (single) namespace from a binary zbc buffer (NSPC section
-/// fast-path). Returns an empty string when the artifact has no NSPC section.
+/// fast-path). Returns an empty string when the decoded has no NSPC section.
 pub fn read_zbc_namespace(data: &[u8]) -> Result<String> {
     use anyhow::bail;
     if data.len() < 16 { bail!("zbc buffer too short ({} bytes)", data.len()) }

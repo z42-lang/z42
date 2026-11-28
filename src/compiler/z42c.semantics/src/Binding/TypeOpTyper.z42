@@ -591,6 +591,10 @@ public sealed class TypeOpTyper {
 
     internal BoundExpr _bindIsExpr(IsExpr ix, TypeEnv env) {
             BoundExpr operand = this._et._bindExpr(ix.E, env);
+            if (ix.BindName == "") {
+                BoundPattern branch = this._tc._pattern.TryBindUnionCase(ix.Type, null, 0, operand.Type(), env, ix.Span);
+                if (branch != null) { return new BoundIsPatternExpr(operand, branch, ix.Span); }
+            }
             // 用 AST 原始类型名（镜像 C# bin.Right ident → QualifyClassName），不用 resolved 类型：
             // Array/Object 等内建类 ResolveType 得 Unknown → "<unknown>"，致 is_instance 失配。
             string tn;
