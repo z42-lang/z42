@@ -38,6 +38,7 @@ void Main() {
     var owner = new Child();
     owner.Sibling = 17L;
     Assert.True(owner.Value is Envelope.Empty);
+    for (int i = 0; i < 4; i = i + 1) { GC.ForceCollect(); }
     Fill(owner, watch);
     CheckLive(owner, watch);
     owner.Value = Envelope.Nested(Payload.Number(-1L), "number");

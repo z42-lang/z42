@@ -23,3 +23,40 @@ fn inline_union_stride_is_exact_and_copy_and_clear_change_only_the_selected_elem
         assert_eq!(array.struct_elem(2).unwrap().0, vec![0; size]);
     }
 }
+
+#[test]
+fn a_wide_union_read_matches_one_complete_concurrent_write() {
+    const SIZE: usize = 24;
+    let layout = Arc::new(StructTypeLayout {
+        size: SIZE,
+        union_layout: Some(Arc::new(crate::zpkg::ir::UnionLayoutDesc {
+            nodes: Box::new([crate::zpkg::ir::UnionLayoutNode {
+                size: SIZE as u32,
+                align: 8,
+                tag_bytes: 1,
+                reference_count: 0,
+                cases: vec![Box::new([]) as Box<[crate::zpkg::ir::UnionLayoutEntry]>; 2]
+                    .into_boxed_slice(),
+            }]),
+        })),
+        ..Default::default()
+    });
+    let array = ArrayObj::struct_leaked("$union.Test", 1, layout);
+    let zero = [0; SIZE];
+    let one = [1; SIZE];
+    std::thread::scope(|scope| {
+        scope.spawn(move || {
+            let array = array.borrow();
+            for _ in 0..2048 {
+                array.write_inline_union_encoded(0, &one).unwrap();
+                array.write_inline_union_encoded(0, &zero).unwrap();
+            }
+        });
+        let array = array.borrow();
+        let mut value = [0; SIZE];
+        for _ in 0..4096 {
+            array.read_inline_union(0, &mut value, &mut []).unwrap();
+            assert!(value == zero || value == one);
+        }
+    });
+}

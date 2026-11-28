@@ -33,6 +33,7 @@ void CheckLive(Envelope[] values, Watch watch) {
 void Main() {
     var watch = new Watch();
     var values = new Envelope[2];
+    for (int i = 0; i < 4; i = i + 1) { GC.ForceCollect(); }
     Fill(values, watch);
     Array.CopyRange(values, 0, values, 1, 1);
     values[0] = Envelope.Empty;
@@ -40,6 +41,16 @@ void Main() {
     values[1] = Envelope.Nested(Payload.Number(-1L), "number");
     GC.ForceCollect();
     Assert.True(WeakHandle.Upgrade(watch.Weak) == null);
+    Assert.True(values[1] is Envelope.Nested(Payload.Number(-1L), "number"));
+
+    bool untypedReadRejected = false;
+    try { values.GetValue(1); }
+    catch (NotSupportedException) { untypedReadRejected = true; }
+    Assert.True(untypedReadRejected);
+    bool untypedWriteRejected = false;
+    try { values.SetValue(null, 1); }
+    catch (NotSupportedException) { untypedWriteRejected = true; }
+    Assert.True(untypedWriteRejected);
     Assert.True(values[1] is Envelope.Nested(Payload.Number(-1L), "number"));
 
     var boxed = new Payload[] { Payload.Box(true), Payload.Empty };
