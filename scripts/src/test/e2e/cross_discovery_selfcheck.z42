@@ -1,0 +1,28 @@
+namespace Z42Xtask;
+
+using Std.IO;
+
+void _selfcheckCrossFixtureDiscovery() {
+    string dir = _xtaskWork(_root(), "cross-fixture-discovery");
+    _resetDir(dir);
+    try {
+        string target = Path.Join(dir, "target");
+        string main = Path.Join(dir, "main");
+        Directory.Create(target);
+        File.WriteAllText(Path.Join(target, "z42.toml"), "[project]\nname = \"example.target\"\n");
+        _gateAssert(_crossFixtureIssue(dir).Contains("main: missing"), "cross fixture reports a missing main manifest");
+        Directory.Create(main);
+        File.WriteAllText(Path.Join(main, "example.main.z42.toml"), "[project]\nname = \"example.main\"\n");
+        _gateAssert(_crossFixtureIssue(dir).Length == 0, "cross fixture with manifests and no expected output is accepted");
+        foreach (var marker in new string[]{ "expected_build_error.txt", "expected_build_warning.txt" }) {
+            string path = Path.Join(dir, marker);
+            File.WriteAllText(path, " \n");
+            _gateAssert(_crossFixtureIssue(dir).Contains(marker), "cross fixture rejects a blank expected diagnostic");
+            File.WriteAllText(path, "diagnostic");
+            _gateAssert(_crossFixtureIssue(dir).Length == 0, "cross fixture keeps nonempty diagnostic expectations");
+            File.Delete(path);
+        }
+    } finally {
+        Directory.Delete(dir, true);
+    }
+}

@@ -1,6 +1,5 @@
 namespace Demo.StructApp;
 
-using Std.IO;
 using Demo.StructTarget;
 using Demo.StructExt;
 
@@ -9,25 +8,25 @@ int Bump(Point p) { p.x = p.x + 100; return p.x; }
 
 void Main() {
     Point p = new Point(1, 2);
-    Console.WriteLine(p.x);           // 1
-    Console.WriteLine(p.Sum());       // 3  跨包 struct 方法
+    Assert.Equal(1, p.x);
+    Assert.Equal(3, p.Sum());          // 跨包 struct 方法
     p.x = 5;
-    Console.WriteLine(p.x);           // 5
+    Assert.Equal(5, p.x);
     Point q = p;                       // 值复制
     q.x = 42;
-    Console.WriteLine(p.x);           // 5  q 改动不动 p
-    Console.WriteLine(q.x);           // 42
-    Console.WriteLine(Bump(p));       // 105 副本 5+100
-    Console.WriteLine(p.x);           // 5  Bump 不动 p
+    Assert.Equal(5, p.x);             // q 改动不动 p
+    Assert.Equal(42, q.x);
+    Assert.Equal(105, Bump(p));       // 副本 5+100
+    Assert.Equal(5, p.x);             // Bump 不动 p
     Line line = new Line(new Point(1, 2), new Point(3, 4));
-    Console.WriteLine(line.a.x);      // 1  嵌套
-    Console.WriteLine(line.b.y);      // 4
+    Assert.Equal(1, line.a.x);        // 嵌套
+    Assert.Equal(4, line.b.y);
     line.a.x = 100;
-    Console.WriteLine(line.a.x);      // 100
-    Console.WriteLine(line.b.x);      // 3  兄弟字段独立
+    Assert.Equal(100, line.a.x);
+    Assert.Equal(3, line.b.x);        // 兄弟字段独立
     // transitive：ext.Rect 内嵌 imported target.Point
     Rect rc = new Rect(new Point(7, 8), 3, 4);
-    Console.WriteLine(rc.origin.x);   // 7  跨包 struct 内嵌 imported struct 字段
-    Console.WriteLine(rc.w);          // 3
-    Console.WriteLine(rc.Area());     // 12
+    Assert.Equal(7, rc.origin.x);     // 跨包 struct 内嵌 imported struct 字段
+    Assert.Equal(3, rc.w);
+    Assert.Equal(12, rc.Area());
 }

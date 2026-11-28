@@ -136,7 +136,7 @@
 |---|---|---|---|
 | **unit** | 带 `[Test]` 的 `.z42`（文件或目录） | `Assert.*` 抛异常即失败 | `z42b test` |
 | **golden** | flat：`<name>.z42`；dir：`<name>/source.z42` + sidecar | [检查退出码和输出](testing.md#vm-golden) | VM 直接跑 |
-| **fixture** | `tests/fixtures/<suite>/<case>/`：含 `z42.toml` 的工程目录 + `expected_output.txt` 或 `expected_build_error.txt`；命令行行为类用 `expect.toml`（参数、退出码、stderr / stdout 必含 / 不得含、产物有无） | 先构建再比对；期望报错时 stderr 必须包含给定子串 | xtask 按所属组件的 harness |
+| **fixture** | `tests/fixtures/<suite>/<case>/`：含清单的工程目录，按套件需要附输出或编译诊断期望；命令行行为类用 `expect.toml`（参数、退出码、stderr / stdout 必含 / 不得含、产物有无） | 先构建，再检查运行结果或编译诊断 | xtask 按所属组件的 harness |
 
 Rust 侧的 `*_tests.rs` 与 `tests/*.rs` 按 cargo 惯例，不在此列。
 

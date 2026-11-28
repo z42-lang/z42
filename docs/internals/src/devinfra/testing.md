@@ -117,9 +117,11 @@ VM golden 按源文件选择与分片，选中的用例缺少镜像 `.zbc` 时�
 驱动按 `target/` → `ext/`（依赖 target）→ `main/`（依赖两者）编译，全部 zpkg 放进 `libs/`，
 再用 VM 跑 main 入口。覆盖跨包类型解析、`impl Trait for Type` 传播、跨包泛型实例化与
 interface dispatch、`using` 的跨包 namespace 解析、同名 namespace 冲突。
+每个用例目录需要 `target/` 和 `main/` 的工程清单。缺少 `expected_output.txt` 时，
+用例仍会运行，要求退出码为 0 且 stdout 与 stderr 都为空。配置了编译诊断期望时，内容必须非空。
 
 **multi-exe**（同级 `multi-exe/<name>/`）每个工程编译一次，按产物路径排序执行全部 exe，拼接输出。
-这两套夹具都要求每个运行进程退出码为 0，且 stdout + stderr 与 `expected_output.txt` 完全一致；
+这两套夹具都要求每个运行进程退出码为 0，提供 `expected_output.txt` 时 stdout + stderr 必须完全一致；
 输出相同也不能掩盖非零退出码。期望编译失败的 cross-zpkg 用例只检查构建失败与诊断，不进入运行阶段。
 构建与临时 libs 的共用助手位于 `scripts/src/common/harness/fixture_build.z42`；cross 波次保持包间依赖顺序，
 波内并发独立夹具。multi-exe 开跑前通过真实退出 0 / 7 的程序自检两个 runner，并检查 project.name 的产物选择。
