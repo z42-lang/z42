@@ -1,0 +1,50 @@
+union Result {
+    Value(int),
+    Unsigned(uint),
+    End,
+    Flag(bool),
+    Pair(byte left, byte right),
+}
+
+class Counter {
+    public static int Calls = 0;
+    public static byte Next() {
+        Counter.Calls = Counter.Calls + 1;
+        return (byte)Counter.Calls;
+    }
+}
+
+Result Copy(Result value) {
+    return value;
+}
+
+int Read(Result value, bool ready) {
+    return value switch {
+        Result.Value(n) if ready => n,
+        Result.Value(_) => 9,
+        Result.Unsigned(_) => 8,
+        Result.End => 7,
+        Result.Flag(true) => 6,
+        Result.Flag(false) => 5,
+        Result.Pair(left, right) => left * 10 + right,
+    };
+}
+
+void Main() {
+    var value = Copy(Result.Value(-2147483648));
+    var other = value;
+    value = Result.End;
+    Assert.Equal(-2147483648, Read(other, true));
+    Assert.Equal(9, Read(other, false));
+    Assert.Equal(7, Read(value, true));
+    Assert.True(value is Result);
+    Assert.False(value is int);
+    Assert.Equal(7, value switch { Result copy => Read(copy, true) });
+    Assert.True(default(Result) is Result.Value(0));
+    Assert.True(Copy(Result.Unsigned(4294967295u)) is Result.Unsigned(4294967295u));
+    Assert.Equal(6, Read(Copy(Result.Flag(true)), true));
+    Assert.Equal(5, Read(Result.Flag(false), true));
+    var pair = Result.Pair(right: Counter.Next(), left: Counter.Next());
+    Assert.Equal(21, Read(pair, true));
+    Assert.Equal(2, Counter.Calls);
+}

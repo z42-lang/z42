@@ -1,0 +1,81 @@
+namespace Z42.Emission;
+
+using Z42.IR;
+using Z42.Semantics;
+using Z42.Symbols;
+
+public sealed partial class ExprEmitter {
+    internal TypedReg _emitUnionConstruction(BoundCall call) {
+        UnionStorageLayout layout = UnionCaseSymbol.UnionOf(call.Type()).UnionStorage;
+        UnionPayloadLayout branch = layout.Cases[call.UnionCase.Tag];
+        TypedReg packed = this._unionI64((long)call.UnionCase.Tag);
+        for (int i = 0; i < call.ArgCount; i = i + 1) {
+            int slot = call.UnionArgumentOrder[i];
+            UnionStorageField field = branch.Fields[slot];
+            TypedReg value = this.Emit(call.Args[slot]);
+            TypedReg bits = this._unionPayloadBits(value);
+            TypedReg masked = this._unionMask(bits, field.Size);
+            TypedReg shifted = this._ctx.Alloc(IrType.I64);
+            this._ctx.Emit(new ShlInstr(shifted, masked, this._unionI64((long)(layout.PayloadOffset + field.Offset) * 8L)));
+            TypedReg joined = this._ctx.Alloc(IrType.I64);
+            this._ctx.Emit(new BitOrInstr(joined, packed, shifted));
+            packed = joined;
+        }
+        return packed;
+    }
+
+    internal TypedReg _emitUnionTagMatch(TypedReg packed, UnionStorageLayout layout, int tag) {
+        TypedReg actual = this._unionMask(packed, layout.TagBytes);
+        TypedReg result = this._ctx.Alloc(IrType.Bool);
+        this._ctx.Emit(new EqInstr(result, actual, this._unionI64((long)tag)));
+        return result;
+    }
+
+    internal TypedReg _emitUnionField(TypedReg packed, int payloadOffset, UnionStorageField field) {
+        TypedReg shifted = this._ctx.Alloc(IrType.I64);
+        this._ctx.Emit(new ShrInstr(shifted, packed, this._unionI64((long)(payloadOffset + field.Offset) * 8L)));
+        int tag = this._ctx.ToIrType(field.Type);
+        TypedReg result = this._ctx.Alloc(tag);
+        if (tag == IrType.Bool) {
+            TypedReg bits = this._unionMask(shifted, field.Size);
+            this._ctx.Emit(new EqInstr(result, bits, this._unionI64(1L)));
+        } else {
+            // The target integer conversion truncates to the field width and restores its signedness.
+            this._ctx.Emit(new ConvertInstr(result, shifted));
+        }
+        return result;
+    }
+
+    private TypedReg _unionPayloadBits(TypedReg value) {
+        TypedReg result = this._ctx.Alloc(IrType.I64);
+        if (value.Type != IrType.Bool) {
+            this._ctx.Emit(new ConvertInstr(result, value));
+            return result;
+        }
+        string yes = this._ctx.Fresh("union_bool_true");
+        string no = this._ctx.Fresh("union_bool_false");
+        string end = this._ctx.Fresh("union_bool_end");
+        this._ctx.EndBlock(new BrCondTerm(value, yes, no));
+        this._ctx.StartBlock(yes);
+        this._ctx.Emit(new ConstI64Instr(result, "1"));
+        this._ctx.EndBlock(new BrTerm(end));
+        this._ctx.StartBlock(no);
+        this._ctx.Emit(new ConstI64Instr(result, "0"));
+        this._ctx.EndBlock(new BrTerm(end));
+        this._ctx.StartBlock(end);
+        return result;
+    }
+
+    private TypedReg _unionMask(TypedReg word, int bytes) {
+        long mask = (1L << (bytes * 8)) - 1L;
+        TypedReg result = this._ctx.Alloc(IrType.I64);
+        this._ctx.Emit(new BitAndInstr(result, word, this._unionI64(mask)));
+        return result;
+    }
+
+    private TypedReg _unionI64(long value) {
+        TypedReg result = this._ctx.Alloc(IrType.I64);
+        this._ctx.Emit(new ConstI64Instr(result, value.ToString()));
+        return result;
+    }
+}
