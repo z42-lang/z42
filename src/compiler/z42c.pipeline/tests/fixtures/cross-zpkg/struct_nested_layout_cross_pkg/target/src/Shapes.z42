@@ -26,6 +26,7 @@ public struct Pair<A, B> {
 
 public object BoxIntPair() { return new Pair<int, int>(-7, 42); }
 public object BoxNestedPair() { return new Pair<Point3, long>(new Point3(1, 2, 3), 4294967297L); }
+public object BoxFloatPair() { return new Pair<float, int>(-0.0f, 42); }
 public object BoxStringPair() { return new Pair<string, string>("a", "b"); }
 
 [Record] public struct FloatCell<T>(T Tag, float Amount);

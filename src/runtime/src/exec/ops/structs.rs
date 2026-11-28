@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 #[path = "struct_relayout.rs"]
 mod relayout;
-pub(crate) use relayout::adapt_imported_struct;
+pub(crate) use relayout::{adapt_imported_struct, erased_layout, erased_payload};
 
 /// Allocate a zeroed struct blob stamped with the current activation id.
 pub fn struct_alloc_val(

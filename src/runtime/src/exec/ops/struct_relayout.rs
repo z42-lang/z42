@@ -54,6 +54,39 @@ fn load_layout(ctx: &VmContext, name: &str) -> Result<Arc<StructTypeLayout>> {
         .ok_or_else(|| anyhow!("missing layout for struct `{name}`"))
 }
 
+/// The definition's shared layout gives compact and erased instances a common payload.
+pub(crate) fn erased_layout(
+    ctx: &VmContext, name: &str, layout: &StructTypeLayout,
+) -> Option<Arc<StructTypeLayout>> {
+    let definition = erased(name);
+    if definition == name { return None; }
+    ctx.loader().try_lookup_type(definition)?.struct_layout().filter(|target| **target != *layout)
+}
+
+pub(crate) struct ErasedPayload<'a> {
+    pub name: &'a str,
+    pub layout: Arc<StructTypeLayout>,
+    pub bytes: Vec<u8>,
+    pub refs: Vec<Value>,
+    // Nested boxes created during repacking stay rooted through comparison or hashing.
+    _roots: Roots<'a>,
+}
+
+pub(crate) fn erased_payload<'a>(
+    ctx: &'a VmContext, name: &'a str, bytes: &[u8], refs: &[Value],
+) -> Result<Option<ErasedPayload<'a>>> {
+    if erased(name) == name { return Ok(None); }
+    let source_layout = load_layout(ctx, name)?;
+    if erased_layout(ctx, name, &source_layout).is_none() { return Ok(None); }
+    let definition = erased(name);
+    let source = Blob { layout: source_layout, bytes: bytes.to_vec(), refs: refs.to_vec() };
+    let mut roots = Roots { heap: ctx.heap(), handles: Vec::new() };
+    let result = repack(ctx, name, source, definition, &mut roots)?;
+    Ok(Some(ErasedPayload {
+        name: definition, layout: result.layout, bytes: result.bytes, refs: result.refs, _roots: roots,
+    }))
+}
+
 fn repack(
     ctx: &VmContext, source_name: &str, source: Blob, target_name: &str, roots: &mut Roots<'_>,
 ) -> Result<Blob> {
@@ -106,6 +139,7 @@ fn copy_field(
             let boxed = crate::exec::ops::object::struct_leaf::box_struct_blob(
                 ctx, &src.type_name, &nested.bytes, &nested.refs,
             )?;
+            ensure!(!matches!(boxed, Value::Null), "failed to box nested struct during layout conversion");
             roots.handles.push(roots.heap.pin_root(boxed));
             boxed
         } else if src.is_ref {
