@@ -50,9 +50,17 @@ extern "C" {
 /* Stable handle to a registered type. NULL = invalid / not found. */
 typedef struct Z42Type* Z42TypeRef;
 
-/* Tagged value crossing ABI boundary. Layout is internal; access via z42_*. */
+/* Scalar value tags shared by native interop and the host API. */
+#define Z42_VALUE_TAG_NULL 0u
+#define Z42_VALUE_TAG_I64  1u
+#define Z42_VALUE_TAG_F64  2u
+#define Z42_VALUE_TAG_BOOL 3u
+
+/* Tagged value crossing the ABI. Scalars use integer bits, double bits,
+ * or 0/1 for bool as their payload.
+ */
 typedef struct Z42Value {
-    uint32_t tag;       /* Z42_VALUE_TAG_* (defined by C2) */
+    uint32_t tag;
     uint32_t reserved;
     uint64_t payload;   /* int / float bits / pointer / TypeRef */
 } Z42Value;
@@ -138,22 +146,7 @@ Z42TypeRef z42_register_type(const Z42TypeDescriptor_v1* desc);
 /* Resolve a previously registered type. NULL if not found. */
 Z42TypeRef z42_resolve_type(const char* module, const char* type_name);
 
-/* Reserved static-method entry. Currently returns a null value and sets
- * z42_last_error(). Use z42_host_resolve_entry / z42_host_invoke to call a
- * loaded program's entry from a host. */
-Z42Value z42_invoke(Z42TypeRef ty,
-                    const char* method,
-                    const Z42Value* args,
-                    size_t arg_count);
-
-/* Reserved instance-method entry. Currently returns a null value and sets
- * z42_last_error(). */
-Z42Value z42_invoke_method(Z42Value receiver,
-                           const char* method,
-                           const Z42Value* args,
-                           size_t arg_count);
-
-/* Last error encountered on the calling thread. tag=0 means no error. */
+/* Last error encountered on the calling thread. code=0 means no error. */
 Z42Error z42_last_error(void);
 
 #ifdef __cplusplus

@@ -3,12 +3,12 @@
 > 代码：`src/runtime/src/host/`（`ffi.rs` C 入口、`abi_config.rs` C 配置与回调适配、`error.rs` 状态码与 C 线程局部错误、
 > `session.rs` 共享嵌入会话、`marshal.rs` 值编组、`rust.rs` Rust 接口）、
 > `src/runtime/include/z42_host.h`（宿主声明）、`src/runtime/include/z42.h`（统一入口）、
-> `src/runtime/src/corelib/io/mod.rs`（sink 路由）、`src/toolchain/workload/{desktop,ios,android,wasm}/`（Tier 3 facade）。
+> `src/runtime/src/corelib/io/mod.rs`（sink 路由）、`src/toolchain/workload/{desktop,ios,android,wasm}/`（平台适配）。
 >
 > **宿主怎么调**（函数签名、返回码、生命周期与线程约束）见
 > [嵌入 C ABI 契约](https://z42-lang.github.io/z42/reference/embedding/c-abi.html)，本页不复述。
 
-本页讲 VM **内部怎么实现**那套 ABI：三层怎么分、单例状态放在哪、句柄怎么编码、
+本页讲 VM **内部怎么实现**那套 ABI：调用边界怎么划分、单例状态放在哪、句柄怎么编码、
 输出怎么从解释器路由到宿主回调、执行错误类别怎样映射为状态码、zpkg 依赖按什么顺序解析。
 改 `z42_host.h` 或往 `src/runtime/src/host/` 加东西之前读这一页。
 
@@ -34,21 +34,21 @@ mobile 端拿到的是 host 端 `z42c` 编出来的 `.zbc` / `.zpkg`，由平台
 
 ---
 
-## 三层分工
+## 宿主接口与平台适配
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  Tier 3: 平台 facade                                          │
+│  平台适配                                          │
 │    Swift Package (Z42VM)       → iOS app                    │
 │    Kotlin AAR (io.z42.vm)      → Android app                │
 │    npm package (@z42/wasm)     → 浏览器 / Node.js            │
 │    C shell (testhost/apphost)  → 桌面自包含 app              │
 ├─────────────────────────────────────────────────────────────┤
-│  Tier 2: Rust 嵌入 API（z42::host::rust）                     │
+│  Rust 嵌入 API（z42::host::rust）                     │
 │    Host::new() / load_zbc / resolve_entry / invoke          │
 ├─────────────────────────────────────────────────────────────┤
-│  Tier 1: C ABI（z42.h）                                 │
-│    z42_host_* + z42_zpkg_read_namespaces + z42_host_run_app │
+│  C 宿主 ABI（z42_host.h）                                 │
+│    z42_host_* 与 z42_file_write │
 └─────────────────────────────────────────────────────────────┘
                               ↓
                           z42 VM
@@ -58,23 +58,22 @@ mobile 端拿到的是 host 端 `z42c` 编出来的 `.zbc` / `.zpkg`，由平台
 |------|------|
 | `src/runtime/include/z42_host.h` | 宿主 C ABI。统一头 `z42.h` 汇总该接口。iOS 安装器使用 Runtime 的头文件和模块描述组装 XCFramework，Android CMake 直接使用 Runtime 的 include 目录 |
 | `src/runtime/src/host/` | Rust 宿主服务及 C ABI 适配（`ffi.rs`） |
-| `src/runtime/src/host/` | 统一宿主 z42 包及 Tier 2 Rust 接口 |
 | `src/toolchain/workload/fixtures/` | 各平台契约测试共用的 z42 夹具（`hello.z42` / `multi_line.z42`） |
-| `src/toolchain/workload/{desktop,ios,android,wasm}/platform/` | Tier 3 facade |
+| `src/toolchain/workload/{desktop,ios,android,wasm}/platform/` | 平台适配 |
 | `src/toolchain/workload/desktop/tests/r1_r7.c` | 真·外部 C 消费者：链 `libz42`，跑 R1–R7 七个契约场景。改 ABI 时这是第一道拦截 |
 
 ### 为什么是这个形状
 
-参照 CoreCLR `coreclrhost.h`、JNI `JavaVM`、Lua `lua_State` 三家的经验，定了五条：
+宿主生命周期与组件装入分开，参考 [.NET 的 hostfxr 和托管入口调用](https://learn.microsoft.com/en-us/dotnet/core/tutorials/netcore-hosting)。
 
 1. **单会话、每加载单元一 VM** —— `z42_host_initialize` 建立进程会话（配置、输出与共享解码缓存），
-   `Z42HostRef` 是不透明的会话标识。每次 `z42_host_load_zbc` 返回一个**独立加载单元**：入口产物与其
+   `Z42HostRef` 是不透明的会话标识。每次 `z42_host_load_bytes` 返回一个**独立加载单元**：入口产物与其
    依赖闭包合并为一个链接模块，独占一个 VM（类型表 / 静态字段 / 派发缓存互不可见）。同一加载单元
    内的多个 zpkg 天然共享（装载时已合并）；**依赖的 zpkg 若已被会话内任一加载单元装入，则按内容
    共享解码定义**（C# ALC「已加载即共享」规则，`loader::ImageCache`）——函数 IR 等定义数据在会话
    内只保留一份，每 VM 状态不共享（对应不同 ALC 各自的 RuntimeTypes）。多 VM 句柄化仍按
    docs/design/runtime/embedding.md §12 Deferred 跟踪。
-2. **三层 ABI** —— 与 [native-abi.md](native-abi.md) 同构：Tier 1 稳定 C ABI；Tier 2 Rust 人因工程；Tier 3 平台 facade。
+2. **统一宿主 C ABI** —— 平台适配使用同一套宿主契约。Rust 宿主经独立类型化接口调用共享会话服务。
 3. **AOT 友好** —— 入口按 FQN 字符串查找，运行时不依赖反射元数据生成器。iOS 禁 JIT 的场景下走 interp。
 4. **零拷贝优先** —— 标量值通过 `Z42Value` 直接传递，不做自动编组。
 5. **panic 隔离** —— 任何 z42 异常 / Rust panic 都不跨 FFI 线，统一翻译成 `Z42HostStatus` + `Z42Error`。
@@ -113,7 +112,7 @@ Rust 和 Wasm 共用同一个 trait。启动先读可选配置侧车，再沿 ZP
 即使搜索目录里有声明相同命名空间的包。
 
 iOS 用 Bundle 资源名，Android 用 AssetManager 资源路径，Node 用文件名，浏览器预取构建清单中的文件。
-平台桥接统一使用文件名与文件类型。旧 C 配置前缀继续通过命名空间适配层工作。
+平台桥接统一使用文件名与文件类型。
 
 ---
 
@@ -130,7 +129,6 @@ C 槽位持有函数指针与宿主管理的 `user_data`，Rust 槽位持有 `Ar
 顺序天然等于 z42 程序的写出顺序。
 
 > `z42_host_set_stdout_sink(host, NULL, ud)` 是**卸载**（装 `None`），不是「恢复 config 里那个」。
-> 头文件注释目前写的是 "NULL restores the configured default"，与实现不符。
 
 ---
 
@@ -154,17 +152,11 @@ Err 分支翻译成 `ERR_INTERNAL` 加一条稳定消息。`z42_host_run_app` �
 缺失符号由执行层产生托管异常，因此随未捕获异常走同一条路径。
 错误消息和栈迹继续用于诊断，托管异常的消息可以包含任意文本。
 
-### `ERR_VERIFICATION` 是个空枚举值
+`verify_constraints` 在加载阶段执行。会话将失败映射为 `BadZbc`，并保留详细诊断。
 
-`Z42HostStatus::Verification`(11) 在运行时**没有任何发射点**。
-`verify_constraints` 在加载阶段执行。会话将该阶段的失败统一映射成 `BadZbc`(10)，并保留详细诊断。
+### 执行模式
 
-### 被接受但被忽略的配置字段
-
-- `heap_initial_bytes` / `heap_max_bytes` 只进 `ResolvedConfig` 和 Debug 输出，**没有消费点**。
-- `exec_mode` 在宿主初始化时仅经合法性和构建/目标支持校验，来源装入与 ABI 校验在程序准备时完成；模式存入 `LoadedProgram`，调用时选择对应引擎。Default 使用构建默认后端；JIT 支持参数和返回值，AOT 尚未实现，会在执行时明确报错。一次性 `z42_host_run_app` 使用构建默认模式。
-
-堆容量字段的限制见契约页「当前不支持」；执行模式由统一宿主服务处理。
+`exec_mode` 在宿主初始化时检查合法性和构建支持。程序准备阶段验证组件来源与 ABI，执行阶段使用 `LoadedProgram` 记录的模式。一次性 `z42_host_run_app` 使用构建默认模式。
 
 ---
 
@@ -179,18 +171,17 @@ Err 分支翻译成 `ERR_INTERNAL` 加一条稳定消息。`z42_host_run_app` �
 
 ---
 
-## Tier 2：`z42::host::rust` 接口
+## Rust 宿主接口
 
-Tier 2 是 Tier 1 的 Rust 安全封装：所有 `unsafe` 关在 crate 内部，对外是 `Result` + RAII。
+Rust 宿主接口使用 `Result` 和 RAII 管理会话及其句柄。
 
 ```rust
 pub struct HostConfig {
     pub exec_mode:     ExecMode,
-    pub heap_initial:  Option<usize>,
-    pub heap_max:      Option<usize>,
     pub stdout:        Option<Box<dyn Fn(&[u8]) + Send + Sync + 'static>>,
     pub stderr:        Option<Box<dyn Fn(&[u8]) + Send + Sync + 'static>>,
     pub search_paths:  Vec<PathBuf>,
+    pub zpkg_resolver: Option<Arc<dyn ZpkgResolver>>,
     pub file_resolver: Option<Arc<dyn FileResolver>>,
     pub vfs:           Option<Arc<dyn Vfs>>,   // VM 的文件系统；None = pal::fs::default_vfs()
 }
@@ -214,7 +205,7 @@ Rust 接口直接调用共享会话操作。应用提供的 VFS、resolver 与�
 
 ---
 
-## Tier 3：平台 facade
+## 平台适配
 
 facade 的 API 细节由各平台自己定，这里只规定最小语义契约：
 
@@ -244,12 +235,10 @@ wasm 是单线程、且经 `z42_wasm` 而不是这个 C 符号进来，所以那
 
 ## 改 ABI 时的检查清单
 
-1. `src/runtime/include/z42_host.h` 与 `src/runtime/src/host/`（`abi_config.rs` 的 `#[repr(C)]` 镜像、
-   `error.rs` 的 `#[repr(i32)]` 枚举）必须同步，**字段只追加不重排**。追加到 `Z42HostConfig` 的字段
-   只在 `struct_size` 覆盖到时才读（`abi_config::validate`），`MIN_CONFIG_SIZE` 固定为原始 v2 前缀大小。
+1. `src/runtime/include/z42_host.h` 与 `src/runtime/src/host/` 的 `#[repr(C)]` 配置和 `#[repr(i32)]` 状态码必须同步。同一布局版本只追加字段，且只读取 `struct_size` 覆盖的可选字段。`MIN_CONFIG_SIZE` 覆盖到 `search_paths`。
 2. `src/runtime/include/README.md` 的类型 / 函数清单。
-3. Tier 2：`z42::host::rust` 的 `HostConfig` / `HostError` / `translate_status`。
-4. Tier 3 三家 facade 的桥接层（Swift `Z42VM.swift` 的 `cfg` 填充、
+3. Rust 接口 `z42::host::rust` 的 `HostConfig` / `HostError` / `translate_status`。
+4. 平台桥接层（Swift `Z42VM.swift` 的 `cfg` 填充、
    Android `cpp/z42vm_jni.c`、wasm `wasm/platform/src/lib.rs`）。
 5. `src/runtime/src/host/embedding_tests.rs`（状态码路径）+ `workload/desktop/tests/r1_r7.c`（外部 C 消费者）。
 6. [嵌入 C ABI 契约](https://z42-lang.github.io/z42/reference/embedding/c-abi.html)——对外可见的任何变化都要落到那一页。

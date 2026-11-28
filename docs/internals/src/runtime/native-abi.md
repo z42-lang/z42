@@ -515,9 +515,7 @@ pub(super) fn ffi_call_vtable(vtable_slot: u16) -> Result<()> {
 
 ### 8.2 反向调用
 
-`z42_invoke` / `z42_invoke_method` 在 `exports.rs` 里有 `#[no_mangle]` 入口但未接线，native 代码还不能
-创建或调用 z42 对象。`Z42_VALUE_TAG_STR` / `OBJECT` / `TYPEREF` 三个 tag 的 marshal 路径同样空着——
-tag 编号已冻结，占位在那里等接。
+原生模块通过 `Z42NativeHostApi.invoke_script` 同步调用脚本。类型描述符 ABI 的 `Z42_VALUE_TAG_STR` / `OBJECT` / `TYPEREF` 暂无 marshal 实现。
 
 ### 8.3 `pinned` 语法
 

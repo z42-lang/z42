@@ -110,7 +110,7 @@ fn packaged_c_embedding_host_loads_components_and_shuts_down() {
         Z42Host, Z42Value, Z42_VALUE_TAG_I64,
     };
     type Initialize = unsafe extern "C" fn(*const Z42HostConfig, *mut *mut Z42Host) -> Z42HostStatus;
-    type Load = unsafe extern "C" fn(*mut Z42Host, *const u8, usize, *mut *mut Z42Module) -> Z42HostStatus;
+    type Load = unsafe extern "C" fn(*mut Z42Host, *const std::ffi::c_char, *const u8, usize, *mut *mut Z42Module) -> Z42HostStatus;
     type Resolve = unsafe extern "C" fn(*mut Z42Host, *mut Z42Module, *const c_char, *mut *mut Z42Entry) -> Z42HostStatus;
     type Invoke = unsafe extern "C" fn(*mut Z42Entry, *const Z42Value, usize, *mut Z42Value) -> Z42HostStatus;
     type Shutdown = unsafe extern "C" fn(*mut Z42Host) -> Z42HostStatus;
@@ -119,10 +119,9 @@ fn packaged_c_embedding_host_loads_components_and_shuts_down() {
     let search = [libs.as_ptr(), ptr::null()];
     let cfg = Z42HostConfig {
         abi_version: Z42_HOST_ABI_VERSION, struct_size: std::mem::size_of::<Z42HostConfig>() as u32,
-        exec_mode: Z42ExecMode::Jit as i32, heap_initial_bytes: 0, heap_max_bytes: 0,
+        exec_mode: Z42ExecMode::Jit as i32,
         stdout_sink: None, stderr_sink: None, sink_user_data: ptr::null_mut(),
-        search_paths: search.as_ptr(), zpkg_resolver: None, zpkg_resolver_user_data: ptr::null_mut(),
-        zpkg_resolver_write: None,
+        search_paths: search.as_ptr(),
         file_resolver: None, file_resolver_user_data: ptr::null_mut(),
     };
     let bytes = std::fs::read(input("Z42_TEST_ENGINE_BYTECODE")).unwrap();
@@ -132,14 +131,14 @@ fn packaged_c_embedding_host_loads_components_and_shuts_down() {
         let library = std::mem::ManuallyDrop::new(z42::pal::dynlib::Library::open(&path).unwrap());
         assert!(library.symbol::<extern "C" fn()>("z42_runtime_entry_v1").is_err(), "CLI must not be exported by the runtime library");
         let initialize = library.symbol::<Initialize>("z42_host_initialize").unwrap();
-        let load = library.symbol::<Load>("z42_host_load_zbc").unwrap();
+        let load = library.symbol::<Load>("z42_host_load_bytes").unwrap();
         let resolve = library.symbol::<Resolve>("z42_host_resolve_entry").unwrap();
         let invoke = library.symbol::<Invoke>("z42_host_invoke").unwrap();
         let shutdown = library.symbol::<Shutdown>("z42_host_shutdown").unwrap();
         let mut host = ptr::null_mut();
         assert_eq!(initialize(&cfg, &mut host), Z42HostStatus::Ok);
         let mut module = ptr::null_mut();
-        assert_eq!(load(host, bytes.as_ptr(), bytes.len(), &mut module), Z42HostStatus::Ok);
+        assert_eq!(load(host, ptr::null(), bytes.as_ptr(), bytes.len(), &mut module), Z42HostStatus::Ok);
         let mut entry = ptr::null_mut();
         assert_eq!(resolve(host, module, fqn.as_ptr(), &mut entry), Z42HostStatus::Ok);
         let arg = Z42Value { tag: Z42_VALUE_TAG_I64, reserved: 0, payload: 40 };

@@ -35,12 +35,15 @@ size_t z42_host_layout(size_t index) {
     const size_t fields[] = {
         sizeof(Z42HostConfig), offsetof(struct AlignedConfig, config),
         sizeof(Z42ExecMode), sizeof(Z42HostStatus), Z42_HOST_CONFIG_MIN_SIZE,
+        Z42_HOST_ABI_VERSION,
         offsetof(Z42HostConfig, abi_version), offsetof(Z42HostConfig, struct_size),
-        offsetof(Z42HostConfig, exec_mode), offsetof(Z42HostConfig, heap_initial_bytes),
-        offsetof(Z42HostConfig, heap_max_bytes), offsetof(Z42HostConfig, stdout_sink),
+        offsetof(Z42HostConfig, exec_mode), offsetof(Z42HostConfig, stdout_sink),
         offsetof(Z42HostConfig, stderr_sink), offsetof(Z42HostConfig, sink_user_data),
-        offsetof(Z42HostConfig, search_paths), offsetof(Z42HostConfig, zpkg_resolver),
-        offsetof(Z42HostConfig, zpkg_resolver_user_data), offsetof(Z42HostConfig, zpkg_resolver_write),
+        offsetof(Z42HostConfig, search_paths), offsetof(Z42HostConfig, file_resolver),
+        offsetof(Z42HostConfig, file_resolver_user_data),
+        sizeof(Z42FileRequest), offsetof(Z42FileRequest, struct_size),
+        offsetof(Z42FileRequest, kind), offsetof(Z42FileRequest, file_name),
+        Z42_VALUE_TAG_NULL, Z42_VALUE_TAG_I64, Z42_VALUE_TAG_F64, Z42_VALUE_TAG_BOOL,
     };
     return index < sizeof(fields) / sizeof(fields[0]) ? fields[index] : 0;
 }

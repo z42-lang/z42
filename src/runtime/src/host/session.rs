@@ -40,8 +40,6 @@ impl Failure {
 /// Owned configuration for a host session.
 pub(super) struct SessionConfig {
     pub(super) exec_mode: Z42ExecMode,
-    pub(super) heap_initial_bytes: usize,
-    pub(super) heap_max_bytes: usize,
     pub(super) search_paths: Vec<String>,
     pub(super) zpkg_resolver: Option<Arc<dyn ZpkgResolver>>,
     pub(super) file_resolver: Option<Arc<dyn super::FileResolver>>,
@@ -72,8 +70,6 @@ impl std::fmt::Debug for SessionConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SessionConfig")
             .field("exec_mode", &self.exec_mode)
-            .field("heap_initial_bytes", &self.heap_initial_bytes)
-            .field("heap_max_bytes", &self.heap_max_bytes)
             .field("search_paths", &self.search_paths)
             .field("zpkg_resolver", &self.zpkg_resolver.is_some())
             .finish()

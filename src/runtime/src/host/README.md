@@ -20,7 +20,7 @@
 一次性运行通过 `host::run_app` 消费显式的 `RunOpts`，设置应用参数、调用入口并报告退出。
 C 和 Rust 嵌入入口共用默认路径与应用侧车的准备逻辑。各程序按所属 VM 的选项报告退出。
 
-需要多次调用时，Rust 使用 `Host::new → load_zbc → resolve_entry → invoke`，由 `Host` 的 Drop 关闭会话。C 使用 `z42_host_initialize → z42_host_load_zbc → z42_host_resolve_entry → z42_host_invoke → z42_host_shutdown`。关闭使会话发出的句柄失效，重新初始化会建立新的会话。
+需要多次调用时，Rust 使用 `Host::new → load_zbc → resolve_entry → invoke`，由 `Host` 的 Drop 关闭会话。C 使用 `z42_host_initialize → z42_host_load_bytes → z42_host_resolve_entry → z42_host_invoke → z42_host_shutdown`。关闭使会话发出的句柄失效，重新初始化会建立新的会话。
 
 静态宿主通过 [components](../components/README.md) 登记链接的组件工厂。分发头 `z42.h` 汇总宿主和其他模块的 C 声明。
 

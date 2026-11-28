@@ -74,10 +74,6 @@ impl ExecMode {
 /// Configuration handed to [`Host::new`].
 pub struct HostConfig {
     pub exec_mode: ExecMode,
-    /// Reserved heap sizing field. Use `None`.
-    pub heap_initial: Option<usize>,
-    /// Reserved heap sizing field. Use `None`.
-    pub heap_max: Option<usize>,
     pub stdout: Option<Box<dyn Fn(&[u8]) + Send + Sync + 'static>>,
     pub stderr: Option<Box<dyn Fn(&[u8]) + Send + Sync + 'static>>,
     pub search_paths: Vec<PathBuf>,
@@ -98,8 +94,6 @@ impl Default for HostConfig {
     fn default() -> Self {
         Self {
             exec_mode: ExecMode::Default,
-            heap_initial: None,
-            heap_max: None,
             stdout: None,
             stderr: None,
             search_paths: Vec::new(),
@@ -187,7 +181,6 @@ impl ZpkgResolver for SearchPathsResolver {
 /// `"z42.core"`, by which the prelude is requested) plus every namespace
 /// it declares in `NSPC`. Tier 3 facades use this to build a resolution
 /// map directly from the packages they ship — no separate index file.
-/// Mirrors the C ABI `z42_zpkg_read_namespaces`.
 pub fn read_zpkg_namespaces(bytes: &[u8]) -> Result<Vec<String>, HostError> {
     z42::host::read_zpkg_namespaces(bytes)
         .map_err(|e| HostError::BadZbc(format!("read zpkg metadata: {e:#}")))
@@ -226,7 +219,6 @@ pub enum HostError {
     BadConfig(String),
     FeatureOff(String),
     BadZbc(String),
-    Verification(String),
     EntryNotFound(String),
     ArgMismatch(String),
     VmException(String),
@@ -243,7 +235,6 @@ impl std::fmt::Display for HostError {
             Self::BadConfig(m) => ("BadConfig", m),
             Self::FeatureOff(m) => ("FeatureOff", m),
             Self::BadZbc(m) => ("BadZbc", m),
-            Self::Verification(m) => ("Verification", m),
             Self::EntryNotFound(m) => ("EntryNotFound", m),
             Self::ArgMismatch(m) => ("ArgMismatch", m),
             Self::VmException(m) => ("VmException", m),
@@ -352,8 +343,6 @@ impl Host {
 
         let config = session::SessionConfig {
             exec_mode: mode,
-            heap_initial_bytes: cfg.heap_initial.unwrap_or(0),
-            heap_max_bytes: cfg.heap_max.unwrap_or(0),
             search_paths,
             zpkg_resolver: cfg.zpkg_resolver,
             file_resolver: cfg.file_resolver,
@@ -434,7 +423,6 @@ fn translate_failure(failure: session::Failure, ctx: &'static str) -> HostError 
         Z42HostStatus::BadConfig => HostError::BadConfig(detail),
         Z42HostStatus::FeatureOff => HostError::FeatureOff(detail),
         Z42HostStatus::BadZbc => HostError::BadZbc(detail),
-        Z42HostStatus::Verification => HostError::Verification(detail),
         Z42HostStatus::EntryNotFound => HostError::EntryNotFound(detail),
         Z42HostStatus::ArgMismatch => HostError::ArgMismatch(detail),
         Z42HostStatus::VmException => HostError::VmException(detail),

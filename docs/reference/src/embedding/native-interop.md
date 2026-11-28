@@ -190,7 +190,7 @@ Z42Error   z42_last_error(void);
 ```
 
 `z42_register_type`、`z42_resolve_type` 和 `z42_last_error` 用于类型登记和查询。
-`z42_invoke` 与 `z42_invoke_method` 是保留入口，当前返回空值并设置错误。可用的脚本调用入口见 §6.2。
+原生模块通过 `Z42NativeHostApi.invoke_script` 调用脚本，见 §6.2。
 
 `z42_register_type` 返回 `NULL` 即失败，原因经 `z42_last_error()` 取。注册会校验 `abi_version`、
 读出全部方法描述符并解析签名串，因此**签名写错在注册时就失败**，不会拖到调用时。

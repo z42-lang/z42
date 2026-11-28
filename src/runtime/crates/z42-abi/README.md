@@ -12,7 +12,7 @@ z42 Tier 1 native interop ABI 的 Rust 镜像。是 [`z42_abi.h`](../../include/
 
 - 类型：`Z42TypeDescriptor_v1`、`Z42MethodDesc`、`Z42FieldDesc`、`Z42TraitImpl`、`Z42Value`、`Z42Args`、`Z42TypeRef`、`Z42Error`
 - 常量：`Z42_ABI_VERSION` + `Z42_TYPE_FLAG_*` / `Z42_METHOD_FLAG_*` / `Z42_FIELD_FLAG_*`
-- 函数：`z42_register_type` / `z42_resolve_type` / `z42_invoke` / `z42_invoke_method` / `z42_last_error`
+- 函数：`z42_register_type` / `z42_resolve_type` / `z42_last_error`
 
 ## 实现位置
 

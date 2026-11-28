@@ -1,12 +1,4 @@
-//! Embedding / Hosting API — Tier 1 C ABI implementation.
-//!
-//! Spec: docs/internals/src/runtime/embedding.md
-//!       变更 add-embedding-api/
-//!
-//! H1 scope: lifecycle (initialize / shutdown / sinks / last_error).
-//! H2 scope: load_zbc / resolve_entry / invoke + stdout sink VM wiring.
-//!
-//! Sibling: `crate::interop` (interop — native code registering types into z42).
+//! C ABI for host sessions, program loading and managed invocation.
 
 use super::{ZpkgResolver, abi_config, marshal, session};
 
@@ -17,7 +9,6 @@ use std::sync::Arc;
 
 use super::abi_config::{Z42FileWriter, Z42HostConfig};
 use crate::host::error::{Z42HostStatus, clear_error, set_error, snapshot_last_error};
-use crate::loader::program::read_zpkg_namespaces;
 use z42_abi::{Z42Error, Z42Value};
 
 /// Opaque token for the currently initialized embedding session.
@@ -106,16 +97,6 @@ pub unsafe extern "C" fn z42_host_shutdown(host: *mut Z42Host) -> Z42HostStatus 
         }
         respond("z42_host_shutdown", session::shutdown(host as usize), |_| {})
     })
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn z42_host_load_zbc(
-    host: *mut Z42Host,
-    bytes: *const u8,
-    length: usize,
-    out_module: *mut *mut Z42Module,
-) -> Z42HostStatus {
-    unsafe { z42_host_load_bytes(host, ptr::null(), bytes, length, out_module) }
 }
 
 #[unsafe(no_mangle)]
@@ -306,75 +287,8 @@ pub unsafe extern "C" fn z42_host_last_error(_host: *mut Z42Host) -> Z42Error {
     snapshot_last_error()
 }
 
-// ── zpkg introspection ──────────────────────────────────────────────────
-
-/// Read the keys a zpkg can be resolved by — its **package name** (e.g.
-/// `"z42.core"`; the prelude is requested by package name) plus every
-/// **namespace** it declares in `NSPC` (e.g. `"Std"`, `"Std.IO"`). For
-/// each key the runtime calls `visit(key, len, user_data)` once.
-///
-/// This lets embedding hosts build a resolution map from the package
-/// itself. This call requires no session and uses the host's thread-local
-/// last-error record. Returns `BadZbc` when the bytes aren't a parseable zpkg.
-///
-/// # Safety
-/// A non-null `bytes` must point to `length` readable bytes for the duration of
-/// the call. Each key is borrowed only while `visit` is running. Any data that
-/// the callback dereferences via `user_data` must remain valid for the callback.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn z42_zpkg_read_namespaces(
-    bytes: *const u8,
-    length: usize,
-    visit: abi_config::Z42NamespaceVisitor,
-    user_data: *mut c_void,
-) -> Z42HostStatus {
-    guard(|| {
-        let Some(visit) = visit else {
-            return set_error(
-                Z42HostStatus::BadConfig,
-                "z42_zpkg_read_namespaces: visit callback is NULL",
-            );
-        };
-        if bytes.is_null() && length != 0 {
-            return set_error(
-                Z42HostStatus::BadZbc,
-                "z42_zpkg_read_namespaces: bytes pointer is NULL but length is non-zero",
-            );
-        }
-        let slice = if length == 0 {
-            &[][..]
-        } else {
-            unsafe { std::slice::from_raw_parts(bytes, length) }
-        };
-        match read_zpkg_namespaces(slice) {
-            Ok(keys) => {
-                // Package name first (the corelib prelude "z42.core" is
-                // requested by package name, not a declared namespace),
-                // then each NSPC namespace. SAFETY: each `&str` outlives
-                // the synchronous callback; the host copies before return.
-                for ns in &keys {
-                    let b = ns.as_bytes();
-                    unsafe { visit(b.as_ptr() as *const c_char, b.len(), user_data) };
-                }
-                clear_error();
-                Z42HostStatus::Ok
-            }
-            Err(e) => set_error(
-                Z42HostStatus::BadZbc,
-                format!("z42_zpkg_read_namespaces: cannot read zpkg metadata: {e:#}"),
-            ),
-        }
-    })
-}
-
-// ── Tier 2 escape hatch: install a Rust ZpkgResolver post-init ──────────
-
-/// Install a Rust [`ZpkgResolver`] trait object into the running host
-/// state, replacing any resolver currently configured (including ones
-/// derived from the C `zpkg_resolver` field of `Z42HostConfig`).
-///
+/// Replace the Rust package resolver for subsequent loads.
 /// Rust clients can also supply the resolver in their initial configuration.
-/// C clients use `Z42HostConfig::zpkg_resolver` at initialization.
 ///
 /// Returns `Z42HostStatus::Ok` on success or `NotInit` if no VM is
 /// currently initialized.
@@ -411,7 +325,7 @@ fn classify_config_error(e: abi_config::ConfigError) -> Z42HostStatus {
         CE::StructTooSmall { min, got } => set_error(
             Z42HostStatus::BadConfig,
             format!(
-                "z42_host_initialize: struct_size {got} is smaller than the v2 config ({min} bytes); set it to sizeof(Z42HostConfig)"
+                "z42_host_initialize: struct_size {got} is smaller than the required configuration prefix ({min} bytes); set it to sizeof(Z42HostConfig)"
             ),
         ),
         CE::UnknownExecMode { raw } => set_error(

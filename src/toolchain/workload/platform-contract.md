@@ -96,7 +96,6 @@ resolver 按逻辑文件名读取包、字节码和启动侧车。iOS 与 Androi
 | `BAD_CONFIG` | `.badConfig(message)` | code=3 | `name: "BadConfig"` |
 | `FEATURE_OFF` | `.featureOff(message)` | code=4 | `name: "FeatureOff"` |
 | `BAD_ZBC` | `.badZbc(message)` | code=10 | `name: "BadZbc"` |
-| `VERIFICATION` | `.verification(message)` | code=11 | `name: "Verification"` |
 | `ENTRY_NOT_FOUND` | `.entryNotFound(message)` | code=20 | `name: "EntryNotFound"` |
 | `ARG_MISMATCH` | `.argMismatch(message)` | code=21 | `name: "ArgMismatch"` |
 | `VM_EXCEPTION` | `.vmException(message)` | code=30 | `name: "VMException"` |

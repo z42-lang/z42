@@ -2,7 +2,7 @@
 //!
 //! These functions are the C-side surface of Tier 1: native code dlopens
 //! the z42 host (or links statically against the test binary) and calls
-//! these to register types and invoke z42 methods.
+//! these to register and resolve native types.
 //!
 //! Native callbacks find the active context through VM execution's
 //! `active_vm` slot. [`VmGuard`] re-exports its activation guard.
@@ -12,7 +12,7 @@ use std::os::raw::c_char;
 use std::ptr;
 use std::sync::Arc;
 
-use z42_abi::{Z42Error, Z42TypeDescriptor_v1, Z42TypeOpaque, Z42TypeRef, Z42Value};
+use z42_abi::{Z42Error, Z42TypeDescriptor_v1, Z42TypeOpaque, Z42TypeRef};
 
 use super::error;
 use super::registry::RegisteredType;
@@ -128,32 +128,6 @@ pub unsafe extern "C" fn z42_resolve_type(
             NULL_TYPE_REF
         }
     }
-}
-
-// ── z42_invoke (C2 stub: full method dispatch lands when used) ──────────
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn z42_invoke(
-    _ty: Z42TypeRef,
-    _method: *const c_char,
-    _args: *const Z42Value,
-    _arg_count: usize,
-) -> Z42Value {
-    // C2 only validates the registry path; reverse-call (native → z42)
-    // dispatch is wired in C5 when the source generator emits the calls.
-    error::set(TYPE_REGISTRATION_FAILURE, "z42_invoke not implemented in C2 (lands in spec C5)");
-    super::dispatch::z42_null()
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn z42_invoke_method(
-    _receiver: Z42Value,
-    _method: *const c_char,
-    _args: *const Z42Value,
-    _arg_count: usize,
-) -> Z42Value {
-    error::set(TYPE_REGISTRATION_FAILURE, "z42_invoke_method not implemented in C2 (lands in spec C5)");
-    super::dispatch::z42_null()
 }
 
 // ── z42_last_error ───────────────────────────────────────────────────────
