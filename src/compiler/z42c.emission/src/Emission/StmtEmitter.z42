@@ -35,8 +35,8 @@ public sealed class StmtEmitter : IBoundStmtVisitor<Unit, Unit> {
         if (v.Init != null) {
             TypedReg r = this._fe._expr.Emit(v.Init);
             TypedReg existing = this._fe._ctx.Locals.Get(v.Name) as TypedReg;
-            // 一次分配的 union 槽需要保留到帧退出，兄弟作用域的同名局部另用寄存器。
-            if (this._fe._ctx.IsWideUnionSlot(existing)) { existing = null; }
+            // Keep reserved frame slots live across sibling scopes.
+            if (this._fe._ctx.IsReservedValueSlot(existing)) { existing = null; }
             // add-struct-value-semantics A-use：blob 值 struct 局部。new-rvalue（fresh 句柄）直接别名；
             // 否则（`P b = a`）新分配 blob + StructCopy（值语义，b 独立于 a）。重声明同名 → StructCopy
             // 进已有 blob。
@@ -69,7 +69,7 @@ public sealed class StmtEmitter : IBoundStmtVisitor<Unit, Unit> {
                 this._fe._ctx.Locals.Put(v.Name, dst);
             }
             if (dst.Id != r.Id) { this._fe._ctx.Emit(new CopyInstr(dst, r)); }
-        } else if (this._fe._ctx.IsWideUnionSlot(this._fe._ctx.Locals.Get(v.Name) as TypedReg)) {
+        } else if (this._fe._ctx.IsReservedValueSlot(this._fe._ctx.Locals.Get(v.Name) as TypedReg)) {
             this._fe._ctx.Locals.Put(v.Name, this._fe._expr._emitConcreteDefault(v.VarType));
         }
         return d;

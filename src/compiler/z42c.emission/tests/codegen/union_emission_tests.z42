@@ -5,6 +5,40 @@ using Z42.Emission;
 using Z42.IR;
 
 [Test]
+void test_aggregate_union_allocates_extraction_slots_once_and_skips_wildcards() {
+    string source = "struct P { public int X; public int Y; } union U { End, Pair(P) } "
+        + "int Read(U u, int n) { while (n > 0) { if (u is U.Pair(p)) { n = n - p.X; } else { return n; } } return n; } "
+        + "bool Has(U u) => u is U.Pair(_);";
+    var result = IrDump.BuildModuleD(source, "union.z42", null, null);
+    Assert.Equal(0, result.ErrorCount);
+    IrModule module = result.Module;
+    int slots = 0;
+    for (int f = 0; f < module.FuncCount; f = f + 1) {
+        IrFunction fn = module.Functions[f];
+        for (int b = 0; b < fn.BlockCount; b = b + 1) {
+            IrBlock block = fn.Blocks[b];
+            for (int i = 0; i < block.InstrCount; i = i + 1) {
+                if (block.Instrs[i] is StructAllocInstr allocation && allocation.TypeName == "P") {
+                    Assert.Equal("Read", fn.Name);
+                    Assert.Equal(0, b);
+                    Assert.Equal(8, allocation.Size);
+                    slots = slots + 1;
+                }
+            }
+        }
+    }
+    Assert.Equal(1, slots);
+}
+
+[Test]
+void test_aggregate_union_with_reference_leaf_requires_runtime_support() {
+    string source = "struct R { public string Name; } struct S { public R Inner; } union U { End, Value(S) }";
+    var result = IrDump.BuildModuleD(source, "union.z42", null, null);
+    Assert.Equal(1, result.ErrorCount);
+    Assert.True(result.DiagMsgs[0].Contains("E0501"));
+}
+
+[Test]
 void test_float_and_double_union_values_use_their_scalar_layouts() {
     string source = "union Narrow { Value(float), End } union Wide { Value(double), End } "
         + "Narrow Pack(float x) => Narrow.Value(x); Wide Store(double x) => Wide.Value(x);";

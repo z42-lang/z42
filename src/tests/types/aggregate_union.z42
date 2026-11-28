@@ -1,0 +1,88 @@
+struct Tiny {
+    public short X;
+    public short Y;
+    public Tiny(short x, short y) { this.X = x; this.Y = y; }
+}
+
+struct Point {
+    public int X;
+    public int Y;
+    public Point(int x, int y) { this.X = x; this.Y = y; }
+}
+
+struct Group {
+    public Point Position;
+    public byte Level;
+    public Group(Point position, byte level) { this.Position = position; this.Level = level; }
+}
+
+struct Empty {
+    public int Count() => 0;
+}
+
+union Packed { Pair(Tiny), End }
+union Records { Pair(Point first, Point second), At(Group), Zero(Empty), End }
+
+union Inner { Number(int), End }
+union Wide { Entry(Inner), End }
+union Outer { Entry(Wide), End }
+union Top { Wrap(Outer), End }
+union Adjacent { Pair(Inner, int), End }
+
+Top Identity(Top value) => value;
+
+int ReadTop(Top value) {
+    return value switch {
+        Top.Wrap(Outer.Entry(Wide.Entry(Inner.Number(n)))) => n,
+        _ => 1,
+    };
+}
+
+void TestStructs() {
+    var packed = Packed.Pair(new Tiny(-32768, 32767));
+    Assert.True(packed is Packed.Pair(Tiny { X: -32768, Y: 32767 }));
+    Assert.True(default(Packed) is Packed.Pair(Tiny { X: 0, Y: 0 }));
+
+    var point = new Point(-17, 11);
+    var pair = Records.Pair(point, point = new Point(29, -3));
+    Assert.True(pair is Records.Pair(Point { X: -17, Y: 11 }, Point { X: 29, Y: -3 }));
+    if (pair is Records.Pair(first, _)) {
+        first.X = 99;
+        Assert.Equal(99, first.X);
+    }
+    Assert.True(pair is Records.Pair(Point { X: -17 }, _));
+    Assert.Equal(29, point.X);
+
+    var group = Records.At(new Group(new Point(5, 6), 255));
+    Assert.True(group is Records.At(Group { Position: Point { X: 5, Y: 6 }, Level: 255 }));
+    if (Records.Zero(default(Empty)) is Records.Zero(zero)) {
+        Assert.Equal(0, zero.Count());
+    } else {
+        Assert.True(false);
+    }
+}
+
+void TestNested() {
+    var value = Identity(Top.Wrap(Outer.Entry(Wide.Entry(Inner.Number(-2147483648)))));
+    Assert.Equal(-2147483648, ReadTop(value));
+    Assert.Equal(0, ReadTop(default(Top)));
+    Assert.True(Top.Wrap(Outer.Entry(Wide.End)) is Top.Wrap(Outer.Entry(Wide.End)));
+    Assert.True(Adjacent.Pair(Inner.Number(-1), 17) is Adjacent.Pair(Inner.Number(-1), 17));
+    if (value is Top.Wrap(copy)) {
+        copy = Outer.End;
+        Assert.True(copy is Outer.End);
+    }
+    Assert.Equal(-2147483648, ReadTop(value));
+
+    int sum = 0;
+    for (int i = 0; i < 128; i = i + 1) {
+        var loop = Top.Wrap(Outer.Entry(Wide.Entry(Inner.Number(i))));
+        sum = sum + ReadTop(loop);
+    }
+    Assert.Equal(8128, sum);
+}
+
+void Main() {
+    TestStructs();
+    TestNested();
+}
