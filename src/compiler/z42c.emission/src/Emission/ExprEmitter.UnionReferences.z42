@@ -1,0 +1,36 @@
+namespace Z42.Emission;
+
+using Z42.IR;
+
+public sealed partial class ExprEmitter {
+    private TypedReg _readUnionReference(TypedReg storage, int index, int resultTag) {
+        TypedReg result = this._ctx.Alloc(resultTag);
+        this._ctx.Emit(new BuiltinInstr(result, "__union_ref", new TypedReg[] { storage, this._unionI64((long)index) }, 2));
+        return result;
+    }
+
+    private void _copyUnionReferences(TypedReg source, int start, TypedReg[] target, int destination, int count) {
+        for (int i = 0; i < count; i = i + 1) {
+            target[destination + i] = this._readUnionReference(source, start + i, IrType.Ref);
+        }
+    }
+
+    private void _storeReferenceUnion(TypedReg storage, UnionValueParts parts) {
+        int count = parts.References == null ? 0 : parts.References.Length;
+        TypedReg[] args = new TypedReg[1 + parts.Cells.Length + count];
+        args[0] = storage;
+        TypedReg zero = null;
+        for (int i = 0; i < parts.Cells.Length; i = i + 1) {
+            TypedReg value = parts.Cells[i];
+            if (value == null) {
+                if (zero == null) { zero = this._unionI64(0L); }
+                value = zero;
+            }
+            args[i + 1] = value;
+        }
+        for (int i = 0; i < count; i = i + 1) {
+            args[1 + parts.Cells.Length + i] = parts.References[i];
+        }
+        this._ctx.Emit(new BuiltinInstr(this._ctx.Alloc(IrType.Void), "__union_store", args, args.Length));
+    }
+}

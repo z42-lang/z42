@@ -10,6 +10,7 @@ public sealed class UnionStorageField {
     public int Size;
     public int Kind;
     public UnionStorageLayout Nested;
+    public int ReferenceIndex;
 
     internal UnionStorageField(Z42Type type, int offset, int size, int kind, UnionStorageLayout nested) {
         this.Type = type;
@@ -24,11 +25,20 @@ public sealed class UnionPayloadLayout {
     public UnionStorageField[] Fields;
     public int Size;
     public int Align;
+    public int ReferenceCount;
 
     internal UnionPayloadLayout(UnionStorageField[] fields, int size, int align) {
         this.Fields = fields;
         this.Size = size;
         this.Align = align;
+        foreach (var field in fields) {
+            field.ReferenceIndex = this.ReferenceCount;
+            if (field.Nested != null) {
+                this.ReferenceCount = this.ReferenceCount + field.Nested.ReferenceCount;
+            } else if (StructLeafKind.IsRef(field.Kind)) {
+                this.ReferenceCount = this.ReferenceCount + 1;
+            }
+        }
     }
 }
 
@@ -39,12 +49,14 @@ public sealed class UnionStorageLayout {
     public int PayloadOffset;
     public UnionPayloadLayout[] Cases;
     public UnionPayloadLayout StructFields;
+    public int ReferenceCount;
     private bool _inlineStorage;
 
     internal UnionStorageLayout(UnionPayloadLayout fields) {
         this.Size = fields.Size;
         this.Align = fields.Align;
         this.StructFields = fields;
+        this.ReferenceCount = fields.ReferenceCount;
         this._inlineStorage = UnionStorageLayout._supportsPayload(fields, false);
     }
 
@@ -56,7 +68,11 @@ public sealed class UnionStorageLayout {
         this.Cases = cases;
         this._inlineStorage = this.CellCount() <= 65535;
         foreach (var branch in cases) {
+            if (branch.ReferenceCount > this.ReferenceCount) { this.ReferenceCount = branch.ReferenceCount; }
             if (!UnionStorageLayout._supportsPayload(branch, true)) { this._inlineStorage = false; }
+        }
+        if (this.ReferenceCount > 0 && this.CellCount() + this.ReferenceCount + 1 > 65535) {
+            this._inlineStorage = false;
         }
     }
 
@@ -91,6 +107,7 @@ public sealed class UnionStorageLayout {
                 if (!field.Nested.SupportsInlineStorage()) { return false; }
                 continue;
             }
+            if (StructLeafKind.IsRef(field.Kind)) { continue; }
             if (field.Kind != StructLeafKind.Prim) { return false; }
             int code = field.Type.PrimCode();
             if (code < 0) { return false; }

@@ -1,0 +1,80 @@
+namespace ReferenceUnion;
+
+class Item {
+    public int Code;
+    public Item(int code) { this.Code = code; }
+}
+
+class Watch {
+    public WeakHandle Weak;
+}
+
+struct Ticket {
+    public Item Owner;
+    public int Number;
+    public Ticket(Item owner, int number) { this.Owner = owner; this.Number = number; }
+}
+
+union Value {
+    Empty,
+    Text(string),
+    Data(int[]),
+    Ticket(Ticket),
+    Number(long),
+}
+
+union Envelope {
+    Empty,
+    Nested(Value, string),
+}
+
+union FirstText { Text(string?), Empty }
+
+Value Create(Watch watch) {
+    var item = new Item(42);
+    watch.Weak = WeakHandle.MakeWeak(item);
+    return Value.Ticket(new Ticket(item, 17));
+}
+
+Value Copy(Value value) => value;
+
+void CheckLive(Watch watch) {
+    Value kept = Create(watch);
+    GC.ForceCollect();
+    Assert.True(WeakHandle.Upgrade(watch.Weak) != null);
+    if (kept is Value.Ticket(ticket)) {
+        Assert.Equal(42, ticket.Owner.Code);
+        Assert.Equal(17, ticket.Number);
+    } else {
+        Assert.True(false);
+    }
+    kept = Value.Empty;
+    Assert.True(kept is Value.Empty);
+}
+
+void Main() {
+    var watch = new Watch();
+    CheckLive(watch);
+    GC.ForceCollect();
+    Assert.True(WeakHandle.Upgrade(watch.Weak) == null);
+
+    Assert.True(default(FirstText) is FirstText.Text(null));
+    var value = Value.Text("payload");
+    var saved = Copy(value);
+    value = Value.Number(-9223372036854775808L);
+    Assert.True(value is Value.Number(-9223372036854775808L));
+    Assert.True(saved is Value.Text("payload"));
+    value = Value.Data(new int[] { 11, 31 });
+    var nested = Envelope.Nested(value, "outer");
+    value = Value.Empty;
+    if (nested is Envelope.Nested(Value.Data(data), "outer")) {
+        Assert.Equal(42, data[0] + data[1]);
+    } else {
+        Assert.True(false);
+    }
+    for (int i = 0; i < 128; i = i + 1) {
+        value = Value.Text("loop");
+        Assert.True(value is Value.Text("loop"));
+        value = Value.Empty;
+    }
+}

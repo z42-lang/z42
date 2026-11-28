@@ -4,17 +4,32 @@ using Z42.IR;
 using Z42.IR.BinaryFormat;
 using Z42.Symbols;
 
+internal sealed class UnionValueParts {
+    public TypedReg[] Cells;
+    public TypedReg[] References;
+    public int Width;
+
+    internal UnionValueParts(UnionStorageLayout layout, int referenceCount) {
+        this.Cells = new TypedReg[layout.CellCount()];
+        this.Width = layout.CellWidth();
+        this.References = referenceCount == 0 ? null : new TypedReg[referenceCount];
+    }
+}
+
 public sealed partial class ExprEmitter {
-    private void _packUnionField(TypedReg[] cells, int width, int offset, UnionStorageField field, TypedReg value) {
+    private void _packUnionField(UnionValueParts parts, int offset, UnionStorageField field, TypedReg value) {
         if (field.Kind == StructLeafKind.Union) {
-            this._copyUnionRegion(value, field.Type, field.Nested, 0, cells, width, offset, field.Size);
+            this._copyUnionRegion(value, field.Type, field.Nested, 0, parts.Cells, parts.Width, offset, field.Size);
+            this._copyUnionReferences(value, 0, parts.References, field.ReferenceIndex, field.Nested.ReferenceCount);
         } else if (field.Kind == StructLeafKind.Struct) {
             if (field.Size == 0) { return; }
             string name = this._ctx.QualifyLayout(this._blobStructName(field.Type));
-            this._packUnionStruct(value, name, new int[0], field.Nested.StructFields, cells, width, offset);
+            this._packUnionStruct(value, name, new int[0], field.Nested.StructFields, parts, offset, field.ReferenceIndex);
+        } else if (StructLeafKind.IsRef(field.Kind)) {
+            parts.References[field.ReferenceIndex] = value;
         } else {
             TypedReg bits = this._unionPayloadBits(value, field.Type);
-            this._mergeUnionBits(cells, width, offset, bits, field.Size);
+            this._mergeUnionBits(parts.Cells, parts.Width, offset, bits, field.Size);
         }
     }
 
@@ -22,47 +37,56 @@ public sealed partial class ExprEmitter {
                                           int offset, UnionStorageField field) {
         UnionStorageLayout nested = field.Nested;
         if (field.Kind == StructLeafKind.Union) {
-            TypedReg[] cells = new TypedReg[nested.CellCount()];
-            this._copyUnionRegion(source, type, layout, offset, cells, nested.CellWidth(), 0, field.Size);
-            return this._materializeUnion(cells, field.Type, nested);
+            var parts = new UnionValueParts(nested, nested.ReferenceCount);
+            this._copyUnionRegion(source, type, layout, offset, parts.Cells, parts.Width, 0, field.Size);
+            this._copyUnionReferences(source, field.ReferenceIndex, parts.References, 0, nested.ReferenceCount);
+            return this._materializeUnion(parts, field.Type, nested);
         }
         if (field.Size == 0) { return this._emitConcreteDefault(field.Type); }
         string name = this._blobAllocationName(field.Type, this._blobStructName(field.Type));
         TypedReg value = this._ctx.Alloc(IrType.Ref);
         this._ctx.ReserveValueSlot(new StructAllocInstr(value, name, field.Size));
-        this._unpackUnionStruct(source, type, layout, offset, value, name, new int[0], nested.StructFields);
+        this._unpackUnionStruct(source, type, layout, offset, field.ReferenceIndex, value, name, new int[0], nested.StructFields);
         return value;
     }
 
     private void _packUnionStruct(TypedReg value, string name, int[] prefix, UnionPayloadLayout fields,
-                                  TypedReg[] cells, int width, int offset) {
+                                  UnionValueParts parts, int offset, int referenceIndex) {
         for (int i = 0; i < fields.Fields.Length; i = i + 1) {
             UnionStorageField field = fields.Fields[i];
             int[] path = AccessEmitter._pathAppend(prefix, i);
             int at = offset + field.Offset;
             if (field.Kind == StructLeafKind.Struct) {
-                this._packUnionStruct(value, name, path, field.Nested.StructFields, cells, width, at);
+                this._packUnionStruct(value, name, path, field.Nested.StructFields, parts, at,
+                                      referenceIndex + field.ReferenceIndex);
             } else {
-                int tag = Tag.FromName(PrimModel.KeywordOfCode(field.Type.PrimCode()));
+                int tag = Tag.FromName(LayoutKey.Of(field.Type));
                 TypedReg leaf = this._ctx.Alloc(this._ctx.ToIrType(field.Type));
                 this._ctx.Emit(new StructFieldGetPrimInstr(leaf, value, name, path, tag));
-                TypedReg bits = this._unionPayloadBits(leaf, field.Type);
-                this._mergeUnionBits(cells, width, at, bits, field.Size);
+                if (StructLeafKind.IsRef(field.Kind)) {
+                    parts.References[referenceIndex + field.ReferenceIndex] = leaf;
+                } else {
+                    TypedReg bits = this._unionPayloadBits(leaf, field.Type);
+                    this._mergeUnionBits(parts.Cells, parts.Width, at, bits, field.Size);
+                }
             }
         }
     }
 
-    private void _unpackUnionStruct(TypedReg source, Z42Type type, UnionStorageLayout layout, int offset,
+    private void _unpackUnionStruct(TypedReg source, Z42Type type, UnionStorageLayout layout, int offset, int referenceIndex,
                                     TypedReg value, string name, int[] prefix, UnionPayloadLayout fields) {
         for (int i = 0; i < fields.Fields.Length; i = i + 1) {
             UnionStorageField field = fields.Fields[i];
             int[] path = AccessEmitter._pathAppend(prefix, i);
             int at = offset + field.Offset;
             if (field.Kind == StructLeafKind.Struct) {
-                this._unpackUnionStruct(source, type, layout, at, value, name, path, field.Nested.StructFields);
+                this._unpackUnionStruct(source, type, layout, at, referenceIndex + field.ReferenceIndex,
+                                        value, name, path, field.Nested.StructFields);
             } else {
-                int tag = Tag.FromName(PrimModel.KeywordOfCode(field.Type.PrimCode()));
-                TypedReg leaf = this._unpackUnionScalar(source, type, layout, at, field);
+                int tag = Tag.FromName(LayoutKey.Of(field.Type));
+                TypedReg leaf = StructLeafKind.IsRef(field.Kind)
+                    ? this._readUnionReference(source, referenceIndex + field.ReferenceIndex, this._ctx.ToIrType(field.Type))
+                    : this._unpackUnionScalar(source, type, layout, at, field);
                 this._ctx.Emit(new StructFieldSetPrimInstr(value, name, path, tag, leaf));
             }
         }
