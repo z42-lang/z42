@@ -61,7 +61,7 @@ public sealed class UnionStorageLayout {
     }
 
     // A cell width that divides the value size is at least its natural alignment.
-    // Every integral field therefore fits within a single physical cell.
+    // Every supported scalar field therefore fits within a single physical cell.
     public int CellWidth() {
         if (this.Size % 8 == 0) { return 8; }
         if (this.Size % 4 == 0) { return 4; }
@@ -77,7 +77,7 @@ public sealed class UnionStorageLayout {
         return width == 2 ? "ushort" : "byte";
     }
 
-    public bool SupportsIntegralStorage() {
+    public bool SupportsScalarStorage() {
         if (this.Cases == null || this.CellCount() > 65535) { return false; }
         foreach (var branch in this.Cases) {
             foreach (var field in branch.Fields) {
@@ -85,7 +85,10 @@ public sealed class UnionStorageLayout {
                 int code = field.Type.PrimCode();
                 if (code < 0) { return false; }
                 int tag = PrimModel.IrTagOfCode(code);
-                if (tag != IrType.Bool && (tag < IrType.I8 || tag > IrType.U64)) { return false; }
+                bool numeric = tag >= IrType.I8 && tag <= IrType.U64;
+                if (!numeric && tag != IrType.Bool && tag != IrType.Char && tag != IrType.F32 && tag != IrType.F64) {
+                    return false;
+                }
             }
         }
         return true;

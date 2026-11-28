@@ -237,7 +237,7 @@ public sealed partial class StructLayout {
     private static void _addStorageDef(string key, Z42ClassType ct, StrMap shortIdx, StrMap defs, StrMap classDefs) {
         if (ct.UnionCases != null) {
             UnionStorageLayout storage = UnionStorageLayout.WideFor(ct);
-            if (storage != null && storage.SupportsIntegralStorage()) {
+            if (storage != null && storage.SupportsScalarStorage()) {
                 defs.Put(key, StructLayout._unionStorageDef(storage));
             }
             return;

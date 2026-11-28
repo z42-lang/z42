@@ -1,0 +1,45 @@
+union Scalar {
+    Sample(float),
+    Mark(char),
+    Empty,
+}
+
+union Reading {
+    Sample(double),
+    Mark(char character, byte level),
+    Empty,
+}
+
+Scalar CopyScalar(Scalar value) => value;
+Reading CopyReading(Reading value) => value;
+
+int SingleBits(Scalar value) {
+    return value switch {
+        Scalar.Sample(number) => BitConverter.SingleToBits(number),
+        _ => 0,
+    };
+}
+
+long DoubleBits(Reading value) {
+    return value switch {
+        Reading.Sample(number) => BitConverter.DoubleToBits(number),
+        _ => 0L,
+    };
+}
+
+void Main() {
+    Assert.True(default(Scalar) is Scalar.Sample(0.0f));
+    Assert.True(default(Reading) is Reading.Sample(0.0));
+    Assert.True(CopyScalar(Scalar.Sample(1.5f)) is Scalar.Sample(1.5f));
+    Assert.True(CopyReading(Reading.Sample(-2.25)) is Reading.Sample(-2.25));
+    Assert.True(CopyScalar(Scalar.Mark('界')) is Scalar.Mark('界'));
+    Assert.True(CopyReading(Reading.Mark('界', 255)) is Reading.Mark('界', 255));
+    var minusZero32 = (float)BitConverter.SingleFromBits(-2147483648);
+    var minusZero64 = BitConverter.DoubleFromBits(-9223372036854775808L);
+    Assert.Equal(-2147483648, SingleBits(CopyScalar(Scalar.Sample(minusZero32))));
+    Assert.Equal(-9223372036854775808L, DoubleBits(CopyReading(Reading.Sample(minusZero64))));
+    long infinity = 9218868437227405312L;
+    long nan = 9221120237041090626L;
+    Assert.Equal(infinity, DoubleBits(CopyReading(Reading.Sample(BitConverter.DoubleFromBits(infinity)))));
+    Assert.Equal(nan, DoubleBits(CopyReading(Reading.Sample(BitConverter.DoubleFromBits(nan)))));
+}

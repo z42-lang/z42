@@ -5,6 +5,18 @@ using Z42.Emission;
 using Z42.IR;
 
 [Test]
+void test_float_and_double_union_values_use_their_scalar_layouts() {
+    string source = "union Narrow { Value(float), End } union Wide { Value(double), End } "
+        + "Narrow Pack(float x) => Narrow.Value(x); Wide Store(double x) => Wide.Value(x);";
+    var result = IrDump.BuildModuleD(source, "union.z42", null, null);
+    Assert.Equal(0, result.ErrorCount);
+    IrModule module = result.Module;
+    Assert.Equal(1, module.ClassCount);
+    Assert.Equal("$union.Wide", module.Classes[0].Name);
+    Assert.Equal(16, module.Classes[0].StructSize);
+}
+
+[Test]
 void test_wide_union_allocates_exact_layout_slots_at_function_entry() {
     string source = "union U { End, Pair(int, int) } U Make(int n) { U u = U.End; while (n > 0) { u = U.Pair(n, n); n = n - 1; } return u; }";
     var result = IrDump.BuildModuleD(source, "union.z42", null, null);
