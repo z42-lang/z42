@@ -18,6 +18,7 @@ fn class(name: &str, base: Option<&str>, fields: &[&str]) -> ClassDesc {
         class_flags: 0,
         visibility: 0,
         class_flags2: 0,
+        union_layout: None,
         struct_field_table: Box::new([]),
         iface_slots: Box::new([]),
         name: name.to_owned(),

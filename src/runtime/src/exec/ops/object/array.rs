@@ -50,7 +50,7 @@ pub fn array_get<F: FnOnce() -> u32>(ctx: &VmContext, arr: &Value, idx: &Value, 
         if !erased {
             if let Some(layout) = a.inline_union_layout().filter(|layout| layout.size <= 8) {
                 let mut bits = [0; 8];
-                a.read_inline_union(i, &mut bits[..layout.size])?;
+                a.read_inline_union(i, &mut bits[..layout.size], &mut [])?;
                 return Ok(Value::I64(i64::from_le_bytes(bits)));
             }
         }
@@ -89,7 +89,11 @@ pub fn array_set(ctx: &VmContext, arr: &Value, idx: &Value, v: &Value) -> OpResu
             let a = rc.borrow();
             let i = checked_index(ArrayOp::Set, idx, a.len())?;
             if let Some(layout) = a.inline_union_layout() {
-                return write_inline_union(ctx, &a, i, v, layout.size);
+                write_inline_union(ctx, a, i, v, layout)?;
+                if layout.ref_count() != 0 {
+                    crate::object::barrier_array_range(ctx.heap(), rc, i, 1);
+                }
+                return Ok(());
             }
             // Erased default(T) in existing bytecode can be Null for a value struct.
             if matches!(v, Value::Null) && a.mode() == ArrayMode::Struct {
@@ -278,9 +282,13 @@ pub fn array_new_lit<F: FnOnce() -> u32>(
         ElemMode::Struct(layout) => {
             let arr = alloc(ArrayObj::alloc_struct(ctx.heap(), element_type, n, layout), || format!("struct array literal[{n}]"))?;
             if let Value::Array(a) = &arr {
-                // A fresh array, not yet in any register (no safepoint before it is): packing the
-                // elements needs no barrier.
-                for (i, v) in elems.enumerate() { pack_struct_elem(ctx, a.borrow(), i, &v)?; }
+                let can_box_union = a.borrow().inline_union_layout().is_some_and(|l| l.ref_count() != 0);
+                let mut roots = crate::exec::ops::union_heap::PinnedValues::new(ctx.heap());
+                if can_box_union { roots.pin(arr); }
+                for (i, v) in elems.enumerate() {
+                    pack_struct_elem(ctx, a.borrow(), i, &v)?;
+                    if can_box_union { crate::object::barrier_array_range(ctx.heap(), a, i, 1); }
+                }
             }
             return Ok(arr);
         }
@@ -355,7 +363,7 @@ pub fn elem_mode(ctx: &VmContext, element_type: ElemType, type_param: bool) -> E
 /// 源是 arena `StructRef` 或装箱 `BoxedStruct`；`Null` = 默认值（元素保持零初始化）。
 pub fn pack_struct_elem(ctx: &VmContext, arr: &ArrayObj, i: usize, v: &Value) -> OpResult<()> {
     if let Some(layout) = arr.inline_union_layout() {
-        return write_inline_union(ctx, arr, i, v, layout.size);
+        return write_inline_union(ctx, arr, i, v, layout);
     }
     if arr.struct_layout_ref().is_some_and(|layout| layout.size == 0) && arr.accepts_empty_struct(v) {
         return Ok(());
@@ -377,17 +385,10 @@ pub fn pack_struct_elem(ctx: &VmContext, arr: &ArrayObj, i: usize, v: &Value) ->
     Ok(())
 }
 
-fn write_inline_union(ctx: &VmContext, arr: &ArrayObj, index: usize, value: &Value, size: usize) -> OpResult<()> {
-    if let Value::I64(bits) = value {
-        if size <= 8 {
-            return Ok(arr.write_inline_union(index, &bits.to_le_bytes()[..size])?);
-        }
-    }
-    let (slot, frame) = super::struct_leaf::as_struct_ref(value, "inline union array element")?;
-    ctx.exec().with_struct_slot(slot, frame, |source| {
-        anyhow::ensure!(source.type_name.as_ref() == &*arr.element_type(), "inline union element type mismatch");
-        arr.write_inline_union(index, &source.bytes)
-    })??;
+fn write_inline_union(ctx: &VmContext, arr: &ArrayObj, index: usize, value: &Value, layout: &StructTypeLayout) -> OpResult<()> {
+    crate::exec::ops::union_heap::with_encoded(ctx, value, &arr.element_type(), layout.size,
+        layout.union_layout.as_deref(),
+        |bytes| arr.write_inline_union_encoded(index, bytes))?;
     Ok(())
 }
 
@@ -401,7 +402,7 @@ pub(crate) fn read_union_into(ctx: &VmContext, target: &Value, array: &Value, in
     let (slot, frame) = super::struct_leaf::as_struct_ref(target, "inline union array destination")?;
     ctx.exec().with_struct_slot_mut(slot, frame, |target| {
         anyhow::ensure!(target.type_name.as_ref() == &*arr.element_type(), "inline union element type mismatch");
-        arr.read_inline_union(index, &mut target.bytes)
+        arr.read_inline_union(index, &mut target.bytes, &mut target.refs)
     })??;
     Ok(())
 }

@@ -1,0 +1,53 @@
+namespace InlineReferenceUnionField;
+
+class Item {
+    public int Code;
+    public Item(int code) { this.Code = code; }
+}
+
+class Watch { internal WeakHandle Weak; }
+
+union Payload { Empty, Item(Item), Number(long), Box(object) }
+union Envelope { Empty, Nested(Payload, string) }
+
+class Owner {
+    internal long Sibling;
+    internal Envelope Value;
+}
+
+class Child : Owner {}
+
+void Fill(Owner owner, Watch watch) {
+    var item = new Item(42);
+    watch.Weak = WeakHandle.MakeWeak(item);
+    owner.Value = Envelope.Nested(Payload.Item(item), "outer");
+}
+
+void CheckLive(Owner owner, Watch watch) {
+    GC.ForceCollect();
+    Assert.True(WeakHandle.Upgrade(watch.Weak) != null);
+    if (owner.Value is Envelope.Nested(Payload.Item(item), "outer")) {
+        Assert.Equal(42, item.Code);
+    } else {
+        Assert.True(false);
+    }
+}
+
+void Main() {
+    var watch = new Watch();
+    var owner = new Child();
+    owner.Sibling = 17L;
+    Assert.True(owner.Value is Envelope.Empty);
+    Fill(owner, watch);
+    CheckLive(owner, watch);
+    owner.Value = Envelope.Nested(Payload.Number(-1L), "number");
+    GC.ForceCollect();
+    Assert.True(WeakHandle.Upgrade(watch.Weak) == null);
+    Assert.True(owner.Value is Envelope.Nested(Payload.Number(-1L), "number"));
+    owner.Value = Envelope.Nested(Payload.Box(true), "boxed");
+    GC.ForceCollect();
+    if (owner.Value is Envelope.Nested(Payload.Box(value), "boxed")) {
+        Assert.True((bool)value);
+    } else { Assert.True(false); }
+    Assert.Equal(17L, owner.Sibling);
+}

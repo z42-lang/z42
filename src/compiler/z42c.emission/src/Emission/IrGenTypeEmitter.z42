@@ -30,6 +30,8 @@ public sealed class IrGenTypeEmitter {
         if (storage == null) { return; }
         storage.Name = PackedUnion.StorageName(name);
         storage.Visibility = 1;
+        storage.Flags2 = storage.Flags2 | 4;
+        storage.UnionLayout = new UnionLayoutEmitter().Build(name, layout);
         this._out.AddClass(storage);
     }
 

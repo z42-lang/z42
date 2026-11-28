@@ -39,6 +39,7 @@ fn class(name: &str, id: u32, fields: &[(&str, F)]) -> Arc<TypeDesc> {
         field_sizes: fields.iter().map(|(_, f)| if matches!(f, F::I32) { 4 } else { 8 }).collect(),
         field_kinds: fields.iter().map(|(_, f)| if matches!(f, F::Ref) { STRUCT_LEAF_GCREF } else { STRUCT_LEAF_PRIM }).collect(),
         ref_cells: fields.iter().zip(&offs).filter(|((_, f), _)| matches!(f, F::Ref)).map(|(_, &o)| o).collect(),
+        union_refs: Box::new([]),
         tparam_cells: Box::new([]),
         field_access: access.into(),
     });

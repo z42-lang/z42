@@ -148,7 +148,7 @@ fn bulk_copies_keep_every_mode_intact() {
 #[test]
 fn struct_array_copies_blob_by_blob() {
     let h = heap();
-    let layout = std::sync::Arc::new(StructTypeLayout { float_field_ranges: Default::default(),
+    let layout = std::sync::Arc::new(StructTypeLayout { union_layout: None, float_field_ranges: Default::default(),
         size: 16, ref_offsets: Box::new([8]), ref_kinds: Box::new([STRUCT_REF_GCREF]), fields: Box::new([]),
     });
     let o = obj(&h);
@@ -340,7 +340,7 @@ fn struct_bulk_clear_zeros_only_the_requested_blobs_and_all_reference_leaves() {
     let h = heap(); let _g = HeapGuard::enter(&h);
     let value = obj(&h); let _value_root = h.pin_root(value);
     for (size, offsets) in [(16, vec![8]), (24, vec![16, 0]), (16, vec![8, 8]), (12, vec![])] {
-        let layout = std::sync::Arc::new(StructTypeLayout { float_field_ranges: Default::default(),
+        let layout = std::sync::Arc::new(StructTypeLayout { union_layout: None, float_field_ranges: Default::default(),
             size, ref_kinds: vec![STRUCT_REF_GCREF; offsets.len()].into_boxed_slice(),
             ref_offsets: offsets.clone().into_boxed_slice(), fields: Box::new([]),
         });

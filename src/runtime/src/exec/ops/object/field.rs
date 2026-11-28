@@ -11,7 +11,7 @@
 use crate::metadata::dispatch::ic::{
     assert_field_ic_loc, field_ic_install, field_ic_lookup, FieldIC,
 };
-use crate::object::{FieldAccess, FieldCell, FieldLoc, FieldWrite, ScriptObject};
+use crate::object::{FieldAccess, FieldCell, FieldLoc, ScriptObject};
 use crate::object::Value;
 use crate::vm::VmContext;
 
@@ -96,13 +96,13 @@ fn load_heap_inline(ctx: &VmContext, o: &ScriptObject, name: &str) -> OpResult<V
 
 /// 写入（不含写屏障）。返回 `Some((单元字节偏移, 写了什么))`；调用方据此发屏障。
 #[inline(always)]
-fn store(ctx: &VmContext, o: &ScriptObject, name: &str, v: &Value, ic: Option<&FieldIC>) -> OpResult<Option<(usize, FieldWrite)>> {
+fn store_on_stack(o: &ScriptObject, name: &str, v: &Value, ic: Option<&FieldIC>) -> OpResult<Option<super::union_field::StackWrite>> {
     let Some(Some(fa)) = resolve(o, name, ic) else { return Ok(None) };
-    if fa.cell == FieldCell::Struct && super::union_field::try_write(ctx, o, name, v)? {
-        return Ok(None);
+    if fa.cell == FieldCell::Struct {
+        if let Some(write) = super::union_field::StackWrite::for_field(o, name) { return Ok(Some(write)); }
     }
     match o.store_access(fa, v) {
-        Ok(w) => Ok(Some((fa.offset as usize, w))),
+        Ok(_) => Ok(None),
         Err(_) => Err(OpError::field_store_rejected(name, v)),
     }
 }
@@ -181,7 +181,7 @@ pub fn field_set(ctx: &VmContext, recv: &Value, name: &str, v: &Value, ic: Optio
     if let Value::Object(rc) = recv {
         let o = rc.borrow();
         if let Some(Some(access)) = resolve(o, name, ic) {
-            if access.cell == FieldCell::Struct && super::union_field::try_write(ctx, o, name, v)? {
+            if access.cell == FieldCell::Struct && super::union_field::try_write_heap(ctx, rc, name, v)? {
                 return Ok(());
             }
             crate::object::store_field_access(ctx.heap(), rc, access, v)
@@ -196,7 +196,8 @@ pub fn field_set(ctx: &VmContext, recv: &Value, name: &str, v: &Value, ic: Optio
 fn field_set_rare(ctx: &VmContext, recv: &Value, name: &str, v: &Value, ic: Option<&FieldIC>) -> OpResult<()> {
     match recv {
         Value::StackObject { idx, frame_id } => {
-            ctx.exec().with_stack_object(*idx, *frame_id, |o| store(ctx, o, name, v, ic))??;
+            let write = ctx.exec().with_stack_object(*idx, *frame_id, |o| store_on_stack(o, name, v, ic))??;
+            if let Some(write) = write { write.finish(ctx, *idx, *frame_id, v)?; }
             Ok(())
         }
         Value::Null => Err(OpError::null_field_write(name)),

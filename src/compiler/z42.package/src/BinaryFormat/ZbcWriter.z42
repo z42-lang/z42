@@ -324,7 +324,7 @@ public static class ZbcWriter {
             w.WriteU32(pool.Idx(cd.AssocTypes[aaw]));
             aaw = aaw + 1;
         }
-        // 接口槽表（fix-interface-overload-dispatch）：Flags2 bit1 gated，记录最末尾。
+        // 接口槽表（fix-interface-overload-dispatch）：Flags2 bit1 gated。
         // slot_count:u16 + (key_idx:u32, impl_idx:u32)×n。键 = 接口槽键，值 = 实现方法的 vtable 键。
         if ((cd.Flags2 & 2) != 0) {
             w.WriteU16(cd.IfaceSlotCount);
@@ -335,6 +335,7 @@ public static class ZbcWriter {
                 isw = isw + 1;
             }
         }
+        if ((cd.Flags2 & 4) != 0) { ZbcUnionLayout.Write(w, cd.UnionLayout); }
     }
 
     public static void InternConstraintBundles(IrConstraintDesc[] bundles, ZbcStringPool pool) {

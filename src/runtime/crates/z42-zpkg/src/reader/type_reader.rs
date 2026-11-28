@@ -300,6 +300,13 @@ pub(super) fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
         } else {
             Box::new([])
         };
+        let union_layout = if class_flags2 & crate::ir::CLASS_FLAGS2_HAS_UNION_LAYOUT != 0 {
+            let storage = struct_layout_desc.as_ref()
+                .ok_or_else(|| anyhow::anyhow!("union layout requires frame storage for `{name}`"))?;
+            Some(std::sync::Arc::new(super::union_layout::read(&mut c, storage)?))
+        } else {
+            None
+        };
         classes.push(ClassDesc {
             name,
             base_class,
@@ -310,6 +317,7 @@ pub(super) fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
             class_flags,
             visibility: class_visibility,
             class_flags2,
+            union_layout,
             struct_field_table,
             static_fields: static_fields.into_boxed_slice(),
             interfaces: interfaces.into_boxed_slice(),

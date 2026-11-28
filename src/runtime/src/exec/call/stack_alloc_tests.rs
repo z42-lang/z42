@@ -115,6 +115,7 @@ fn stack_roots_are_scoped_to_their_creating_frames() {
         field_sizes:   Box::new([8]),
         field_kinds:   Box::new([STRUCT_LEAF_GCREF]),
         ref_cells:     Box::new([0]),
+        union_refs: Box::new([]),
         tparam_cells:  Box::new([]),
         field_access:  Box::new([FieldAccess::ref_word(0, TAG_OBJECT)]),
     });

@@ -323,7 +323,7 @@ public sealed partial class ExprEmitter : IBoundExprVisitor<TypedReg, Unit> {
     }
     public TypedReg VisitArrayLit(BoundArrayLit al, Unit d) {
         Z42ArrayType at = al.Type() as Z42ArrayType;
-        bool inlineUnion = at != null && PackedUnion.HasReferenceFreeStorage(at.Elem);
+        bool inlineUnion = at != null && PackedUnion.HasInlineStorage(at.Elem);
         TypedReg[] elemRegs = new TypedReg[al.ElemCount];
         int ei = 0;
         while (ei < al.ElemCount) {

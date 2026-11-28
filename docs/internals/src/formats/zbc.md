@@ -103,10 +103,17 @@ interface ×     pool idx
 [接口方法块 / struct 布局块 / struct 逐字段表 / 内联布局块 / 对象全字段块]（各自 gated，略）
 assoc_count     u16；assoc × {name u32, type u32}
 [接口槽表]      仅 flags2 bit1 置位：slot_count u16 + 每项{key pool idx, impl pool idx}
+[union 布局]    仅 flags2 bit2 置位：node_count u32 + 节点序列，最后一个节点为根
 ```
 
 **第二个类标志字（`flags2` u16）**：`bit0` has-struct-field-table（struct 逐字段布局表在场）、
-`bit1` has-iface-slots（记录末尾带接口槽表）。其余位保留。
+`bit1` has-iface-slots（接口槽表在场）、`bit2` has-union-layout（内联 union 的布局图在场）。其余位保留。
+
+**union 布局图**：每个节点依次记录 `size:u32`、`align:u8`、`tag_bytes:u8`、`case_count:u32`。其后按标签顺序记录分支，
+每个分支有 `region_count:u16`，以及按载荷顺序排列的 `offset:u32, child:u32` 条目。
+`offset` 相对于当前节点起点。 `child = 0xFFFFFFFF` 表示一个 8 字节引用字，其余索引指向前面的节点。
+各区域在分支内互不重叠，且满足尺寸和对齐。帧内引用槽从每个分支的第一个条目起顺序分配，嵌套节点按其最大引用槽数占位。
+TYPE 同时带值布局，其根尺寸和帧内引用槽数必须与布局图一致。
 
 **接口槽表**：类实现的每个接口方法一项——键是接口槽键（`Demo.IFoo<string>#Get` 带实参的精确键，
 或 `Demo.IFoo#Get` 擦除键），值是实现该方法的 vtable 键（`Get$1$string`）。编译器按签名定案；运行期

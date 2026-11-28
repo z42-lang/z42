@@ -29,6 +29,7 @@ fn holder() -> Value {
         field_sizes:   Box::new([4, 8]),
         field_kinds:   Box::new([STRUCT_LEAF_PRIM, STRUCT_LEAF_PRIM]),
         ref_cells:     Box::new([8]),
+        union_refs: Box::new([]),
         tparam_cells:  Box::new([]),
         field_access:  Box::new([
             FieldAccess::prim(0, 4, TAG_I32),

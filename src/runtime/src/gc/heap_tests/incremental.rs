@@ -351,7 +351,7 @@ fn run_struct_copy_over_live_leaf(barrier_on: bool, within: bool) -> bool {
     crate::gc::satb::set_disabled_for_test(!barrier_on);
 
     // struct S { int N; object O; } — one reference leaf at byte offset 8.
-    let layout = std::sync::Arc::new(StructTypeLayout { float_field_ranges: Default::default(),
+    let layout = std::sync::Arc::new(StructTypeLayout { union_layout: None, float_field_ranges: Default::default(),
         size: 16, ref_offsets: Box::new([8]), ref_kinds: Box::new([STRUCT_REF_GCREF]), fields: Box::new([]),
     });
     let new_arr = |len| ArrayObj::alloc_struct(&heap, ElemType::intern("Demo.S"), len, layout.clone());

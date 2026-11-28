@@ -5,6 +5,7 @@
 use crate::object::*;
 use std::sync::Arc;
 use crate::gc::Heap;
+use crate::object::value::union_blob;
 
 // ── 批量拷贝 ──
 impl ArrayObj {
@@ -39,7 +40,7 @@ impl ArrayObj {
                 let (cells, layout) = self.struct_cells()
                     .ok_or_else(|| anyhow::anyhow!("missing struct array layout"))?;
                 if self.inline_union_layout().is_some() {
-                    self.clear_inline_unions(index, length, layout.size)?;
+                    self.clear_inline_unions(index, length, layout)?;
                 } else {
                     struct_blob::clear_range(&cells, index, length, layout.size, &layout.ref_offsets)?;
                 }
@@ -115,16 +116,17 @@ impl ArrayObj {
                 }
             }
             (ArrayMode::Struct, ArrayMode::Struct) => {
-                if let Some(layout) = self.inline_union_layout() {
-                    self.copy_inline_unions(src, si, di, n, layout.size);
-                    return;
-                }
                 let same = match (src.struct_layout_ref(), self.struct_layout_ref()) {
-                    (Some(a), Some(b)) => a.size == b.size && a.ref_offsets == b.ref_offsets,
+                    (Some(a), Some(b)) => a.size == b.size && a.ref_offsets == b.ref_offsets
+                        && a.union_layout == b.union_layout,
                     _ => false,
                 };
                 debug_assert!(same, "copy_elems_from: two struct[] with different element layouts");
                 if same {
+                    if let Some(layout) = self.inline_union_layout() {
+                        self.copy_inline_unions(src, si, di, n, layout.size);
+                        return;
+                    }
                     for k in 0..n {
                         if let Some((b, r)) = src.struct_elem(si + k) {
                             let _ = self.write_struct_elem(di + k, &b, &r, &mut |_| {});
@@ -198,6 +200,13 @@ impl ArrayObj {
             ArrayMode::Struct => {
                 let Some((c, l)) = self.struct_cells() else { return };
                 if l.ref_offsets.is_empty() { return; }
+                if let Some(plan) = l.union_layout.as_deref() {
+                    for i in 0..self.len() {
+                        union_blob::visit_refs(&c, i * l.size, plan, &mut |_, value| visit(value))
+                            .expect("stored union layout");
+                    }
+                    return;
+                }
                 for i in 0..self.len() { struct_blob::visit(&c, i * l.size, &l.ref_offsets, visit); }
             }
             _ => {}
@@ -221,6 +230,13 @@ impl ArrayObj {
             ArrayMode::Frozen => ((i..i + n).map(|k| self.get_boxed(k)).collect(), 1),
             ArrayMode::Struct => {
                 let Some(l) = self.struct_layout_ref() else { return (Vec::new(), 0) };
+                if let Some(plan) = l.union_layout.as_deref().filter(|_| l.ref_count() != 0) {
+                    let mut out = vec![Value::Null; n * l.ref_count()];
+                    for (element, slots) in out.chunks_exact_mut(l.ref_count()).enumerate() {
+                        union_blob::visit_slots(&c, (i + element) * l.size, plan, slots).expect("stored union layout");
+                    }
+                    return (out, l.ref_count());
+                }
                 let mut out = Vec::with_capacity(n * l.ref_offsets.len());
                 for k in i..i + n {
                     for &ro in l.ref_offsets.iter() {
@@ -248,6 +264,14 @@ impl ArrayObj {
             ArrayMode::Mixed => for k in i..i + n { word(k, c.load_word(k * CELL_STRIDE, Ordering::Acquire)); },
             ArrayMode::Struct => {
                 let Some(l) = self.struct_layout_ref() else { return };
+                if let Some(plan) = l.union_layout.as_deref().filter(|_| l.ref_count() != 0) {
+                    for k in i..i + n {
+                        union_blob::visit_refs(&c, k * l.size, plan, &mut |_, value| {
+                            if value.is_heap_ref() { f(k, value); }
+                        }).expect("stored union layout");
+                    }
+                    return;
+                }
                 for k in i..i + n {
                     for &ro in l.ref_offsets.iter() { word(k, c.load_ref_word(k * l.size + ro as usize)); }
                 }
@@ -275,7 +299,13 @@ impl ArrayObj {
             // SAFETY: the copy's element area is fresh (nobody can see it yet) and exactly as
             // long as the source's — same descriptor, same length, same layout.
             let dst = unsafe { std::slice::from_raw_parts_mut(a.elems_ptr(), n) };
-            src.copy_out(0, dst);
+            if let Some(layout) = self.inline_union_layout() {
+                for (i, element) in dst.chunks_exact_mut(layout.size).enumerate() {
+                    union_blob::read(&src, i * layout.size, element).expect("checked union clone source");
+                }
+            } else {
+                src.copy_out(0, dst);
+            }
         })
     }
 

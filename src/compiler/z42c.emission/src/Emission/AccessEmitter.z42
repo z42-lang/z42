@@ -95,7 +95,7 @@ public sealed partial class AccessEmitter {
                 }
                 // add-struct-heap-inline (P3b)：裸内联 struct 字段整写（`pt = other`，class C 方法内）→ 逐叶子
                 // 把 val(blob) 拷进 this 对象 struct_bytes@off（值语义）。裸叶子 `pt.x=v` 由 _emitBlobFieldSet 处理。
-                if (!PackedUnion.HasReferenceFreeStorage(tid.Type()) && this._isOwnerInlineField(tid)) {
+                if (!PackedUnion.HasInlineStorage(tid.Type()) && this._isOwnerInlineField(tid)) {
                     // 形态 ②：struct 名取自内联布局（静态类型可能是型参，取不出）
                     string fs = this._ctx.Gen.Layouts.InlineFieldTypeName(this._ctx.OwnerClassName, tid.Name);
                     if (fs == "") { fs = this._ee._blobStructName(tid.Type()); }
@@ -125,7 +125,7 @@ public sealed partial class AccessEmitter {
             }
             // add-struct-heap-inline (P3b)：写整个**内联 struct 字段**进堆对象（`c.pt = other`）→ 逐叶子把
             // val(blob) 拷进对象 struct_bytes@off（值语义）。叶子写 `c.pt.x=v` 由上面 blob-target 分支处理。
-            if (!PackedUnion.HasReferenceFreeStorage(tm.Type()) && this._isInlineStructFieldRoot(tm)) {
+            if (!PackedUnion.HasInlineStorage(tm.Type()) && this._isInlineStructFieldRoot(tm)) {
                 string fs = this._ctx.Gen.Layouts.InlineFieldTypeName(this._ee._classLayoutName(tm.Target.Type()), tm.MemberName);
                 if (fs == "") { fs = this._ee._blobStructName(tm.Type()); }
                 TypedReg objReg = this._ee.Emit(tm.Target);
@@ -170,7 +170,7 @@ public sealed partial class AccessEmitter {
             // add-struct-array-codegen (P3b follow-up)：`arr[i] = p`（value-struct 数组整元素写）→ 取元素
             // 句柄（StructRefHeap）逐叶子把 p 拷进元素字节区（值语义）。ArraySet 的 set_boxed 收不了 arena
             // StructRef 源。叶子写 `arr[i].x=v` 走上面 BoundMember 分支（_emitBlobFieldSet + 句柄根）。
-            string fs = PackedUnion.HasReferenceFreeStorage(ti.Type()) ? "" : this._ee._arrayElementBlobName(ti.Type());
+            string fs = PackedUnion.HasInlineStorage(ti.Type()) ? "" : this._ee._arrayElementBlobName(ti.Type());
             if (fs != "") {
                 TypedReg h = this._emitArrayElemHandle(ti);
                 this._copyRegion(val, this._ctx.QualifyLayout(fs), new int[0], h, this._ctx.QualifyLayout(fs), new int[0], fs);

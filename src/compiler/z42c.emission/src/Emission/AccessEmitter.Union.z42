@@ -6,7 +6,7 @@ using Z42.Symbols;
 
 public sealed partial class AccessEmitter {
     private TypedReg _tryReadWideUnionElement(BoundIndex index) {
-        if (!PackedUnion.HasReferenceFreeStorage(index.Type())) { return null; }
+        if (!PackedUnion.HasInlineStorage(index.Type())) { return null; }
         UnionStorageLayout layout = UnionStorageLayout.WideFor(index.Type());
         if (layout == null) { return null; }
         TypedReg array = this._ee.Emit(index.Target);
@@ -18,7 +18,7 @@ public sealed partial class AccessEmitter {
     }
 
     private TypedReg _tryReadUnionField(BoundExpr receiver, string name, Z42Type type) {
-        if (!PackedUnion.HasReferenceFreeStorage(type)) { return null; }
+        if (!PackedUnion.HasInlineStorage(type)) { return null; }
         Z42ClassType owner = receiver == null ? this._ctx.OwnerCt : this._ee._receiverClassType(receiver.Type());
         var field = owner == null ? null : owner.Fields.Get(name) as FieldSymbol;
         if (!PackedUnion.IsInlineField(owner, field)) { return null; }

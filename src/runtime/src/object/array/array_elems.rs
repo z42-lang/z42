@@ -162,8 +162,9 @@ impl ArrayObj {
         let (c, l) = self.struct_cells()?;
         if self.inline_union_layout().is_some() {
             let mut bytes = vec![0; l.size];
-            self.read_inline_union(i, &mut bytes).ok()?;
-            return Some((bytes, Vec::new()));
+            let mut refs = vec![Value::Null; l.ref_count()];
+            self.read_inline_union(i, &mut bytes, &mut refs).ok()?;
+            return Some((bytes, refs));
         }
         Some(struct_blob::read(&c, i * l.size, l.size, &l.ref_offsets))
     }
@@ -173,9 +174,10 @@ impl ArrayObj {
     pub fn write_struct_elem(
         &self, i: usize, src_bytes: &[u8], src_refs: &[Value], barrier: &mut dyn FnMut(&Value),
     ) -> anyhow::Result<()> {
-        if self.inline_union_layout().is_some() {
-            anyhow::ensure!(src_refs.is_empty(), "reference payload for a reference-free union");
-            return self.write_inline_union(i, src_bytes);
+        if let Some(layout) = self.inline_union_layout() {
+            anyhow::ensure!(layout.ref_count() == 0 && src_refs.is_empty(),
+                "inline reference union writes need an encoded image");
+            return self.write_inline_union_encoded(i, src_bytes);
         }
         if let Some((c, l)) = self.struct_cells() {
             struct_blob::write(&c, i * l.size, l.size, src_bytes, src_refs, &l.ref_offsets, barrier)?;
@@ -185,6 +187,9 @@ impl ArrayObj {
 
     /// Reset an erased IR store of default(T). Missing source refs clear the leaves via SATB.
     pub(crate) fn clear_struct_elem(&self, i: usize) -> anyhow::Result<()> {
+        if let Some(layout) = self.inline_union_layout() {
+            return self.clear_inline_unions(i, 1, layout);
+        }
         let (cells, layout) = self.struct_cells()
             .ok_or_else(|| anyhow::anyhow!("default store on a non-struct array"))?;
         struct_blob::write(

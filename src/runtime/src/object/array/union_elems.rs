@@ -1,27 +1,40 @@
 //! Whole-value access to inline union array elements.
-use crate::object::{ArrayObj, Cells, StructTypeLayout};
+use crate::object::{ArrayObj, Cells, StructTypeLayout, Value};
 use crate::object::value::union_blob;
 use anyhow::{ensure, Result};
 
 impl ArrayObj {
     pub(crate) fn inline_union_layout(&self) -> Option<&StructTypeLayout> {
-        self.struct_layout_ref()
-            .filter(|layout| layout.ref_count() == 0 && union_blob::is_storage_name(&self.element_type()))
+        self.struct_layout_ref().filter(|layout| layout.union_layout.is_some())
     }
 
-    pub(crate) fn read_inline_union(&self, index: usize, bytes: &mut [u8]) -> Result<()> {
-        let (cells, offset) = self.union_cells(index, bytes.len())?;
+    pub(crate) fn read_inline_union(&self, index: usize, bytes: &mut [u8], refs: &mut [Value]) -> Result<()> {
+        let (cells, offset, layout) = self.union_cells(index, bytes.len())?;
+        if let Some(plan) = layout.union_layout.as_deref().filter(|_| layout.ref_count() != 0) {
+            return union_blob::snapshot(&cells, offset, plan, bytes, refs);
+        }
+        ensure!(refs.is_empty(), "reference slots for a reference-free union");
         union_blob::read(&cells, offset, bytes)
     }
 
-    pub(crate) fn write_inline_union(&self, index: usize, bytes: &[u8]) -> Result<()> {
-        let (cells, offset) = self.union_cells(index, bytes.len())?;
+    pub(crate) fn write_inline_union_encoded(&self, index: usize, bytes: &[u8]) -> Result<()> {
+        let (cells, offset, layout) = self.union_cells(index, bytes.len())?;
+        if let Some(plan) = layout.union_layout.as_deref().filter(|_| layout.ref_count() != 0) {
+            return union_blob::replace_encoded(&cells, offset, plan, bytes);
+        }
         union_blob::write(&cells, offset, bytes)
     }
 
-    pub(super) fn clear_inline_unions(&self, index: usize, length: usize, size: usize) -> Result<()> {
+    pub(super) fn clear_inline_unions(&self, index: usize, length: usize, layout: &StructTypeLayout) -> Result<()> {
         let cells = self.cells();
+        let size = layout.size;
         ensure!(length <= self.len() && index <= self.len() - length, "invalid inline union clear range");
+        if let Some(plan) = layout.union_layout.as_deref().filter(|_| layout.ref_count() != 0) {
+            for element in index..index + length {
+                union_blob::clear(&cells, element * size, plan)?;
+            }
+            return Ok(());
+        }
         if size <= 8 && size.is_power_of_two() {
             ensure!(cells.clear_prims(index, length, size), "inline union clear exceeds array storage");
             return Ok(());
@@ -51,8 +64,8 @@ impl ArrayObj {
         // Release the source guard before taking the destination guard. A reverse
         // traversal preserves memmove semantics even when both arrays are the same.
         let mut copy = |i| {
-            src.read_inline_union(si + i, bytes).expect("checked union copy source");
-            self.write_inline_union(di + i, bytes).expect("checked union copy destination");
+            union_blob::read(&src.cells(), (si + i) * size, bytes).expect("checked union copy source");
+            self.write_inline_union_encoded(di + i, bytes).expect("checked union copy destination");
         };
         if di > si {
             (0..n).rev().for_each(&mut copy);
@@ -61,11 +74,11 @@ impl ArrayObj {
         }
     }
 
-    fn union_cells(&self, index: usize, size: usize) -> Result<(Cells<'_>, usize)> {
-        ensure!(self.inline_union_layout().is_some_and(|layout| layout.size == size),
-            "inline union array element layout mismatch");
+    fn union_cells(&self, index: usize, size: usize) -> Result<(Cells<'_>, usize, &StructTypeLayout)> {
+        let layout = self.inline_union_layout().filter(|layout| layout.size == size)
+            .ok_or_else(|| anyhow::anyhow!("inline union array element layout mismatch"))?;
         ensure!(index < self.len(), "inline union array index out of bounds");
-        Ok((self.cells(), index * size))
+        Ok((self.cells(), index * size, layout))
     }
 }
 

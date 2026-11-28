@@ -82,6 +82,9 @@ pub fn copy_range(
 pub fn elem_get_boxed(ctx: &VmContext, arr: &ArrRef, i: usize) -> OpResult<Value> {
     let (et, elem) = {
         let a = arr.borrow();
+        if a.inline_union_layout().is_some() {
+            return Err(OpError::untyped_union_element("GetValue"));
+        }
         if a.struct_layout_ref().is_some_and(|layout| layout.size == 0) {
             return new_empty_struct(ctx, a.element_type());
         }
@@ -97,7 +100,10 @@ pub fn elem_get_boxed(ctx: &VmContext, arr: &ArrRef, i: usize) -> OpResult<Value
 /// 值 struct 数组只收该 struct 的装箱（null 也不行）；基元数组只收同种值（`prim_backing_accepts`，
 /// 不拓宽）；引用数组按声明的元素类型校验。
 pub fn check_untyped_store(ctx: &VmContext, arr: &ArrayObj, v: &Value) -> OpResult<()> {
-    if arr.struct_layout().is_some() {
+    if arr.inline_union_layout().is_some() {
+        return Err(OpError::untyped_union_element("SetValue"));
+    }
+    if arr.struct_layout_ref().is_some() {
         return check_struct_box(arr, v);
     }
     match arr.prim_backing_kind() {
@@ -117,8 +123,8 @@ pub fn check_untyped_store(ctx: &VmContext, arr: &ArrayObj, v: &Value) -> OpResu
 struct Shape {
     len: usize,
     elem: ElemType,
-    /// 值 struct 数组的元素 `(size, 引用叶子偏移)`。
-    strukt: Option<(usize, Box<[u32]>)>,
+    /// 值 struct 或 union 数组的元素布局。
+    strukt: Option<std::sync::Arc<crate::object::StructTypeLayout>>,
     /// 基元 backing 的种类标签（`int[]` …）；引用 / struct backing 为 `None`。
     prim: Option<&'static str>,
 }
@@ -128,7 +134,7 @@ impl Shape {
         Shape {
             len: a.len(),
             elem: a.element_type(),
-            strukt: a.struct_layout().map(|l| (l.size, l.ref_offsets.clone())),
+            strukt: a.struct_layout(),
             prim: a.prim_backing_kind(),
         }
     }
@@ -148,7 +154,7 @@ fn plan(ctx: &VmContext, s: &Shape, d: &Shape) -> OpResult<Plan> {
     match (&s.strukt, &d.strukt) {
         (Some(sl), Some(dl)) => {
             if *s.elem != *d.elem { return Err(mismatch()); }
-            if sl != dl {
+            if sl.size != dl.size || sl.ref_offsets != dl.ref_offsets || sl.union_layout != dl.union_layout {
                 return Err(OpError::internal(format!(
                     "Array.CopyRange: two `{}[]` arrays with different element layouts", &*d.elem)));
             }
