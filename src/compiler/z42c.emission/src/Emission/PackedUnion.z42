@@ -23,7 +23,7 @@ internal static class PackedUnion {
         foreach (var owner in symbols.SortedClasses()) {
             if (owner.IsImported) { continue; }
             if (owner.UnionCases != null && (owner.UnionStorage == null || !owner.UnionStorage.SupportsInlineStorage())) {
-                return "union `" + owner.Fqn() + "` requires a concrete payload layout without references";
+                return "union `" + owner.Fqn() + "` requires a supported concrete payload layout";
             }
             foreach (var name in owner.Fields.Keys()) {
                 var field = owner.Fields.Get(name) as FieldSymbol;

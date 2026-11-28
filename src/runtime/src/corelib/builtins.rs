@@ -44,6 +44,8 @@ const TYPED: &[&[abi::BuiltinDesc]] = &[
     #[cfg(not(feature = "tls"))]
     crate::corelib::net::unsupported::tls::DESCS,
     crate::corelib::core::array::typed::DESCS,
+    crate::corelib::core::union_frame::typed::DESCS,
+    crate::corelib::core::union_frame::STORE,
 ];
 
 const JOINED: [abi::BuiltinDesc; abi::descs_len(TYPED)] = abi::concat_descs(TYPED);

@@ -49,6 +49,12 @@ pub(in crate::exec) struct StructSlot {
     pub layout: Arc<StructTypeLayout>,
 }
 
+impl StructSlot {
+    pub fn is_reference_union(&self) -> bool {
+        !self.refs.is_empty() && self.type_name.starts_with("$union.")
+    }
+}
+
 /// Per-`VmContext` value-struct byte arena. Guarded by a `Mutex` on the context
 /// (owner-thread accesses uncontended; GC scanner reads it at a safepoint).
 #[derive(Default)]
@@ -164,6 +170,11 @@ impl StructArena {
             if d.frame_id != dst_frame_id {
                 return Err(stale_err(dst_idx, dst_frame_id));
             }
+            if (s.is_reference_union() || d.is_reference_union())
+                && (s.type_name != d.type_name || s.bytes.len() != d.bytes.len() || s.refs.len() != d.refs.len())
+            {
+                anyhow::bail!("incompatible union slots for `{}` and `{}`", s.type_name, d.type_name);
+            }
             // The shape guard lives here, not after the split, so the self-copy
             // early-return below cannot skip it: `a = a` still has a compiler
             // `size` worth cross-checking against the layout, even though its two
@@ -264,6 +275,13 @@ impl StructArena {
     /// → visit nothing.
     pub fn scan_roots(&self, visit: &mut dyn FnMut(&Value)) {
         for slot in &self.slots {
+            if slot.is_reference_union() {
+                // Replacing a union leaves only the active branch's references non-null.
+                for value in slot.refs.iter().filter(|value| !matches!(value, Value::Null)) {
+                    visit(value);
+                }
+                continue;
+            }
             for v in slot.refs.iter() {
                 visit(v);
             }

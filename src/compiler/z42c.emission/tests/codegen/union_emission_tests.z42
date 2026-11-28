@@ -31,11 +31,36 @@ void test_aggregate_union_allocates_extraction_slots_once_and_skips_wildcards() 
 }
 
 [Test]
-void test_aggregate_union_with_reference_leaf_requires_runtime_support() {
-    string source = "struct R { public string Name; } struct S { public R Inner; } union U { End, Value(S) }";
+void test_reference_union_reserves_the_largest_case_and_replaces_in_place() {
+    string source = "struct R { public string Name; } struct S { public R Inner; } union U { End, Value(S, string), Text(string) } "
+        + "U Make(string text, int n) { U u = U.End; while (n > 0) { u = U.Text(text); n = n - 1; } return u; }";
     var result = IrDump.BuildModuleD(source, "union.z42", null, null);
-    Assert.Equal(1, result.ErrorCount);
-    Assert.True(result.DiagMsgs[0].Contains("E0501"));
+    Assert.Equal(0, result.ErrorCount);
+    IrModule module = result.Module;
+    int descriptors = 0;
+    for (int i = 0; i < module.ClassCount; i = i + 1) {
+        IrClassDesc desc = module.Classes[i];
+        if (desc.Name != "$union.U") { continue; }
+        Assert.Equal(24, desc.StructSize);
+        Assert.Equal(2, desc.StructRefCount);
+        descriptors = descriptors + 1;
+    }
+    Assert.Equal(1, descriptors);
+    int allocations = 0;
+    for (int f = 0; f < module.FuncCount; f = f + 1) {
+        IrFunction fn = module.Functions[f];
+        if (fn.Name != "Make") { continue; }
+        for (int b = 0; b < fn.BlockCount; b = b + 1) {
+            IrBlock block = fn.Blocks[b];
+            for (int i = 0; i < block.InstrCount; i = i + 1) {
+                if (block.Instrs[i] is StructAllocInstr allocation && allocation.TypeName == "$union.U") {
+                    Assert.Equal(0, b);
+                    allocations = allocations + 1;
+                }
+            }
+        }
+    }
+    Assert.Equal(1, allocations);
 }
 
 [Test]
@@ -78,7 +103,7 @@ void test_wide_union_allocates_exact_layout_slots_at_function_entry() {
 void test_package_union_rejects_emission_before_compiling_consumers() {
     string[] sources = new string[]{
         "U Make() => U.End;",
-        "union U { End, Bytes(string) }",
+        "public union U { End, Bytes(string) } public U Exported() => U.End;",
     };
     string[] files = new string[]{ "consumer.z42", "union.z42" };
     CompiledModuleZ[] result = IrDump.BuildPackage(sources, files, sources.Length, null, null, false);

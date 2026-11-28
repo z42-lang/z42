@@ -16,4 +16,5 @@ pub mod bench;
 pub mod threading;
 pub mod monitor;
 pub mod crypto;
+pub(crate) mod union_frame;
 pub(crate) mod symavail;

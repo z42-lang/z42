@@ -20,6 +20,14 @@ public sealed class AccessEmitter {
 
     // 赋值：local（copy 回写）/ 裸字段（field_set reg0）/ obj.field（field_set obj）/ arr[i]（array_set）。
     internal TypedReg _emitAssign(BoundAssign a) {
+        if (a.Target is BoundIdent local && a.Value is BoundCall call && call.UnionCase != null) {
+            UnionStorageLayout layout = UnionStorageLayout.WideFor(a.Target.Type());
+            TypedReg destination = this._ctx.Locals.Get(local.Name) as TypedReg;
+            if (layout != null && layout.ReferenceCount > 0 && destination != null) {
+                // A case constructor finishes evaluating its arguments before replacing the slot.
+                return this._ee._emitUnionConstruction(call, destination);
+            }
+        }
         TypedReg val = this._ee.Emit(a.Value);
         return this._emitStoreTo(a.Target, val);
     }

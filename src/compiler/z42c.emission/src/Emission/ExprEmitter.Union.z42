@@ -6,19 +6,24 @@ using Z42.Semantics;
 using Z42.Symbols;
 
 public sealed partial class ExprEmitter {
-    internal TypedReg _emitUnionConstruction(BoundCall call) {
+    internal TypedReg _emitUnionConstruction(BoundCall call, TypedReg storage = null) {
         UnionStorageLayout layout = UnionCaseSymbol.UnionOf(call.Type()).UnionStorage;
         UnionPayloadLayout branch = layout.Cases[call.UnionCase.Tag];
-        int width = layout.CellWidth();
-        TypedReg[] cells = new TypedReg[layout.CellCount()];
-        cells[0] = this._unionI64((long)call.UnionCase.Tag);
+        var parts = new UnionValueParts(layout, branch.ReferenceCount);
+        parts.Cells[0] = this._unionI64((long)call.UnionCase.Tag);
         for (int i = 0; i < call.ArgCount; i = i + 1) {
             int slot = call.UnionArgumentOrder[i];
             UnionStorageField field = branch.Fields[slot];
             TypedReg value = this.Emit(call.Args[slot]);
-            this._packUnionField(cells, width, layout.PayloadOffset + field.Offset, field, value);
+            if (StructLeafKind.IsRef(field.Kind) && i + 1 < call.ArgCount) {
+                // Later arguments may reassign the register holding this reference.
+                TypedReg copy = this._ctx.Alloc(value.Type);
+                this._ctx.Emit(new CopyInstr(copy, value));
+                value = copy;
+            }
+            this._packUnionField(parts, layout.PayloadOffset + field.Offset, field, value);
         }
-        return this._materializeUnion(cells, call.Type(), layout);
+        return this._materializeUnion(parts, call.Type(), layout, storage);
     }
 
     internal TypedReg _emitUnionTagMatch(TypedReg packed, Z42Type type, UnionStorageLayout layout, int tag) {
@@ -33,6 +38,9 @@ public sealed partial class ExprEmitter {
         int offset = layout.PayloadOffset + field.Offset;
         if (field.Nested != null) {
             return this._unpackUnionAggregate(packed, type, layout, offset, field);
+        }
+        if (StructLeafKind.IsRef(field.Kind)) {
+            return this._readUnionReference(packed, field.ReferenceIndex, this._ctx.ToIrType(field.Type));
         }
         return this._unpackUnionScalar(packed, type, layout, offset, field);
     }
@@ -82,10 +90,15 @@ public sealed partial class ExprEmitter {
         return shifted;
     }
 
-    private TypedReg _materializeUnion(TypedReg[] cells, Z42Type type, UnionStorageLayout layout) {
-        if (layout.Size <= 8) { return cells[0]; }
-        TypedReg storage = this._allocWideUnion(type, layout);
-        this._writeUnionCells(storage, type, layout, cells);
+    private TypedReg _materializeUnion(UnionValueParts parts, Z42Type type, UnionStorageLayout layout,
+                                       TypedReg storage = null) {
+        if (layout.Size <= 8) { return parts.Cells[0]; }
+        if (storage == null) { storage = this._allocWideUnion(type, layout); }
+        if (layout.ReferenceCount == 0) {
+            this._writeUnionCells(storage, type, layout, parts.Cells);
+        } else {
+            this._storeReferenceUnion(storage, parts);
+        }
         return storage;
     }
 
@@ -105,8 +118,12 @@ public sealed partial class ExprEmitter {
 
     private TypedReg _readUnionCell(TypedReg storage, Z42Type type, UnionStorageLayout layout, int cell) {
         if (layout.Size <= 8) { return storage; }
-        string name = PackedUnion.StorageName(UnionCaseSymbol.UnionOf(type).Fqn());
         TypedReg result = this._ctx.Alloc(IrType.I64);
+        if (layout.ReferenceCount > 0) {
+            this._ctx.Emit(new BuiltinInstr(result, "__union_cell", new TypedReg[] { storage, this._unionI64((long)cell) }, 2));
+            return result;
+        }
+        string name = PackedUnion.StorageName(UnionCaseSymbol.UnionOf(type).Fqn());
         this._ctx.Emit(new StructFieldGetPrimInstr(result, storage, name, new int[] { cell }, Tag.FromName(layout.CellTypeName())));
         return result;
     }

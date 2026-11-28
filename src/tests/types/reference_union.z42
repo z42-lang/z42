@@ -1,0 +1,119 @@
+namespace ReferenceUnion;
+
+interface ICode {
+    int Read();
+}
+
+class Item : ICode {
+    public int Code;
+    public Item(int code) { this.Code = code; }
+    public int Read() => this.Code;
+}
+
+class Watch {
+    public WeakHandle Weak;
+}
+
+struct Ticket {
+    public Item Owner;
+    public int Number;
+    public Ticket(Item owner, int number) { this.Owner = owner; this.Number = number; }
+}
+
+union Value {
+    Empty,
+    Text(string),
+    Data(int[]),
+    Ticket(Ticket),
+    Number(long),
+}
+
+union Envelope {
+    Empty,
+    Nested(Value, string),
+}
+
+union FirstText { Text(string?), Empty }
+
+union ReferenceKind {
+    Pair(string, string),
+    Code(ICode),
+    Read(Func<int>),
+    Box(object),
+    Number(double),
+}
+
+Value Create(Watch watch) {
+    var item = new Item(42);
+    watch.Weak = WeakHandle.MakeWeak(item);
+    return Value.Ticket(new Ticket(item, 17));
+}
+
+Value Copy(Value value) => value;
+
+void CheckLive(Watch watch) {
+    Value kept = Create(watch);
+    GC.ForceCollect();
+    Assert.True(WeakHandle.Upgrade(watch.Weak) != null);
+    if (kept is Value.Ticket(ticket)) {
+        Assert.Equal(42, ticket.Owner.Code);
+        Assert.Equal(17, ticket.Number);
+    } else {
+        Assert.True(false);
+    }
+    kept = Value.Empty;
+    Assert.True(kept is Value.Empty);
+}
+
+ReferenceKind ReadLater(int code) {
+    Func<int> read = () => code;
+    return ReferenceKind.Read(read);
+}
+
+void CheckReferenceKinds() {
+    string label = "first";
+    var pair = ReferenceKind.Pair(label, label = "second");
+    Assert.True(pair is ReferenceKind.Pair("first", "second"));
+    var callback = ReadLater(42);
+    var interfaceValue = ReferenceKind.Code(new Item(13));
+    var integer = ReferenceKind.Box(7);
+    var boolean = ReferenceKind.Box(true);
+    GC.ForceCollect();
+    if (callback is ReferenceKind.Read(read)) { Assert.Equal(42, read()); }
+    else { Assert.True(false); }
+    if (interfaceValue is ReferenceKind.Code(code)) { Assert.Equal(13, code.Read()); }
+    else { Assert.True(false); }
+    if (integer is ReferenceKind.Box(boxedInt)) { Assert.Equal(7, (int)boxedInt); }
+    else { Assert.True(false); }
+    if (boolean is ReferenceKind.Box(boxedBool)) { Assert.True((bool)boxedBool); }
+    else { Assert.True(false); }
+    Assert.True(ReferenceKind.Number(42) is ReferenceKind.Number(42.0));
+}
+
+void Main() {
+    var watch = new Watch();
+    CheckLive(watch);
+    GC.ForceCollect();
+    Assert.True(WeakHandle.Upgrade(watch.Weak) == null);
+
+    Assert.True(default(FirstText) is FirstText.Text(null));
+    var value = Value.Text("payload");
+    var saved = Copy(value);
+    value = Value.Number(-9223372036854775808L);
+    Assert.True(value is Value.Number(-9223372036854775808L));
+    Assert.True(saved is Value.Text("payload"));
+    value = Value.Data(new int[] { 11, 31 });
+    var nested = Envelope.Nested(value, "outer");
+    value = Value.Empty;
+    if (nested is Envelope.Nested(Value.Data(data), "outer")) {
+        Assert.Equal(42, data[0] + data[1]);
+    } else {
+        Assert.True(false);
+    }
+    for (int i = 0; i < 128; i = i + 1) {
+        value = Value.Text("loop");
+        Assert.True(value is Value.Text("loop"));
+        value = Value.Empty;
+    }
+    CheckReferenceKinds();
+}
