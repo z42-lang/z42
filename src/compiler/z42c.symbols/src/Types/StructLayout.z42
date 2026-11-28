@@ -211,7 +211,7 @@ public sealed partial class StructLayout {
                 // unify-value-types Phase 1：**Scalar 基元 wrapper（Int32/Boolean/Char…）虽 IsStruct=true，
                 // 但绝不作为 blob struct 布局类型**——它们是裸 Value 标量（Repr=Scalar，不进字节 arena）。
                 // 否则（键为关键字 `int`）`int` 字段的 _kindOf 会误判为嵌套 struct ⇒ 布局尺寸/偏移全错。
-                if (ct.IsStruct && !PrimModel.IsScalarValue(keys[i])) { defs.Put(keys[i], def); }
+                if (ct.IsStruct && ct.UnionCases == null && !PrimModel.IsScalarValue(keys[i])) { defs.Put(keys[i], def); }
                 else if (!ct.IsStruct) { classDefs.Put(keys[i], def); }
             }
             i = i + 1;

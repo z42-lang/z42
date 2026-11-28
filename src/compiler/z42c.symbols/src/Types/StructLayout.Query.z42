@@ -137,7 +137,7 @@ public sealed partial class StructLayout {
     // A complete layout may have no payload even when it declares nested struct fields.
     public bool IsZeroPayloadStruct(string typeName) {
         Z42ClassType owner = this.OwnerOf(typeName);
-        if (owner == null || !owner.IsStruct) { return false; }
+        if (owner == null || !owner.IsStruct || owner.UnionCases != null) { return false; }
         StructLayoutInfo layout = this.LayoutOf(typeName);
         return this.ErrorType == "" && layout.Size == 0 && layout.FieldCount == owner.OwnFieldCount;
     }

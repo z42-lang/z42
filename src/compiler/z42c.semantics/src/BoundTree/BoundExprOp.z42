@@ -88,6 +88,7 @@ public sealed class BoundMethodGroup : BoundExpr {
 // 调用：Kind = "free"（顶层函数）/ "instance"（obj.m）/ "static"（Class.m）。
 public sealed class BoundCall : BoundExpr {
     public UnionCaseSymbol UnionCase;
+    public int[] UnionArgumentOrder;
     public string      Kind;
     public bool        HasReceiver;
     public BoundExpr   Receiver;     // 仅 instance

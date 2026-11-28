@@ -10,6 +10,7 @@ using Z42.Symbols;
 using Z42.Syntax;
 using Z42.IR;
 using Z42.IR.BinaryFormat;
+using Z42.Core;
 
 public sealed partial class ExprEmitter : IBoundExprVisitor<TypedReg, Unit> {
     private EmitContext _ctx;
@@ -48,6 +49,10 @@ public sealed partial class ExprEmitter : IBoundExprVisitor<TypedReg, Unit> {
     // 合成 __static_init__ 走 EmitStaticInit 丢弃行表，不受此影响（镜像 C#）。
     public TypedReg Emit(BoundExpr e) {
         this._ctx.TrackLine(e.Span);
+        if (this._ctx.Symbols.FirstUnionDeclaration != null && PackedUnion.NeedsRuntimeMetadata(e)) {
+            this._ctx.Gen.Diags.Error(DiagnosticCodes.UnsupportedSyntax, "this union use requires runtime type metadata", e.Span);
+            return this._emitConcreteDefault(e.Type());
+        }
         return e.Accept<TypedReg, Unit>(this, Unit.Value);
     }
 
@@ -252,7 +257,10 @@ public sealed partial class ExprEmitter : IBoundExprVisitor<TypedReg, Unit> {
     }
     public TypedReg VisitAssign(BoundAssign n, Unit d) { return this._access._emitAssign(n); }
     public TypedReg VisitMethodGroup(BoundMethodGroup n, Unit d) { return this._call._emitMethodGroup(n); }
-    public TypedReg VisitCall(BoundCall n, Unit d) { return this._call._emitCall(n); }
+    public TypedReg VisitCall(BoundCall n, Unit d) {
+        if (n.UnionCase != null) { return this._emitUnionConstruction(n); }
+        return this._call._emitCall(n);
+    }
     public TypedReg VisitBinary(BoundBinary n, Unit d) { return this._op._emitBinary(n); }
     public TypedReg VisitUnary(BoundUnary n, Unit d) { return this._op._emitUnary(n); }
     public TypedReg VisitConditional(BoundConditional n, Unit d) { return this._op._emitConditional(n); }

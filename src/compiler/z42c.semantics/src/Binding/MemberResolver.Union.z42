@@ -56,10 +56,12 @@ public sealed partial class MemberResolver {
             return new BoundError("union case arity", new Z42ErrorType(), span);
         }
         BoundExpr[] args = new BoundExpr[0];
+        int[] order = new int[count];
         if (count > 0) {
             var parameters = new MethodSymbol(branch.Name, "public", signature, true, ownerType.Name(), false, null);
             args = this._tc._overload._adaptArgs(parameters, call.Args, count, env, span, true);
             if (args == null) { return new BoundError("union case arguments", new Z42ErrorType(), span); }
+            this._unionArgumentOrder(call, parameters, env, order);
             int i = 0;
             while (i < args.Length) {
                 if (args[i] is BoundRefArg) {
@@ -70,6 +72,17 @@ public sealed partial class MemberResolver {
         }
         var value = new BoundCall("union", false, null, ownerType.Name(), branch.Name, args, count, ownerType, span);
         value.UnionCase = branch;
+        value.UnionArgumentOrder = order;
         return value;
+    }
+
+    private void _unionArgumentOrder(CallExpr call, MethodSymbol parameters, TypeEnv env, int[] order) {
+        for (int i = 0; i < order.Length; i = i + 1) {
+            order[i] = i;
+            if (!ExprTyper.IsNamedArg(call.Args[i], env)) { continue; }
+            var argument = call.Args[i] as AssignExpr;
+            string name = (argument.Target as IdentExpr).Name;
+            order[i] = CallParams.IndexOf(parameters, name);
+        }
     }
 }

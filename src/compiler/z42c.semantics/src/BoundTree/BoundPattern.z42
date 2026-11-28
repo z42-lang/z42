@@ -29,6 +29,7 @@ public sealed class BoundConstantPattern : BoundPattern {
 
 // 类型模式 `T` / `T x`：IsInstance(subj, TypeName)（+ 可选绑定 Bind）。TypeName 用 AST 原始名（同 BoundIsExpr）。
 public sealed class BoundTypePattern : BoundPattern {
+    public int StaticMatch;     // 0 = dynamic, 1 = matches, -1 = cannot match
     public string  TypeName;
     public string  Bind;        // ""=无绑定
     public Z42Type BoundType;   // resolved 类型（bind 变量类型 / narrowed）
