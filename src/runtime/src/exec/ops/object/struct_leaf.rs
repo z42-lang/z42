@@ -15,7 +15,7 @@
 //! | `StructRef`（帧内 arena blob） | struct 布局 | 无（arena 是根） |
 
 use crate::exec::call::transient_arena::StructView;
-use crate::exec::ops::structs::snapshot_struct_view;
+use crate::exec::ops::structs::{erased_layout, erased_payload, snapshot_struct_view};
 use crate::object::types::named_struct_layout;
 use crate::object::{
     decode_prim, encode_prim, is_ref_tag, prim_width, StructTypeLayout, Value,
@@ -227,6 +227,12 @@ fn hash_frame_struct(ctx: &VmContext, idx: u32, frame_id: u32) -> Result<i64> {
         ControlFlow::Continue(layout) => layout,
     };
 
+    // The float-range cache belongs to the layout actually used for hashing.
+    // A compact layout that needs conversion must never populate its own cache.
+    if erased_layout(ctx, &name, &layout).is_some() {
+        let (_, mut bytes, refs) = ctx.exec().snapshot_struct(idx, frame_id)?;
+        return hash_snapshot(ctx, &name, &mut bytes, &refs, Some(&layout));
+    }
     // Type resolution can run loader events. Prepare the plan outside the arena lock.
     let fields = named_struct_layout::float_field_ranges(&layout, &|n| ctx.loader().try_lookup_type(n), &name)?;
     ctx.exec().with_struct_slot(idx, frame_id, |slot| {
@@ -239,6 +245,16 @@ fn hash_snapshot(
     layout: Option<&StructTypeLayout>,
 ) -> Result<i64> {
     use crate::object::value::boxed_hash::{hash_struct_payload, normalize_signed_zero};
+    if let Some(fields) = layout.and_then(|layout| layout.float_field_ranges.get()) {
+        normalize_signed_zero(bytes, fields)?;
+        return Ok(hash_struct_payload(bytes, refs));
+    }
+    if let Some(payload) = erased_payload(ctx, name, bytes, refs)? {
+        let fields = named_struct_layout::float_field_ranges(
+            &payload.layout, &|n| ctx.loader().try_lookup_type(n), payload.name,
+        )?;
+        return crate::object::value::boxed_hash::hash_struct_with_floats(&payload.bytes, &payload.refs, fields);
+    }
     if let Some(layout) = layout {
         let fields = named_struct_layout::float_field_ranges(
             layout, &|n| ctx.loader().try_lookup_type(n), name,
@@ -248,40 +264,51 @@ fn hash_snapshot(
     Ok(hash_struct_payload(bytes, refs))
 }
 
-/// 任一表示（frame arena `StructRef` / 堆 `StructRefHeap` 元素视图 / `BoxedStruct`）的
-/// struct 值快照 `(类型名, 基元字节, 引用叶子)`。`None` = 不是 struct 值——调用方按
-/// 「不是这个 struct」处理（值相等答 false），不报错。
+struct StructPayload {
+    identity: String,
+    erased_storage: Option<String>,
+    bytes: Vec<u8>,
+    refs: Vec<Value>,
+}
+
+impl StructPayload {
+    fn storage(&self) -> &str {
+        self.erased_storage.as_deref().unwrap_or(&self.identity)
+    }
+}
+
 fn struct_payload(
     ctx: &VmContext, v: &Value,
-) -> Result<Option<(String, Vec<u8>, Vec<Value>)>> {
+) -> Result<Option<StructPayload>> {
     match v {
         Value::BoxedStruct(gc) => {
             let o = gc.borrow();
             let (bytes, refs) = o.boxed_blob();
-            let name = if o.type_args().is_empty() {
-                o.type_desc.name.clone()
+            let storage = &o.type_desc.name;
+            let (identity, erased_storage) = if o.type_args().is_empty() {
+                (storage.clone(), None)
             } else {
-                crate::zpkg::index::type_names::constructed(&o.type_desc.name, o.type_args())
+                (crate::zpkg::index::type_names::constructed(storage, o.type_args()), Some(storage.clone()))
             };
-            Ok(Some((name, bytes, refs)))
+            Ok(Some(StructPayload { identity, erased_storage, bytes, refs }))
         }
         Value::StructRef { idx, frame_id } => {
             let (name, bytes, refs) = ctx.exec().snapshot_struct(*idx, *frame_id)?;
-            Ok(Some((name.to_string(), bytes, refs)))
+            Ok(Some(StructPayload { identity: name.to_string(), erased_storage: None, bytes, refs }))
         }
         Value::StructRefHeap { idx, frame_id } => {
             let (bytes, refs, _layout, type_name) = snapshot_struct_view(ctx, *idx, *frame_id)?;
-            Ok(Some((type_name.to_string(), bytes, refs)))
+            Ok(Some(StructPayload { identity: type_name.to_string(), erased_storage: None, bytes, refs }))
         }
         Value::Object(o) if o.type_desc().is_zero_payload_struct() => {
             let td = o.type_desc();
             let args = o.type_args();
-            let name = if args.is_empty() || !td.type_args().is_empty() {
-                td.name.clone()
+            let (identity, erased_storage) = if args.is_empty() || !td.type_args().is_empty() {
+                (td.name.clone(), None)
             } else {
-                crate::zpkg::index::type_names::constructed(&td.name, args)
+                (crate::zpkg::index::type_names::constructed(&td.name, args), Some(td.name.clone()))
             };
-            Ok(Some((name, Vec::new(), Vec::new())))
+            Ok(Some(StructPayload { identity, erased_storage, bytes: Vec::new(), refs: Vec::new() }))
         }
         _ => Ok(None),
     }
@@ -317,12 +344,17 @@ fn struct_payload_eq(ctx: &VmContext, a: &Value, b: &Value, same_type: bool) -> 
         (Some(pa), Some(pb)) => (pa, pb),
         _ => return Ok(false),
     };
-    Ok((same_type || pa.0 == pb.0) && pa.1 == pb.1 && pa.2 == pb.2)
+    payloads_equal(ctx, &pa, &pb, same_type, false, 0)
 }
 
 /// Default equality when invoked directly on the ValueType declaration. Ordinary
 /// boxed calls can select the concrete type's compiled field comparison.
 pub fn value_type_equals(ctx: &VmContext, a: &Value, b: &Value) -> Result<bool> {
+    value_type_equals_nested(ctx, a, b, 0)
+}
+
+fn value_type_equals_nested(ctx: &VmContext, a: &Value, b: &Value, depth: usize) -> Result<bool> {
+    if depth > 64 { bail!("struct equality: layout conversion nesting too deep"); }
     let a = a.unproject_interface();
     let b = b.unproject_interface();
     if matches!(&a, Value::BoxedStruct(o) if o.borrow().boxed_scalar().is_some())
@@ -330,22 +362,78 @@ pub fn value_type_equals(ctx: &VmContext, a: &Value, b: &Value) -> Result<bool> 
     {
         return Ok(a == b);
     }
-    let (Some((name, lhs, lhs_refs)), Some((other, rhs, rhs_refs))) =
+    let (Some(lhs), Some(rhs)) =
         (struct_payload(ctx, &a)?, struct_payload(ctx, &b)?)
     else {
         return Ok(false);
     };
-    if name != other || lhs_refs != rhs_refs || lhs.len() != rhs.len() {
+    payloads_equal(ctx, &lhs, &rhs, false, true, depth)
+}
+
+fn payloads_equal(
+    ctx: &VmContext, lhs: &StructPayload, rhs: &StructPayload, same_type: bool, scalar_fields: bool,
+    depth: usize,
+) -> Result<bool> {
+    if !same_type && lhs.identity != rhs.identity {
         return Ok(false);
     }
-    if lhs.is_empty() {
-        return Ok(true);
-    }
-    let layout_name = match &a {
-        Value::BoxedStruct(boxed) => &boxed.type_desc().name,
-        _ => &name,
+    let lhs_storage = lhs.storage();
+    let rhs_storage = rhs.storage();
+    let (lhs_erased, rhs_erased) = if lhs_storage == rhs_storage {
+        (None, None)
+    } else {
+        (
+            erased_payload(ctx, lhs_storage, &lhs.bytes, &lhs.refs)?,
+            erased_payload(ctx, rhs_storage, &rhs.bytes, &rhs.refs)?,
+        )
     };
-    equal_scalar_fields(&|n| ctx.loader().try_lookup_type(n), layout_name, &lhs, &rhs)
+    let (name, left) = match &lhs_erased {
+        Some(payload) => (payload.name, (payload.bytes.as_slice(), payload.refs.as_slice())),
+        None => (lhs_storage, (lhs.bytes.as_slice(), lhs.refs.as_slice())),
+    };
+    let right = match &rhs_erased {
+        Some(payload) => (payload.bytes.as_slice(), payload.refs.as_slice()),
+        None => (rhs.bytes.as_slice(), rhs.refs.as_slice()),
+    };
+    let generic_refs = !left.1.is_empty() && (lhs.identity.contains('<') || rhs.identity.contains('<'));
+    equal_payload_fields(ctx, name, left, right, scalar_fields, generic_refs, depth)
+}
+
+fn equal_payload_fields(
+    ctx: &VmContext, name: &str, lhs: (&[u8], &[Value]), rhs: (&[u8], &[Value]),
+    scalar_fields: bool, generic_refs: bool, depth: usize,
+) -> Result<bool> {
+    let (lhs, lhs_refs) = lhs;
+    let (rhs, rhs_refs) = rhs;
+    if lhs.len() != rhs.len() || lhs_refs.len() != rhs_refs.len() {
+        return Ok(false);
+    }
+    for (left, right) in lhs_refs.iter().zip(rhs_refs) {
+        if left == right { continue; }
+        if !generic_refs { return Ok(false); }
+        let equal = match (left.unproject_interface(), right.unproject_interface()) {
+            (Value::BoxedStruct(a), Value::BoxedStruct(b))
+                if a.type_desc().name != b.type_desc().name =>
+                    value_type_equals_nested(ctx, left, right, depth + 1)?,
+            (Value::BoxedStruct(a), Value::BoxedStruct(b)) => {
+                let left = a.borrow().boxed_scalar();
+                left.is_some() && left == b.borrow().boxed_scalar()
+            }
+            (Value::BoxedStruct(a), Value::F64(b)) | (Value::F64(b), Value::BoxedStruct(a)) =>
+                a.borrow().boxed_scalar() == Some(Value::F64(b)),
+            (Value::Object(a), Value::Object(b))
+            | (Value::Object(a), Value::BoxedStruct(b))
+            | (Value::BoxedStruct(a), Value::Object(b))
+                if a.type_desc().is_zero_payload_struct() && b.type_desc().is_zero_payload_struct() =>
+                    value_type_equals_nested(ctx, left, right, depth + 1)?,
+            _ => false,
+        };
+        if !equal { return Ok(false); }
+    }
+    if !scalar_fields || lhs.is_empty() {
+        return Ok(lhs == rhs);
+    }
+    equal_scalar_fields(&|n| ctx.loader().try_lookup_type(n), name, lhs, rhs)
 }
 
 fn equal_scalar_fields(

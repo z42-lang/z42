@@ -62,8 +62,20 @@ fn hash_bytes(mut h: u32, bytes: &[u8]) -> u32 {
 
 fn hash_refs(mut h: u32, refs: &[Value]) -> i64 {
     for r in refs {
-        let rh: u32 = match r.unproject_interface() {
+        let value = r.unproject_interface();
+        // Erased type parameters store scalar values in reference slots. Integer
+        // boxes compare equal to their unboxed representation.
+        let scalar = match value {
+            Value::BoxedStruct(boxed) => boxed.borrow().boxed_scalar().unwrap_or(value),
+            _ => value,
+        };
+        let rh: u32 = match scalar {
+            Value::I64(i) => hash_bytes(FNV_OFFSET, &i.to_le_bytes()),
+            Value::F64(f) => hash_bytes(FNV_OFFSET, &(if f == 0.0 { 0 } else { f.to_bits() }).to_le_bytes()),
+            Value::Bool(b) => u32::from(b),
+            Value::Char(c) => c as u32,
             Value::Str(s) => hash_bytes(FNV_OFFSET, s.as_bytes()),
+            Value::Object(gc) if gc.type_desc().is_zero_payload_struct() => 0,
             // add-value-hash-ref-leaves：object/array 叶子此前贡献常量 0——Equals 按引用身份比较，
             // 哈希却全同 ⇒ 引用叶子互异的 struct 全部落进同一个桶（O(n) 探测链）。改贡献地址身份
             // 哈希（`identity_hash`，fmix64 混合；GC 不移动对象故稳定）：身份相等 ⇒ 哈希相等（契约

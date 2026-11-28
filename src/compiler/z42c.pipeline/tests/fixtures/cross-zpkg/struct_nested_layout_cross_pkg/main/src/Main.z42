@@ -61,6 +61,30 @@ void CheckImportedUnboxLayout() {
 }
 
 void CheckImportedEquals() {
+    Pair<int, int> ints = new Pair<int, int>(-7, 42);
+    object consumerInts = ints;
+    object producerInts = BoxIntPair();
+    Assert.Equal(consumerInts.GetType(), producerInts.GetType());
+    Assert.True(consumerInts.Equals(producerInts));
+    Assert.True(producerInts.Equals(consumerInts));
+    Assert.Equal(consumerInts.GetHashCode(), producerInts.GetHashCode());
+    Assert.Equal(ints.GetHashCode(), producerInts.GetHashCode());
+    object differentInts = new Pair<int, int>(-7, 43);
+    Assert.False(producerInts.Equals(differentInts));
+    Assert.True(producerInts.GetHashCode() != differentInts.GetHashCode());
+
+    object producerNested = BoxNestedPair();
+    object consumerNested = new Pair<Point3, long>(new Point3(1, 2, 3), 4294967297L);
+    Assert.True(producerNested.Equals(consumerNested));
+    Assert.True(consumerNested.Equals(producerNested));
+    Assert.Equal(producerNested.GetHashCode(), consumerNested.GetHashCode());
+
+    object producerFloat = BoxFloatPair();
+    object consumerFloat = new Pair<float, int>(0.0f, 42);
+    Assert.True(producerFloat.Equals(consumerFloat));
+    Assert.True(consumerFloat.Equals(producerFloat));
+    Assert.Equal(producerFloat.GetHashCode(), consumerFloat.GetHashCode());
+
     Pair<string, string> direct = new Pair<string, string>("a", "b");
     object producerBox = BoxStringPair();
     object consumerBox = direct;
