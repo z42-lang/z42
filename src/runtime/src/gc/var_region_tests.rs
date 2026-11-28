@@ -902,8 +902,7 @@ fn freeing_a_dedicated_chunk_leaves_bump_chunk_indices_valid() {
 
 /// Lowering `Z42_GC_LOH_BYTES` sends more blocks down the dedicated-chunk path — the path
 /// whose memory goes straight back to the allocator when the block dies (fix-loh-never-freed).
-/// Exercised through `class_for_with_limit`: the live threshold is process-global, so a test
-/// that stored into it would race every other test allocating a var block.
+/// Exercise the same classification used by both heap allocation paths.
 #[test]
 fn a_lower_loh_threshold_makes_more_blocks_oversized() {
     use super::chunk::{class_for_with_limit, CHUNK_BYTES};
@@ -924,12 +923,11 @@ fn a_lower_loh_threshold_makes_more_blocks_oversized() {
 /// bump-allocated at all, so a higher setting would route blocks nowhere.
 #[test]
 fn the_loh_threshold_is_clamped_to_the_chunk_size() {
-    use super::chunk::{clamp_loh_bytes, CHUNK_BYTES, MIN_BLOCK};
-    assert_eq!(clamp_loh_bytes(usize::MAX), CHUNK_BYTES, "never above a bump chunk");
-    assert_eq!(clamp_loh_bytes(0), MIN_BLOCK, "never below the smallest block");
-    assert_eq!(clamp_loh_bytes(32 * 1024), 32 * 1024, "in-range values pass through");
-    // Default stays where the `static` was initialised.
-    assert_eq!(super::loh_bytes(), CHUNK_BYTES);
+    use super::chunk::{resolve_loh_bytes, CHUNK_BYTES, MIN_BLOCK};
+    assert_eq!(resolve_loh_bytes(Some(u64::MAX)), CHUNK_BYTES, "clamp before narrowing");
+    assert_eq!(resolve_loh_bytes(Some(0)), MIN_BLOCK, "never below the smallest block");
+    assert_eq!(resolve_loh_bytes(Some(32 * 1024)), 32 * 1024);
+    assert_eq!(resolve_loh_bytes(None), CHUNK_BYTES);
 }
 
 // ---------------------------------------------------------------------------------------

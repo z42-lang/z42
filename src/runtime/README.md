@@ -38,7 +38,7 @@ native 安装器将其聚合成既有统一头，workload 不增加逐模块 inc
 | `vm/app_state.rs` | 每 VM 的应用参数，经核心库服务接口提供快照 |
 | `exec/thread_state.rs` | `ThreadExecState` 组合每线程帧、arena、异常槽和中立 JIT 头 |
 | `exec/state.rs` | `ExecState` 组合每 VM 的引擎注册与代码寿命 |
-| `config/vm_config.rs` | `VmConfig`：门面捕获的构造输入，包含 heap 与采样设置；LOH 覆盖仍应用到进程策略 |
+| `config/vm_config.rs` | `VmConfig`：门面捕获的构造输入，包含堆策略、大对象门槛与采样设置 |
 | `vm/extensions.rs` | `VmExtensions` 创建前登记与冻结的每 VM Rust 扩展状态，`VmContext::ext` 借用查询 |
 | `host/app.rs` | `host::run_app` 编排一次性装载、入口调用和退出（z42vm / `z42_host_run_app` / wasm `runTestApp` 共用）|
 | `vm/program.rs` / `vm/assembly.rs` | 共享程序会话、首次调用准备与 VM 装配 |

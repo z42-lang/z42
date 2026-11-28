@@ -4,7 +4,7 @@
 
 use std::alloc::{alloc, dealloc, handle_alloc_error, Layout};
 use std::ptr::NonNull;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::object::header::block::{
     payload_ptr_of, BlockType, GcBlockHeader, ALIVE_GEN_BIT, FIRST_GEN,
@@ -45,53 +45,11 @@ pub(super) const SUB_LOG2: u32 = 2;
 /// so the top one is the class of a `CHUNK_BYTES` footprint (`sub == 0`).
 const MAX_CLASS: u8 = (CHUNK_BYTES.trailing_zeros() << SUB_LOG2) as u8;
 
-/// Round a requested payload size up to its total block footprint + size class.
-/// Returns `(total_footprint_bytes, size_class)`. `size_class == OVERSIZED_CLASS` when the
-/// block needs a dedicated chunk.
-///
-/// Each class holds exactly one footprint, which is what lets `alloc` hand a free-list slot
-/// straight to a new block of any payload in the class without re-checking capacity.
-/// **add-loh-bytes-knob **: the block-footprint threshold above which a block gets
-/// its own exactly-sized chunk instead of a size class inside a bump chunk (`Z42_GC_LOH_BYTES`).
-///
-/// **Process-global on purpose.** `class_for` is called from the lock-free TLAB fast path
-/// (`heap/alloc.rs`), which has no region and no heap reference at hand, so a per-heap
-/// field is not reachable there. A process with several VMs shares one setting — the same as
-/// before this knob existed, when it was a `const`.
-///
-/// Never above [`CHUNK_BYTES`]: a block larger than a bump chunk cannot be bump-allocated at
-/// all, so raising the threshold past it would route blocks nowhere. Lowering it sends more
-/// blocks down the dedicated-chunk path, where death returns the memory to the allocator
-/// immediately (see `reclaim_dead_var_chunks`) at the cost of a `malloc` per block.
-static LOH_BYTES: AtomicUsize = AtomicUsize::new(CHUNK_BYTES);
-
-/// The lowest large-object threshold this process has ever had in force: a block went to a
-/// dedicated chunk only if its footprint exceeded the threshold of its day, so it exceeded this.
-/// [`may_be_dedicated`] answers from it without knowing when the block was allocated.
-static LOH_BYTES_FLOOR: AtomicUsize = AtomicUsize::new(CHUNK_BYTES);
-
 /// How many [`VarRegion::reclaim_dead_var_chunks`] passes, in any heap of this process, have
 /// handed a dedicated chunk back to the allocator. Address-keyed caches that outlive a block
 /// (`object::string::str_meta`) compare it on every lookup — one load — and re-check their
 /// dedicated-chunk entries only when it moved (see [`dedicated_free_count`]).
 static DEDICATED_FREES: AtomicU64 = AtomicU64::new(0);
-
-/// Set the large-object threshold for this process. Called once from VM construction; clamped
-/// to `[MIN_BLOCK, CHUNK_BYTES]`.
-pub fn set_loh_bytes(bytes: usize) {
-    let bytes = clamp_loh_bytes(bytes);
-    LOH_BYTES.store(bytes, Ordering::Relaxed);
-    LOH_BYTES_FLOOR.fetch_min(bytes, Ordering::Relaxed);
-}
-
-/// Whether a block of `payload` bytes may sit in a dedicated chunk — the only kind of chunk
-/// whose memory goes back to the allocator while the region lives. `false` is definite (the
-/// block is in a bump chunk, whose memory stays mapped until the region drops); `true` is
-/// conservative across threshold changes.
-#[inline]
-pub(crate) fn may_be_dedicated(payload: usize) -> bool {
-    payload_footprint(payload) > LOH_BYTES_FLOOR.load(Ordering::Relaxed)
-}
 
 /// The process-wide count of reclaim passes that freed a dedicated chunk (`DEDICATED_FREES`).
 /// While it is unchanged no dedicated chunk was freed, so a dedicated block's header that was
@@ -103,27 +61,20 @@ pub(crate) fn dedicated_free_count() -> u64 {
     DEDICATED_FREES.load(Ordering::Acquire)
 }
 
-/// The clamp [`set_loh_bytes`] applies, as a pure function so it can be tested without storing
-/// into the process-global threshold (which would race every concurrently running test that
-/// allocates a var block).
-#[inline]
-pub(crate) fn clamp_loh_bytes(bytes: usize) -> usize {
-    bytes.clamp(MIN_BLOCK, CHUNK_BYTES)
+/// Resolve the threshold at heap construction, before converting to the target's pointer size.
+pub(crate) fn resolve_loh_bytes(bytes: Option<u64>) -> usize {
+    bytes.unwrap_or(CHUNK_BYTES as u64).clamp(MIN_BLOCK as u64, CHUNK_BYTES as u64) as usize
 }
 
-/// The large-object threshold currently in force (diagnostics / tests).
-pub fn loh_bytes() -> usize {
-    LOH_BYTES.load(Ordering::Relaxed)
-}
-
+/// Default size classification for detached blocks and region tests.
 #[inline]
 pub fn class_for(payload: usize) -> (usize, u8) {
-    class_for_with_limit(payload, LOH_BYTES.load(Ordering::Relaxed))
+    class_for_with_limit(payload, CHUNK_BYTES)
 }
 
-/// [`class_for`] with the large-object threshold passed in — the testable core (the live
-/// threshold is process-global, so a test that stored into it would race every other test
-/// allocating a var block).
+/// Round a payload to its allocated footprint and size class. Each in-chunk class has one
+/// footprint, so a free-list slot can be used by any payload in the class. A footprint past
+/// the heap's threshold uses a dedicated allocation sized for that block.
 #[inline]
 pub(crate) fn class_for_with_limit(payload: usize, loh_bytes: usize) -> (usize, u8) {
     let footprint = payload_footprint(payload);

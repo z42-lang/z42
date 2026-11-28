@@ -11,6 +11,8 @@ pub struct GcConfig {
     pub pause_window: usize,
     pub soft_threshold: f64,
     pub nursery_bytes: Option<u64>,
+    /// Block footprint above which allocation uses a dedicated chunk. Defaults to 64 KiB.
+    pub loh_bytes: Option<u64>,
     pub promotion_age: Option<u8>,
     pub adaptive_promotion: bool,
     pub incremental: bool,
@@ -30,6 +32,7 @@ impl Default for GcConfig {
             pause_window: super::types::PAUSE_WINDOW_DEFAULT_CAP,
             soft_threshold: 0.80,
             nursery_bytes: None,
+            loh_bytes: None,
             promotion_age: None,
             adaptive_promotion: true,
             incremental: true,

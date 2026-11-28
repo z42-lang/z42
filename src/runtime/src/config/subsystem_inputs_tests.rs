@@ -19,7 +19,7 @@ fn vm_inputs_capture_resolved_units_and_optional_trace_state() {
     assert_eq!(captured.gc.mode, GcMode::StwMarkSweep);
     assert_eq!(captured.gc.pause_window, 3);
     assert_eq!(captured.gc_max_bytes, Some(64 * 1024 * 1024));
-    assert_eq!(runtime.gc_loh_bytes, Some(96 * 1024));
+    assert_eq!(captured.gc.loh_bytes, Some(96 * 1024));
     assert!(captured.gc_trace);
     assert_eq!(captured.sample_hz, Some(37));
     assert!(captured.trace_timeline);
@@ -48,6 +48,7 @@ fn resolved_overrides_reach_the_heap_without_changing_other_inputs() {
         ("Z42_GC_PAUSE_WINDOW", "3"),
         ("Z42_GC_SOFT_THRESHOLD", "0.25"),
         ("Z42_GC_NURSERY_BYTES", "2M"),
+        ("Z42_GC_LOH_BYTES", "32K"),
         ("Z42_GC_PROMOTION_AGE", "1"),
         ("Z42_GC_ADAPTIVE_PROMOTION", "0"),
         ("Z42_GC_INCREMENTAL", "0"),
@@ -73,6 +74,7 @@ fn resolved_overrides_reach_the_heap_without_changing_other_inputs() {
             pause_window: 3,
             soft_threshold: 0.25,
             nursery_bytes: Some(2 * 1024 * 1024),
+            loh_bytes: Some(32 * 1024),
             promotion_age: Some(1),
             adaptive_promotion: false,
             incremental: false,

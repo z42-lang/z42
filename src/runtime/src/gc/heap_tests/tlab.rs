@@ -87,6 +87,39 @@ impl Drop for ArmGuard<'_> {
     }
 }
 
+#[test]
+fn large_object_threshold_is_heap_local_with_or_without_tlab() {
+    use crate::gc::ambient::{cache_scope, HeapGuard};
+    use crate::gc::GcConfig;
+
+    let payload = "x".repeat(40 * 1024);
+    for armed in [false, true] {
+        let default = Heap::default();
+        let tuned = Heap::new(GcConfig { loh_bytes: Some(32 * 1024), ..GcConfig::default() });
+        let mut committed = [0, 0];
+        for (index, (heap, dedicated)) in [(&tuned, true), (&default, false)].into_iter().enumerate() {
+            let arm = armed.then(|| ArmGuard::new(heap));
+            let _ambient = HeapGuard::enter(heap);
+            let string = heap.alloc_str(&payload);
+            assert_eq!(string.as_str(), payload);
+            let stamp = cache_scope().dedicated_chunk_stamp(&string);
+            assert_eq!(stamp.is_some(), dedicated);
+            if armed {
+                assert_eq!(crate::gc::tlab::with_current_tlab(|tlab| tlab.var.is_some()), !dedicated);
+            }
+            committed[index] = heap.stats().committed_bytes;
+            drop(arm);
+            if let Some((chunk, epoch)) = stamp {
+                let addr = string.var_ref().addr();
+                heap.collect_full();
+                assert!(!heap.region_var_for_test().lock().owns_addr(addr));
+                assert!(!cache_scope().chunk_unchanged(chunk, epoch));
+            }
+        }
+        assert!(committed[0] < committed[1], "the tuned heap allocates a dedicated chunk");
+    }
+}
+
 fn alive_count(heap: &Heap) -> usize {
     let mut n = 0;
     heap.iterate_live_objects(&mut |_| n += 1);

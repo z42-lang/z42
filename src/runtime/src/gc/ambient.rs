@@ -154,10 +154,7 @@ impl CacheScope {
     /// the moment `s` dies; `None` for a bump-chunk block (pooled, never handed back while the
     /// region lives), or with no heap installed. `s` must be live. Takes the region lock.
     pub fn dedicated_chunk_stamp(&self, s: &crate::object::string::vstr::Str) -> Option<(u32, u32)> {
-        if !crate::gc::var_region::may_be_dedicated(s.len()) {
-            return None;
-        }
-        current_heap().and_then(|h| h.var_chunk_stamp(s.var_ref()))
+        current_heap()?.dedicated_var_chunk_stamp(s.var_ref(), s.len())
     }
 
     /// Whether the chunk named by a [`Self::dedicated_chunk_stamp`] stamp still holds the same

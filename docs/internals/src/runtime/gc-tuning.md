@@ -28,7 +28,7 @@ GC 的「何时自动回收」由几个**比率魔数**决定（near-limit 90%�
 | `Z42_GC_PRESSURE_RATIO` | 0.75 | 真实占用落在 `[pressure, near)` 区间 → 发 `AllocationPressure` 事件（应低于 near-limit 比率） | `heap/alloc.rs` |
 | `Z42_GC_THROTTLE_RATIO` | 0.10 | ⚠️ **不参与自动回收的触发**（闸门是相对余量）；保留供未来的去抖策略使用 | — |
 | `Z42_GC_PROMOTION_AGE` | **3** | **分代专用**：熬过几次 minor 才晋升到老年代；范围 1–3（年龄只有两位）。默认值就是上界 ⇒ **只能调低、不能调高**。**建堆时读一次**，写屏障读的是字段 | `gc/mod.rs` |
-| `Z42_GC_LOH_BYTES` | 64K | 变长块走 dedicated chunk 的尺寸门槛（死后内存直接还给分配器）；上界 = 64K bump chunk。**进程级** | `var_region/chunk.rs` |
+| `Z42_GC_LOH_BYTES` | 64K | 变长块走 dedicated chunk 的尺寸门槛（死后内存直接还给分配器），每堆在构造时固定，上界为 64K | `gc/config.rs`、`var_region/chunk.rs` |
 | `Z42_GC_NURSERY_BYTES` | **16M** | **整套策略的计量单位**：自上次回收以来分配这么多就触发 minor（分代）；×4 是 major 余量的下界（两种模式）。**不设时** 16M 是字节上限，默认闸门另按分配次数封顶（256 Ki 次，见「默认闸门按条目封顶」）；**显式设置**是纯字节的手动挡（同时关掉自适应与条目封顶）。买停顿上界的那个旋钮，**调它必须连 `Z42_GC_PROMOTION_AGE` 一起想**（见下「过早晋升」） | `heap/auto_collect`、`heap/entry_unit.rs` |
 | `Z42_GC_PAUSE_TARGET_MS` | **10** | **分代专用**：minor 停顿的目标上限（ms），nursery 按实测代价反推而非常量；它折算出的条目预算同时是年轻代策略的「超预算」线（幸存者单独就占满预算 → 接下来 tenure，见「年轻代策略」）。`0` 关掉自适应（也关掉超预算判定），显式设 `Z42_GC_NURSERY_BYTES` 也会关掉它（手动挡优先）。clamp 到 `[0.5, 1000]`。见下「按停顿预算自适应 nursery」 | `heap/pause_budget.rs`、`heap/young_policy.rs` |
 | `Z42_GC_MAX_BYTES` | **unset = 无上限** | **软上限，不是武装开关**：设了只压回收余量并加一个近上限触发；**按真实占用判定**（不是 `used`），见「真实占用记账与软上限」 | `heap/auto_collect`、`heap/footprint.rs` |
@@ -991,20 +991,17 @@ bit 6 是字符串块的「全 ASCII」位——字符串分配时写入，`Leng
 就晋升（等于没有年轻代）。越界**警告并 clamp**，不是饱和：一个饱和的年龄永远
 「到不了」，于是什么都不会被晋升。
 
-## 大对象门槛 `Z42_GC_LOH_BYTES`：进程级，因为 TLAB 快路径手里没有堆
+## 大对象门槛 `Z42_GC_LOH_BYTES`
 
 变长块的尺寸超过这个门槛就走 **dedicated chunk**（按 payload 精确定尺的独立 malloc），
 死后内存**直接还给分配器**（见 [gc-tlab-chunk-exclusive.md](gc-tlab.md)
 的 chunk 三种归宿）。门槛降低 → 更多块走这条路 → 更快归还，代价是每块一次 `malloc`。
 
-⚠️ **它是进程级的 `static`，不是 per-heap 字段** —— `class_for` 被
-`heap/alloc.rs` 的**无锁 TLAB 快路径**调用，那里既没有 region 也没有堆引用。
-一个进程里的多个 VM 共享同一个设置（和它还是 `const` 的时候一样）。
-在 VM 构造时 `set_loh_bytes` 一次，热路径上只剩一次 relaxed load ——
-**实测代价 +0.023%（78.504 → 78.522 G 指令，三次取中位），落在噪声里**。
+`GcConfig::loh_bytes` 为每个堆提供初始门槛。同一进程的 VM 可通过各自的堆配置使用不同值。
+构造时完成限幅，分配入口按所属堆的门槛分类，再分派给无锁 TLAB 或加锁分配路径。
+字符串元数据缓存也以所属堆的门槛判断哪些条目需要记录 chunk 身份。
 
-**上界硬顶在 `CHUNK_BYTES`（64 KB）**：比一个 bump chunk 还大的块根本没法 bump 分配，
-调高只会把块路由到不存在的地方。
+门槛范围从最小块占用（16 B）到 bump chunk 大小（64 KiB）。
 
 ## 关联
 
