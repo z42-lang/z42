@@ -37,6 +37,23 @@ fn scan_skips_non_zpkg_and_bad_magic() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[test]
+fn mounted_package_is_found_by_file_name_and_namespace() {
+    let fs = crate::pal::fs::MemoryFs::new();
+    let package = include_bytes!(concat!(
+        env!("Z42_RUNTIME_DIR"),
+        "/../compiler/z42.package/tests/fixtures/zpkg-format/packed-minimal/source.zpkg"
+    ));
+    fs.mount("/libs/greeter.zpkg", package.to_vec());
+    let dirs = [PathBuf::from("/libs")];
+    let expected = dirs[0].join("greeter.zpkg");
+
+    let candidate = ZpkgCandidate::build_in_dirs(&fs, &dirs, "greeter.zpkg").unwrap();
+    assert_eq!(candidate.file_path, expected);
+    assert!(candidate.namespaces.iter().any(|name| name == "Demo.Minimal"));
+    assert_eq!(crate::loader::resolve_namespace(&fs, "Demo.Minimal", &dirs).unwrap(), vec![expected]);
+}
+
 
 #[test]
 fn read_zbc_namespace_rejects_short_and_bad_magic() {

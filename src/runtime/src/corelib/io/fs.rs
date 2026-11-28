@@ -153,15 +153,15 @@ fn on_vfs<R: Send + 'static>(
 /// current directory relative to `root` (`""` = root itself).
 fn walk_dir(fs: &dyn Vfs, root: &str, rel: &str, out: &mut Vec<String>) -> Result<(), BuiltinError> {
     let cur = if rel.is_empty() {
-        root.trim_end_matches('/').to_string()
+        root.to_string()
     } else {
-        format!("{}/{}", root.trim_end_matches('/'), rel)
+        format!("{}/{}", root.trim_end_matches(std::path::is_separator), rel)
     };
     let names = fs.read_dir(&cur).map_err(|e| vfs_error(fs, e, &cur, PathRole::Dir))?;
     for name in names {
         let child_rel = if rel.is_empty() { name.clone() } else { format!("{rel}/{name}") };
         out.push(child_rel.clone());
-        let child_path = format!("{cur}/{name}");
+        let child_path = format!("{}/{name}", cur.trim_end_matches(std::path::is_separator));
         if fs.is_dir(&child_path) {
             walk_dir(fs, root, &child_rel, out)?;
         }

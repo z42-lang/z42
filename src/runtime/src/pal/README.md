@@ -28,6 +28,9 @@ runtime 其余模块**零 cfg 调用** OS 服务。每个 concern 提供平台�
 
 文件系统消费者统一从 `pal::fs::{Vfs, LocalFs, MemoryFs}` 导入；local/memory 是私有实现，不单独建立 vfs 消费入口。
 
+`MemoryFs` 挂载默认使用 `/`。在 Windows 上，原生路径中的反斜杠会在文件系统边界转换为 `/`。
+目录按完整路径段推导，`read_dir` 和 `glob` 都能列出直接子目录，非递归删除会拒绝有内容的目录。
+
 测试：叶实现配套 `*_tests.rs`，文件系统契约与 OS 操作在 `fs/tests.rs`。
 
 ## 入口点
