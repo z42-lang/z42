@@ -39,13 +39,15 @@ public static class Sha256 {
 
     /// 计算 SHA-256 原始摘要（32 字节）。
     public static byte[] Hash(byte[] data) {
-        byte[] padded = _pad(data);
         long[] h = _initialHash();
-        int blocks = padded.Length / 64;
-        int b = 0;
-        while (b < blocks) {
-            _processBlock(h, padded, b * 64);
-            b = b + 1;
+        long[] schedule = new long[64];
+        int fullLength = data.Length - data.Length % 64;
+        for (int offset = 0; offset < fullLength; offset = offset + 64) {
+            _processBlock(h, data, offset, schedule);
+        }
+        byte[] tail = _padTail(data, fullLength);
+        for (int offset = 0; offset < tail.Length; offset = offset + 64) {
+            _processBlock(h, tail, offset, schedule);
         }
         byte[] digest = new byte[32];
         int i = 0;
@@ -114,14 +116,13 @@ public static class Sha256 {
 
     // ── Pre-processing: pad + length-encode ──────────────────────────────────
 
-    static byte[] _pad(byte[] data) {
+    static byte[] _padTail(byte[] data, int fullLength) {
         long bitLen = (long)data.Length * 8L;
-        int padZeros = (56 - (data.Length + 1) % 64 + 64) % 64;
-        int totalLen = data.Length + 1 + padZeros + 8;
+        int remaining = data.Length - fullLength;
+        int totalLen = remaining < 56 ? 64 : 128;
         byte[] padded = new byte[totalLen];
-        int i = 0;
-        while (i < data.Length) { padded[i] = data[i]; i = i + 1; }
-        padded[data.Length] = (byte)0x80;
+        Array.CopyRange(data, fullLength, padded, 0, remaining);
+        padded[remaining] = (byte)0x80;
         int lenOffset = totalLen - 8;
         padded[lenOffset + 0] = (byte)((bitLen >> 56) & 0xFFL);
         padded[lenOffset + 1] = (byte)((bitLen >> 48) & 0xFFL);
@@ -136,9 +137,8 @@ public static class Sha256 {
 
     // ── Per-block compression ────────────────────────────────────────────────
 
-    static void _processBlock(long[] h, byte[] block, int offset) {
+    static void _processBlock(long[] h, byte[] block, int offset, long[] w) {
         long[] k = Sha256._K;
-        long[] w = new long[64];
 
         int t = 0;
         while (t < 16) {

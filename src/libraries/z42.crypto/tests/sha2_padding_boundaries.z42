@@ -1,0 +1,58 @@
+namespace Z42CryptoSha2PaddingBoundaryTests;
+
+using Std.Crypto;
+using Std.Encoding;
+using Std.Harness;
+
+byte[] _message(int length) {
+    byte[] bytes = new byte[length];
+    for (int i = 0; i < length; i = i + 1) {
+        bytes[i] = (byte)0x61;
+    }
+    return bytes;
+}
+
+// Each set covers a tail just below the padding threshold, at the threshold,
+// and empty after a complete block. Digests were checked with shasum.
+[Test]
+void test_sha256_padding_after_complete_blocks() {
+    Assert.Equal("31eba51c313a5c08226adf18d4a359cfdfd8d2e816b13f4af952f7ea6584dcfb", Sha256.HashHex(_message(119)));
+    Assert.Equal("2f3d335432c70b580af0e8e1b3674a7c020d683aa5f73aaaedfdc55af904c21c", Sha256.HashHex(_message(120)));
+    Assert.Equal("6836cf13bac400e9105071cd6af47084dfacad4e5e302c94bfed24e013afb73e", Sha256.HashHex(_message(128)));
+}
+
+[Test]
+void test_sha384_padding_after_complete_blocks() {
+    Assert.Equal("e247c35f4bc1aa38026f8880c8c97305545d00d3f859e00c57d1c1f0a176b3c6b749c4eb081f08bd0fba500969cd056a",
+                 Sha384.HashHex(_message(239)));
+    Assert.Equal("4d86957beab348a29180f02d02564ac1d32f5b4c217ece2b038f7c184f0cafc8c8e438eb82aa03796170e0a7ce8c0675",
+                 Sha384.HashHex(_message(240)));
+    Assert.Equal("ee89d91a5f594f72052c561e5c2458280439eaa77cc1352e27893931c6d9ce5d869fb8a024358c460adc1af9f4fe5b4a",
+                 Sha384.HashHex(_message(256)));
+}
+
+[Test]
+void test_sha512_padding_after_complete_blocks() {
+    Assert.Equal("52c853cb8d907f3d4d6b889beb027985d7c273486d75f8baf26f80d24e90c74c6c3de3e22131582380a7d14d43f2941a31385439cd6ddc469f628015e50bf286",
+                 Sha512.HashHex(_message(239)));
+    Assert.Equal("4c296d90c61052a62ffb1dd196f1b7b09373b1f93e71836baebf89690546b7595684dbe9467a8e484fa0d1094272b4344a7c24f5fee8daedeb0bf549c985ab5f",
+                 Sha512.HashHex(_message(240)));
+    Assert.Equal("6a9169eb662f136d87374070e8828b3e615a7eca32a89446e9225b02832709be095e635c824a2bb70213ba2ea0ababac0809827843992c851903b7ac0c136699",
+                 Sha512.HashHex(_message(256)));
+}
+
+[Test]
+void test_sha512_public_block_helpers() {
+    byte[] data = _message(240);
+    byte[] padded = Sha512._pad(data);
+    Assert.Equal(384, padded.Length);
+    long[] state = Sha512._initialHash();
+    for (int offset = 0; offset < padded.Length; offset = offset + 128) {
+        Sha512._compressBlock(state, padded, offset);
+    }
+    byte[] digest = new byte[64];
+    for (int i = 0; i < state.Length; i = i + 1) {
+        Sha512._writeBE64(digest, i * 8, state[i]);
+    }
+    Assert.Equal(Sha512.HashHex(data), Hex.Encode(digest));
+}

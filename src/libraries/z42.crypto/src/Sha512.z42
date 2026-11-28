@@ -6,20 +6,14 @@ using Std.Encoding;
 ///
 /// 状态用 `long`（i64）保存——SHA-512 字长 64 位，天然契合 z42 的有符号 i64；负数
 /// `>>` 会符号扩展，所以高位可能置 1 处用 `_lshr64` 做逻辑右移。SHA-384（Sha384.z42）
-/// 通过暴露的 `_compressBlock` 共用压缩函数，仅 IV 与输出截断不同。
+/// 共用块处理，仅 IV 与输出截断不同。
 public static class Sha512 {
     // ── Public API ───────────────────────────────────────────────────────────
 
     /// 计算 SHA-512 原始摘要（64 字节）。
     public static byte[] Hash(byte[] data) {
-        byte[] padded = Sha512._pad(data);
         long[] h = Sha512._initialHash();
-        int blocks = padded.Length / 128;
-        int b = 0;
-        while (b < blocks) {
-            Sha512._compressBlock(h, padded, b * 128);
-            b = b + 1;
-        }
+        Sha512._hashBlocks(h, data);
         byte[] digest = new byte[64];
         int i = 0;
         while (i < 8) {
@@ -99,34 +93,51 @@ public static class Sha512 {
 
     // ── Pre-processing: pad + length-encode ──────────────────────────────────
 
-    /// MD 填充（供 Sha384 复用）：0x80 + 补零到 112 mod 128 + 16 字节大端位长。
+    /// 返回完整消息和 MD 填充：0x80 + 补零到 112 mod 128 + 16 字节大端位长。
     ///
     /// 长度字段高 8 字节恒为 0——z42 的字节长度 × 8 总能用 i64 表示。
     public static byte[] _pad(byte[] data) {
         long bitLen = (long)data.Length * 8L;
-        int padZeros = (112 - (data.Length + 1) % 128 + 128) % 128;
-        int totalLen = data.Length + 1 + padZeros + 16;
-        byte[] padded = new byte[totalLen];
-        int i = 0;
-        while (i < data.Length) { padded[i] = data[i]; i = i + 1; }
-        padded[data.Length] = (byte)0x80;
-        int lenOffset = totalLen - 16;
-        // Upper 8 bytes of the 128-bit length are always 0 in z42.
-        i = lenOffset;
-        while (i < lenOffset + 8) { padded[i] = (byte)0; i = i + 1; }
-        Sha512._writeBE64(padded, lenOffset + 8, bitLen);
+        int remaining = data.Length % 128;
+        int fullLength = data.Length - remaining;
+        byte[] padded = new byte[fullLength + (remaining < 112 ? 128 : 256)];
+        Array.CopyRange(data, 0, padded, 0, data.Length);
+        Sha512._writePadding(padded, data.Length, bitLen);
         return padded;
+    }
+
+    static void _writePadding(byte[] buffer, int endOfData, long bitLen) {
+        buffer[endOfData] = (byte)0x80;
+        // The fresh buffer already holds zero in the upper 64 length bits.
+        Sha512._writeBE64(buffer, buffer.Length - 8, bitLen);
+    }
+
+    internal static void _hashBlocks(long[] h, byte[] data) {
+        long[] schedule = new long[80];
+        int remaining = data.Length % 128;
+        int fullLength = data.Length - remaining;
+        for (int offset = 0; offset < fullLength; offset = offset + 128) {
+            Sha512._compress(h, data, offset, schedule);
+        }
+        byte[] tail = new byte[remaining < 112 ? 128 : 256];
+        Array.CopyRange(data, fullLength, tail, 0, remaining);
+        Sha512._writePadding(tail, remaining, (long)data.Length * 8L);
+        for (int offset = 0; offset < tail.Length; offset = offset + 128) {
+            Sha512._compress(h, tail, offset, schedule);
+        }
     }
 
     // ── Per-block compression (shared with Sha384) ───────────────────────────
 
     /// 把 `block[offset..]` 起的一个 128 字节块压缩进 `h[0..7]`（就地累加）。
-    ///
-    /// `_` 前缀的内部接口，供 Sha384 携带自己的 IV 复用。
     public static void _compressBlock(long[] h, byte[] block, int offset) {
-        long[] k = Sha512._roundConstants();
-        long[] w = new long[80];
+        Sha512._compress(h, block, offset, new long[80]);
+    }
 
+    static long[] _K = Sha512._roundConstants();
+
+    static void _compress(long[] h, byte[] block, int offset, long[] w) {
+        long[] k = Sha512._K;
         // Message schedule W[0..15]: big-endian 8-byte words from the block.
         int t = 0;
         while (t < 16) {
