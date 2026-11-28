@@ -751,7 +751,7 @@ try_lookup_function(func_name):        # RuntimeLoader 先查 per-thread fn_look
 见 [zpkg DEPS](../formats/zpkg.md#deps--依赖表)）；入口包的在 boot 时播种（`ProgramInputs.eager_deps`），其余包的在
 它被加载时并入，所以「当前能执行的代码」引用到的名字总能精确路由。
 
-- **精确 / 非精确**：名字本身（去泛型实参 / 签名后缀后）就是登记的类型或自由函数 ⇒ 精确，定义包里找不到即判缺
+- **精确 / 非精确**：名字本身（去泛型实参 / 签名后缀后）就是登记的类型或自由函数 ⇒ 精确，定义包缺失或符号在包里找不到时即判缺
   （.NET 的 MissingMethodException / TypeLoadException）。只命中所属类型的成员名不判缺：方法可能来自别的包的
   `impl` 块或基类，交给后面的策略。
 - **同名多主**：先登记者胜（两个包定义同一个全名是编译期 E0601 的地盘）。

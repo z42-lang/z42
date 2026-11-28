@@ -41,12 +41,10 @@ impl LazyLoader {
                 if let Some(f) = self.registered_function(func_name) {
                     return Some(f);
                 }
-                // An exactly-recorded free function missing from its own package is a genuinely
-                // missing symbol (.NET: MissingMethodException) — no point loading anything else.
-                if route.exact {
-                    self.note_unresolved_function(func_name);
-                    return None;
-                }
+            }
+            if route.exact {
+                self.note_unresolved_function(func_name);
+                return None;
             }
         }
         // Strategy C: routing by namespace prefix
@@ -186,8 +184,8 @@ impl LazyLoader {
                 if let Some(td) = self.type_registry.get(class_name) {
                     return Some(Arc::clone(td));
                 }
-                if route.exact { return None; }
             }
+            if route.exact { return None; }
         }
         // Strategy C: use the class's enclosing namespace (strip last segment). Generic
         // arguments are cut first — `Std.List<Std.Int32>` must route by `Std`, not split

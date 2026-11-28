@@ -233,6 +233,63 @@ fn fixture_zpkg() -> PathBuf {
 }
 
 #[test]
+fn dependency_candidates_require_the_declared_file_name() {
+    use crate::loader::dependency_candidates::build_declared_candidates;
+    use crate::loader::test_support::empty_zbc;
+    use crate::pal::fs::MemoryFs;
+    use crate::zpkg::format::ZpkgDep;
+
+    let fs = MemoryFs::new();
+    let bytes = std::fs::read(fixture_zpkg()).unwrap();
+    let dirs = [PathBuf::from("/libs")];
+    fs.mount("/libs/other.zpkg", bytes.clone());
+
+    let mut entry = crate::loader::decode_program_bytes(&empty_zbc()).unwrap();
+    entry.dependencies.push(ZpkgDep {
+        file: "chosen.zpkg".into(),
+        namespaces: vec!["Demo.Minimal".into()],
+        symbols: vec![],
+    });
+    let candidates = build_declared_candidates(&fs, &entry, &dirs, &[]);
+    assert!(candidates.is_empty());
+
+    fs.mount("/libs/chosen.zpkg", bytes);
+    let candidates = build_declared_candidates(&fs, &entry, &dirs, &[]);
+    assert_eq!(candidates.len(), 1);
+    assert_eq!(candidates[0].0, "chosen.zpkg");
+}
+
+#[test]
+fn missing_exact_symbol_owner_does_not_load_other_candidates() {
+    use crate::pal::fs::MemoryFs;
+    use crate::zpkg::format::ZpkgDep;
+
+    let fs = std::sync::Arc::new(MemoryFs::new());
+    let bytes = std::fs::read(fixture_zpkg()).unwrap();
+    let packed = crate::loader::decode_program_bytes(&bytes).unwrap();
+    let function = packed.module.functions.iter()
+        .find(|function| function.name.starts_with("Demo.Minimal.Main"))
+        .expect("fixture entry")
+        .name.clone();
+    let type_name = "Demo.Minimal.Greeter";
+    fs.mount("/libs/other.zpkg", bytes);
+    let dirs = vec![PathBuf::from("/libs")];
+    let other = ZpkgCandidate::build_in_dirs(&*fs, &dirs, "other.zpkg").unwrap();
+    let mut loader = LazyLoader::new(dirs, 0, vec![("other.zpkg".into(), other)], vec![]);
+    loader.vfs = fs;
+    loader.note_symbol_owners(&[ZpkgDep {
+        file: "chosen.zpkg".into(),
+        namespaces: vec!["Demo.Minimal".into()],
+        symbols: vec![super::symbols::symbol_key(&function).to_owned(), type_name.into()],
+    }]);
+
+    assert!(loader.resolve_function(&function).is_none());
+    assert!(!loader.loaded_zpkgs.contains("other.zpkg"));
+    assert!(loader.resolve_type(type_name).is_none());
+    assert!(!loader.loaded_zpkgs.contains("other.zpkg"));
+}
+
+#[test]
 fn build_in_dirs_not_found_errors() {
     let a = std::env::temp_dir().join("z42-coloc-a-empty");
     let _ = std::fs::create_dir_all(&a);
