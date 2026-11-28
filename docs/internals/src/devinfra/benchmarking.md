@@ -51,6 +51,10 @@ CI 传 `--tier gate`。
 因子 `k` 同时乘进两侧，`ratio = (k·t_pr)/(k·t_base) = t_pr/t_base`，`k` 约掉。剩下只有 within-run
 抖动，可由 SEM 量化 ⇒ 比值置信区间**才第一次统计有效**。
 
+e2e 用例的首轮在同一执行模式内轮换 base 和 PR 的先后顺序。触发复测时继续逐轮交换先跑的一侧，
+降低固定先后顺序带来的偏差。每轮仍使用一次 hyperfine 调用，预热、采样次数和复测预算保持原值。
+日志记录实际顺序，比值始终按 PR / base 计算。
+
 ```mermaid
 flowchart TD
   subgraph pr[PR 触碰性能路径 — 同一台 runner]

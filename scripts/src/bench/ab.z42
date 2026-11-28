@@ -38,21 +38,35 @@ class AbRound {
     public double Ratio() { return this.PrMean / this.BaseMean; }
 }
 
-AbRound _abOneRound(string work, string name, string m, int round,
+AbRound _abOneRound(string work, string name, string m, int round, bool startsWithPr,
     string baseCmd, string prCmd, string warmup, string runs) {
-    AbRound o = new AbRound();
+    bool prFirst = _abPrFirst(startsWithPr, round);
     string outJson = Path.Join(work, name + "-" + m + "-ab-r" + round.ToString() + ".json");
     Console.WriteLine("→ A/B " + name + " [" + m + "] round " + round.ToString()
-        + " (warmup=" + warmup + ", runs=" + runs + ")...");
+        + " (order=" + (prFirst ? "PR/base" : "base/PR") + ", warmup=" + warmup + ", runs=" + runs + ")...");
     int hc = _exec(new Process("hyperfine")
         .Arg("--warmup").Arg(warmup).Arg("--runs").Arg(runs)
         .Arg("--export-json").Arg(outJson).Arg("--shell=none")
-        .Arg("--command-name").Arg(name + "-base").Arg(baseCmd)
-        .Arg("--command-name").Arg(name + "-pr").Arg(prCmd));
-    if (hc != 0) { o.Rc = 2; return o; }
+        .Arg("--command-name").Arg(name + (prFirst ? "-pr" : "-base")).Arg(prFirst ? prCmd : baseCmd)
+        .Arg("--command-name").Arg(name + (prFirst ? "-base" : "-pr")).Arg(prFirst ? baseCmd : prCmd));
+    if (hc != 0) {
+        AbRound failed = new AbRound();
+        failed.Rc = 2;
+        return failed;
+    }
     JsonValue res = JsonValue.Parse(File.ReadAllText(outJson)).Get("results");
-    JsonValue b = res.At(0);
-    JsonValue p = res.At(1);
+    return _abReadRound(res, prFirst);
+}
+
+bool _abPrFirst(bool startsWithPr, int round) {
+    return (round % 2) == 1 ? startsWithPr : !startsWithPr;
+}
+
+// Hyperfine reports commands in execution order. Ratios always use PR / base.
+AbRound _abReadRound(JsonValue res, bool prFirst) {
+    AbRound o = new AbRound();
+    JsonValue b = res.At(prFirst ? 1 : 0);
+    JsonValue p = res.At(prFirst ? 0 : 1);
     o.BaseMean = b.Get("mean").AsDouble();   o.BaseSd = b.Get("stddev").AsDouble();
     o.PrMean   = p.Get("mean").AsDouble();   o.PrSd   = p.Get("stddev").AsDouble();
     if (o.BaseMean <= 0.0 || o.PrMean <= 0.0) { o.Rc = 2; }
@@ -71,7 +85,7 @@ AbRound _abOneRound(string work, string name, string m, int round,
 AbOutcome _abOneScenario(string work, string name, string ns, string m, string src,
     string baseVm, string baseDriver, string baseLibs,
     string prVm, string prDriver, string prLibs,
-    string warmup, string runs, double thr, int extraRounds) {
+    string warmup, string runs, double thr, int extraRounds, bool startsWithPr) {
     AbOutcome o = new AbOutcome();
     string baseZbc = _abZbcPath(work, name, "base");
     string prZbc   = _abZbcPath(work, name, "head");
@@ -79,7 +93,7 @@ AbOutcome _abOneScenario(string work, string name, string ns, string m, string s
     if (_abEmitZbc(prVm,   prDriver,   prLibs,   src, prZbc)   != 0) { o.Rc = 2; return o; }
     string baseCmd = "env Z42_LIBS=" + baseLibs + " " + baseVm + " " + baseZbc + " " + ns + ".Main --mode " + m;
     string prCmd   = "env Z42_LIBS=" + prLibs   + " " + prVm   + " " + prZbc   + " " + ns + ".Main --mode " + m;
-    AbRound r1 = _abOneRound(work, name, m, 1, baseCmd, prCmd, warmup, runs);
+    AbRound r1 = _abOneRound(work, name, m, 1, startsWithPr, baseCmd, prCmd, warmup, runs);
     if (r1.Rc != 0) { o.Rc = 2; return o; }
     double nRuns = Double.Parse(runs);
     AbVerdict v = _abVerdict(r1.BaseMean, r1.BaseSd, nRuns, r1.PrMean, r1.PrSd, nRuns, thr);
@@ -91,7 +105,7 @@ AbOutcome _abOneScenario(string work, string name, string ns, string m, string s
         double[] rs = new double[extraRounds + 1];
         rs[0] = r1.Ratio();
         for (int i = 0; i < extraRounds; i = i + 1) {
-            AbRound rn = _abOneRound(work, name, m, i + 2, baseCmd, prCmd, warmup, runs);
+            AbRound rn = _abOneRound(work, name, m, i + 2, startsWithPr, baseCmd, prCmd, warmup, runs);
             if (rn.Rc != 0) { o.Rc = 2; return o; }
             rs[i + 1] = rn.Ratio();
             ratios = ratios + "," + rs[i + 1].ToString();
@@ -184,12 +198,16 @@ int _benchAb(BenchCommand cmd) {
 
     string items = "";
     int nb = 0; int regr = 0; int toolErr = 0;
+    // Balance first rounds separately in each mode, even when a mode skips a scenario.
+    bool[] nextPrFirst = new bool[e.Modes.Length];
     foreach (var s in scen) {
-        foreach (var m in e.Modes) {
+        for (int mi = 0; mi < e.Modes.Length; mi = mi + 1) {
+            string m = e.Modes[mi];
             if (!_benchModeRunnable(e, s.Name, m)) { continue; }
             int mayResample = resampleBudget > 0 ? extraRounds : 0;
             AbOutcome o = _abOneScenario(work, s.Name, s.Ns, m, s.Src,
-                baseVm, baseDriver, baseLibs, e.Vm, e.Driver, e.Libs, warmup, runs, thr, mayResample);
+                baseVm, baseDriver, baseLibs, e.Vm, e.Driver, e.Libs, warmup, runs, thr, mayResample, nextPrFirst[mi]);
+            nextPrFirst[mi] = !nextPrFirst[mi];
             if (o.Rc != 0) { toolErr = toolErr + 1; continue; }
             if (o.Resampled) { resampleBudget = resampleBudget - 1; }
             if (o.IsRegression && mayResample == 0 && extraRounds > 0) {

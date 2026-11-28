@@ -1,6 +1,7 @@
 namespace Z42Xtask;
 
 using Std.IO;
+using Std.Json;
 
 // Pure-function fixtures exercise thresholds, interval width and between-round dispersion.
 int _abSelfTest() {
@@ -42,10 +43,29 @@ int _abSelfTest() {
     if (h.HasCi) { Console.WriteLine("  FAIL resample-too-few-rounds: expected HasCi=false"); fails = fails + 1; }
 
     fails = fails + _abPauseSelfTest();   // pause gate
+    fails = fails + _abOrderSelfTest();
 
-    if (fails == 0) { Console.WriteLine("✅ _abVerdict + _abResampleVerdict + pause selftest: 17/17 passed"); return 0; }
-    Console.WriteLine("❌ _abVerdict + _abResampleVerdict selftest: " + fails.ToString() + " failure(s)");
+    if (fails == 0) { Console.WriteLine("✅ benchmark A/B and pause self-tests passed"); return 0; }
+    Console.WriteLine("❌ benchmark A/B and pause self-tests: " + fails.ToString() + " failure(s)");
     return 1;
+}
+
+int _abOrderSelfTest() {
+    if (_abPrFirst(false, 1) || !_abPrFirst(false, 2) || _abPrFirst(false, 3)
+        || !_abPrFirst(true, 1) || _abPrFirst(true, 2) || !_abPrFirst(true, 3)) {
+        Console.WriteLine("  FAIL A/B order: resampling did not alternate");
+        return 1;
+    }
+    string baseline = "{\"mean\": 2, \"stddev\": 0.25}";
+    string candidate = "{\"mean\": 3, \"stddev\": 0.5}";
+    AbRound ab = _abReadRound(JsonValue.Parse("[" + baseline + "," + candidate + "]"), false);
+    AbRound ba = _abReadRound(JsonValue.Parse("[" + candidate + "," + baseline + "]"), true);
+    if (ab.Rc != 0 || ba.Rc != 0 || ab.Ratio() != 1.5 || ba.Ratio() != 1.5
+        || ab.BaseSd != 0.25 || ba.BaseSd != 0.25 || ab.PrSd != 0.5 || ba.PrSd != 0.5) {
+        Console.WriteLine("  FAIL A/B order: base and PR statistics were not preserved");
+        return 1;
+    }
+    return 0;
 }
 
 int _abExpect(string label, AbVerdict v, string wantVerdict, bool wantRegr) {
