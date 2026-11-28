@@ -507,6 +507,19 @@ impl VarRegion {
         }
     }
 
+    /// Release empty buffers under heap pressure without reallocating or copying slots.
+    /// Returns whether side-table accounting needs to be refreshed.
+    pub(super) fn release_empty_free_lists(&mut self) -> bool {
+        let mut released = false;
+        for list in &mut self.free_lists {
+            if list.is_empty() && list.capacity() != 0 {
+                *list = Vec::new();
+                released = true;
+            }
+        }
+        released
+    }
+
     /// Re-initialize a recycled slot of chunk `ci` in place: write a fresh header whose
     /// generation is the one right after the tombstone's (odd again — alive), zero the payload.
     /// Returns the fresh handle.

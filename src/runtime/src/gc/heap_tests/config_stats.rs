@@ -82,6 +82,35 @@ fn set_max_heap_bytes_reflects_in_stats() {
 }
 
 #[test]
+fn full_collection_under_soft_cap_pressure_releases_empty_free_list_capacity() {
+    const SOFT_CAP: u64 = 256 * 1024;
+
+    fn collect_after_burst(cap: Option<u64>) -> u64 {
+        let heap = Heap::default();
+        heap.pause();
+        for _ in 0..32_768 {
+            let _ = heap.alloc_str("sixteen-byte-str");
+        }
+        // The variable-size region keeps the current bump chunk. Advance it to
+        // another class so the small class has no remaining reusable slots.
+        let tail = "x".repeat(48 * 1024);
+        let _ = heap.alloc_str(&tail);
+        let _ = heap.alloc_str(&tail);
+        heap.resume();
+        heap.set_max_heap_bytes(cap);
+        heap.collect_full();
+        let occupied = heap.stats().occupied_bytes;
+        assert_eq!(heap.alloc_str("sixteen-byte-str").as_str(), "sixteen-byte-str");
+        occupied
+    }
+
+    let retained = collect_after_burst(None);
+    assert!(retained > SOFT_CAP, "test must put the heap over the cap");
+    let released = collect_after_burst(Some(SOFT_CAP));
+    assert!(released < retained, "occupied bytes after GC: {released} vs {retained}");
+}
+
+#[test]
 fn used_bytes_increases_with_alloc() {
     let heap = Heap::default();
     assert_eq!(heap.used_bytes(), 0);

@@ -87,15 +87,21 @@ impl crate::gc::Heap {
     /// The sweep tail every collection path shares: retire the side-table entries of the blocks
     /// that died ([`Self::process_flagged_dead`] — before any chunk goes back, while their headers
     /// are still in place), pool the fully-dead chunks, re-measure the side tables (`O(chunks)`),
-    /// and decommit whatever the pool holds beyond
-    /// [`Self::pool_keep_bytes`]. After a major, also let the allocator hand back what it has
-    /// cached ([`release_allocator_cache`]).
+    /// and decommit whatever the pool holds beyond [`Self::pool_keep_bytes`]. A major that
+    /// leaves the heap over its soft cap also drops empty free-list buffers. After a major,
+    /// let the allocator hand back what it has cached ([`release_allocator_cache`]).
     pub(super) fn reclaim_dead_chunks_and_measure(&self, major: bool) {
         self.process_flagged_dead();
         {
             let mut r = self.region_var.lock();
             r.reclaim_dead_var_chunks();
             r.refresh_side_tables();
+            if major
+                && self.soft_cap_bytes().is_some_and(|cap| self.occupied_bytes() > cap)
+                && r.release_empty_free_lists()
+            {
+                r.refresh_side_tables();
+            }
         }
         self.trim_chunk_pools();
         if major {

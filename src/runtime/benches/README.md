@@ -12,6 +12,7 @@ z42 VM 内部模块的微基准。用 [criterion](https://bheisler.github.io/cri
 |------|------|
 | `smoke_bench.rs` | criterion 框架 sanity check（纯 Rust 基线） |
 | `gc_cycle_bench.rs` | GC 环回收：`cycle_heavy_100`（大量小环）/ `shallow_tree_1k`（纯 mark）/ `large_array_10k`（大数组 mark） |
+| `gc_soft_cap_bench.rs` | 批量分配后的 full GC 停顿及软上限下的堆占用 |
 
 ## 运行
 
