@@ -43,12 +43,13 @@ void Main() {
     Assert.True(WeakHandle.Upgrade(watch.Weak) == null);
     Assert.True(values[1] is Envelope.Nested(Payload.Number(-1L), "number"));
 
+    Array untyped = values;
     bool untypedReadRejected = false;
-    try { values.GetValue(1); }
+    try { untyped.GetValue(1); }
     catch (NotSupportedException) { untypedReadRejected = true; }
     Assert.True(untypedReadRejected);
     bool untypedWriteRejected = false;
-    try { values.SetValue(null, 1); }
+    try { untyped.SetValue(null, 1); }
     catch (NotSupportedException) { untypedWriteRejected = true; }
     Assert.True(untypedWriteRejected);
     Assert.True(values[1] is Envelope.Nested(Payload.Number(-1L), "number"));
