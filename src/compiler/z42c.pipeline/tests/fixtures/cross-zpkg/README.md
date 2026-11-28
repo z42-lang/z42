@@ -12,24 +12,26 @@
 ├── target/                   # 提供 class / interface 的 lib
 │   ├── z42.toml              # name + pack=true + [sources]
 │   └── src/*.z42
-├── ext/                      # 依赖 target，提供 impl 块
+├── ext/                      # 可选，依赖 target，提供 impl 块
 │   ├── z42.toml              # depends on target
 │   └── src/*.z42
 ├── main/                     # 依赖 target + ext 的 exe
 │   ├── z42.toml              # entry = "<Namespace>.<Func>" + pack=true
 │   └── src/Main.z42
-└── expected_output.txt       # main 运行后的预期 stdout
+└── expected_output.txt       # 可选，main 的 stdout + stderr
 ```
 
+每个用例通过 `target/` 和 `main/` 的工程清单发现，缺少清单时判失败。验证内部行为时，
+在 `main` 中使用 `Assert.*`，可省略 `expected_output.txt`。此时要求退出码为 0，且两个输出流均为空。
+
 **负例 fixture（期望编译失败）**：放 `expected_build_error.txt` **代替** `expected_output.txt`，
-内容 = `main` 构建 stderr 必须包含的子串（通常是诊断码 + 一句关键词）。判定：`main` **编过了**
+内容 = `main` 构建输出必须包含的非空子串（通常是诊断码 + 一句关键词）。判定：`main` **编过了**
 → 判红（说明该报的诊断没响）；编不过但错误文本对不上 → 也判红（否则「随便哪种编译失败都算过」
 = 没有判别力的门）。这类 fixture 不进 run 波（没有产物可跑）。范例：`dup_fqn_crosspkg/`。
 
 **告警 fixture（期望编过、且某条警告响了）**：加 `expected_build_warning.txt`，内容 = `main`
-构建输出必须包含的子串。判定：编**不过** → 判红（回归）；编过但输出里没这条告警 → 也判红。
-与 `expected_build_error.txt` 互斥（后者优先），且**照常进 run 波**（警告不阻断编译，有产物可跑），
-所以这类 fixture 仍要写 `expected_output.txt`。范例：`deprecated_free_function/`。
+构建输出必须包含的非空子串。判定：编**不过** → 判红（回归）；编过但输出里没这条告警 → 也判红。
+与 `expected_build_error.txt` 互斥（后者优先）。告警用例照常进入运行阶段。范例：`deprecated_free_function/`。
 
 > 用途：只断言「编不过」或 stdout 抓不到「该警告没响」，跨包 `[Deprecated]` 自由函数静默失效即属此类盲区。
 
@@ -59,9 +61,8 @@ zpkg colocate 进 main dist，而惰性加载器**先搜 entry zpkg 同目录**�
 ## 运行
 
 ```bash
-./xtask test e2e --dir cross-zpkg                 # interp + jit
-./xtask test e2e --dir cross-zpkg --mode interp   # 只跑 interp
-./xtask test e2e --dir cross-zpkg --file <name>   # 单个 fixture
+./xtask test e2e --dir cross-zpkg                 # 默认 interp
+./xtask test e2e --dir cross-zpkg --mode jit      # 只跑 JIT
 ```
 
 驱动逻辑（`./xtask test e2e --dir cross-zpkg`）：
@@ -69,7 +70,7 @@ zpkg colocate 进 main dist，而惰性加载器**先搜 entry zpkg 同目录**�
 1. 构建 target → ext → main（每步把上一步的 zpkg 复制到下一步的 `libs/`）
 2. 收集 stdlib + target + ext 的 zpkg 到临时 libs_dir
 3. 用 `Z42_LIBS=<temp>` 启动 z42vm 跑 main 的 zpkg
-4. 比对 stdout 与 `expected_output.txt`
+4. 检查退出码为 0，并比对 stdout + stderr 与期望，省略期望文件时要求无输出
 
 ## 现有测试
 

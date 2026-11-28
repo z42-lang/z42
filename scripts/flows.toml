@@ -273,6 +273,12 @@ select = ["cross-zpkg", "compiler", "stdlib"]
 publish = false
 
 [[inputs]]
+id = "cross-package-executor"
+include = ["scripts/src/test/e2e/cross_zpkg.z42", "scripts/src/test/e2e/cross_discovery_selfcheck.z42"]
+select = ["xtask", "cross-zpkg"]
+publish = false
+
+[[inputs]]
 id = "multi-exe-fixtures"
 include = ["src/compiler/z42c.pipeline/tests/fixtures/multi-exe/**"]
 select = ["multi-exe", "compiler", "stdlib"]
