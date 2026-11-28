@@ -47,6 +47,13 @@ pub fn array_get<F: FnOnce() -> u32>(ctx: &VmContext, arr: &Value, idx: &Value, 
         if a.mode() != ArrayMode::Struct {
             return Ok(a.get_boxed(i));   // 打包基元在这里装回 Value
         }
+        if !erased {
+            if let Some(layout) = a.inline_union_layout().filter(|layout| layout.size <= 8) {
+                let mut bits = [0; 8];
+                a.read_inline_union(i, &mut bits[..layout.size])?;
+                return Ok(Value::I64(i64::from_le_bytes(bits)));
+            }
+        }
         if erased || a.struct_layout_ref().is_some_and(|layout| layout.size == 0) {
             return super::array_bulk::elem_get_boxed(ctx, rc, i);
         }
@@ -81,6 +88,9 @@ pub fn array_set(ctx: &VmContext, arr: &Value, idx: &Value, v: &Value) -> OpResu
         let i = {
             let a = rc.borrow();
             let i = checked_index(ArrayOp::Set, idx, a.len())?;
+            if let Some(layout) = a.inline_union_layout() {
+                return write_inline_union(ctx, &a, i, v, layout.size);
+            }
             // Erased default(T) in existing bytecode can be Null for a value struct.
             if matches!(v, Value::Null) && a.mode() == ArrayMode::Struct {
                 return Ok(a.clear_struct_elem(i)?);
@@ -344,6 +354,9 @@ pub fn elem_mode(ctx: &VmContext, element_type: ElemType, type_param: bool) -> E
 /// 把一个 struct 值打包进刚分配的 `struct[]` 的第 `i` 个元素（`new P[]{ p1, p2 }`）。
 /// 源是 arena `StructRef` 或装箱 `BoxedStruct`；`Null` = 默认值（元素保持零初始化）。
 pub fn pack_struct_elem(ctx: &VmContext, arr: &ArrayObj, i: usize, v: &Value) -> OpResult<()> {
+    if let Some(layout) = arr.inline_union_layout() {
+        return write_inline_union(ctx, arr, i, v, layout.size);
+    }
     if arr.struct_layout_ref().is_some_and(|layout| layout.size == 0) && arr.accepts_empty_struct(v) {
         return Ok(());
     }
@@ -361,5 +374,34 @@ pub fn pack_struct_elem(ctx: &VmContext, arr: &ArrayObj, i: usize, v: &Value) ->
     };
     // A fresh, young array not yet reachable from any register: no barrier owed.
     arr.write_struct_elem(i, &src_bytes, &src_refs, &mut |_| {})?;
+    Ok(())
+}
+
+fn write_inline_union(ctx: &VmContext, arr: &ArrayObj, index: usize, value: &Value, size: usize) -> OpResult<()> {
+    if let Value::I64(bits) = value {
+        if size <= 8 {
+            return Ok(arr.write_inline_union(index, &bits.to_le_bytes()[..size])?);
+        }
+    }
+    let (slot, frame) = super::struct_leaf::as_struct_ref(value, "inline union array element")?;
+    ctx.exec().with_struct_slot(slot, frame, |source| {
+        anyhow::ensure!(source.type_name.as_ref() == &*arr.element_type(), "inline union element type mismatch");
+        arr.write_inline_union(index, &source.bytes)
+    })??;
+    Ok(())
+}
+
+/// Copy an array element into an existing frame slot.
+pub(crate) fn read_union_into(ctx: &VmContext, target: &Value, array: &Value, index: i64) -> OpResult<()> {
+    let Value::Array(array) = array else {
+        return Err(not_an_array(ArrayOp::Get, array));
+    };
+    let arr = array.borrow();
+    let index = checked_index(ArrayOp::Get, &Value::I64(index), arr.len())?;
+    let (slot, frame) = super::struct_leaf::as_struct_ref(target, "inline union array destination")?;
+    ctx.exec().with_struct_slot_mut(slot, frame, |target| {
+        anyhow::ensure!(target.type_name.as_ref() == &*arr.element_type(), "inline union element type mismatch");
+        arr.read_inline_union(index, &mut target.bytes)
+    })??;
     Ok(())
 }

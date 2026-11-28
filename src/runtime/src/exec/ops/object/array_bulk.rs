@@ -141,6 +141,10 @@ enum Plan { Direct, Box, Unbox, CheckedPrimitive, Checked }
 
 fn plan(ctx: &VmContext, s: &Shape, d: &Shape) -> OpResult<Plan> {
     let mismatch = || OpError::array_type_mismatch(s.kind(), d.kind());
+    let is_union = crate::object::value::union_blob::is_storage_name;
+    if s.elem != d.elem && (is_union(&s.elem) || is_union(&d.elem)) {
+        return Err(mismatch());
+    }
     match (&s.strukt, &d.strukt) {
         (Some(sl), Some(dl)) => {
             if *s.elem != *d.elem { return Err(mismatch()); }

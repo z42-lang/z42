@@ -21,6 +21,17 @@ pub(crate) mod typed {
     pub fn reference(ctx: &VmContext, value: &Value, index: i64) -> Result<Value, abi::BuiltinError> {
         union_frame::read_ref(ctx, value, index).map_err(fault)
     }
+
+    #[builtin(name = "__union_array_read")]
+    pub fn array_read(ctx: &VmContext, target: &Value, array: &Value, index: i64) -> Result<(), abi::BuiltinError> {
+        crate::exec::ops::object::array::read_union_into(ctx, target, array, index)?;
+        Ok(())
+    }
+
+    #[builtin(name = "__union_field_read")]
+    pub fn field_read(ctx: &VmContext, owner: &Value, name: &str, target: &Value) -> Result<Value, abi::BuiltinError> {
+        Ok(crate::exec::ops::object::union_field::read(ctx, owner, name, target)?)
+    }
 }
 
 pub(crate) const STORE: &[abi::BuiltinDesc] = &[abi::BuiltinDesc {

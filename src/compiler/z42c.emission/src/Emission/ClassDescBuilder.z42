@@ -284,6 +284,9 @@ public sealed partial class ClassDescBuilder {
                         && !(fsy.FieldType is Z42UnknownType)) {
                     tn = SigTypeNames.OfResolved(fsy.FieldType);
                 }
+                if (PackedUnion.IsInlineField(ctd, fsy)) {
+                    tn = PackedUnion.StorageName(UnionCaseSymbol.UnionOf(fsy.FieldType).Fqn());
+                }
                 bool isStatic = fsy != null && fsy.IsStatic;
                 if (isStatic) {
                     if (sfcount == sfields.Length) {

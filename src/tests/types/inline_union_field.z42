@@ -1,0 +1,38 @@
+namespace InlineUnionField;
+
+union Tiny { Empty, Bytes(byte, byte) }
+union Wide { Count(long), Pair(long, int), Empty }
+
+class Owner {
+    internal byte Prefix;
+    internal Tiny Packed;
+    internal byte Suffix;
+    internal Wide Current = Wide.Pair(19L, 23);
+
+    internal Wide Select(long count) {
+        var before = Current;
+        Current = Wide.Count(count);
+        return before;
+    }
+}
+
+class Child : Owner {
+    internal Wide Other;
+}
+
+void Main() {
+    var owner = new Child();
+    Assert.True(owner.Packed is Tiny.Empty);
+    Assert.True(owner.Other is Wide.Count(0L));
+    owner.Prefix = 11;
+    owner.Suffix = 31;
+    owner.Packed = Tiny.Bytes(17, 25);
+    Assert.True(owner.Packed is Tiny.Bytes(17, 25));
+    Assert.Equal(42, (int)owner.Prefix + (int)owner.Suffix);
+    Assert.True(owner.Select(42L) is Wide.Pair(19L, 23));
+    Assert.True(owner.Current is Wide.Count(42L));
+    owner.Other = owner.Current;
+    owner.Current = Wide.Empty;
+    Assert.True(owner.Other is Wide.Count(42L));
+    Assert.True(owner.Current is Wide.Empty);
+}

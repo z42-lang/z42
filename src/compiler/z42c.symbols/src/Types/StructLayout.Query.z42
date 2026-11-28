@@ -123,15 +123,18 @@ public sealed partial class StructLayout {
     // 与 phantom 基元（int/bool/char=Z42PrimType，根本不到这）保持现有模型（标量塌缩=Phase B）。
     // z42c/stdlib 零生产多字段 struct → flip 纯增量。
     public bool IsBlobStruct(string typeName) {
-        if (!this.IsStructType(typeName)) { return false; }
-        StructLayoutInfo li = this.LayoutOf(typeName);
-        if (li.FieldCount < 1) { return false; }
-        // add-struct-nested-fields：嵌套 struct 字段（Line{a:P,b:P}）现予接受——布局早已递归展平其叶子
-        // （_compute），codegen 沿成员链累积 byte offset 发射 StructFieldGet/SetPrim（整字段走逐叶子复制）。
-        // 防护：自引用/环 struct 的布局是空兜底（Size 0，见 LayoutOf 的 _inProgress 环检测 + E0438 诊断）——
-        // 不准入，避免 0 字节 blob 的字段访问越界。
-        if (li.Size == 0) { return false; }
-        return true;
+        StructLayoutInfo layout = this._inlineFieldLayout(typeName);
+        return layout != null && !layout.IsPackedUnion;
+    }
+
+    private bool _hasInlineFieldLayout(string typeName) {
+        return this._inlineFieldLayout(typeName) != null;
+    }
+
+    private StructLayoutInfo _inlineFieldLayout(string typeName) {
+        if (!this.IsStructType(typeName)) { return null; }
+        StructLayoutInfo layout = this.LayoutOf(typeName);
+        return layout.FieldCount > 0 && layout.Size > 0 ? layout : null;
     }
 
     // A complete layout may have no payload even when it declares nested struct fields.

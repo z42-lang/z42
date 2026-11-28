@@ -70,9 +70,11 @@ void test_float_and_double_union_values_use_their_scalar_layouts() {
     var result = IrDump.BuildModuleD(source, "union.z42", null, null);
     Assert.Equal(0, result.ErrorCount);
     IrModule module = result.Module;
-    Assert.Equal(1, module.ClassCount);
-    Assert.Equal("$union.Wide", module.Classes[0].Name);
-    Assert.Equal(16, module.Classes[0].StructSize);
+    Assert.Equal(2, module.ClassCount);
+    Assert.Equal("$union.Narrow", module.Classes[0].Name);
+    Assert.Equal(8, module.Classes[0].StructSize);
+    Assert.Equal("$union.Wide", module.Classes[1].Name);
+    Assert.Equal(16, module.Classes[1].StructSize);
 }
 
 [Test]
@@ -129,9 +131,20 @@ void test_wide_union_can_be_constructed_and_matched_across_files() {
 }
 
 [Test]
-void test_packed_union_storage_and_exports_require_metadata() {
+void test_packed_union_exports_require_metadata() {
     string prefix = "public union U { End, Bytes(int) } ";
     Assert.True(IrDump.BuildModuleD(prefix + "class C { public U Field; }", "field.z42", null, null).DiagMsgs[0].Contains("E0501"));
     Assert.True(IrDump.BuildModuleD(prefix + "public U Make() => U.End;", "export.z42", null, null).DiagMsgs[0].Contains("E0501"));
-    Assert.True(IrDump.BuildModuleD(prefix + "int F() { var a = new U[1]; return a.Length; }", "array.z42", null, null).DiagMsgs[0].Contains("E0501"));
+}
+
+[Test]
+void test_packed_union_uses_the_same_size_in_an_array_and_a_field() {
+    string source = "union U { End, Bytes(byte, byte) } class C { internal U Field; internal byte After; } "
+        + "int Size() { var a = new U[1]; return a.Length; }";
+    var result = IrDump.BuildModuleD(source, "union.z42", null, null);
+    Assert.Equal(0, result.ErrorCount);
+    Assert.Equal("$union.U", result.Module.Classes[0].Name);
+    Assert.Equal(3, result.Module.Classes[0].StructSize);
+    Assert.Equal(4, result.Module.Classes[1].ObjectSize);
+    Assert.Equal(3, result.Module.Classes[1].ObjFieldOffsets[1]);
 }

@@ -160,6 +160,11 @@ impl ArrayObj {
     /// bounds-checks `i`.
     pub fn struct_elem(&self, i: usize) -> Option<(Vec<u8>, Vec<Value>)> {
         let (c, l) = self.struct_cells()?;
+        if self.inline_union_layout().is_some() {
+            let mut bytes = vec![0; l.size];
+            self.read_inline_union(i, &mut bytes).ok()?;
+            return Some((bytes, Vec::new()));
+        }
         Some(struct_blob::read(&c, i * l.size, l.size, &l.ref_offsets))
     }
 
@@ -168,6 +173,10 @@ impl ArrayObj {
     pub fn write_struct_elem(
         &self, i: usize, src_bytes: &[u8], src_refs: &[Value], barrier: &mut dyn FnMut(&Value),
     ) -> anyhow::Result<()> {
+        if self.inline_union_layout().is_some() {
+            anyhow::ensure!(src_refs.is_empty(), "reference payload for a reference-free union");
+            return self.write_inline_union(i, src_bytes);
+        }
         if let Some((c, l)) = self.struct_cells() {
             struct_blob::write(&c, i * l.size, l.size, src_bytes, src_refs, &l.ref_offsets, barrier)?;
         }

@@ -221,7 +221,7 @@ impl OpError {
 
 /// 数组元素类型在消息里的写法：未知（Rust 合成的数组）写 `object`。
 fn elem_label(elem: &str) -> &str {
-    if elem.is_empty() { "object" } else { elem }
+    if elem.is_empty() { "object" } else { elem.strip_prefix("$union.").unwrap_or(elem) }
 }
 
 /// 文本与 [`OpError::into_anyhow`] 相同：`<类名>: <消息>`（builtin 错误被折成字符串的出口看到的就是它）。

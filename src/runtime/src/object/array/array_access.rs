@@ -38,7 +38,11 @@ impl ArrayObj {
             ArrayMode::Struct => {
                 let (cells, layout) = self.struct_cells()
                     .ok_or_else(|| anyhow::anyhow!("missing struct array layout"))?;
-                struct_blob::clear_range(&cells, index, length, layout.size, &layout.ref_offsets)?;
+                if self.inline_union_layout().is_some() {
+                    self.clear_inline_unions(index, length, layout.size)?;
+                } else {
+                    struct_blob::clear_range(&cells, index, length, layout.size, &layout.ref_offsets)?;
+                }
             }
             _ => return Ok(false),
         }
@@ -111,6 +115,10 @@ impl ArrayObj {
                 }
             }
             (ArrayMode::Struct, ArrayMode::Struct) => {
+                if let Some(layout) = self.inline_union_layout() {
+                    self.copy_inline_unions(src, si, di, n, layout.size);
+                    return;
+                }
                 let same = match (src.struct_layout_ref(), self.struct_layout_ref()) {
                     (Some(a), Some(b)) => a.size == b.size && a.ref_offsets == b.ref_offsets,
                     _ => false,
@@ -152,11 +160,17 @@ impl ArrayObj {
                 let c = self.cells();
                 dir(&|k| ref_word::store_word_recorded(&c, (di + k) * REF_STRIDE, c.load_ref_word((si + k) * REF_STRIDE)));
             }
-            ArrayMode::Struct => dir(&|k| {
-                if let Some((b, r)) = self.struct_elem(si + k) {
-                    let _ = self.write_struct_elem(di + k, &b, &r, &mut |_| {});
+            ArrayMode::Struct => {
+                if let Some(layout) = self.inline_union_layout() {
+                    self.copy_inline_unions(self, si, di, n, layout.size);
+                    return;
                 }
-            }),
+                dir(&|k| {
+                    if let Some((b, r)) = self.struct_elem(si + k) {
+                        let _ = self.write_struct_elem(di + k, &b, &r, &mut |_| {});
+                    }
+                })
+            }
             // MIXED / FROZEN walk element-wise in the direction that does not clobber elements
             // yet to be read (`set_boxed` SATB-records each overwrite).
             _ => dir(&|k| { let v = self.get_boxed(si + k); self.set_boxed(di + k, v); }),

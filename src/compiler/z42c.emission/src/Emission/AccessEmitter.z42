@@ -12,7 +12,7 @@ using Z42.Symbols;
 using Z42.IR;
 using Z42.IR.BinaryFormat;
 
-public sealed class AccessEmitter {
+public sealed partial class AccessEmitter {
     private EmitContext _ctx;
     private ExprEmitter _ee;   // 反向引用：递归 .Emit() + struct 谓词/cast 链/tag 映射委回 ExprEmitter
 
@@ -95,7 +95,7 @@ public sealed class AccessEmitter {
                 }
                 // add-struct-heap-inline (P3b)：裸内联 struct 字段整写（`pt = other`，class C 方法内）→ 逐叶子
                 // 把 val(blob) 拷进 this 对象 struct_bytes@off（值语义）。裸叶子 `pt.x=v` 由 _emitBlobFieldSet 处理。
-                if (this._isOwnerInlineField(tid)) {
+                if (!PackedUnion.HasReferenceFreeStorage(tid.Type()) && this._isOwnerInlineField(tid)) {
                     // 形态 ②：struct 名取自内联布局（静态类型可能是型参，取不出）
                     string fs = this._ctx.Gen.Layouts.InlineFieldTypeName(this._ctx.OwnerClassName, tid.Name);
                     if (fs == "") { fs = this._ee._blobStructName(tid.Type()); }
@@ -125,7 +125,7 @@ public sealed class AccessEmitter {
             }
             // add-struct-heap-inline (P3b)：写整个**内联 struct 字段**进堆对象（`c.pt = other`）→ 逐叶子把
             // val(blob) 拷进对象 struct_bytes@off（值语义）。叶子写 `c.pt.x=v` 由上面 blob-target 分支处理。
-            if (this._isInlineStructFieldRoot(tm)) {
+            if (!PackedUnion.HasReferenceFreeStorage(tm.Type()) && this._isInlineStructFieldRoot(tm)) {
                 string fs = this._ctx.Gen.Layouts.InlineFieldTypeName(this._ee._classLayoutName(tm.Target.Type()), tm.MemberName);
                 if (fs == "") { fs = this._ee._blobStructName(tm.Type()); }
                 TypedReg objReg = this._ee.Emit(tm.Target);
@@ -170,7 +170,7 @@ public sealed class AccessEmitter {
             // add-struct-array-codegen (P3b follow-up)：`arr[i] = p`（value-struct 数组整元素写）→ 取元素
             // 句柄（StructRefHeap）逐叶子把 p 拷进元素字节区（值语义）。ArraySet 的 set_boxed 收不了 arena
             // StructRef 源。叶子写 `arr[i].x=v` 走上面 BoundMember 分支（_emitBlobFieldSet + 句柄根）。
-            string fs = this._ee._arrayElementBlobName(ti.Type());
+            string fs = PackedUnion.HasReferenceFreeStorage(ti.Type()) ? "" : this._ee._arrayElementBlobName(ti.Type());
             if (fs != "") {
                 TypedReg h = this._emitArrayElemHandle(ti);
                 this._copyRegion(val, this._ctx.QualifyLayout(fs), new int[0], h, this._ctx.QualifyLayout(fs), new int[0], fs);
@@ -188,6 +188,8 @@ public sealed class AccessEmitter {
     internal TypedReg _emitMember(BoundMember m) {
         // fix-generic-property-return：返回类级型参的属性读走方法调用的返回协议（拆箱 / 特化 sret）。
         if (m.InstGetter != null) { return this._ee.Emit(m.InstGetter); }
+        TypedReg unionValue = this._tryReadUnionField(m.Target, m.MemberName, m.Type());
+        if (unionValue != null) { return unionValue; }
         // arr.Length（PS-2/SA）：C# 字节实证 = FieldGet obj, "Length"（非 ArrayLen 指令；VM 对数组特判）
         if (m.MemberName == "Length" && (m.Target.Type() is Z42ArrayType)) {
             TypedReg arr0 = this._ee.Emit(m.Target);
@@ -782,6 +784,8 @@ public sealed class AccessEmitter {
 
     // arr[i] 读 → array_get（元素类型）。
     internal TypedReg _emitIndex(BoundIndex idx) {
+        TypedReg unionValue = this._tryReadWideUnionElement(idx);
+        if (unionValue != null) { return unionValue; }
         // add-struct-array-codegen (P3b follow-up): standalone `arr[i]` for a **value-struct
         // array** → ArrayGet yields a `StructRefHeap` element handle; copy it out to a fresh
         // local blob (value semantics: the read is an independent snapshot, not an alias into
@@ -831,6 +835,8 @@ public sealed class AccessEmitter {
             return pDst;
         }
         if (this._ctx.Fields.ContainsKeyHashed(id.Name, _h)) {
+            TypedReg unionValue = this._tryReadUnionField(null, id.Name, id.Type());
+            if (unionValue != null) { return unionValue; }
             // A-use：所属类是 blob 值 struct → 裸字段（`this.f`）读翻转为 StructFieldGetPrim(reg0=句柄)。
             if (this._ctx.OwnerStructName != "") {
                 // fix-struct-autoprop-layout-name：裸 auto-prop（读 `X`，无 this.）的存储是 __prop_X。
