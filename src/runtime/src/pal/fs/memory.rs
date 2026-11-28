@@ -5,9 +5,10 @@
 //!
 //! Read / glob / exists are the compile-critical ops (DepScan). Write ops mutate the map;
 //! `write_atomic` degrades to a plain write (no fsync in memory). Directory semantics are
-//! path-prefix derived: a directory "exists" iff some file lives under it.
+//! derived from complete path components: a directory exists when a file lives under it.
 use parking_lot::RwLock;
-use std::collections::HashMap;
+use std::borrow::Cow;
+use std::collections::{BTreeSet, HashMap};
 use std::io::{Error, ErrorKind, Result};
 
 use super::{glob_match, Vfs};
@@ -27,58 +28,97 @@ impl MemoryFs {
     /// Add (or replace) a virtual file. The embedder's way to populate the store before
     /// any VM runs on it.
     pub fn mount(&self, path: &str, bytes: Vec<u8>) {
-        self.files.write().insert(path.to_string(), bytes);
+        self.files.write().insert(file_key(path).into_owned(), bytes);
     }
+}
+
+fn file_key(path: &str) -> Cow<'_, str> {
+    // Mount paths use `/`. Windows Path::join may produce `\` for the same path.
+    if cfg!(windows) && path.contains('\\') {
+        return Cow::Owned(path.replace('\\', "/"));
+    }
+    Cow::Borrowed(path)
+}
+
+fn directory_prefix(dir: &str) -> String {
+    let mut prefix = file_key(dir).into_owned();
+    if !prefix.is_empty() {
+        prefix.truncate(prefix.trim_end_matches('/').len());
+        prefix.push('/');
+    }
+    prefix
+}
+
+fn descendant<'a>(file: &'a str, prefix: &str) -> Option<&'a str> {
+    let path = file.strip_prefix(prefix)?;
+    // Keep the empty (relative) directory separate from the absolute root `/`.
+    if cfg!(windows) && prefix.is_empty() && std::path::Path::new(path).has_root() {
+        return None;
+    }
+    (!path.is_empty() && !path.starts_with('/')).then_some(path)
+}
+
+fn child_names<'a>(files: &'a HashMap<String, Vec<u8>>, prefix: &str) -> BTreeSet<&'a str> {
+    files.keys()
+        .filter_map(|path| descendant(path, prefix))
+        .map(|path| path.split_once('/').map_or(path, |(name, _)| name))
+        .collect()
+}
+
+fn not_mounted(path: &str) -> Error {
+    Error::new(ErrorKind::NotFound, format!("vfs: `{path}` not mounted"))
 }
 
 impl Vfs for MemoryFs {
     fn read(&self, path: &str) -> Result<Vec<u8>> {
         self.files
             .read()
-            .get(path)
+            .get(file_key(path).as_ref())
             .cloned()
-            .ok_or_else(|| Error::new(ErrorKind::NotFound, format!("vfs: `{path}` not mounted")))
+            .ok_or_else(|| not_mounted(path))
     }
     fn read_to_string(&self, path: &str) -> Result<String> {
         let bytes = self.read(path)?;
         String::from_utf8(bytes).map_err(|e| Error::new(ErrorKind::InvalidData, format!("vfs: `{path}` not utf8: {e}")))
     }
     fn write(&self, path: &str, bytes: &[u8]) -> Result<()> {
-        self.files.write().insert(path.to_string(), bytes.to_vec());
+        self.mount(path, bytes.to_vec());
         Ok(())
     }
     fn append(&self, path: &str, bytes: &[u8]) -> Result<()> {
-        self.files.write().entry(path.to_string()).or_default().extend_from_slice(bytes);
+        self.files.write().entry(file_key(path).into_owned()).or_default().extend_from_slice(bytes);
         Ok(())
     }
     fn exists(&self, path: &str) -> bool {
-        self.files.read().contains_key(path)
+        self.files.read().contains_key(file_key(path).as_ref())
     }
     fn is_dir(&self, dir: &str) -> bool {
-        let d = dir.trim_end_matches('/');
-        self.files.read().keys().any(|k| match k.strip_prefix(d) {
-            Some(rest) => rest.starts_with('/'),
-            None => false,
-        })
+        let prefix = directory_prefix(dir);
+        self.files.read().keys().any(|path| descendant(path, &prefix).is_some())
     }
     fn remove_file(&self, path: &str) -> Result<()> {
-        self.files.write().remove(path);
+        self.files.write().remove(file_key(path).as_ref());
         Ok(())
     }
-    fn remove_dir(&self, dir: &str, _recursive: bool) -> Result<()> {
-        let d = dir.trim_end_matches('/');
-        let prefix = format!("{d}/");
-        self.files.write().retain(|k, _| !k.starts_with(&prefix));
+    fn remove_dir(&self, dir: &str, recursive: bool) -> Result<()> {
+        let prefix = directory_prefix(dir);
+        let mut files = self.files.write();
+        if recursive {
+            files.retain(|path, _| descendant(path, &prefix).is_none());
+        } else if files.keys().any(|path| descendant(path, &prefix).is_some()) {
+            return Err(Error::new(ErrorKind::DirectoryNotEmpty, format!("vfs: `{dir}` is not empty")));
+        }
         Ok(())
     }
     fn copy(&self, src: &str, dst: &str) -> Result<()> {
-        let bytes = self.read(src)?;
-        self.write(dst, &bytes)
+        self.mount(dst, self.read(src)?);
+        Ok(())
     }
     fn rename(&self, src: &str, dst: &str) -> Result<()> {
-        let bytes = self.read(src)?;
-        self.write(dst, &bytes)?;
-        self.remove_file(src)
+        let mut files = self.files.write();
+        let bytes = files.remove(file_key(src).as_ref()).ok_or_else(|| not_mounted(src))?;
+        files.insert(file_key(dst).into_owned(), bytes);
+        Ok(())
     }
     fn create_dir_all(&self, _path: &str) -> Result<()> {
         // Directories are implicit (a prefix of a file key); nothing to allocate.
@@ -90,34 +130,22 @@ impl Vfs for MemoryFs {
         Ok(0)
     }
     fn file_len(&self, path: &str) -> Result<u64> {
-        Ok(self.read(path)?.len() as u64)
+        self.files
+            .read()
+            .get(file_key(path).as_ref())
+            .map(|bytes| bytes.len() as u64)
+            .ok_or_else(|| not_mounted(path))
     }
     fn read_dir(&self, dir: &str) -> Result<Vec<String>> {
-        let d = dir.trim_end_matches('/');
-        let mut names: Vec<String> = Vec::new();
-        for k in self.files.read().keys() {
-            if let Some(rest) = k.strip_prefix(d) {
-                let name = rest.strip_prefix('/').unwrap_or(rest);
-                if !name.is_empty() && !name.contains('/') {
-                    names.push(name.to_string());
-                }
-            }
-        }
-        Ok(names)
+        let prefix = directory_prefix(dir);
+        Ok(child_names(&self.files.read(), &prefix).into_iter().map(str::to_owned).collect())
     }
     fn glob(&self, dir: &str, pattern: &str) -> Result<Vec<String>> {
-        let d = dir.trim_end_matches('/');
-        let mut hits: Vec<String> = Vec::new();
-        for k in self.files.read().keys() {
-            if let Some(rest) = k.strip_prefix(d) {
-                let name = rest.strip_prefix('/').unwrap_or(rest);
-                if !name.is_empty() && !name.contains('/') && glob_match(pattern, name) {
-                    hits.push(k.clone());
-                }
-            }
-        }
-        hits.sort();
-        Ok(hits)
+        let prefix = directory_prefix(dir);
+        Ok(child_names(&self.files.read(), &prefix).into_iter()
+            .filter(|name| glob_match(pattern, name))
+            .map(|name| format!("{prefix}{name}"))
+            .collect())
     }
     /// No fsync in memory — a plain write is already all-or-nothing under the map lock.
     fn write_atomic(&self, path: &str, bytes: &[u8]) -> Result<()> {

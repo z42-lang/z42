@@ -30,6 +30,8 @@ fn directories_are_derived_from_file_prefixes() {
     fs.mount("/libs/a.zpkg", Vec::new());
     fs.mount("/libs/b.zpkg", Vec::new());
     fs.mount("/libs/sub/c.zbc", Vec::new());
+    fs.mount("/libs/sub/d.zbc", Vec::new());
+    fs.mount("/libs-backup.zpkg", Vec::new());
     assert!(fs.is_dir("/libs") && fs.is_dir("/libs/") && fs.is_dir("/libs/sub"));
     assert!(!fs.is_dir("/libs/a.zpkg") && !fs.is_dir("/nope"));
     fs.create_dir_all("/empty").unwrap();
@@ -37,11 +39,43 @@ fn directories_are_derived_from_file_prefixes() {
 
     let mut names = fs.read_dir("/libs").unwrap();
     names.sort();
-    assert_eq!(names, vec!["a.zpkg", "b.zpkg"], "direct children only");
+    assert_eq!(names, vec!["a.zpkg", "b.zpkg", "sub"], "direct children only");
     assert_eq!(fs.glob("/libs/", "*.zpkg").unwrap(), vec!["/libs/a.zpkg", "/libs/b.zpkg"]);
+    assert_eq!(fs.glob("/libs", "*sub").unwrap(), vec!["/libs/sub"]);
+
+    let error = fs.remove_dir("/libs/sub", false).unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::DirectoryNotEmpty);
+    assert!(fs.exists("/libs/sub/c.zbc"));
 
     fs.remove_dir("/libs/sub", true).unwrap();
     assert!(!fs.exists("/libs/sub/c.zbc") && fs.exists("/libs/a.zpkg"));
+    fs.remove_dir("/libs", true).unwrap();
+    assert!(fs.exists("/libs-backup.zpkg"));
+}
+
+#[test]
+fn relative_and_absolute_roots_are_distinct() {
+    let fs = MemoryFs::new();
+    fs.mount("/abs/a", Vec::new());
+    fs.mount("rel/a", Vec::new());
+    assert_eq!(fs.read_dir("/").unwrap(), vec!["abs"]);
+    assert_eq!(fs.read_dir("").unwrap(), vec!["rel"]);
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_paths_and_mounts_share_keys() {
+    let fs = MemoryFs::new();
+    fs.mount("/app/main.zpkg", vec![1]);
+    fs.append(r"\app\main.zpkg", &[2]).unwrap();
+    fs.rename(r"\app\main.zpkg", "/app/main.zpkg").unwrap();
+    assert_eq!(fs.read("/app/main.zpkg").unwrap(), vec![1, 2]);
+    assert_eq!(fs.file_len(r"\app\main.zpkg").unwrap(), 2);
+    assert!(fs.exists(r"\app\main.zpkg"));
+    assert!(fs.is_dir(r"\app\"));
+    assert_eq!(fs.glob(r"\app\", "*.zpkg").unwrap(), vec!["/app/main.zpkg"]);
+    fs.remove_dir(r"\app\", true).unwrap();
+    assert!(!fs.exists("/app/main.zpkg"));
 }
 
 #[test]

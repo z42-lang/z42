@@ -257,3 +257,23 @@ fn memory_fs_missing_file_is_file_not_found() {
     assert_eq!(extract_strings(names), vec!["a.bin", "b.bin"]);
     assert_eq!(exec_builtin_value(&c, "__file_get_size", &[str_v("/d/b.bin")]).unwrap(), Value::I64(2));
 }
+
+#[test]
+fn memory_fs_recursive_directory_listing_descends_from_the_absolute_root() {
+    let fs = std::sync::Arc::new(crate::pal::fs::MemoryFs::new());
+    fs.mount("/app/data/a.bin", vec![1]);
+    fs.mount("relative.bin", vec![2]);
+    let c = VmContext::with_vfs(fs);
+    let names = exec_builtin_value(&c, "__dir_enumerate_recursive", &[str_v("/")]).unwrap();
+    assert_eq!(extract_strings(names), vec!["app", "app/data", "app/data/a.bin"]);
+}
+
+#[cfg(windows)]
+#[test]
+fn memory_fs_recursive_directory_listing_from_a_windows_drive_root() {
+    let fs = std::sync::Arc::new(crate::pal::fs::MemoryFs::new());
+    fs.mount("C:/app/data/a.bin", vec![1]);
+    let c = VmContext::with_vfs(fs);
+    let names = exec_builtin_value(&c, "__dir_enumerate_recursive", &[str_v(r"C:\")]).unwrap();
+    assert_eq!(extract_strings(names), vec!["app", "app/data", "app/data/a.bin"]);
+}
