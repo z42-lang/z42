@@ -1,12 +1,14 @@
 namespace Z42.Emission;
 
 using Z42.IR;
+using Z42.IR.BinaryFormat;
 using Z42.Semantics;
 using Z42.Symbols;
 
 public sealed partial class ExprEmitter {
     internal TypedReg _emitUnionConstruction(BoundCall call) {
         UnionStorageLayout layout = UnionCaseSymbol.UnionOf(call.Type()).UnionStorage;
+        if (layout.Size > 8) { return this._emitWideUnion(call, layout); }
         UnionPayloadLayout branch = layout.Cases[call.UnionCase.Tag];
         TypedReg packed = this._unionI64((long)call.UnionCase.Tag);
         for (int i = 0; i < call.ArgCount; i = i + 1) {
@@ -24,16 +26,24 @@ public sealed partial class ExprEmitter {
         return packed;
     }
 
-    internal TypedReg _emitUnionTagMatch(TypedReg packed, UnionStorageLayout layout, int tag) {
-        TypedReg actual = this._unionMask(packed, layout.TagBytes);
+    internal TypedReg _emitUnionTagMatch(TypedReg packed, Z42Type type, UnionStorageLayout layout, int tag) {
+        TypedReg word = layout.Size > 8 ? this._readUnionCell(packed, type, layout, 0) : packed;
+        TypedReg actual = this._unionMask(word, layout.TagBytes);
         TypedReg result = this._ctx.Alloc(IrType.Bool);
         this._ctx.Emit(new EqInstr(result, actual, this._unionI64((long)tag)));
         return result;
     }
 
-    internal TypedReg _emitUnionField(TypedReg packed, int payloadOffset, UnionStorageField field) {
+    internal TypedReg _emitUnionField(TypedReg packed, Z42Type type, UnionStorageLayout layout, UnionStorageField field) {
+        int offset = layout.PayloadOffset + field.Offset;
+        TypedReg word = packed;
+        if (layout.Size > 8) {
+            int width = layout.CellWidth();
+            word = this._readUnionCell(packed, type, layout, offset / width);
+            offset = offset % width;
+        }
         TypedReg shifted = this._ctx.Alloc(IrType.I64);
-        this._ctx.Emit(new ShrInstr(shifted, packed, this._unionI64((long)(payloadOffset + field.Offset) * 8L)));
+        this._ctx.Emit(new ShrInstr(shifted, word, this._unionI64((long)offset * 8L)));
         int tag = this._ctx.ToIrType(field.Type);
         TypedReg result = this._ctx.Alloc(tag);
         if (tag == IrType.Bool) {
@@ -44,6 +54,81 @@ public sealed partial class ExprEmitter {
             this._ctx.Emit(new ConvertInstr(result, shifted));
         }
         return result;
+    }
+
+    private TypedReg _emitWideUnion(BoundCall call, UnionStorageLayout layout) {
+        UnionPayloadLayout branch = layout.Cases[call.UnionCase.Tag];
+        int width = layout.CellWidth();
+        TypedReg[] cells = new TypedReg[layout.CellCount()];
+        cells[0] = this._unionI64((long)call.UnionCase.Tag);
+        for (int i = 0; i < call.ArgCount; i = i + 1) {
+            int slot = call.UnionArgumentOrder[i];
+            UnionStorageField field = branch.Fields[slot];
+            int offset = layout.PayloadOffset + field.Offset;
+            TypedReg value = this._unionPayloadBits(this.Emit(call.Args[slot]));
+            int at = offset / width;
+            int shift = (offset % width) * 8;
+            TypedReg bits = this._unionMask(value, field.Size);
+            if (shift != 0) {
+                TypedReg shifted = this._ctx.Alloc(IrType.I64);
+                this._ctx.Emit(new ShlInstr(shifted, bits, this._unionI64((long)shift)));
+                bits = shifted;
+            }
+            if (cells[at] != null) {
+                TypedReg joined = this._ctx.Alloc(IrType.I64);
+                this._ctx.Emit(new BitOrInstr(joined, cells[at], bits));
+                bits = joined;
+            }
+            cells[at] = bits;
+        }
+        TypedReg storage = this._allocWideUnion(call.Type(), layout);
+        this._writeUnionCells(storage, call.Type(), layout, cells);
+        return storage;
+    }
+
+    private void _writeUnionCells(TypedReg storage, Z42Type type, UnionStorageLayout layout, TypedReg[] cells) {
+        string name = PackedUnion.StorageName(UnionCaseSymbol.UnionOf(type).Fqn());
+        int kind = Tag.FromName(layout.CellTypeName());
+        TypedReg zero = null;
+        for (int i = 0; i < cells.Length; i = i + 1) {
+            TypedReg value = cells[i];
+            if (value == null) {
+                if (zero == null) { zero = this._unionI64(0L); }
+                value = zero;
+            }
+            this._ctx.Emit(new StructFieldSetPrimInstr(storage, name, new int[] { i }, kind, value));
+        }
+    }
+
+    private TypedReg _readUnionCell(TypedReg storage, Z42Type type, UnionStorageLayout layout, int cell) {
+        string name = PackedUnion.StorageName(UnionCaseSymbol.UnionOf(type).Fqn());
+        TypedReg result = this._ctx.Alloc(IrType.I64);
+        this._ctx.Emit(new StructFieldGetPrimInstr(result, storage, name, new int[] { cell }, Tag.FromName(layout.CellTypeName())));
+        return result;
+    }
+
+    internal TypedReg _allocWideUnion(Z42Type type, UnionStorageLayout layout) {
+        string name = PackedUnion.StorageName(UnionCaseSymbol.UnionOf(type).Fqn());
+        TypedReg slot = this._ctx.Alloc(IrType.Ref);
+        this._ctx.Emit(new StructAllocInstr(slot, name, layout.Size));
+        return slot;
+    }
+
+    internal TypedReg _emitMatchSubject(BoundExpr expr) {
+        return this._snapshotUnion(this.Emit(expr), expr.Type());
+    }
+
+    internal TypedReg _snapshotUnion(TypedReg value, Z42Type type) {
+        if (UnionCaseSymbol.UnionOf(type) == null) { return value; }
+        UnionStorageLayout layout = UnionStorageLayout.WideFor(type);
+        if (layout != null) {
+            TypedReg slot = this._allocWideUnion(type, layout);
+            this._ctx.Emit(new StructCopyInstr(slot, value, layout.Size));
+            return slot;
+        }
+        TypedReg copy = this._ctx.Alloc(IrType.I64);
+        this._ctx.Emit(new CopyInstr(copy, value));
+        return copy;
     }
 
     private TypedReg _unionPayloadBits(TypedReg value) {
@@ -67,6 +152,7 @@ public sealed partial class ExprEmitter {
     }
 
     private TypedReg _unionMask(TypedReg word, int bytes) {
+        if (bytes == 8) { return word; }
         long mask = (1L << (bytes * 8)) - 1L;
         TypedReg result = this._ctx.Alloc(IrType.I64);
         this._ctx.Emit(new BitAndInstr(result, word, this._unionI64(mask)));

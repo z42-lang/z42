@@ -30,6 +30,8 @@ int Read(Result value, bool ready) {
     };
 }
 
+int ReadBoth(Result first, Result second) => Read(first, true) + Read(second, true);
+
 void Main() {
     var value = Copy(Result.Value(-2147483648));
     var other = value;
@@ -47,4 +49,6 @@ void Main() {
     var pair = Result.Pair(right: Counter.Next(), left: Counter.Next());
     Assert.Equal(21, Read(pair, true));
     Assert.Equal(2, Counter.Calls);
+    var earlier = Result.Value(10);
+    Assert.Equal(17, ReadBoth(earlier, earlier = Result.End));
 }

@@ -1,0 +1,137 @@
+union RangeResult {
+    Range(int start, int end),
+    End,
+    Flag(bool),
+}
+
+union LongResult {
+    Value(long),
+    Unsigned(ulong),
+    End,
+}
+
+union ByteResult {
+    Value(byte, byte, byte, byte, byte, byte, byte, byte),
+    End,
+}
+
+union ShortResult {
+    Value(short, short, short, short),
+    End,
+}
+
+class Counter {
+    public static int Calls = 0;
+    public static int Next() {
+        Counter.Calls = Counter.Calls + 1;
+        return Counter.Calls;
+    }
+}
+
+class Service {
+    public static int Sum = RangeResult.Range(20, 22) switch {
+        RangeResult.Range(a, b) => a + b,
+        _ => 0,
+    };
+
+    internal Service(RangeResult value) {
+        value = RangeResult.End;
+        Assert.True(value is RangeResult.End);
+    }
+
+    internal RangeResult Replace(RangeResult value) {
+        value = RangeResult.End;
+        return value;
+    }
+}
+
+RangeResult Copy(RangeResult value) => value;
+
+RangeResult Replace(RangeResult value) {
+    value = RangeResult.End;
+    return value;
+}
+
+RangeResult ReturnThroughFinally(RangeResult value) {
+    try {
+        return value;
+    } finally {
+        value = RangeResult.End;
+    }
+}
+
+int Read(RangeResult value) {
+    return value switch {
+        RangeResult.Range(_, _) if (value = RangeResult.End) is RangeResult.Flag(true) => -1,
+        RangeResult.Range(a, b) => a + b,
+        RangeResult.End => 0,
+        RangeResult.Flag(true) => 1,
+        RangeResult.Flag(false) => 2,
+    };
+}
+
+int Compare(RangeResult a, RangeResult b) {
+    return Read(a) * 10 + Read(b);
+}
+
+int ReadStatement(RangeResult value) {
+    switch (value) {
+        case RangeResult.Range(a, b): return a + b;
+        case RangeResult.End: return 0;
+        case RangeResult.Flag(_): return 1;
+    }
+    return -1;
+}
+
+void TestSmallCells() {
+    var bytes = ByteResult.Value(0, 1, 2, 3, 4, 5, 6, 255);
+    Assert.True(bytes is ByteResult.Value(0, 1, 2, 3, 4, 5, 6, 255));
+    var shorts = ShortResult.Value(-32768, -1, 0, 32767);
+    Assert.True(shorts is ShortResult.Value(-32768, -1, 0, 32767));
+}
+
+void Main() {
+    TestSmallCells();
+    Assert.True(default(RangeResult) is RangeResult.Range(0, 0));
+    Assert.True(default(LongResult) is LongResult.Value(0L));
+    Assert.True(LongResult.Value(-9223372036854775807L) is LongResult.Value(-9223372036854775807L));
+    Assert.True(LongResult.Unsigned(18446744073709551615UL) is LongResult.Unsigned(18446744073709551615UL));
+    var ordered = RangeResult.Range(end: Counter.Next(), start: Counter.Next());
+    Assert.True(ordered is RangeResult.Range(2, 1));
+    var source = Copy(RangeResult.Range(-2147483648, 2147483647));
+    RangeResult assigned;
+    assigned = source;
+    var kept = source;
+    Assert.True(Replace(source) is RangeResult.End);
+    Assert.True(ReturnThroughFinally(source) is RangeResult.Range(-2147483648, 2147483647));
+    Assert.Equal(-1, Read(source));
+    Assert.Equal(-1, ReadStatement(source));
+    var service = new Service(source);
+    Assert.Equal(42, Service.Sum);
+    Assert.True(service.Replace(source) is RangeResult.End);
+    Assert.True(source is RangeResult.Range(-2147483648, 2147483647));
+    if (source is RangeResult binding) {
+        binding = RangeResult.End;
+        Assert.True(binding is RangeResult.End);
+    }
+    Assert.True(source is RangeResult.Range(-2147483648, 2147483647));
+    source = RangeResult.End;
+    Assert.True(kept is RangeResult.Range(-2147483648, 2147483647));
+    Assert.True(assigned is RangeResult.Range(-2147483648, 2147483647));
+    Assert.Equal(30, Compare(ordered, ordered = RangeResult.End));
+    Assert.Equal(1, Read(RangeResult.Flag(true)));
+    Assert.Equal(2, Read(RangeResult.Flag(false)));
+    int sum = 0;
+    for (int i = 0; i < 128; i = i + 1) {
+        {
+            var current = Copy(i % 2 == 0 ? RangeResult.Range(i, 1) : RangeResult.End);
+            sum = sum + Read(current);
+        }
+        {
+            int current;
+            current = 0;
+            sum = sum + current;
+        }
+    }
+    Assert.Equal(4096, sum);
+}

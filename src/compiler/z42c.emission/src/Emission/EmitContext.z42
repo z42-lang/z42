@@ -10,11 +10,13 @@ using Z42.Symbols;
 using Z42.Core;
 using Z42.IR;
 using Z42.Optimization;
+using Std.Collections;
 
 public sealed class EmitContext {
     public SymbolTable Symbols;
     public IrGen       Gen;          // 字符串 intern
     public StrMap      Locals;       // name → TypedReg（object 下行）
+    private List<IrInstr> _entryValueAllocs;
     public StrMap      Fields;       // 实例方法自身字段名集合（裸 ident → field_get reg0）
     public string      OwnerStructName; // add-struct-value-semantics A-use：当前方法所属类若为 **blob 值 struct**，
                                         // 存其短名（供 `this.x`/裸字段 access 翻转到 StructFieldGet/SetPrim）；否则 ""。
@@ -675,6 +677,11 @@ public sealed class EmitContext {
     }
 
     public void Emit(IrInstr ins) {
+        if (ins is StructAllocInstr && PackedUnion.IsStorageName((ins as StructAllocInstr).TypeName)) {
+            if (this._entryValueAllocs == null) { this._entryValueAllocs = new List<IrInstr>(); }
+            this._entryValueAllocs.Add(ins);
+            return;
+        }
         if (this.CurCount == this.Cur.Length) {
             IrInstr[] bigger = new IrInstr[this.Cur.Length * 2];
             int i = 0; while (i < this.CurCount) { bigger[i] = this.Cur[i]; i = i + 1; }
@@ -682,6 +689,29 @@ public sealed class EmitContext {
         }
         this.Cur[this.CurCount] = ins;
         this.CurCount = this.CurCount + 1;
+    }
+
+    internal bool IsWideUnionSlot(TypedReg reg) {
+        if (reg == null || this._entryValueAllocs == null) { return false; }
+        for (int i = 0; i < this._entryValueAllocs.Count; i = i + 1) {
+            var allocation = this._entryValueAllocs[i] as StructAllocInstr;
+            if (allocation.Dst.Id == reg.Id) { return true; }
+        }
+        return false;
+    }
+
+    internal void PrependValueSlots() {
+        if (this._entryValueAllocs == null) { return; }
+        IrBlock entry = this.Blocks[0];
+        int slots = this._entryValueAllocs.Count;
+        IrInstr[] instructions = new IrInstr[entry.InstrCount + slots];
+        for (int i = 0; i < slots; i = i + 1) { instructions[i] = this._entryValueAllocs[i]; }
+        for (int i = 0; i < entry.InstrCount; i = i + 1) { instructions[slots + i] = entry.Instrs[i]; }
+        entry.Instrs = instructions;
+        entry.InstrCount = instructions.Length;
+        for (int i = 0; i < this.LineCount; i = i + 1) {
+            if (this.Lines[i].BlockIdx == 0) { this.Lines[i].InstrIdx = this.Lines[i].InstrIdx + slots; }
+        }
     }
 
     public void StartBlock(string label) {
@@ -737,7 +767,9 @@ public sealed class EmitContext {
     // Z42Type → IrType 标签（z42c.ir 是无依赖叶子不能引用 Z42Type，故映射在 semantics 侧）。
     public int ToIrType(Z42Type t) {
         if (t is Z42VoidType) { return IrType.Void; }
-        if (t is Z42ClassType && (t as Z42ClassType).UnionCases != null) { return IrType.I64; }
+        if (t is Z42ClassType && (t as Z42ClassType).UnionCases != null) {
+            return UnionStorageLayout.WideFor(t) == null ? IrType.I64 : IrType.Ref;
+        }
         // unify-value-types Phase 1（2.2 双路）：翻转后内建（int→Int32 phantom struct）以 Z42ClassType
         // 承载——按名归一到内建 IR 标签，须在通用 ClassType→Ref 之前。IsBuiltin 覆盖 Scalar 值类型 +
         // string/object；IrTag 保留 string→Str、object→Ref（与历史 PrimTag 逐字节同义）。翻转前无内建名

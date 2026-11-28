@@ -30,7 +30,10 @@ public sealed class TypeOpEmitter {
         bool targetUnion = UnionCaseSymbol.UnionOf(e.TargetType) != null;
         if (subjectUnion || targetUnion) {
             bool matches = subjectUnion && targetUnion && e.E.Type().IsAssignableTo(e.TargetType);
-            if (e.BindName != "") { this._ctx.Locals.Put(e.BindName, obj); }
+            if (e.BindName != "") {
+                TypedReg value = matches ? this._ee._snapshotUnion(obj, e.TargetType) : obj;
+                this._ctx.Locals.Put(e.BindName, value);
+            }
             TypedReg result = this._ctx.Alloc(IrType.Bool);
             this._ctx.Emit(new ConstBoolInstr(result, matches));
             return result;

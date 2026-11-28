@@ -12,6 +12,7 @@ namespace Z42.Symbols;
 public static class LayoutKey {
     // 类 → 布局键。基元包装类（Std.Int32 / Std.String / Std.Object …）→ 关键字。
     public static string OfClass(Z42ClassType ct) {
+        if (ct.UnionCases != null) { return ct.Fqn(); }
         int c = ct.PrimCode();
         if (c >= 0) { return PrimModel.KeywordOfCode(c); }
         return ct.Fqn();

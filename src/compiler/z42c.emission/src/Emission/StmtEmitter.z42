@@ -22,6 +22,11 @@ public sealed class StmtEmitter : IBoundStmtVisitor<Unit, Unit> {
 
     // ── IBoundStmtVisitor<Unit, Unit>（方法序 = 接口声明序）──
     public Unit VisitVarDecl(BoundVarDeclStmt v, Unit d) {
+        UnionStorageLayout unionLayout = UnionStorageLayout.WideFor(v.VarType);
+        if (unionLayout != null) {
+            this._emitWideUnionLocal(v, unionLayout);
+            return d;
+        }
         // add-const-keyword：登记局部 const 替换表（存储仍正常发射→引用全替换后 dead store 由 DCE 清；
         // 保留存储让被 lambda 捕获的 const 局部仍可 lift）。
         if (v.IsConst && v.ConstVal != null) { this._fe._ctx.ConstLocals.Put(v.Name, v.ConstVal); }
@@ -29,14 +34,16 @@ public sealed class StmtEmitter : IBoundStmtVisitor<Unit, Unit> {
         // 无 init（G8）：不发 IR——变量首次赋值时 _emitAssign 绑定寄存器（镜像 C# VisitVarDecl）。
         if (v.Init != null) {
             TypedReg r = this._fe._expr.Emit(v.Init);
+            TypedReg existing = this._fe._ctx.Locals.Get(v.Name) as TypedReg;
+            // 一次分配的 union 槽需要保留到帧退出，兄弟作用域的同名局部另用寄存器。
+            if (this._fe._ctx.IsWideUnionSlot(existing)) { existing = null; }
             // add-struct-value-semantics A-use：blob 值 struct 局部。new-rvalue（fresh 句柄）直接别名；
             // 否则（`P b = a`）新分配 blob + StructCopy（值语义，b 独立于 a）。重声明同名 → StructCopy
             // 进已有 blob。
             string bsn = this._fe._blobStructNameT(v.Init.Type());
             if (bsn != "") {
-                if (this._fe._ctx.Locals.ContainsKey(v.Name)) {
-                    TypedReg bdst = this._fe._ctx.Locals.Get(v.Name) as TypedReg;
-                    if (bdst.Id != r.Id) { this._fe._ctx.Emit(new StructCopyInstr(bdst, r, this._fe._gen.Layouts.StructSize(bsn))); }
+                if (existing != null) {
+                    if (existing.Id != r.Id) { this._fe._ctx.Emit(new StructCopyInstr(existing, r, this._fe._gen.Layouts.StructSize(bsn))); }
                 } else if (v.Init is BoundNew) {
                     this._fe._ctx.Locals.Put(v.Name, r);
                 } else {
@@ -52,8 +59,8 @@ public sealed class StmtEmitter : IBoundStmtVisitor<Unit, Unit> {
             // 如大 if-else 各分支 `XxxInstr i = ins as ...`）复用首次分配的寄存器，不新分配
             // → 寄存器数不随分支膨胀（否则 REGT 多出大量条目，z42c.ir WriteInstr 实证 +73B）。
             TypedReg dst;
-            if (this._fe._ctx.Locals.ContainsKey(v.Name)) {
-                dst = this._fe._ctx.Locals.Get(v.Name) as TypedReg;
+            if (existing != null) {
+                dst = existing;
             } else {
                 // 镜像 C# WriteBackName：var 专用寄存器 tag = init 表达式寄存器类型（r.Type），
                 // 非声明类型。差异仅在 init 为 Unknown（cast 链）而声明类型具体时显现（如
@@ -62,9 +69,28 @@ public sealed class StmtEmitter : IBoundStmtVisitor<Unit, Unit> {
                 this._fe._ctx.Locals.Put(v.Name, dst);
             }
             if (dst.Id != r.Id) { this._fe._ctx.Emit(new CopyInstr(dst, r)); }
+        } else if (this._fe._ctx.IsWideUnionSlot(this._fe._ctx.Locals.Get(v.Name) as TypedReg)) {
+            this._fe._ctx.Locals.Put(v.Name, this._fe._expr._emitConcreteDefault(v.VarType));
         }
         return d;
     }
+
+    private void _emitWideUnionLocal(BoundVarDeclStmt decl, UnionStorageLayout layout) {
+        var constructor = decl.Init as BoundCall;
+        TypedReg slot;
+        if (constructor != null && constructor.UnionCase != null) {
+            // A case constructor writes its entire slot on every execution.
+            slot = this._fe._expr.Emit(constructor);
+        } else {
+            slot = this._fe._expr._allocWideUnion(decl.VarType, layout);
+            if (decl.Init != null) {
+                TypedReg value = this._fe._expr.Emit(decl.Init);
+                this._fe._ctx.Emit(new StructCopyInstr(slot, value, layout.Size));
+            }
+        }
+        this._fe._ctx.Locals.Put(decl.Name, slot);
+    }
+
     public Unit VisitDeconstructDecl(BoundDeconstructDeclStmt dd, Unit d) {
         // 解构声明（模式匹配 B）：irrefutable 位置模式 → 逐字段 field_get + 绑定，无 IsInstance / 无失败分支。
         TypedReg subj = this._fe._expr.Emit(dd.Init);
@@ -83,9 +109,13 @@ public sealed class StmtEmitter : IBoundStmtVisitor<Unit, Unit> {
             // 否则 finally 若改到该局部会污染返回值。仅在 _finDepth>0 时插 Copy——无 finally
             // 路径字节不变（z42c 自身零 try/finally → 自举不动点不破）。
             if (this._fe._finDepth > 0) {
-                TypedReg keep = this._fe._ctx.Alloc(rv.Type);
-                this._fe._ctx.Emit(new CopyInstr(keep, rv));
-                rv = keep;
+                if (UnionCaseSymbol.UnionOf(ret.Value.Type()) != null) {
+                    rv = this._fe._expr._snapshotUnion(rv, ret.Value.Type());
+                } else {
+                    TypedReg keep = this._fe._ctx.Alloc(rv.Type);
+                    this._fe._ctx.Emit(new CopyInstr(keep, rv));
+                    rv = keep;
+                }
             }
         }
         this._emitPendingFinallys(0);   // return 退出整个函数 → 跑全部外层 finally（内→外）
@@ -226,7 +256,7 @@ public sealed class StmtEmitter : IBoundStmtVisitor<Unit, Unit> {
     // switch (subject) { case P: body; default: body }（镜像 C# EmitBoundSwitchStmt）：
     // 等值比较链；break → sw_end，continue 透传外层 loop。
     private void _emitSwitch(BoundSwitch sw) {
-        TypedReg subj = this._fe._expr.Emit(sw.Subject);
+        TypedReg subj = this._fe._expr._emitMatchSubject(sw.Subject);
         string endL = this._fe._ctx.Fresh("sw_end");
         string outerCont = this._fe._ctx.InLoop() ? this._fe._ctx.CurContinue() : endL;
         // switch：break→本 sw_end（floor=当前深）；continue 转发外层循环 → floor 继承外层 continue-floor

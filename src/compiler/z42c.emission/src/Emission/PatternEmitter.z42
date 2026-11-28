@@ -40,7 +40,7 @@ public sealed class PatternEmitter : IBoundPatternVisitor<Unit, PatCtx> {
         return Unit.Value;
     }
     public Unit VisitBindingPattern(BoundBindingPattern bp, PatCtx d) {
-        this._ctx.Locals.Put(bp.Name, d.Subj);   // 裸绑定：别名到 subj 寄存器（只读引用，稳定）
+        this._ctx.Locals.Put(bp.Name, this._ee._snapshotUnion(d.Subj, bp.Type));
         this._ctx.EndBlock(new BrTerm(d.MatchL));
         return Unit.Value;
     }
@@ -54,7 +54,10 @@ public sealed class PatternEmitter : IBoundPatternVisitor<Unit, PatCtx> {
     }
     public Unit VisitTypePattern(BoundTypePattern tp, PatCtx d) {
         if (tp.StaticMatch != 0) {
-            if (tp.Bind != "") { this._ctx.Locals.Put(tp.Bind, d.Subj); }
+            if (tp.Bind != "") {
+                TypedReg value = tp.StaticMatch > 0 ? this._ee._snapshotUnion(d.Subj, tp.BoundType) : d.Subj;
+                this._ctx.Locals.Put(tp.Bind, value);
+            }
             this._ctx.EndBlock(new BrTerm(tp.StaticMatch > 0 ? d.MatchL : d.FailL));
             return Unit.Value;
         }
@@ -88,13 +91,13 @@ public sealed class PatternEmitter : IBoundPatternVisitor<Unit, PatCtx> {
     }
     private void _emitUnionPattern(BoundPositionalPattern pp, PatCtx d) {
         UnionStorageLayout layout = UnionCaseSymbol.UnionOf(pp.Type).UnionStorage;
-        TypedReg matches = this._ee._emitUnionTagMatch(d.Subj, layout, pp.UnionCase.Tag);
+        TypedReg matches = this._ee._emitUnionTagMatch(d.Subj, pp.Type, layout, pp.UnionCase.Tag);
         string hit = pp.ElemCount == 0 ? d.MatchL : this._ctx.Fresh("union_match");
         this._ctx.EndBlock(new BrCondTerm(matches, hit, d.FailL));
         UnionPayloadLayout branch = layout.Cases[pp.UnionCase.Tag];
         for (int i = 0; i < pp.ElemCount; i = i + 1) {
             this._ctx.StartBlock(hit);
-            TypedReg field = this._ee._emitUnionField(d.Subj, layout.PayloadOffset, branch.Fields[i]);
+            TypedReg field = this._ee._emitUnionField(d.Subj, pp.Type, layout, branch.Fields[i]);
             hit = i == pp.ElemCount - 1 ? d.MatchL : this._ctx.Fresh("union_field");
             this.EmitMatch(field, pp.Elems[i], hit, d.FailL);
         }
@@ -169,7 +172,7 @@ public sealed class PatternEmitter : IBoundPatternVisitor<Unit, PatCtx> {
             this._ctx.EndBlock(new BrTerm(d.MatchL));
             return Unit.Value;
         }
-        this._ctx.Locals.Put(ap.Name, d.Subj);
+        this._ctx.Locals.Put(ap.Name, this._ee._snapshotUnion(d.Subj, ap.Type));
         this.EmitMatch(d.Subj, ap.Sub, d.MatchL, d.FailL);
         return Unit.Value;
     }
