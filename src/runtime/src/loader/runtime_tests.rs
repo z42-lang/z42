@@ -30,11 +30,11 @@ fn context_load_registers_a_private_assembly_and_rejects_inactive_contexts() {
     static CATALOG: crate::metadata::builtins::BuiltinCatalog =
         crate::metadata::builtins::BuiltinCatalog::new(&[]);
     let fs = Arc::new(crate::pal::fs::MemoryFs::new());
-    let artifact = include_bytes!(concat!(
+    let decoded = include_bytes!(concat!(
         env!("Z42_RUNTIME_DIR"),
         "/../compiler/z42.package/tests/fixtures/zpkg-format/indexed-minimal/source.zbc"
     ));
-    fs.mount("/fixtures/plugin.zbc", artifact.to_vec());
+    fs.mount("/fixtures/plugin.zbc", decoded.to_vec());
     let state = crate::loader::LoaderState::new(fs, crate::loader::FUSION_INPUTS);
     let metadata = crate::metadata::RuntimeState::new(None, &CATALOG);
     let cache = crate::metadata::ThreadRuntimeState::new();
@@ -44,11 +44,11 @@ fn context_load_registers_a_private_assembly_and_rejects_inactive_contexts() {
     let context = loader.create_collectible_context("plugins");
 
     assert!(matches!(
-        loader.load_context_artifact(context, "/missing.zbc"),
-        Err(ContextLoadError::Artifact(_))
+        loader.load_context_program(context, "/missing.zbc"),
+        Err(ContextLoadError::Decode(_))
     ));
     let assembly = loader
-        .load_context_artifact(context, "/fixtures/plugin.zbc")
+        .load_context_program(context, "/fixtures/plugin.zbc")
         .unwrap();
     assert_eq!(loader.assembly_name(assembly).as_deref(), Some("plugin"));
     assert_eq!(loader.context_assemblies(context), [assembly]);
@@ -58,7 +58,7 @@ fn context_load_registers_a_private_assembly_and_rejects_inactive_contexts() {
 
     assert_eq!(loader.unload_context(context), UnloadOutcome::Marked);
     assert!(matches!(
-        loader.load_context_artifact(context, "/missing.zbc"),
+        loader.load_context_program(context, "/missing.zbc"),
         Err(ContextLoadError::Inactive)
     ));
     assert_eq!(loader.context_assemblies(context), [assembly]);

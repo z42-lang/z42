@@ -11,7 +11,7 @@
 | 功能 | 入口 / 文件 |
 |------|-----------|
 | Swift 公开 API（`Z42VM` / `Z42VMModule` / `Z42VMEntry` / `Z42VMValue` / `Z42VMError`） | `platform/Sources/Z42VM/` |
-| zpkg 解析（`BundleZpkgResolver` / `MapZpkgResolver`） | `platform/Sources/Z42VM/ZpkgResolver.swift` |
+| 启动文件读取（`BundleZpkgResolver` / `MapZpkgResolver`） | `platform/Sources/Z42VM/ZpkgResolver.swift` |
 | C 模块 `Z42VMC` | [模块描述](module.modulemap) 和 `z42.h` 随 iOS Runtime 发布在 `native/include/`。workload 安装时从该目录组装 SwiftPM 的 XCFramework |
 | Rust staticlib（`z42_host_*` 再导出） | `src/runtime/examples/z42.rs` |
 | 发布 / 导出管线（`: WorkloadBase`） | `appbuilder/iOSWorkload.z42`、`appbuilder/export.z42` |
@@ -22,7 +22,7 @@
 ```swift
 import Z42VM
 
-let vm = try Z42VM(zpkgResolver: BundleZpkgResolver(),
+let vm = try Z42VM(fileResolver: BundleZpkgResolver(),
                    stdoutHandler: { bytes in textArea.append(String(decoding: bytes, as: UTF8.self)) })
 let module = try vm.loadZbc(Data(contentsOf: zbcURL))
 let entry  = try vm.resolveEntry(module, fqn: "App.Main")
@@ -42,6 +42,10 @@ rustup target add aarch64-apple-ios aarch64-apple-ios-sim aarch64-apple-darwin
 `Z42VM.xcframework/`、`Resources/stdlib/*.zpkg`。
 
 模拟器选择 JIT：`Z42VM(..., execMode: .jit)`；运行时提供独立 `libz42_jit.a` / `z42_jit.framework`。真机请求 JIT 明确报错。
+
+## Runtime 组装
+
+iOS Runtime 包提供静态归档、动态 Framework 和公开 C 头。`module.modulemap` 随头文件发布，workload 安装器使用静态归档和发布头生成 SwiftPM 的 XCFramework。动态宿主将同包的核心、解释器、compression 和共享 Rust std 随应用嵌入并签名。
 
 静态 Swift 宿主通过统一 C 头中的 `z42_native_register_static` 登记 compression 提供方，检查 `Z42_NATIVE_OK`；该注册接口属于 loader，不使用 host 会话的 last-error。登记本身不调用解析器，脚本首次使用时才解析库符号。
 

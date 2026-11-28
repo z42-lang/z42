@@ -11,7 +11,7 @@
 | 功能 | 入口 / 文件 |
 |------|-----------|
 | Kotlin 公开 API（`Z42VM` / `Z42VMModule` / `Z42VMEntry` / `Z42VMValue` / `Z42VMException`） | `platform/z42vm/src/main/java/io/z42/vm/` |
-| zpkg 解析（`AssetZpkgResolver` / `MapZpkgResolver`） | `ZpkgResolver.kt` |
+| 启动文件读取（`AssetZpkgResolver` / `MapZpkgResolver`） | `ZpkgResolver.kt` |
 | JNI 桥 → `z42_host_*` C ABI | `platform/z42vm/src/main/cpp/z42vm_jni.c`，由模块的 `CMakeLists.txt` 编译。Gradle 指定 Runtime 的 include 目录 |
 | Rust cdylib（`libz42.so`，`z42_host_*` 再导出） | `src/runtime/src/lib.rs` |
 | 发布 / 导出管线（`: WorkloadBase`） | `appbuilder/AndroidWorkload.z42`、`appbuilder/export.z42` |
@@ -23,7 +23,7 @@
 import io.z42.vm.Z42VM
 import io.z42.vm.AssetZpkgResolver
 
-Z42VM(zpkgResolver = AssetZpkgResolver(assets)).use { vm ->
+Z42VM(fileResolver = AssetZpkgResolver(assets)).use { vm ->
     vm.stdoutHandler = { bytes -> textView.append(String(bytes)) }
     val m = vm.loadZbc(assets.open("hello.zbc").readBytes())
     vm.invoke(vm.resolveEntry(m, "App.Main"))
@@ -43,10 +43,13 @@ Z42VM(zpkgResolver = AssetZpkgResolver(assets)).use { vm ->
 `z42vm/build/outputs/aar/z42vm-release.aar`、`jniLibs/{arm64-v8a,x86_64}/libz42.so`、
 `assets/stdlib/*.zpkg`（`AssetZpkgResolver` 读各 zpkg 的 NSPC 建索引）。
 
-选择 JIT：构造 `Z42VM(..., execMode = Z42VM.ExecMode.JIT)`；部署须包含同一 runtime 包的 `libz42_jit.so`、解释器、核心和 Rust std。缺少 JIT 时返回宿主错误，保持默认 interp 的应用无需加载 JIT。
+## Runtime 组装
 
-限制：单实例；同步 invoke（UI 线程请用 `Dispatchers.Default` 包装）；
-marshal 仅 null + `I64` / `F64` / `Bool`（string / object / Array 见 embedding.md 的 Deferred）。
+Runtime 为 arm64 和 x64 提供独立的核心、解释器、JIT 与 compression 归档和共享库。安装和设备测试从所选 Runtime 暂存目标 ABI 的库并指定 `native/include/` 路径。Gradle 将这组头文件交给 CMake 编译 JNI 桥。JNI 用同一份 `Z42HostConfig` 初始化执行模式、resolver 与输出回调。
+
+默认模式是 interp。Kotlin 使用 `Z42VM(..., execMode = Z42VM.ExecMode.JIT)` 选择 JIT。动态部署使用同一 Runtime 包的核心、共享 Rust std 和所需组件。显式选择的组件缺失时由宿主返回错误。
+
+门面提供单实例、同步调用以及 null、`I64`、`F64`、`Bool` 值。UI 宿主可用 `Dispatchers.Default` 调度调用。
 
 ## 如何测试验证
 

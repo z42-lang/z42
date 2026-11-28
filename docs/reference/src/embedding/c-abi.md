@@ -8,18 +8,16 @@
 每个导出函数的签名、参数语义、返回码、生命周期与线程约束、以及**当前明确不支持什么**。
 VM 内部怎么实现这套 ABI 不在本页。
 
-调用序列永远是：`initialize` → `load_zbc` → `resolve_entry` → `invoke` → `shutdown`。
+调用序列永远是：`initialize` → `load_bytes` → `resolve_entry` → `invoke` → `shutdown`。
 只想「跑一个打好包的 app，不要句柄」的话，直接用[一次性入口 `z42_host_run_app`](#一次性入口z42_host_run_app)。
 
 ```c
-#include "z42.h"
+#include <z42.h>
 ```
 
 宿主 API 声明位于 `z42_host.h`，可直接包含。需要组件登记或 native 模块接口时包含 `z42.h`。
 
-头文件随 **runtime 包**（`z42-runtime-<版本>-<rid>`）分发在 `native/include/`；仓内在 `src/runtime/include/`。
-SDK 包不带嵌入件——它的 `native/` 只放 z42vm 自己加载的扩展库。
-iOS Runtime 在 `native/include/` 同时分发 `module.modulemap`。workload 安装器使用发布头和静态库组装 XCFramework，Swift facade 从中导入 `Z42VMC`。Android JNI 的 include 路径指向 Runtime 头文件目录。
+嵌入所需的头文件随 **Runtime 包**（`z42-runtime-<版本>-<rid>`）发布在 `native/include/`，源码位于 `src/runtime/include/`。平台绑定和安装方式见 [workload 文档](../../../../src/toolchain/workload/README.md)。
 
 
 ---
@@ -27,8 +25,6 @@ iOS Runtime 在 `native/include/` 同时分发 `module.modulemap`。workload 安
 ## 版本与句柄
 
 ```c
-#define Z42_HOST_ABI_VERSION 1
-
 typedef struct Z42Host*   Z42HostRef;     /* VM 实例 */
 typedef struct Z42Module* Z42ModuleRef;   /* 已加载的 .zbc / .zpkg */
 typedef struct Z42Entry*  Z42EntryRef;    /* 解析后的入口 */
@@ -82,6 +78,8 @@ typedef struct Z42HostConfig {
     Z42ZpkgResolverFn  zpkg_resolver;
     void*              zpkg_resolver_user_data;
     Z42ZpkgResolverWriteFn zpkg_resolver_write;
+    Z42FileResolverFn file_resolver;
+    void* file_resolver_user_data;
 } Z42HostConfig;
 ```
 
@@ -94,7 +92,7 @@ typedef struct Z42HostConfig {
 | `stdout_sink` / `stderr_sink` | 见 [stdout / stderr 重定向](#stdout--stderr-重定向) |
 | `sink_user_data` | 原样透传给上面两个回调。一份 config 只有一个，两个 sink 共用；要分开就 init 之后用 `z42_host_set_*_sink` 各设各的 |
 | `search_paths` | 每个元素是一个**目录**。`z42.core.zpkg` 在哪个目录里被找到，哪个目录就是 stdlib 的 `libs/`，`using` 到的其他 zpkg 也从那里找。数组必须 NULL 结尾，且长度不超过 4096（否则 `ERR_BAD_CONFIG`）；路径必须是合法 UTF-8 |
-| `zpkg_resolver` / `zpkg_resolver_write` | 见 [zpkg resolver 回调](#zpkg-resolver-回调)。两者共用 `zpkg_resolver_user_data`，完整覆盖且非 NULL 的 `zpkg_resolver_write` 优先 |
+| `file_resolver` / `file_resolver_user_data` | 可选的[文件 resolver 回调](#文件-resolver-回调)及其宿主数据。旧配置的命名空间回调通过 ABI 适配层保留 |
 
 `search_paths` 为空且没给 resolver 也是合法的——只是任何用到 stdlib 的 z42 代码会在 `invoke` 时失败。
 
@@ -172,21 +170,17 @@ Z42HostStatus z42_host_initialize(const Z42HostConfig* cfg, Z42HostRef* out_host
 
 初始化失败不更改已有宿主会话及其 stdout / stderr 回调；`out_host` 保持 NULL。
 
-### `z42_host_load_zbc`
+### `z42_host_load_bytes`
 
 ```c
-Z42HostStatus z42_host_load_zbc(Z42HostRef host,
-                                const uint8_t* bytes, size_t length,
-                                Z42ModuleRef* out_module);
+Z42HostStatus z42_host_load_bytes(Z42HostRef host, const char* file_name,
+                                  const uint8_t* bytes, size_t length,
+                                  Z42ModuleRef* out_module);
 ```
 
-字节可以是 `.zbc`，也可以是 `.zpkg`。**`bytes` 只需在本次调用期间有效**，返回后宿主可立即释放或复用缓冲。
-
-加载时会顺带把依赖也解析进来：先请求 `z42.core`（即使用户代码一句 `using` 都没写），
-再按用户产物记录的 import namespace 逐个请求。每个 namespace 先问已配置的 resolver，miss 再扫 `search_paths`。
-**依赖找不到不是错误**：`load_zbc` 照样返回 `OK`，直到 `invoke` 真的用到那个符号才报 `ERR_VM_EXCEPTION`。
-
-`out_module` 可以为 NULL（只想验证字节能不能解析的话）。
+`bytes` 可传裸 `.zbc` 或包含模块内容的 `.zpkg`，缓冲只需在调用期间有效。
+传入逻辑文件名可让 Runtime 发现应用的侧车。已有的 `z42_host_load_zbc` 按无文件名的字节调用处理。
+`out_module` 可以为 NULL。
 
 ### `z42_host_resolve_entry`
 
@@ -271,42 +265,28 @@ Z42HostStatus z42_host_set_stderr_sink(Z42HostRef host, Z42WriteSink sink, void*
 
 ---
 
-## zpkg resolver 回调
+## 文件 resolver 回调
 
-桌面宿主可以用 `search_paths` 扫文件系统；移动端和 wasm 没有（或不便扫）文件系统，
-就用回调告诉运行时「某个 namespace 的 zpkg 字节在这儿」。
+在 `Z42HostConfig.file_resolver` 提供回调，`file_resolver_user_data` 保持有效至宿主关闭。
+`Z42FileRequest` 带有精确的 UTF-8 逻辑文件名和 `kind`。
 
-```c
-typedef int (*Z42ZpkgResolverFn)(
-    const char*     namespace_name,   /* "z42.core" / "Std.IO" / ... */
-    const uint8_t** out_bytes,
-    size_t*         out_length,
-    void*           user_data);
-```
+| 请求类型 | 示例 |
+|---|---|
+| `Z42_FILE_ZPKG` | `z42.core.zpkg`、包依赖清单指定的 `.zpkg` |
+| `Z42_FILE_ZBC` | 依赖清单指定的 `.zbc` |
+| `Z42_FILE_RUNTIME_CONFIG` | `app.runtimeconfig.toml` |
+| `Z42_FILE_ZBC_DEPS` | `app.zbc.deps` |
 
-- `zpkg_resolver` 命中时填写 `*out_bytes` 和 `*out_length`，返回非 0。运行时在回调返回之后复制字节，宿主在复制完成前维持缓冲可读、内容稳定。并发和后台解析可使用会话期间一直有效的不可变缓冲。
-- 临时缓冲用 `zpkg_resolver_write`。命中时在 resolver 回调内调用 `write(bytes, length, write_data)` 并返回其结果。运行时在 `write` 返回前完成复制。宿主在调用线程内同步调用一次 `write`。`write` 和 `write_data` 的借用期是本次 resolver 回调。
-- 两种回调均用 0 表示 miss。空指针、空缓冲或未提交字节也按 miss 处理。配置了写入回调时使用该回调，miss 后搜索 `search_paths`。
-- resolver 可在装入或执行期间被调用。宿主负责共享 `user_data` 的线程安全，保存到会话关闭。
-- resolver 命中但字节解析不了时，`load_zbc` 返回 `ERR_BAD_ZBC`，错误消息带 namespace 名。两种来源都 miss 时，延迟解析的调用会在 `invoke` 抛出托管异常。
+回调在调用线程上使用借用的 request 和 writer。找到文件时调用一次 `z42_file_write`，它在返回前复制字节。
+写入成功后返回 `Z42_FILE_FOUND`，找不到返回 `Z42_FILE_NOT_FOUND`，读取或写入失败返回 `Z42_FILE_ERROR`。
+缺失时 Runtime 查找原有文件来源。错误和无效字节会使当前加载失败。
 
-### 从 zpkg 自己读出它答应哪些名字
+应用侧车在程序准备前读取。现有进程级 RuntimeConfig 只应用一次。
+ZPKG 的依赖名来自包清单。裸 ZBC 的精确依赖来自 `z42c --emit-zbc` 生成的 `.zbc.deps`，部署时与字节码一起提供。
+Resolver 读取依赖时使用清单里的名称。缺失的可选依赖仍可按原有延迟加载行为诊断。
 
-一个 zpkg 常常同时提供多个 namespace（`z42.core.zpkg` 就同时 ship `z42.core` / `Std` / `Std.IO` …），
-**不能假设 namespace == 文件名**。要建「namespace → 字节」表，就枚举手上的 zpkg，逐个问它：
-
-```c
-typedef void (*Z42NamespaceVisitor)(const char* ns, size_t len, void* user_data);
-
-Z42HostStatus z42_zpkg_read_namespaces(const uint8_t* bytes, size_t length,
-                                       Z42NamespaceVisitor visit, void* user_data);
-```
-
-- 对该 zpkg 的**每一个可解析键**回调一次：先是它的**包名**（`z42.core` 这种，prelude 就是按包名请求的），
-  然后是它声明的每一个 namespace。
-- `ns` 是 `len` 个 UTF-8 字节，**不 NUL 结尾**，只在本次回调期间有效——拷走再用。
-- 可在初始化前调用。成功清除当前线程的宿主错误，失败可通过 `z42_host_last_error` 查询。
-- 字节不是可解析的 zpkg → `ERR_BAD_ZBC`；`visit == NULL` → `ERR_BAD_CONFIG`。
+旧调用者可继续使用原配置前缀及其命名空间回调。配置 `file_resolver` 时，按文件名加载，旧回调由 ABI 兼容层保留。
+`z42_zpkg_read_namespaces` 可查询包名和命名空间元数据。visitor 接收调用期内有效的 UTF-8 字节。
 
 ---
 
@@ -337,7 +317,6 @@ int z42_host_run_app(const char* app_zpkg, const char* entry,
 | 70 | VM 线程 panic / panic 跨过 FFI 线 |
 | 71 | 起 VM 线程失败 |
 
-这是各平台 test-host 与自包含 app 的共用入口：桌面 C shell、iOS Swift、Android JNI 调的都是这一个符号。
 `Z42HostConfig` 里的 `exec_mode` 对它没有影响——它用运行时的默认执行后端。
 
 首次解析进程运行时配置时，入口会读取应用旁的 `<app>.runtimeconfig.toml`，并按运行时配置的优先级合并各层。
@@ -400,7 +379,7 @@ int main(void) {
     Z42EntryRef  entry = NULL;
     Z42Value     result;
 
-    if (z42_host_load_zbc(host, bytes, len, &mod) != Z42_HOST_OK ||
+    if (z42_host_load_bytes(host, NULL, bytes, len, &mod) != Z42_HOST_OK ||
         z42_host_resolve_entry(host, mod, "Hello.Main", &entry) != Z42_HOST_OK ||
         z42_host_invoke(entry, NULL, 0, &result) != Z42_HOST_OK) {
         fprintf(stderr, "run: %s\n", z42_host_last_error(NULL).message);
@@ -414,54 +393,30 @@ int main(void) {
 }
 ```
 
-链接时带上 runtime 包 `native/` 里的 `libz42`，以及它依赖的平台库：
+## 链接与组件组装
 
-| 平台 | 静态 | 动态 |
-|---|---|---|
-| macOS | `libz42.a`（另加 `-liconv -lc -lm`） | `libz42.dylib`：install name 是 `@rpath/libz42.dylib`，宿主加 `-Wl,-rpath,<放 dylib 的目录>`（如 `@executable_path`） |
-| Linux | `libz42.a`（另加 `-lc -lm -lpthread -ldl -lrt -lgcc_s`） | `libz42.so`：SONAME 是 `libz42.so`，宿主加 `-Wl,-rpath,<目录>`（如 `$ORIGIN`）或走 `LD_LIBRARY_PATH` |
-| Windows | `z42.lib` | 链 import lib `z42.dll.lib`，运行时 `z42.dll` 放在 exe 旁 |
+选择目标 Runtime 包，按包内 `manifest.toml` 提供的归档顺序、链接参数和初始化入口链接。组件、核心和共享库使用同一构建的产物。各平台的链接方式、文件名和可用组件见 [workload 文档](../../../../src/toolchain/workload/README.md)。
 
-另有可选的组件化动态 runtime 包：C 宿主链接其中的 z42（macOS/Linux 为 libz42，Windows 导入库为 z42.dll.lib）。部署时保留 native/ 内同包的共享核心、Rust std 和 interp/JIT 组件；这些库必须来自同一构建，不能混用版本。用 Z42_NATIVE_PATH 指向组件目录，或将 native/ 放在宿主可执行文件旁。显式请求 JIT 时，库缺失或不兼容会报错，不自动改成解释模式。
-
-组件也可以**直接链接**而非 dlopen：Windows 动态包随发每个组件的导入库（`z42.dll.lib`、`z42_interp.dll.lib`、`z42_jit.dll.lib`、`z42_profiler.dll.lib`、`z42_compression.dll.lib`，由包内 manifest.toml 的 `[assets].import_libs` 点名）；链接共享库后调 `z42_component_register_shared(Z42_COMPONENT_INTERP, z42_interp_init)`（JIT 同理）与 `z42_native_register_shared("z42_compression", z42_compression_get_symbol)` 登记提供方——与静态归档同一套登记协议，运行期仍走同构建身份校验。macOS/Linux 直接链 `libz42_interp.dylib` / `libz42_interp.so` 等库文件。
-
-Windows 宿主若按运行期装载（dlopen）而非直接链接：请用 `LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS` 标志加载（或先 `AddDllDirectory` 指向 native/），z42.dll 依赖的共享 Rust std（`std-*.dll`，随包在 native/）才能按 dll 自身目录解析——z42vm 启动器正是这么做的。包内 manifest.toml 描述了全部内容物与链接配方（组件文件、归档顺序、link_flags、init 调用）。
-
-静态宿主可直接选择独立组件。所有库须来自同一 runtime 包；链接所需的 `libz42_interp.a`（Windows 为 `z42_interp.lib`）及 `libz42.a`，原生链接参数取包内 `manifest.toml` 的 `[components.<stem>].link_flags`（Windows 的第三方导入库由 `[assets].third_party_libs` 点名、随包提供）。加载程序前登记工厂：
+自行组装静态 Runtime 时，在加载程序前登记所选执行组件。解释器工厂的登记示例如下。
 
 ```c
-#include "z42.h"
+#include <z42.h>
 uint32_t status = z42_component_register_static(
     Z42_COMPONENT_INTERP, z42_interp_init);
 ```
 
-JIT 库只在支持的平台发布；使用 JIT 时同时链接并登记 interp 与 JIT。空工厂返回 `Z42_COMPONENT_INVALID_ARGUMENT`，冲突登记返回 `Z42_COMPONENT_ERROR`，相同工厂重复登记返回 `Z42_COMPONENT_OK`；该登记接口不修改宿主错误槽；真正装配时仍校验构建身份和 ABI。工厂及其回调必须在整个进程期间有效。默认静态解释器组合也提供 `z42_linked_components_init()`。
+JIT 组合同时登记解释器与 JIT。直接链接共享组件时使用 `z42_component_register_shared`。组件工厂及其回调须在整个进程期间有效。空工厂返回 `Z42_COMPONENT_INVALID_ARGUMENT`，冲突登记返回 `Z42_COMPONENT_ERROR`，重复登记同一个工厂返回 `Z42_COMPONENT_OK`。登记不改写宿主错误槽，运行时在装配时校验构建身份和 ABI。默认静态组合的初始化入口由包清单给出。
 
-压缩库独立于执行后端。静态宿主选择链接 `libz42_compression.a`，并在创建宿主前调用：
+原生模块通过 `z42_native_register_static` 或 `z42_native_register_shared` 登记提供方。下面以静态组装的压缩模块为例。
 
 ```c
 uint32_t status = z42_native_register_static(
     "z42_compression", z42_compression_get_symbol);
 ```
 
-解析器接收借用的 NUL 结尾符号名，返回对应 C ABI 函数指针；未知符号返回 NULL，解析器与函数指针须在整个进程期间有效。登记只记录提供者，实际使用时才解析并校验 ABI。空名称、含路径分隔符的库名、空参数或冲突登记返回 `Z42_NATIVE_ERROR`；同一提供者重复登记成功。库名是逻辑名称，可供独立模块使用，不限于压缩库。原生动态包在首次压缩调用时才装载对应库，其他执行不触发装载。未链接或未部署时，压缩调用返回包含组件不可用原因的 `ERR_VM_EXCEPTION`。
+解析器接收借用的 NUL 结尾符号名，返回对应 C ABI 函数指针，未知符号返回 NULL。解析器与返回的代码须在整个进程期间有效。登记时记录提供方，运行时在每个 VM 首次激活模块时解析符号并检查来源策略和 ABI。逻辑库名为空、包含路径分隔符、解析器为空或登记冲突返回 `Z42_NATIVE_ERROR`。相同提供方重复登记返回 `Z42_NATIVE_OK`。原生模块的状态码独立于宿主错误槽。
 
-Android arm64/x64 runtime 同时发布核心、解释器、JIT 和压缩的独立 `.a` / `.so`，动态应用须保留匹配的共享 Rust std。默认解释执行；显式选择 `Z42_EXEC_MODE_JIT` 时装配 JIT，缺库报错。Kotlin 门面使用 `Z42VM.ExecMode.JIT` 选择同一模式。iOS 保留 `.a`，动态版本提供核心、解释器、compression 和 Rust std 的 Framework；模拟器另外提供独立 JIT，Swift 门面以 `execMode: .jit` 选择，真机请求 JIT 报错；使用动态运行时的应用须嵌入并签名相应依赖。
-
-CPU 采样与堆分析由可选 profiler 提供。原生动态部署使用同包的 `libz42_profiler.dylib` / `libz42_profiler.so` / `z42_profiler.dll`；未使用分析功能时不会装载它。静态宿主按需链接 `libz42_profiler.a`（Windows 为 `z42_profiler.lib`），在创建宿主前登记：
-
-```c
-#include "z42.h"
-uint32_t status = z42_component_register_static(
-    Z42_COMPONENT_PROFILER, z42_profiler_init);
-```
-
-开启 CPU 采样时会在执行前检查组件；堆快照和保留查询首次使用时检查。缺失或不兼容时返回错误，不能把未装配组件当作空分析结果。普通执行、GC 控制和运行时计数不依赖 profiler。
-
-browser-wasm 默认最终 `.wasm` 包含解释器和压缩能力；随包提供的独立静态库供项目按需重新链接另一份最终模块。WASM 不支持原生 dlopen；运行时只能选择已链接的组件。额外链接并登记 `libz42_profiler.a` 可以启用堆分析；浏览器不支持本组件的后台线程 CPU 采样。debugger 组件尚未提供。
-
-Linux 包要求 glibc ≥ 2.34（x64）、≥ 2.39（arm64）。
+CPU 采样和堆分析由可选的 profiler 组件提供。静态组装时按需调用 `z42_component_register_static(Z42_COMPONENT_PROFILER, z42_profiler_init)`。CPU 采样在执行前检查组件，堆快照和保留查询在首次使用时检查。组件缺失或不兼容时报告错误。普通执行、GC 控制和运行时计数可以独立使用。
 
 ---
 
@@ -481,8 +436,6 @@ Linux 包要求 glibc ≥ 2.34（x64）、≥ 2.39（arm64）。
 | 卸载单个 module | 没有。只能整个 `shutdown` |
 | `ERR_VERIFICATION` (11) | 枚举里有，运行时不产生。IR 校验失败走 `ERR_BAD_ZBC` |
 
-运行时原生代码映像按进程寿命保留；关闭 host 释放 VM、堆和 JIT 状态，不提供运行中卸载代码映像。Linux C 宿主动态库使用 ELF NODELETE，保证线程退出时尚未执行的 TLS 析构回调有效。其他平台的宿主须保持 C 宿主库已加载，直到使用过它的线程退出。
-
-Native 登记返回 Z42_NATIVE_OK / Z42_NATIVE_ERROR，不改写 host 错误槽。静态与共享链接分别使用 register_static / register_shared，来源标签在每 VM 激活时按运行时策略检查。
+关闭宿主会释放 VM、堆和 JIT 状态。原生代码映像按进程寿命保留。宿主运行时库应至少保持映射到使用过它的线程全部退出。
 
 链接组合代码须如实声明 static/shared 来源，提供方代码必须保留到进程退出；登记来源不是对不可信原生代码的沙箱。

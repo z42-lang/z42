@@ -10,7 +10,8 @@
 |---|---|
 | `native.rs` | 原生库开库、路径策略、每 VM 映像缓存与符号解析；装载事务归 interop::install |
 | `native_policy.rs` | 每 VM 原生代码来源许可与搜索目录，拒绝发生在探测、入口调用和缓存复用之前 |
-| `artifact.rs` | 产物加载与可选会话缓存入口、LazyLoader 默认构造 |
+| `decode.rs` | Z42 程序解码、会话缓存入口与 LazyLoader 默认构造 |
+| `file_resolver.rs` | 宿主按逻辑文件名读取代码与启动配置 |
 | `dependency_candidates.rs` | 按包声明与导入命名空间发现惰性加载候选 |
 | `eager.rs` | 沿包声明和命名空间读取传递依赖，复用启动期去重登记 |
 | `program.rs` | 使用 resolver 和搜索目录准备 prelude、启动依赖和惰性候选，在 availability 折叠后更新执行索引 |
@@ -22,7 +23,7 @@
 | `linked.rs` | 任意合法逻辑库名的已链接符号解析器与组合根入口查询，先于动态候选；不维护具体库白名单 |
 | `state.rs` | `LoaderState`：每 VM 惰性加载器、上下文、初始化队列与 VFS 依赖 |
 | `fusion_inputs.rs` | 私有融合输入与惰性输入来源 |
-| `package/` | VFS 读取、LoadedArtifact、模块合并和执行索引准备 |
+| `package/` | VFS 读取、DecodedProgram、模块合并和执行索引准备 |
 | `locate/` | namespace 候选索引、依赖定位及 probing 展开 |
 | `lazy/` | 惰性包加载、符号路由、注册和调试符号 |
 | `context_gc.rs` | 用弱引用访问上下文注册表，提供 GC 快照和清扫后的回收 |
@@ -36,7 +37,7 @@
 
 反射的精确类型名通过 `RuntimeLoader::resolve_type` 查询。入口模块优先，未命中时再解析包依赖。已载探测保留独立入口，适用于只读取现有注册的调用方。
 
-常用入口为 `load_artifact`、`load_artifact_from_bytes`、`merge_modules` 和 `LazyLoader`，从 `z42::loader` 导入。调用方仍提供 VFS 与搜索目录；`ModuleSearch.Dirs` 从所属 VM 的加载器查询当前目录快照，worker 共享、不跨 VM 复用；公开入口只汇总拥有者，不在 metadata 中保留加载别名。
+常用入口为 `decode_program_file`、`decode_program_bytes`、`merge_modules` 和 `LazyLoader`，从 `z42::loader` 导入。调用方仍提供 VFS 与搜索目录；`ModuleSearch.Dirs` 从所属 VM 的加载器查询当前目录快照，worker 共享、不跨 VM 复用；公开入口只汇总拥有者，不在 metadata 中保留加载别名。
 `locate::search_paths` 只组合显式入口、额外路径和 libs，并通过传入 VFS 检查目录；进程环境与默认路径由 main/C/Rust/浏览器等来源实现解析。
 
 块索引准备在实际重算每个函数的融合侧表时才调用输入来源。门面绑定进程配置，文件、字节、可用性探测与惰性加载共用该读取策略。每 VM 的加载状态只保存函数指针，构造和解码阶段不因这项注入提前读取融合配置。

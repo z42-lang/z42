@@ -21,8 +21,8 @@ impl RuntimeLoader<'_> {
             let func_names: Vec<_> = entry.functions.iter().map(|f| f.name.clone()).collect();
             self.seed_lazy_loader_types(&entry.type_registry, &func_names);
         }
-        for artifact in packages.artifacts {
-            self.register_eager_artifact(artifact)?;
+        for decoded in packages.programs {
+            self.register_eager_program(decoded)?;
         }
         self.seed_lazy_loader_impls(&packages.impl_pairs);
         self.seed_lazy_loader_symbol_owners(&packages.entry_dependencies);
@@ -72,14 +72,14 @@ impl RuntimeLoader<'_> {
     }
 
     /// M1 no-eager-merge track: register an already-decoded dependency
-    /// artifact through the lazy loader (the per-package machinery the lazy
+    /// decoded through the lazy loader (the per-package machinery the lazy
     /// path uses for on-demand loads). Requires the loader to be installed.
-    pub fn register_eager_artifact(&self, artifact: crate::loader::LoadedArtifact) -> anyhow::Result<()> {
+    pub fn register_eager_program(&self, decoded: crate::loader::DecodedProgram) -> anyhow::Result<()> {
         let mut state = self.state.lazy_loader.write();
         let loader = state
             .as_mut()
             .ok_or_else(|| anyhow::anyhow!("no-eager-merge registration before the lazy loader is installed"))?;
-        loader.register_decoded_artifact(artifact)
+        loader.register_decoded_program(decoded)
     }
 
     /// Copy this VM's current package search order under the loader's read lock.
@@ -124,7 +124,7 @@ impl RuntimeLoader<'_> {
     }
 
     /// add-crosspkg-impl-reflection: seed `(target_fq, trait_fq)` impl pairs
-    /// from an eagerly-loaded artifact (main zpkg / eagerly-loaded deps) into
+    /// from an eagerly-loaded decoded (main zpkg / eagerly-loaded deps) into
     /// the lazy loader's impls registry. Companion of `seed_lazy_loader_types`.
     pub fn seed_lazy_loader_impls(&self, pairs: &[(String, String)]) {
         let mut state = self.state.lazy_loader.write();
@@ -134,7 +134,7 @@ impl RuntimeLoader<'_> {
     }
 
     /// precise-pkg-refs: seed the loader's "which package defines this name" table from the
-    /// eagerly merged artifacts' DEPS symbol lists. Companion of `seed_lazy_loader_impls`.
+    /// eagerly merged programs' DEPS symbol lists. Companion of `seed_lazy_loader_impls`.
     pub fn seed_lazy_loader_symbol_owners(&self, deps: &[crate::zpkg::format::ZpkgDep]) {
         if deps.is_empty() { return; }
         let mut state = self.state.lazy_loader.write();
@@ -149,7 +149,7 @@ impl RuntimeLoader<'_> {
         self.state.lazy_loader.read().as_ref().and_then(|l| l.full_name_for_short(short))
     }
 
-    /// Load a compiled artifact at `path` into the live registries.
+    /// Load a compiled decoded at `path` into the live registries.
     /// Errors if the VM has no lazy loader.
     pub fn load_module_into_vm(&self, path: &str) -> anyhow::Result<()> {
         self.reload_module("LoadModule", |loader| loader.load_module_from_path(path))
@@ -167,7 +167,7 @@ impl RuntimeLoader<'_> {
         load: impl FnOnce(&mut LazyLoader) -> anyhow::Result<()>,
     ) -> anyhow::Result<()> {
         // Explicit reloads can redefine types. Invalidate their cache entries
-        // before attempting the load, including when the artifact is rejected.
+        // before attempting the load, including when the decoded is rejected.
         self.cache.subclass_memo.lock().clear();
         self.cache.isa_cache.clear();
         self.cache.type_lookup_cache.lock().clear();

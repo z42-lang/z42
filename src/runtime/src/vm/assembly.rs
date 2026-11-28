@@ -58,7 +58,7 @@ fn build_context(mut module: Module, inputs: ProgramInputs,
 ) -> anyhow::Result<Pin<Box<VmContext>>> {
     // Fold before Core takes ownership and before any token is resolved.
     if let Some(avail_stats) = crate::loader::prepare_program_availability(
-        &*inputs.vfs, &mut module, &inputs.packages.declared_candidates,
+        &*inputs.vfs, &mut module, &inputs.packages,
     ) {
         tracing::debug!("available!: {avail_stats:?}");
     }

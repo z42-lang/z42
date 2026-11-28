@@ -1,7 +1,5 @@
 # Native 互操作（FFI）契约
 
-> **待办**：Tier 1 C ABI 仅解释器可用（JIT 未支持）；Tier 2 Rust 宏仅部分可用；Tier 3 未实现
-
 本页是**扩展作者与宿主开发者**要查的契约：z42 代码怎么声明一个 native 调用、native 库怎么把类型注册进
 VM、边界上允许出现哪些类型、谁负责释放什么。[C ABI 契约](c-abi.md) 讲的是反方向——宿主怎么启动并驱动
 VM。模块函数协议使用 `z42_native.h`，类型方法协议使用 `z42_abi.h`；两者的值布局和编组契约分别定义。
@@ -14,7 +12,7 @@ VM。模块函数协议使用 `z42_native.h`，类型方法协议使用 `z42_abi
 |---|---|---|
 | 调用 z42vm 内置的原生函数 | `extern` + `[Native("__name")]` | 只有 `z42.core` 能这样写；其余包写了报 `E0919`，改调 core 的公开 API |
 | 调用随 SDK 分发的 native 扩展库（如压缩） | `[Native(lib="z42_x", entry="__y")]` | interp/JIT 可用；按 `(lib, entry)` 精确查询，缺失抛 `MissingSymbolException` |
-| 调用**自己**用 C / Rust 写的 native 类型的方法 | `[Native(lib=, type=, entry=)]` + Tier 1 注册 | 可用，**仅解释器**；类型须由宿主或静态链接注册 |
+| 调用**自己**用 C / Rust 写的 native 类型的方法 | `[Native(lib=, type=, entry=)]` + `z42_register_type` 注册 | 可用，**仅解释器**；类型须由宿主或静态链接注册 |
 | 在宿主程序里启动 z42 VM | `z42.h` | 见 [C ABI 契约](c-abi.md) |
 
 模块函数通过 C 描述符声明参数与返回类型，支持标量、字符串、字节数组和字符串数组的复制。typed native 类型方法只接收下文定义的 blittable 标量与指针；托管 class 实例不会自动转换成 C 对象。
@@ -41,7 +39,7 @@ VM。模块函数协议使用 `z42_native.h`，类型方法协议使用 `z42_abi
 namespace Demo;
 
 public static class NumZ42 {
-    // ① 带 type= —— Tier 1 typed native call，经 z42_register_type 注册的类型分派
+    // ① 带 type= —— 原生类型方法调用，经 z42_register_type 注册的类型分派
     [Native(lib = "numz42", type = "Counter", entry = "__alloc__")]
     public static extern long CounterAlloc();
 
@@ -62,7 +60,7 @@ public static class Console {
 |---|---|---|
 | `[Native("__name")]` / `[Native(entry="__name")]` | VM 内置函数表，未命中再查 native 扩展表 | — |
 | `[Native(lib="L", entry="__name")]` | 模块函数：精确查询 `L::__name`，缺失抛 `MissingSymbolException` | 必须与注册的提供方名称一致，不回落其他模块 |
-| `[Native(lib="L", type="T", entry="E")]` | Tier 1：`L::T::E`，经 `z42_register_type` 注册的方法表 | 参与解析，必须与注册时的 `module_name` 一致 |
+| `[Native(lib="L", type="T", entry="E")]` | 原生类型方法 `L::T::E`，经 `z42_register_type` 注册的方法表 | 参与解析，必须与注册时的 `module_name` 一致 |
 
 第三种形态是扩展作者真正会用的：`lib` 对应描述符的 `module_name`，`type` 对应 `type_name`，`entry`
 对应 `Z42MethodDesc.name`。三者任一对不上，调用在运行时报 `CallNative: unknown native type ...` /
@@ -86,11 +84,11 @@ public static class Console {
 
 参数支持整数、浮点、布尔、UTF-8 字符串、可空字符串、字节数组和字符串数组。返回另支持 void；void 与返回 null 不同。指针和长度只在同步调用期间借用，接收方复制内容；native 实现负责释放自己的资源。模块注册名、导出名和签名必须与脚本声明匹配，错误按运行时异常传播。
 
-模块函数在 interp/JIT 均可用，不要求 libffi；不允许动态加载的平台使用静态实现。不同模块可导出同名函数，`lib` 始终参与查询。类型方法的旧 Tier 1 协议及以下章节的 blittable 限制继续独立适用。
+模块函数在 interp/JIT 均可用，不要求 libffi；不允许动态加载的平台使用静态实现。不同模块可导出同名函数，`lib` 始终参与查询。类型方法使用下文的类型描述符和 blittable 编组约定。
 
 ---
 
-## 3. Tier 1：C ABI
+## 3. 原生类型 C ABI
 
 头文件：[`src/runtime/include/z42_abi.h`](https://github.com/z42-lang/z42/blob/main/src/runtime/include/z42_abi.h)。
 
@@ -188,13 +186,11 @@ tag 值已冻结，只能追加：`NULL=0` `I64=1` `F64=2` `BOOL=3` `STR=4` `OBJ
 ```c
 Z42TypeRef z42_register_type(const Z42TypeDescriptor_v1* desc);
 Z42TypeRef z42_resolve_type(const char* module, const char* type_name);
-Z42Value   z42_invoke(Z42TypeRef ty, const char* method, const Z42Value* args, size_t n);
-Z42Value   z42_invoke_method(Z42Value receiver, const char* method, const Z42Value* args, size_t n);
 Z42Error   z42_last_error(void);
 ```
 
-`z42_register_type` / `z42_resolve_type` / `z42_last_error` 可用。**`z42_invoke` /
-`z42_invoke_method` 尚未接线**——native 侧还不能反过来构造或调用 z42 对象（§6.2）。
+`z42_register_type`、`z42_resolve_type` 和 `z42_last_error` 用于类型登记和查询。
+`z42_invoke` 与 `z42_invoke_method` 是保留入口，当前返回空值并设置错误。可用的脚本调用入口见 §6.2。
 
 `z42_register_type` 返回 `NULL` 即失败，原因经 `z42_last_error()` 取。注册会校验 `abi_version`、
 读出全部方法描述符并解析签名串，因此**签名写错在注册时就失败**，不会拖到调用时。
@@ -204,7 +200,7 @@ Z42Error   z42_last_error(void);
 注册入口按文件名约定：库文件 `libnumz42.dylib` ⇒ VM 查找并调用符号 **`numz42_register`**
 （`void(void)`），由它在内部对每个类型调 `z42_register_type`。
 
-⚠️ **VM 没有任何自动 `dlopen` 这类库的路径**。今天让 Tier 1 类型进到 VM 只有两条：
+⚠️ **VM 没有任何自动 `dlopen` 这类库的路径**。类型注册有两种入口：
 
 - 把 native 库**静态链接**进宿主，并在跑 z42 代码前显式调用它的注册入口；
 - 宿主经嵌入侧的 API 显式加载。
@@ -218,7 +214,7 @@ Z42Error   z42_last_error(void);
 - 一切访问经 `z42_*` 函数，不要直接改 VM 交回的结构体。
 - 主版本号变更 = 显式 break（记在 semver-major 里）。
 
-### 3.7 谁该直接用 Tier 1
+### 3.7 手写类型描述符的用途
 
 - 给既有 C 库（sqlite3、ffmpeg、openssl）写绑定；
 - 从非 Rust 宿主（C / C++ / Zig / Go cgo）暴露类型给 z42；
@@ -226,13 +222,13 @@ Z42Error   z42_last_error(void);
 
 ---
 
-## 4. Tier 2：Rust 侧的宏
+## 4. Rust 侧的宏
 
 三个 crate 在 [`src/runtime/crates/`](https://github.com/z42-lang/z42/tree/main/src/runtime/crates)：
 
 | crate | 职责 |
 |---|---|
-| `z42-abi` | Tier 1 的 Rust 镜像（结构体 + tag 常量 + `extern "C"` 声明） |
+| `z42-abi` | 原生类型 C ABI 的 Rust 声明（结构体 + tag 常量 + `extern "C"` 声明） |
 | `z42-rs` | 面向用户的门面（`Z42Type` trait、helper） |
 | `z42-macros` | proc macro：`#[z42::methods]`、`z42::module!` |
 
@@ -277,7 +273,7 @@ z42::module! {
 ### 4.3 未实现
 
 `#[derive(Z42Type)]` 与 `#[z42::trait_impl(...)]` **当前是占位**：用了它们会直接得到一条
-`compile_error!`。这意味着 Tier 2 今天**不能**导出字段、也不能让 native 类型实现 z42 接口——
+`compile_error!`。字段导出和 z42 接口实现仍是宏的待办项。
 `z42::module!` 展开时要求目标类型实现 `Z42Type`，所以实际使用中描述符仍需手写或由 `#[z42::methods]`
 配套提供。
 
@@ -354,13 +350,11 @@ long n = NumZ42.CounterGet(ptr);
 调用形状是平台 C 调用约定：`fn(self_ptr?, arg1, …, argN) -> ret`。没有隐式上下文参数（没有 GIL 句柄、
 没有线程上下文），也没有编组桩——只有一次间接调用。
 
-**执行引擎限制**：native 调用只在**解释器**上工作。含 native 调用的方法不会被 JIT 编译，会整体回落解释
-执行；AOT 同样不覆盖。这不影响正确性，但热路径上的 native 调用得不到 JIT 收益。
+原生类型方法由解释器通过 libffi 调用，含此类调用的方法由 JIT 回退到解释执行。模块函数使用自己的调用协议，interp 和 JIT 共用该协议。
 
 ### 6.2 native → z42
 
-`z42_invoke` / `z42_invoke_method` **尚未接线**，native 代码目前无法反过来创建或调用 z42 对象。
-需要回调的场景只能由宿主在 z42 之外自行编排。
+C 宿主使用 `z42_host_resolve_entry` 和 `z42_host_invoke` 调用已加载程序的入口。原生模块在当前调用期间通过 `Z42NativeHostApi.invoke_script` 发起同步脚本回调。模块回调用自己的值类型和调用上下文。
 
 ### 6.3 错误
 

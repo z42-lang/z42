@@ -15,28 +15,13 @@ export type Z42VMValue =
     | number
     | bigint;
 
-/**
- * Resolve a namespace (e.g. "z42.core" / "Std.IO") to its zpkg bytes,
- * or `null` when this resolver doesn't know about the namespace —
- * the runtime then falls back to other configured resolvers.
- *
- * Two accepted shapes:
- *   - A plain function `(name) => Uint8Array | null`
- *   - An object with a `resolve(name): Uint8Array | null` method
- *
- * The bytes returned **must remain valid** at least until the call
- * returns; the wasm runtime copies them eagerly. After return the
- * host may release / reuse the buffer.
- */
-export type ZpkgResolverFn = (namespace: string) => Uint8Array | null;
-export interface ZpkgResolverObject {
-    resolve(namespace: string): Uint8Array | null;
-}
-export type ZpkgResolver = ZpkgResolverFn | ZpkgResolverObject;
+export type FileKind = 1 | 2 | 3 | 4; // ZPKG, ZBC, runtimeconfig, ZBC dependencies
+export type FileResolverFn = (fileName: string, kind: FileKind) => Uint8Array | null;
+export type FileResolver = FileResolverFn | { resolve: FileResolverFn };
 
 export interface Z42VMOptions {
     /** Resolves stdlib + user zpkgs. See `stdlib-resolver.js` for built-ins. */
-    zpkgResolver?: ZpkgResolver;
+    fileResolver?: FileResolver;
     /** Receives `Console.WriteLine` output. Called once per write. */
     stdoutHandler?: (bytes: Uint8Array) => void;
     /** Receives `Console.Error.WriteLine` output. */
@@ -48,6 +33,7 @@ export class Z42VM {
 
     /** Parse a `.zbc` byte buffer into a loaded module. */
     loadZbc(bytes: Uint8Array): Z42VMModule;
+    loadBytes(bytes: Uint8Array, fileName?: string): Z42VMModule;
 
     /** Resolve an entry by fully qualified name (e.g. "App.Main"). */
     resolveEntry(module: Z42VMModule, fqn: string): Z42VMEntry;
@@ -77,10 +63,3 @@ export class Z42VMError extends Error {
 
 /** Initialise the wasm module. Required once per page / process. */
 export default function init(input?: BufferSource | URL): Promise<void>;
-
-/**
- * Read the namespaces a zpkg provides (its NSPC section). The
- * `stdlib-resolver.js` helpers use this to map namespace → bytes from the
- * packages directly — no `index.json`.
- */
-export function readNamespaces(bytes: Uint8Array): string[];

@@ -541,3 +541,5 @@ mod tests;
 
 mod vm_config;
 pub use vm_config::VmConfig;
+
+pub(crate) use source::{load_explicit_app_config_tables, parse_config_tables};

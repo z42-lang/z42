@@ -65,6 +65,8 @@ fn default_config() -> Z42HostConfig {
         zpkg_resolver: None,
         zpkg_resolver_user_data: ptr::null_mut(),
         zpkg_resolver_write: None,
+        file_resolver: None,
+        file_resolver_user_data: ptr::null_mut(),
     }
 }
 
@@ -301,7 +303,7 @@ fn resolver_write_copies_before_callback_returns_and_checks_field_size() {
     assert_eq!(resolver.resolve("demo").as_deref(), Some(&b"local bytes"[..]));
 
     // A caller advertising only part of the appended pointer cannot enable it.
-    cfg.struct_size -= 1;
+    cfg.struct_size = std::mem::offset_of!(Z42HostConfig, file_resolver) as u32 - 1;
     let (session, _) = unsafe { abi_config::validate(&cfg) }.unwrap();
     assert!(session.zpkg_resolver.is_none());
 }
@@ -500,18 +502,11 @@ fn load_invoke_hello_world() {
     let search_paths: [*const c_char; 2] = [libs_path.as_ptr(), ptr::null()];
 
     let cfg = Z42HostConfig {
-        abi_version: Z42_HOST_ABI_VERSION,
         struct_size: abi_config::MIN_CONFIG_SIZE as u32,
-        exec_mode: abi_config::Z42ExecMode::Interp as i32,
-        heap_initial_bytes: 0,
-        heap_max_bytes: 0,
         stdout_sink: Some(host_stdout_sink_callback),
-        stderr_sink: None,
         sink_user_data: user_data,
         search_paths: search_paths.as_ptr(),
-        zpkg_resolver: None,
-        zpkg_resolver_user_data: ptr::null_mut(),
-        zpkg_resolver_write: None,
+        ..default_config()
     };
 
     let mut host: *mut Z42Host = ptr::null_mut();
@@ -597,18 +592,12 @@ fn with_hello_session_mode<R>(
     let libs_path = libs_dir_cstring();
     let search_paths: [*const c_char; 2] = [libs_path.as_ptr(), ptr::null()];
     let cfg = Z42HostConfig {
-        abi_version: Z42_HOST_ABI_VERSION,
         struct_size: abi_config::MIN_CONFIG_SIZE as u32,
         exec_mode: mode as i32,
-        heap_initial_bytes: 0,
-        heap_max_bytes: 0,
         stdout_sink: Some(host_simple_capture_sink),
-        stderr_sink: None,
         sink_user_data: user_data,
         search_paths: search_paths.as_ptr(),
-        zpkg_resolver: None,
-        zpkg_resolver_user_data: ptr::null_mut(),
-        zpkg_resolver_write: None,
+        ..default_config()
     };
     let mut host: *mut Z42Host = ptr::null_mut();
     assert_eq!(
@@ -969,18 +958,10 @@ fn resolver_via_map_resolver_loads_corelib_without_search_paths() {
 
     // No search_paths — relies entirely on the resolver.
     let cfg = Z42HostConfig {
-        abi_version: Z42_HOST_ABI_VERSION,
         struct_size: abi_config::MIN_CONFIG_SIZE as u32,
-        exec_mode: abi_config::Z42ExecMode::Interp as i32,
-        heap_initial_bytes: 0,
-        heap_max_bytes: 0,
         stdout_sink: Some(host_simple_capture_sink),
-        stderr_sink: None,
         sink_user_data: user_data,
-        search_paths: ptr::null(),
-        zpkg_resolver: None,
-        zpkg_resolver_user_data: ptr::null_mut(),
-        zpkg_resolver_write: None,
+        ..default_config()
     };
     let mut host: *mut Z42Host = ptr::null_mut();
     assert_eq!(
@@ -1079,18 +1060,11 @@ fn resolver_via_c_hook_loads_corelib() {
     let user_data = &capture as *const Mutex<Vec<u8>> as *mut c_void;
 
     let cfg = Z42HostConfig {
-        abi_version: Z42_HOST_ABI_VERSION,
         struct_size: abi_config::MIN_CONFIG_SIZE as u32,
-        exec_mode: abi_config::Z42ExecMode::Interp as i32,
-        heap_initial_bytes: 0,
-        heap_max_bytes: 0,
         stdout_sink: Some(host_simple_capture_sink),
-        stderr_sink: None,
         sink_user_data: user_data,
-        search_paths: ptr::null(),
         zpkg_resolver: Some(c_hook_resolver_fn),
-        zpkg_resolver_user_data: ptr::null_mut(),
-        zpkg_resolver_write: None,
+        ..default_config()
     };
     let mut host: *mut Z42Host = ptr::null_mut();
     assert_eq!(
@@ -1146,18 +1120,11 @@ fn resolver_miss_falls_back_to_search_paths() {
     let search_paths: [*const c_char; 2] = [libs_cstr.as_ptr(), ptr::null()];
 
     let cfg = Z42HostConfig {
-        abi_version: Z42_HOST_ABI_VERSION,
         struct_size: abi_config::MIN_CONFIG_SIZE as u32,
-        exec_mode: abi_config::Z42ExecMode::Interp as i32,
-        heap_initial_bytes: 0,
-        heap_max_bytes: 0,
         stdout_sink: Some(host_simple_capture_sink),
-        stderr_sink: None,
         sink_user_data: user_data,
         search_paths: search_paths.as_ptr(),
-        zpkg_resolver: None,
-        zpkg_resolver_user_data: ptr::null_mut(),
-        zpkg_resolver_write: None,
+        ..default_config()
     };
     let mut host: *mut Z42Host = ptr::null_mut();
     assert_eq!(
@@ -1214,18 +1181,8 @@ fn resolver_both_unset_load_zbc_succeeds_if_zbc_self_contained() {
     // because corelib miss is silent — the runtime only complains
     // when user code actually references a missing symbol at invoke.
     let cfg = Z42HostConfig {
-        abi_version: Z42_HOST_ABI_VERSION,
         struct_size: abi_config::MIN_CONFIG_SIZE as u32,
-        exec_mode: abi_config::Z42ExecMode::Interp as i32,
-        heap_initial_bytes: 0,
-        heap_max_bytes: 0,
-        stdout_sink: None,
-        stderr_sink: None,
-        sink_user_data: ptr::null_mut(),
-        search_paths: ptr::null(),
-        zpkg_resolver: None,
-        zpkg_resolver_user_data: ptr::null_mut(),
-        zpkg_resolver_write: None,
+        ..default_config()
     };
     let mut host: *mut Z42Host = ptr::null_mut();
     assert_eq!(
@@ -1263,18 +1220,8 @@ fn resolver_corelib_miss_then_console_writeline_fails_at_invoke() {
     reset_host();
 
     let cfg = Z42HostConfig {
-        abi_version: Z42_HOST_ABI_VERSION,
         struct_size: abi_config::MIN_CONFIG_SIZE as u32,
-        exec_mode: abi_config::Z42ExecMode::Interp as i32,
-        heap_initial_bytes: 0,
-        heap_max_bytes: 0,
-        stdout_sink: None,
-        stderr_sink: None,
-        sink_user_data: ptr::null_mut(),
-        search_paths: ptr::null(),
-        zpkg_resolver: None,
-        zpkg_resolver_user_data: ptr::null_mut(),
-        zpkg_resolver_write: None,
+        ..default_config()
     };
     let mut host: *mut Z42Host = ptr::null_mut();
     assert_eq!(
@@ -1584,4 +1531,114 @@ fn rust_host_uses_the_shared_session_and_its_own_error_channel() {
     drop(host);
     let new = start_host(&default_config());
     assert_eq!(unsafe { z42_host_shutdown(new) }, Z42HostStatus::Ok);
+}
+
+#[test]
+fn file_resolver_loads_configs_and_same_namespace_packages_by_name() {
+    use crate::zpkg::format::{ZPKG_MAGIC, ZPKG_VERSION_MAJOR, ZPKG_VERSION_MINOR};
+
+    fn packed_zpkg(name: &str) -> Vec<u8> {
+        let mut meta = Vec::new();
+        for field in [name, "0.1", ""] {
+            meta.extend_from_slice(&(field.len() as u16).to_le_bytes());
+            meta.extend_from_slice(field.as_bytes());
+        }
+        // One pooled string ("Shared") and one namespace pointing to it.
+        let strs = b"\x01\0\0\0\x06Shared\x01\0\0\0\x01\0";
+        let nspc = b"\x01\0\0\0\0\0\0\0";
+        // One empty module with a four-byte FUNC section containing a zero count.
+        let mut mods = 1u32.to_le_bytes().to_vec();
+        mods.extend_from_slice(&[0; 18]);
+        mods.extend_from_slice(&4u32.to_le_bytes());
+        mods.extend_from_slice(&[0; 16]);
+        let sections: [(&[u8; 4], &[u8]); 4] =
+            [(b"META", &meta), (b"STRS", strs), (b"NSPC", nspc), (b"MODS", &mods)];
+        let mut bytes = ZPKG_MAGIC.to_vec();
+        bytes.extend_from_slice(&ZPKG_VERSION_MAJOR.to_le_bytes());
+        bytes.extend_from_slice(&ZPKG_VERSION_MINOR.to_le_bytes());
+        bytes.extend_from_slice(&1u16.to_le_bytes());
+        bytes.extend_from_slice(&(sections.len() as u16).to_le_bytes());
+        bytes.extend_from_slice(&[0; 4]);
+        let mut offset = 16 + sections.len() as u32 * 12;
+        for (tag, data) in sections {
+            bytes.extend_from_slice(tag);
+            bytes.extend_from_slice(&offset.to_le_bytes());
+            bytes.extend_from_slice(&(data.len() as u32).to_le_bytes());
+            offset += data.len() as u32;
+        }
+        for (_, data) in sections {
+            bytes.extend_from_slice(data);
+        }
+        bytes
+    }
+
+    unsafe extern "C" fn resolve_file(
+        request: *const Z42FileRequest,
+        writer: *mut Z42FileWriter,
+        context: *mut c_void,
+    ) -> i32 {
+        let request = unsafe { &*request };
+        let name = unsafe { CStr::from_ptr(request.file_name) }.to_str().unwrap();
+        let calls = unsafe { &mut *context.cast::<Vec<(String, u32)>>() };
+        calls.push((name.to_owned(), request.kind));
+        let mut bytes = match name {
+            "entry.runtimeconfig.toml" => b"[properties]".to_vec(),
+            "entry.zbc.deps" => b"a.zpkg\nb.zpkg\ntool.zbc".to_vec(),
+            "tool.zbc.deps" => b"extra.zpkg".to_vec(),
+            "z42.core.zpkg" => packed_zpkg("z42.core"),
+            "a.zpkg" => packed_zpkg("a"),
+            "b.zpkg" => packed_zpkg("b"),
+            "extra.zpkg" => packed_zpkg("extra"),
+            "tool.zbc" => crate::loader::test_support::empty_zbc(),
+            "bad.runtimeconfig.toml" => vec![0xff],
+            _ => return 0,
+        };
+        let write = unsafe { z42_file_write(writer, bytes.as_ptr(), bytes.len()) };
+        bytes.fill(0);
+        std::hint::black_box(bytes);
+        if write == Z42HostStatus::Ok { 1 } else { -1 }
+    }
+
+    let _guard = test_lock();
+    reset_host();
+    let mut config = default_config();
+    let mut calls = Vec::<(String, u32)>::new();
+    config.file_resolver = Some(resolve_file);
+    config.file_resolver_user_data = (&mut calls as *mut Vec<_>).cast();
+    config.struct_size = std::mem::offset_of!(Z42HostConfig, file_resolver_user_data) as u32;
+    let (validated, _) = unsafe { abi_config::validate(&config) }.unwrap();
+    assert!(validated.file_resolver.is_none());
+    config.struct_size = std::mem::size_of::<Z42HostConfig>() as u32;
+
+    let mut host = ptr::null_mut();
+    assert_eq!(unsafe { z42_host_initialize(&config, &mut host) }, Z42HostStatus::Ok);
+    let mut module = ptr::null_mut();
+    let entry = crate::loader::test_support::empty_zbc();
+    let status = unsafe {
+        z42_host_load_bytes(host, c"entry.zbc".as_ptr(), entry.as_ptr(), entry.len(), &mut module)
+    };
+    let error = unsafe { z42_host_last_error(host) };
+    assert_eq!(status, Z42HostStatus::Ok, "{}", if error.message.is_null() {
+        String::new()
+    } else {
+        unsafe { CStr::from_ptr(error.message) }.to_string_lossy().into_owned()
+    });
+    let expected = [
+        ("entry.runtimeconfig.toml", FileKind::RuntimeConfig),
+        ("entry.zbc.deps", FileKind::BytecodeDependencies),
+        ("z42.core.zpkg", FileKind::Zpkg),
+        ("a.zpkg", FileKind::Zpkg),
+        ("b.zpkg", FileKind::Zpkg),
+        ("tool.zbc", FileKind::Zbc),
+        ("tool.zbc.deps", FileKind::BytecodeDependencies),
+        ("extra.zpkg", FileKind::Zpkg),
+    ];
+    assert_eq!(calls, expected.map(|(name, kind)| (name.to_owned(), kind as u32)));
+
+    let status = unsafe {
+        z42_host_load_bytes(host, c"bad.zbc".as_ptr(), entry.as_ptr(), entry.len(), &mut module)
+    };
+    assert_eq!(status, Z42HostStatus::BadZbc);
+    assert!(module.is_null());
+    assert_eq!(unsafe { z42_host_shutdown(host) }, Z42HostStatus::Ok);
 }

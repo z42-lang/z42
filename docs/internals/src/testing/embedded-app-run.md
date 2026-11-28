@@ -100,7 +100,7 @@ wasm 没有文件系统、也没有进程 stdout，所以它**不能**直接复�
 
 **(a) 加载走 VM 的 VFS，不是 `std::fs`。** 运行期工件读取一律走这台 VM 的 `pal::fs::Vfs`
 句柄（`RunOpts::vfs`，不给就是默认：native 为 `LocalFs`，即 `std::fs`；wasm 为内存 VFS）。
-走它的有 `loader/package/artifact.rs`（`load_zbc` / `load_zpkg` 及 `.zsym` sidecar、indexed-zpkg
+走它的有 `loader/package/decode.rs`（`load_zbc` / `load_zpkg` 及 `.zsym` sidecar、indexed-zpkg
 散装读）、`loader/locate/namespace_index.rs`（命名空间目录扫描、`ZpkgCandidate::build`）、惰性加载器、
 `loader/prelude.rs`（`z42.core` 预载）和 `loader/locate/search_paths.rs`（入口目录探测）。
 

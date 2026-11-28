@@ -20,7 +20,7 @@ use std::{
 
 enum ProgramSource<'a> {
     File(&'a str),
-    Bytes(&'a [u8]),
+    Bytes(&'a [u8], Option<&'a str>),
 }
 
 /// Host-provided inputs. A byte source has no implicit working-directory search.
@@ -33,6 +33,7 @@ pub struct LoadOptions {
     pub vfs: Arc<dyn Vfs>,
     pub search_dirs: Vec<PathBuf>,
     pub resolver: Option<Arc<dyn ZpkgResolver>>,
+    pub file_resolver: Option<Arc<dyn loader::FileResolver>>,
     /// Preload declared imports for hosts that resolve dependency entries before invocation.
     pub eager_dependencies: bool,
 }
@@ -46,6 +47,7 @@ impl Default for LoadOptions {
             vfs: crate::pal::fs::default_vfs(),
             search_dirs: Vec::new(),
             resolver: None,
+            file_resolver: None,
             eager_dependencies: false,
         }
     }
@@ -87,19 +89,29 @@ fn load_program_with_components(
     image_cache: Option<&ImageCache>,
     components: &ComponentInputs,
 ) -> Result<LoadedProgram> {
-    let (artifact, path) = match source {
-        ProgramSource::File(path) => (loader::load_artifact(&*request.vfs, path)?, Some(path)),
-        ProgramSource::Bytes(bytes) => (
-            loader::load_artifact_from_bytes_cached(bytes, image_cache)?,
+    let logical_name = match source {
+        ProgramSource::File(path) => Some(path),
+        ProgramSource::Bytes(_, name) => name,
+    };
+    if let (Some(name), Some(resolver)) = (logical_name, request.file_resolver.as_deref()) {
+        crate::composition::install_resolved_app_config(name, resolver, &*request.vfs)?;
+    }
+
+    let (decoded, path) = match source {
+        ProgramSource::File(path) => (loader::decode_program_file(&*request.vfs, path)?, Some(path)),
+        ProgramSource::Bytes(bytes, _) => (
+            loader::decode_program_bytes_cached(bytes, image_cache)?,
             None,
         ),
     };
     let prepared = loader::prepare_startup(
-        artifact,
+        decoded,
         path,
+        logical_name,
         &*request.vfs,
         request.search_dirs,
         request.resolver.as_deref(),
+        request.file_resolver.as_deref(),
         request.eager_dependencies || matches!(request.mode, ExecMode::Aot),
         image_cache,
     )?;
@@ -149,17 +161,26 @@ impl LoadedProgram {
     }
 
     pub fn load_bytes(bytes: &[u8], options: LoadOptions) -> Result<Self> {
-        load_program(ProgramSource::Bytes(bytes), options, None)
+        load_program(ProgramSource::Bytes(bytes, None), options, None)
     }
 
     /// Decode package definitions through the session's shared cache. Linkage,
     /// statics and initialization state remain per VM.
+    pub(crate) fn load_named_bytes_with_cache(
+        bytes: &[u8],
+        name: Option<&str>,
+        options: LoadOptions,
+        image_cache: &ImageCache,
+    ) -> Result<Self> {
+        load_program(ProgramSource::Bytes(bytes, name), options, Some(image_cache))
+    }
+
     pub fn load_bytes_with_cache(
         bytes: &[u8],
         options: LoadOptions,
         image_cache: &ImageCache,
     ) -> Result<Self> {
-        load_program(ProgramSource::Bytes(bytes), options, Some(image_cache))
+        load_program(ProgramSource::Bytes(bytes, None), options, Some(image_cache))
     }
 
     #[cfg(test)]
@@ -168,7 +189,7 @@ impl LoadedProgram {
         options: LoadOptions,
         components: ComponentInputs,
     ) -> Result<Self> {
-        load_program_with_components(ProgramSource::Bytes(bytes), options, None, &components)
+        load_program_with_components(ProgramSource::Bytes(bytes, None), options, None, &components)
     }
 
     pub(crate) fn new(

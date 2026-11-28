@@ -73,14 +73,15 @@ mod marshal;
 pub(crate) mod session;
 mod app;
 pub use z42_zpkg::{ExecMode, image::PackageImage};
-pub use abi_config::{Z42ExecMode, Z42_HOST_ABI_VERSION, Z42HostConfig};
+pub use abi_config::{Z42ExecMode, Z42FileRequest, Z42FileResolverFn, Z42FileWriter, Z42_HOST_ABI_VERSION, Z42HostConfig};
 pub use ffi::{
     Z42Host, Z42Module, Z42Entry, z42_host_initialize, z42_host_shutdown,
-    z42_host_load_zbc, z42_host_resolve_entry, z42_host_invoke,
+    z42_file_write, z42_host_load_bytes, z42_host_load_zbc, z42_host_resolve_entry, z42_host_invoke,
     z42_host_set_stdout_sink, z42_host_set_stderr_sink, z42_host_last_error,
     z42_zpkg_read_namespaces, install_zpkg_resolver, install_vfs, z42_host_run_app,
 };
 pub use resolver::{read_zpkg_namespaces, ZpkgResolver};
+pub use crate::loader::{FileKind, FileResolver};
 pub use crate::vm::program::{default_mode, execution_available, LoadOptions, LoadedProgram};
 pub use app::{run_app, RunOpts};
 pub use crate::vm::app_state::{program_args, set_program_args};

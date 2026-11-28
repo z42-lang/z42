@@ -2,7 +2,7 @@ use super::*;
 
 /// `__load_module(path: str)` — the generic load behind `Std.Runtime.ModuleLoader.Load`
 /// (component injection, project hooks, `[analyzers]` zpkgs, and the test runner, which then
-/// discovers tests by reflection): merge the artifact (+ dependency closure) into the live
+/// discovers tests by reflection): merge the program (+ dependency closure) into the live
 /// registries. Returns Null.
 pub fn load_module(ctx: &VmContext, path: &crate::object::string::vstr::Str) -> anyhow::Result<Value> {
     let path = path.to_string();
@@ -16,7 +16,7 @@ pub fn load_module(ctx: &VmContext, path: &crate::object::string::vstr::Str) -> 
 }
 
 /// `__load_bytecode_in_memory(bytes: byte[]) -> bool` — load a compiled
-/// artifact (packed zpkg / bare zbc) from an in-memory byte array into the live
+/// program (packed zpkg / bare zbc) from an in-memory byte array into the live
 /// VM registries, so its functions become reflectively invocable with zero disk
 /// I/O. Backs `z42.scripting`'s per-eval load (REPL): `PackageCompile` emits the
 /// session package's bytes in memory, this registers them, then `$Eval_N()` is

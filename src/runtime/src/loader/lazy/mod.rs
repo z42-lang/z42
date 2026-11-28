@@ -34,7 +34,7 @@ use std::sync::Arc;
 use anyhow::Result;
 
 use crate::metadata::Function;
-use crate::loader::package::{load_artifact_with_fusion, load_artifact_from_bytes_with_fusion, LoadedArtifact};
+use crate::loader::package::{decode_program_file_with_fusion, decode_program_bytes_with_fusion, DecodedProgram};
 use super::fusion_inputs::FusionInputSource;
 use crate::object::TypeDesc;
 use crate::loader::locate::namespace_index;
@@ -130,7 +130,7 @@ pub struct LazyLoader {
     cctors: Option<Arc<crate::metadata::statics::CctorRegistry>>,
 
     /// **precise-pkg-refs**: symbol key (type / free-function full name) → zpkg file that defines
-    /// it, from the DEPS symbol lists of the entry artifact and of every loaded package. See
+    /// it, from the DEPS symbol lists of the entry decoded and of every loaded package. See
     /// `loader/lazy/symbols.rs`.
     symbol_owners: FxHashMap<String, String>,
     /// Simple name → the unique recorded full name with that short name (`None` once two
@@ -236,7 +236,7 @@ impl LazyLoader {
         let mut module_descs: Vec<Arc<TypeDesc>> = Vec::new();
         for (name, td) in types {
             if !self.type_registry.contains_key(name) {
-                // add-module-init-hook: this path seeds the **main** artifact's types and
+                // add-module-init-hook: this path seeds the **main** decoded's types and
                 // writes `type_registry` directly — bypassing `insert_type`, the funnel the
                 // lazy path uses. That meant the main package's own `$Module` was never
                 // registered and its `[ModuleInit]` silently never ran.
@@ -275,7 +275,7 @@ impl LazyLoader {
     }
 
     /// add-crosspkg-impl-reflection: merge `(target_fq, trait_fq)` pairs into
-    /// the impls registry (from the eagerly-loaded main artifact or a
+    /// the impls registry (from the eagerly-loaded main decoded or a
     /// lazily-loaded zpkg). Duplicate pairs are dropped; distinct traits for
     /// the same target accumulate.
     pub fn seed_impls(&mut self, pairs: &[(String, String)]) {
@@ -342,7 +342,7 @@ impl LazyLoader {
 
     /// Mark `file_name` resident under **both** idempotency keys: the by-name
     /// (`<pkg>.zpkg`) form and the `__loaded_path__<module>` form that
-    /// `register_loaded_artifact` checks. By-name and by-path loads keep separate
+    /// `register_loaded_program` checks. By-name and by-path loads keep separate
     /// bookkeeping, and the by-path side already marks this side's `<pkg>.zpkg`
     /// key (fix-repl-inmemory-dep-warn). Without the mirror mark a zpkg loaded
     /// lazily by name and then again via `ModuleLoader.Load` registers every
@@ -469,14 +469,14 @@ impl LazyLoader {
         true
     }
 
-    /// M1 no-eager-merge: register an already-decoded artifact (decode,
+    /// M1 no-eager-merge: register an already-decoded decoded (decode,
     /// type-registry build and verification all happened in the host prepare;
-    /// no I/O here). Moves the artifact in by value — the same funnel as
+    /// no I/O here). Moves the decoded in by value — the same funnel as
     /// on-demand loads, so every registry fact (functions, types with cctor
     /// facts, string-pool append + ConstStr remap, symbol ownership) stays
     /// identical to the lazy path.
-    pub(crate) fn register_decoded_artifact(&mut self, artifact: crate::loader::LoadedArtifact) -> anyhow::Result<()> {
-        self.register_loaded_artifact(artifact)
+    pub(crate) fn register_decoded_program(&mut self, decoded: crate::loader::DecodedProgram) -> anyhow::Result<()> {
+        self.register_loaded_program(decoded)
     }
 
     /// The registered function named `name` (no loading).
@@ -647,7 +647,7 @@ impl LazyLoader {
     ///
     /// fix-array-default-init : loop until the declared set is
     /// stable. `load_zpkg_file` adds *transitive* deps to `declared_zpkgs`
-    /// as it loads each artifact; a single snapshot misses zpkgs that only
+    /// as it loads each decoded; a single snapshot misses zpkgs that only
     /// become declared mid-loop. The previous single-pass version skipped
     /// `__static_init__` for transitively-discovered zpkgs (e.g. z42.encoding
     /// pulled in by z42.crypto when the user module only imports Std.Crypto),

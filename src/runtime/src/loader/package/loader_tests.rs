@@ -519,7 +519,7 @@ fn indexed_zpkg_loads_via_path() {
     std::fs::copy(indexed_fixture_dir().join("source.zpkg"), base.join("demo.indexed.zpkg")).unwrap();
     std::fs::copy(indexed_fixture_dir().join("source.zbc"), base.join("source.zbc")).unwrap();
 
-    let art = crate::loader::load_artifact(&crate::pal::fs::LocalFs,
+    let art = crate::loader::decode_program_file(&crate::pal::fs::LocalFs,
         base.join("demo.indexed.zpkg").to_str().unwrap(),
     )
     .expect("indexed zpkg loads through the path-aware loader");
@@ -536,7 +536,7 @@ fn indexed_zpkg_rejects_hash_mismatch() {
     zbc.push(0x78); // 篡改散装 zbc → 内容 hash 必不符
     std::fs::write(base.join("source.zbc"), zbc).unwrap();
 
-    let err = match crate::loader::load_artifact(&crate::pal::fs::LocalFs,
+    let err = match crate::loader::decode_program_file(&crate::pal::fs::LocalFs,
         base.join("demo.indexed.zpkg").to_str().unwrap(),
     ) {
         Ok(_) => panic!("tampered scattered zbc must be rejected"),
@@ -549,7 +549,7 @@ fn indexed_zpkg_rejects_hash_mismatch() {
 fn indexed_zpkg_bytes_only_load_is_rejected() {
     // 字节 API（embedding）无包目录 → 明确拒绝而非静默。
     let raw = std::fs::read(indexed_fixture_dir().join("source.zpkg")).unwrap();
-    let err = match crate::loader::load_artifact_from_bytes(&raw) {
+    let err = match crate::loader::decode_program_bytes(&raw) {
         Ok(_) => panic!("indexed from bytes alone must be rejected"),
         Err(e) => e,
     };
@@ -632,7 +632,7 @@ fn fusion_input_polarity_preserves_cmp_branch_recognition() {
 }
 
 #[test]
-fn artifact_fusion_inputs_are_read_only_after_successful_decode() {
+fn program_fusion_inputs_are_read_only_after_successful_decode() {
     use crate::pal::fs::MemoryFs;
     use crate::loader::fusion_inputs::FusionInputs;
     use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
@@ -644,30 +644,30 @@ fn artifact_fusion_inputs_are_read_only_after_successful_decode() {
     }
 
     let fs = MemoryFs::new();
-    assert!(load_artifact_with_fusion(&fs, "missing.zbc", inputs).is_err());
-    assert!(load_artifact_from_bytes_with_fusion(&ZBC_MAGIC, inputs).is_err());
+    assert!(decode_program_file_with_fusion(&fs, "missing.zbc", inputs).is_err());
+    assert!(decode_program_bytes_with_fusion(&ZBC_MAGIC, inputs).is_err());
     let indexed = std::fs::read(indexed_fixture_dir().join("source.zpkg")).unwrap();
-    assert!(load_artifact_from_bytes_with_fusion(&indexed, inputs).is_err());
+    assert!(decode_program_bytes_with_fusion(&indexed, inputs).is_err());
     assert_eq!(READS.load(Relaxed), 0);
 
     let raw = std::fs::read(indexed_fixture_dir().join("source.zbc")).unwrap();
-    let art = load_artifact_from_bytes_with_fusion(&raw, inputs).unwrap();
+    let art = decode_program_bytes_with_fusion(&raw, inputs).unwrap();
     let count = art.module.functions.len();
     assert!(count > 0);
     assert_eq!(READS.load(Relaxed), count);
     fs.mount("source.zbc", raw);
     fs.mount("source.zpkg", indexed);
-    let art = load_artifact_with_fusion(&fs, "source.zpkg", inputs).unwrap();
+    let art = decode_program_file_with_fusion(&fs, "source.zpkg", inputs).unwrap();
     assert_eq!(art.module.functions.len(), count);
     assert_eq!(READS.load(Relaxed), 2 * count);
 
     let packed = std::fs::read(indexed_fixture_dir().join("../packed-minimal/source.zpkg")).unwrap();
-    let art = load_artifact_from_bytes_with_fusion(&packed, inputs).unwrap();
+    let art = decode_program_bytes_with_fusion(&packed, inputs).unwrap();
     let packed_count = art.module.functions.len();
     assert!(packed_count > 0);
     assert_eq!(READS.load(Relaxed), 2 * count + packed_count);
     fs.mount("packed.zpkg", packed);
-    let art = load_artifact_with_fusion(&fs, "packed.zpkg", inputs).unwrap();
+    let art = decode_program_file_with_fusion(&fs, "packed.zpkg", inputs).unwrap();
     assert_eq!(art.module.functions.len(), packed_count);
     assert_eq!(READS.load(Relaxed), 2 * (count + packed_count));
 }
@@ -687,10 +687,10 @@ fn public_fusion_provider_preserves_process_config_first_read() {
         match mode.as_str() {
             "initialize-before-load" => {
                 assert!(init_runtime_config(config).is_ok());
-                assert!(crate::loader::load_artifact_from_bytes(&raw).is_ok());
+                assert!(crate::loader::decode_program_bytes(&raw).is_ok());
             }
             "load-before-initialize" => {
-                assert!(crate::loader::load_artifact_from_bytes(&raw).is_ok());
+                assert!(crate::loader::decode_program_bytes(&raw).is_ok());
                 assert!(init_runtime_config(config).is_err());
             }
             _ => panic!("unexpected child mode: {mode}"),

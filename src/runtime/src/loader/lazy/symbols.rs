@@ -4,7 +4,7 @@
 //! references that are **defined by** that dependency (zpkg 0.52). This is the z42 analogue of
 //! a .NET TypeRef's resolution scope: the referencing side states where the definition lives,
 //! so a miss loads exactly that package instead of guessing by namespace prefix. The table is
-//! fed by the entry artifact (boot) and by every package as it loads, so it always covers the
+//! fed by the entry decoded (boot) and by every package as it loads, so it always covers the
 //! references of the code that can currently run.
 //!
 //! Keys are *symbol keys* ([`symbol_key`]): generic arguments and `$` overload / arity suffixes

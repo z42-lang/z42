@@ -20,20 +20,20 @@
 ## 基础用法
 
 ```ts
-import init, { Z42VM, readNamespaces } from '@z42/wasm';
+import init, { Z42VM } from '@z42/wasm';
 import { bundleStdlibNode } from '@z42/wasm/stdlib-resolver';
 
 await init();
 const vm = new Z42VM({
-    zpkgResolver: await bundleStdlibNode(readNamespaces),   // 经各 zpkg 的 NSPC 建 namespace→bytes 表
+    fileResolver: await bundleStdlibNode(),
     stdoutHandler: (bytes) => process.stdout.write(bytes),
 });
 vm.invoke(vm.resolveEntry(vm.loadZbc(zbcBytes), 'My.Namespace.Main'));
 vm.dispose();
 ```
 
-`Z42VMOptions`：`zpkgResolver`（函数或 `{ resolve }`）、`stdoutHandler`、`stderrHandler`；完整类型见 `platform/js/index.d.ts`。
-浏览器侧 `bundleStdlibBrowser(baseUrl, readNamespaces)` 读构建生成的 `files.json`（zpkg 文件名列表）。
+`Z42VMOptions`：`fileResolver`（函数或 `{ resolve }`）、`stdoutHandler`、`stderrHandler`；完整类型见 `platform/js/index.d.ts`。
+浏览器侧 `bundleStdlibBrowser(baseUrl)` 读构建生成的 `files.json`（zpkg 文件名列表）。
 
 构建与 demo：
 
@@ -47,6 +47,10 @@ node src/toolchain/workload/wasm/platform/demo/node/run.js     # 期望 [host] h
 ```
 
 浏览器 demo：`platform/demo/web/index.html`，配任一静态服务器。
+
+## Runtime 组装
+
+默认发布的 `.wasm` 模块包含解释器和 compression。Runtime 包提供独立的静态组件，嵌入方可以按清单用它们重新链接最终模块。链接并登记 `libz42_profiler.a` 后，浏览器可使用堆分析。后台线程 CPU 采样需要提供相应线程支持的宿主。
 
 限制：仅 interp；同步 invoke；marshal 仅 null / boolean / number / bigint；单实例；
 `pkg-*/`、`js/stdlib/` 等生成物落宿主工程副本 `artifacts/intermediate/toolchain/workload/wasm/host/`，不写本目录。

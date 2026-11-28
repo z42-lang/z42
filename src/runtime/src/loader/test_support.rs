@@ -1,4 +1,4 @@
-//! Minimal artifact fixtures shared by runtime tests.
+//! Minimal decoded fixtures shared by runtime tests.
 
 pub(crate) fn empty_zbc() -> Vec<u8> {
     use crate::zpkg::format::*;

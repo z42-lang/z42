@@ -195,6 +195,11 @@ instr_bytes   instr_len 字节（各块指令 + 终结符）
 
 `u32 fn_count`，每函数：`u16 line_count` + 每行 `{ blk u16; instr u16; line u32; file u32(0xFFFFFFFF=无); col u32 }`；`u16 var_count` + 每变量 `{ name pool idx; reg u16 }`。
 
+## 外部文件依赖
+
+`z42c --emit-zbc` 有外部文件依赖时写出 `<name>.zbc.deps`。清单使用 UTF-8，每行一个带扩展名的
+逻辑文件名。依赖归属采用 ZPKG DEPS 相同的编译期数据。按文件名加载的宿主随裸字节码提供该清单。
+
 ## 指令编码
 
 每条指令与终结符以 4 字节头开始，后跟按操作码定义的操作数：

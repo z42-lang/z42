@@ -15,7 +15,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::ptr;
 use std::sync::Arc;
 
-use super::abi_config::Z42HostConfig;
+use super::abi_config::{Z42FileWriter, Z42HostConfig};
 use crate::host::error::{Z42HostStatus, clear_error, set_error, snapshot_last_error};
 use crate::loader::program::read_zpkg_namespaces;
 use z42_abi::{Z42Error, Z42Value};
@@ -115,33 +115,73 @@ pub unsafe extern "C" fn z42_host_load_zbc(
     length: usize,
     out_module: *mut *mut Z42Module,
 ) -> Z42HostStatus {
+    unsafe { z42_host_load_bytes(host, ptr::null(), bytes, length, out_module) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn z42_host_load_bytes(
+    host: *mut Z42Host,
+    name: *const c_char,
+    bytes: *const u8,
+    length: usize,
+    out_module: *mut *mut Z42Module,
+) -> Z42HostStatus {
     guard(|| {
+        if !out_module.is_null() {
+            unsafe { *out_module = ptr::null_mut() };
+        }
+        let name = if name.is_null() {
+            None
+        } else {
+            match unsafe { std::ffi::CStr::from_ptr(name) }.to_str() {
+                Ok(name) if !name.is_empty() => Some(name),
+                _ => return set_error(Z42HostStatus::BadConfig, "expected a nonempty UTF-8 file name"),
+            }
+        };
         let token = host as usize;
         if !matches!(session::current(), Ok(current) if current == token) {
             return set_error(
                 Z42HostStatus::NotInit,
-                "z42_host_load_zbc: VM is not initialized",
+                "z42_host_load_bytes: VM is not initialized",
             );
-        }
-        if !out_module.is_null() {
-            unsafe { *out_module = ptr::null_mut() };
         }
         let bytes = if length == 0 {
             &[]
         } else if bytes.is_null() {
             return set_error(
                 Z42HostStatus::BadZbc,
-                "z42_host_load_zbc: bytes pointer is NULL but length is non-zero",
+                "z42_host_load_bytes: bytes pointer is NULL but length is non-zero",
             );
         } else {
             unsafe { std::slice::from_raw_parts(bytes, length) }
         };
-        respond("z42_host_load_zbc", session::load(token, bytes), |module| {
+        respond("z42_host_load_bytes", session::load(token, name, bytes), |module| {
             if !out_module.is_null() {
                 unsafe { *out_module = module as *mut Z42Module };
             }
         })
     })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn z42_file_write(
+    writer: *mut Z42FileWriter,
+    bytes: *const u8,
+    length: usize,
+) -> Z42HostStatus {
+    let Some(writer) = (unsafe { writer.as_mut() }) else {
+        return Z42HostStatus::BadConfig;
+    };
+    let bytes = if length == 0 {
+        Some(Vec::new())
+    } else {
+        unsafe { abi_config::copy_resolver_bytes(bytes, length) }
+    };
+    if writer.submit(bytes) {
+        Z42HostStatus::Ok
+    } else {
+        Z42HostStatus::BadConfig
+    }
 }
 
 #[unsafe(no_mangle)]

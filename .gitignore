@@ -34,6 +34,7 @@ Thumbs.db
 
 # z42 build outputs
 *.zbc
+*.zbc.deps
 *.zasm
 *.z42ir.json
 dist/

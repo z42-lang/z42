@@ -89,8 +89,8 @@ impl Z42VM {
     ///
     /// ```ts
     /// {
-    ///   zpkgResolver?: (name: string) => Uint8Array | null
-    ///                | { resolve(name: string): Uint8Array | null },
+    ///   fileResolver?: (name: string, kind: number) => Uint8Array | null
+    ///                | { resolve(name: string, kind: number): Uint8Array | null },
     ///   stdoutHandler?: (bytes: Uint8Array) => void,
     ///   stderrHandler?: (bytes: Uint8Array) => void,
     /// }
@@ -117,11 +117,11 @@ impl Z42VM {
             if let Some(handler) = read_property(&options, "stderrHandler") {
                 cfg.stderr = Some(make_sink(handler));
             }
-            // zpkgResolver — accepts both function and { resolve } object
-            if let Some(target) = read_property(&options, "zpkgResolver") {
-                let resolver: Arc<dyn z42::host::rust::ZpkgResolver> =
+            // fileResolver — accepts both function and { resolve } object
+            if let Some(target) = read_property(&options, "fileResolver") {
+                let resolver: Arc<dyn z42::host::FileResolver> =
                     Arc::new(JsCallbackResolver::new(target));
-                cfg.zpkg_resolver = Some(resolver);
+                cfg.file_resolver = Some(resolver);
             }
         }
 
@@ -133,7 +133,12 @@ impl Z42VM {
     /// caller may reuse the buffer after this call.
     #[wasm_bindgen(js_name = loadZbc)]
     pub fn load_zbc(&self, bytes: &[u8]) -> Result<Z42VMModule, JsValue> {
-        let inner = self.host.load_zbc(bytes).map_err(to_js_error)?;
+        self.load_bytes(bytes, None)
+    }
+
+    #[wasm_bindgen(js_name = loadBytes)]
+    pub fn load_bytes(&self, bytes: &[u8], file_name: Option<String>) -> Result<Z42VMModule, JsValue> {
+        let inner = self.host.load_bytes(file_name.as_deref(), bytes).map_err(to_js_error)?;
         Ok(Z42VMModule { inner })
     }
 
@@ -167,7 +172,7 @@ impl Z42VM {
     /// (say) `/libs`, setting
     /// `Z42_LIBS=/libs` lets `DepScan` / z42c / `Script.Eval` **compile z42 source
     /// in the browser** — `File.ReadAllBytes` / `Path.Glob` route here, no real fs.
-    /// (Runtime module loading is served separately by the `zpkgResolver`.)
+    /// (Runtime module loading is served separately by the `fileResolver`.)
     #[wasm_bindgen(js_name = mountFile)]
     pub fn mount_file(&self, path: &str, bytes: &[u8]) {
         page_vfs().mount(path, bytes.to_vec());
@@ -200,14 +205,6 @@ impl Z42VM {
     pub fn dispose(self) {
         // self consumes Self; Drop fires automatically.
     }
-}
-
-/// Read the namespaces a zpkg provides (its `NSPC` section), as a JS array
-/// of strings. The stdlib helpers use this to map namespace → bytes from
-/// the packages directly — no `index.json`.
-#[wasm_bindgen(js_name = readNamespaces)]
-pub fn read_namespaces(bytes: &[u8]) -> Result<Vec<String>, JsValue> {
-    z42::host::rust::read_zpkg_namespaces(bytes).map_err(to_js_error)
 }
 
 // ── Embedded test-host (add-wasm-testhost G6) ─────────────────────────────

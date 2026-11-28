@@ -8,7 +8,7 @@ use std::sync::Arc;
 /// Push-based event about activity in a VM.
 #[derive(Debug, Clone)]
 pub enum RuntimeEvent {
-    /// Startup or lazy loading published a bytecode artifact. Byte size is
+    /// Startup or lazy loading published a Z42 program. Byte size is
     /// present when the publisher has it.
     ModuleLoaded {
         name:       String,

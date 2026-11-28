@@ -226,7 +226,7 @@ pub const ZPKG_VERSION_MAJOR: u16 = 0;
 // tidx_data` after REGT inside MODS. Reader for those new fields lives
 // below in `read_mods_section` (returns 3-tuple incl. raw TIDX bytes);
 // `loader::load_zpkg_bytes` aggregates entries with cumulative function +
-// string-pool offsets so the public LoadedArtifact.test_index resolves
+// string-pool offsets so the public DecodedProgram.test_index resolves
 // against the merged module's index space.
 // add-attribute-reflection (C3): bumped to 0.12 to mirror ZpkgWriter,
 // coupled with inner zbc 1.10 (per-class attribute refs). Outer zpkg layout

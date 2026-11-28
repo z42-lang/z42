@@ -7,7 +7,7 @@ use std::ffi::CString;
 use std::os::raw::{c_char, c_void};
 use std::sync::Arc;
 
-use super::{ZpkgResolver, session::SessionConfig};
+use super::{FileKind, FileResolver, ZpkgResolver, session::SessionConfig};
 
 /// Wire-compatible version of `Z42_HOST_ABI_VERSION` from the C header.
 pub const Z42_HOST_ABI_VERSION: u32 = 2;
@@ -40,6 +40,63 @@ type ZpkgResolverWriteCallback = unsafe extern "C" fn(
     user_data: *mut c_void,
 ) -> i32;
 
+#[repr(C)]
+pub struct Z42FileRequest {
+    pub struct_size: u32,
+    pub kind: u32,
+    pub file_name: *const c_char,
+}
+
+pub type Z42FileResolverFn = Option<FileResolverCallback>;
+
+type FileResolverCallback = unsafe extern "C" fn(
+    request: *const Z42FileRequest,
+    writer: *mut Z42FileWriter,
+    user_data: *mut c_void,
+) -> i32;
+
+/// Stack-owned byte destination valid for one synchronous callback.
+pub struct Z42FileWriter {
+    bytes: Option<Vec<u8>>,
+    failed: bool,
+}
+
+impl Z42FileWriter {
+    pub(super) fn submit(&mut self, bytes: Option<Vec<u8>>) -> bool {
+        if self.failed || self.bytes.is_some() || bytes.is_none() {
+            self.failed = true;
+            return false;
+        }
+        self.bytes = bytes;
+        true
+    }
+}
+
+struct CFileResolver {
+    callback: FileResolverCallback,
+    user_data: usize,
+}
+
+impl FileResolver for CFileResolver {
+    fn resolve(&self, name: &str, kind: FileKind) -> anyhow::Result<Option<Vec<u8>>> {
+        let name = CString::new(name)?;
+        let request = Z42FileRequest {
+            struct_size: size_of::<Z42FileRequest>() as u32,
+            kind: kind as u32,
+            file_name: name.as_ptr(),
+        };
+        let mut writer = Z42FileWriter { bytes: None, failed: false };
+        // SAFETY: request and writer are valid through the synchronous callback.
+        let result = unsafe { (self.callback)(&request, &mut writer, self.user_data as *mut c_void) };
+        match (result, writer.bytes, writer.failed) {
+            (1, Some(bytes), false) => Ok(Some(bytes)),
+            (0, None, false) => Ok(None),
+            (-1, _, _) => anyhow::bail!("host file resolver failed"),
+            _ => anyhow::bail!("host file resolver returned an invalid status or byte submission"),
+        }
+    }
+}
+
 enum ResolverCallback {
     Borrowed(ZpkgResolverCallback),
     Write(ZpkgResolverWriteCallback),
@@ -64,7 +121,7 @@ impl ZpkgResolver for CHookResolver {
                 let hit = unsafe { callback(cname.as_ptr(), &mut bytes, &mut length, user_data) };
                 if hit == 0 { return None; }
                 // SAFETY: the host keeps the bytes valid through this copy.
-                unsafe { copy_zpkg_bytes(bytes, length) }
+                unsafe { copy_resolver_bytes(bytes, length) }
             }
             ResolverCallback::Write(callback) => {
                 let mut written: Option<Vec<u8>> = None;
@@ -79,7 +136,7 @@ impl ZpkgResolver for CHookResolver {
 }
 
 /// The caller supplies readable, unchanging bytes for the duration of this copy.
-unsafe fn copy_zpkg_bytes(bytes: *const u8, length: usize) -> Option<Vec<u8>> {
+pub(super) unsafe fn copy_resolver_bytes(bytes: *const u8, length: usize) -> Option<Vec<u8>> {
     if bytes.is_null() || length == 0 { return None; }
     let mut copy = Vec::new();
     copy.try_reserve_exact(length).ok()?;
@@ -94,7 +151,7 @@ unsafe extern "C" fn write_zpkg_bytes(bytes: *const u8, length: usize, write_dat
     let written = unsafe { &mut *write_data.cast::<Option<Vec<u8>>>() };
     if written.is_some() { return 0; }
     // SAFETY: the resolver supplies readable bytes for the duration of this call.
-    *written = unsafe { copy_zpkg_bytes(bytes, length) };
+    *written = unsafe { copy_resolver_bytes(bytes, length) };
     i32::from(written.is_some())
 }
 
@@ -156,6 +213,8 @@ pub struct Z42HostConfig {
     pub zpkg_resolver: Z42ZpkgResolverFn,
     pub zpkg_resolver_user_data: *mut c_void,
     pub zpkg_resolver_write: Z42ZpkgResolverWriteFn,
+    pub file_resolver: Z42FileResolverFn,
+    pub file_resolver_user_data: *mut c_void,
 }
 
 /// The size of the original v2 prefix, through the last pointer-sized field.
@@ -222,12 +281,25 @@ pub(super) unsafe fn validate(
         }) as Arc<dyn ZpkgResolver>
     });
 
+    let file_resolver_end = std::mem::offset_of!(Z42HostConfig, file_resolver_user_data)
+        + size_of::<*mut c_void>();
+    let file_resolver = if struct_size as usize >= file_resolver_end {
+        unsafe { addr_of!((*cfg).file_resolver).read() }.map(|callback| {
+            Arc::new(CFileResolver {
+                callback,
+                user_data: unsafe { addr_of!((*cfg).file_resolver_user_data).read() } as usize,
+            }) as Arc<dyn FileResolver>
+        })
+    } else {
+        None
+    };
     let resolved = SessionConfig {
         exec_mode,
         heap_initial_bytes: unsafe { addr_of!((*cfg).heap_initial_bytes).read() },
         heap_max_bytes: unsafe { addr_of!((*cfg).heap_max_bytes).read() },
         search_paths,
         zpkg_resolver,
+        file_resolver,
         vfs: crate::pal::fs::default_vfs(),
     };
     let sink_user_data = unsafe { addr_of!((*cfg).sink_user_data).read() };

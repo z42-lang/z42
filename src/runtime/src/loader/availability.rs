@@ -32,7 +32,7 @@
 use crate::zpkg::ir::{Instruction, Terminator};
 use crate::metadata::Module;
 use crate::loader::locate::namespace_index::ZpkgCandidate;
-use super::{fusion_inputs::FusionInputSource, package::load_artifact_with_fusion};
+use super::{fusion_inputs::FusionInputSource, package::decode_program_file_with_fusion, DecodedProgram};
 
 use std::collections::HashSet;
 
@@ -70,6 +70,7 @@ pub fn fold_availability_with_fusion(
     fs: &dyn crate::pal::fs::Vfs,
     module: &mut Module,
     declared: &[(String, ZpkgCandidate)],
+    loaded: &[DecodedProgram],
     fusion_inputs: FusionInputSource,
 ) -> AvailabilityStats {
     let mut stats = AvailabilityStats::default();
@@ -82,8 +83,11 @@ pub fn fold_availability_with_fusion(
     // probe 结果缓存：同一 key 在多处出现时只解析一次，也避免重复 probe 同一个 zpkg。
     let mut cache: std::collections::HashMap<String, bool> = std::collections::HashMap::new();
 
+    let resolve = |module: &Module, key: &str| {
+        resolve_key(fs, module, key, declared, loaded, fusion_inputs)
+    };
     for fi in 0..module.functions.len() {
-        let folded_here = fold_probes_in_function(fs, module, fi, declared, &mut cache, &mut stats, fusion_inputs);
+        let folded_here = fold_probes_in_function(module, fi, &mut cache, &mut stats, &resolve);
         if folded_here == 0 {
             continue;
         }
@@ -118,13 +122,11 @@ fn module_has_probe(module: &Module) -> bool {
 /// （编译器发射时紧邻产出，见 `TypeOpEmitter._emitSymAvailable`）。这里做块内单赋值扫描，
 /// 与编译器侧 `IrDeadBranch._foldBranches` 收集 `ConstBoolInstr` 的手法同形。
 fn fold_probes_in_function(
-    fs: &dyn crate::pal::fs::Vfs,
     module: &mut Module,
     fi: usize,
-    declared: &[(String, ZpkgCandidate)],
     cache: &mut std::collections::HashMap<String, bool>,
     stats: &mut AvailabilityStats,
-    fusion_inputs: FusionInputSource,
+    resolve: &impl Fn(&Module, &str) -> bool,
 ) -> usize {
     let mut folded = 0usize;
 
@@ -152,7 +154,7 @@ fn fold_probes_in_function(
                     let val = match cache.get(&key) {
                         Some(&v) => v,
                         None => {
-                            let v = resolve_key(fs, module, &key, declared, fusion_inputs);
+                            let v = resolve(module, &key);
                             cache.insert(key.clone(), v);
                             v
                         }
@@ -174,28 +176,43 @@ fn fold_probes_in_function(
 }
 
 /// 判定一个 key 是否可解析。
-fn resolve_key(fs: &dyn crate::pal::fs::Vfs, module: &Module, key: &str, declared: &[(String, ZpkgCandidate)], fusion_inputs: FusionInputSource) -> bool {
-    if let Some(fq) = key.strip_prefix(KEY_METHOD) {
-        if module.func_index.contains_key(fq) { return true; }
-        return probe_declared(fs, declared, fq, ProbeKind::Method, fusion_inputs);
-    }
-    if let Some(fq) = key.strip_prefix(KEY_TYPE) {
-        if module.type_registry.contains_key(fq) { return true; }
-        return probe_declared(fs, declared, fq, ProbeKind::Type, fusion_inputs);
-    }
-    // 未知前缀 = 编译器与 VM 失配。保守当作「不可用」并留痕，而不是静默 true——
-    // true 会让代码走进一条它以为存在的分支，错得更远。
-    tracing::warn!("available!: unknown key prefix in `{key}`; treating as unavailable");
-    false
+fn resolve_key(
+    fs: &dyn crate::pal::fs::Vfs,
+    module: &Module,
+    key: &str,
+    declared: &[(String, ZpkgCandidate)],
+    loaded: &[DecodedProgram],
+    fusion_inputs: FusionInputSource,
+) -> bool {
+    let (name, kind) = if let Some(name) = key.strip_prefix(KEY_METHOD) {
+        (name, ProbeKind::Method)
+    } else if let Some(name) = key.strip_prefix(KEY_TYPE) {
+        (name, ProbeKind::Type)
+    } else {
+        tracing::warn!("available!: unknown key prefix in `{key}`; treating as unavailable");
+        return false;
+    };
+    kind.contains(module, name)
+        || loaded.iter().any(|program| kind.contains(&program.module, name))
+        || probe_declared(fs, declared, name, kind, fusion_inputs)
 }
 
 #[derive(Clone, Copy)]
 enum ProbeKind { Method, Type }
 
+impl ProbeKind {
+    fn contains(self, module: &Module, name: &str) -> bool {
+        match self {
+            Self::Method => module.func_index.contains_key(name),
+            Self::Type => module.type_registry.contains_key(name),
+        }
+    }
+}
+
 /// 按 namespace 定向 probe 尚未加载的候选 zpkg（design D4 第 2/3 步）。
 ///
 /// **只加载认领了该 namespace 的那些文件**，不做全量加载。probe 是只读的：加载出来的
-/// artifact 用完即弃，不并入运行模块——回答存在性不需要副作用。
+/// decoded 用完即弃，不并入运行模块——回答存在性不需要副作用。
 fn probe_declared(fs: &dyn crate::pal::fs::Vfs, declared: &[(String, ZpkgCandidate)], fq: &str, kind: ProbeKind, fusion_inputs: FusionInputSource) -> bool {
     let Some(ns) = namespace_of(fq) else { return false };
 
@@ -212,15 +229,12 @@ fn probe_declared(fs: &dyn crate::pal::fs::Vfs, declared: &[(String, ZpkgCandida
     for cand in files {
         if !seen.insert(cand.file_path.as_path()) { continue; }
         let path = cand.file_path.to_string_lossy().into_owned();
-        let Ok(art) = load_artifact_with_fusion(fs, &path, fusion_inputs) else {
+        let Ok(art) = decode_program_file_with_fusion(fs, &path, fusion_inputs) else {
             // probe 失败不是错误：文件可能损坏/版本不符，此时「不可用」正是我们要的答案。
             tracing::debug!("available!: probe of `{path}` failed; treating as unavailable");
             continue;
         };
-        let hit = match kind {
-            ProbeKind::Method => art.module.func_index.contains_key(fq),
-            ProbeKind::Type => art.module.type_registry.contains_key(fq),
-        };
+        let hit = kind.contains(&art.module, fq);
         if hit { return true; }
     }
     false

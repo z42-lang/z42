@@ -31,7 +31,7 @@ fn class(name: &str, base: Option<&str>, fields: &[&str]) -> ClassDesc {
     }
 }
 
-fn artifact(module_name: &str, classes: Vec<ClassDesc>) -> crate::loader::package::LoadedArtifact {
+fn decoded(module_name: &str, classes: Vec<ClassDesc>) -> crate::loader::package::DecodedProgram {
     let mut module = Module::new(crate::zpkg::image::ModuleData {
         name: module_name.to_owned(),
         string_pool: vec![],
@@ -39,7 +39,7 @@ fn artifact(module_name: &str, classes: Vec<ClassDesc>) -> crate::loader::packag
         func_index: FxHashMap::default(),
     }, vec![], FxHashMap::default());
     crate::metadata::types::build_type_registry(&mut module);
-    crate::loader::package::LoadedArtifact {
+    crate::loader::package::DecodedProgram {
         module,
         entry_hint: None,
         dependencies: vec![],
@@ -65,7 +65,7 @@ fn slot_is_registry_entry(table: &TypeTable, loader: &LazyLoader, name: &str) ->
 fn package_types_are_published_with_their_ids() {
     let table = Arc::new(TypeTable::default());
     let mut loader = loader_with(&table);
-    loader.register_loaded_artifact(artifact("P1", vec![class("P1.A", None, &["x"]), class("P1.B", Some("P1.A"), &[])]))
+    loader.register_loaded_program(decoded("P1", vec![class("P1.A", None, &["x"]), class("P1.B", Some("P1.A"), &[])]))
         .expect("register p1");
     assert_eq!(table.len(), 2);
     assert!(slot_is_registry_entry(&table, &loader, "P1.A"));
@@ -78,11 +78,11 @@ fn package_types_are_published_with_their_ids() {
 fn a_duplicate_type_name_keeps_the_first_id() {
     let table = Arc::new(TypeTable::default());
     let mut loader = loader_with(&table);
-    loader.register_loaded_artifact(artifact("P1", vec![class("Ns.T", None, &[])])).expect("p1");
+    loader.register_loaded_program(decoded("P1", vec![class("Ns.T", None, &[])])).expect("p1");
     let first = loader.loaded_type("Ns.T").unwrap();
-    let dup = artifact("P2", vec![class("Ns.T", None, &["y"])]);
+    let dup = decoded("P2", vec![class("Ns.T", None, &["y"])]);
     let dup_id = dup.module.type_registry["Ns.T"].id;
-    loader.register_loaded_artifact(dup).expect("p2");
+    loader.register_loaded_program(dup).expect("p2");
     assert!(std::ptr::eq(loader.loaded_type("Ns.T").unwrap().as_ref(), first.as_ref()));
     assert!(table.get(dup_id).is_none(), "the losing duplicate is never published");
     assert!(std::ptr::eq(table.get(first.id).unwrap(), Arc::as_ptr(&first)));
@@ -95,14 +95,14 @@ fn a_duplicate_type_name_keeps_the_first_id() {
 fn the_fixed_up_version_replaces_the_own_only_one() {
     let table = Arc::new(TypeTable::default());
     let mut loader = loader_with(&table);
-    loader.register_loaded_artifact(artifact("Sub", vec![class("Sub.D", Some("Base.B"), &["own"])]))
+    loader.register_loaded_program(decoded("Sub", vec![class("Sub.D", Some("Base.B"), &["own"])]))
         .expect("sub");
     let own_only = loader.loaded_type("Sub.D").unwrap();
     assert_eq!(own_only.fields.len(), 1);
     let id = own_only.id;
     assert!(std::ptr::eq(table.get(id).unwrap(), Arc::as_ptr(&own_only)));
 
-    loader.register_loaded_artifact(artifact("Base", vec![class("Base.B", None, &["inherited"])]))
+    loader.register_loaded_program(decoded("Base", vec![class("Base.B", None, &["inherited"])]))
         .expect("base");
     let merged = loader.loaded_type("Sub.D").unwrap();
     assert_eq!(merged.id, id, "the fixup keeps the id");
