@@ -1,0 +1,143 @@
+namespace Z42.Emission;
+
+using Z42.Core;
+using Z42.IR;
+using Z42.Semantics;
+using Z42.Symbols;
+using Z42.Syntax;
+
+internal static class PackedUnion {
+    internal static bool CheckPackage(SymbolTable symbols, DiagnosticBag diags) {
+        if (symbols.FirstUnionDeclaration == null) { return true; }
+        string reason = PackedUnion._packageError(symbols);
+        if (reason == "") { return true; }
+        diags.Error(DiagnosticCodes.UnsupportedSyntax, reason, symbols.FirstUnionDeclaration);
+        return false;
+    }
+
+    private static string _packageError(SymbolTable symbols) {
+        foreach (var owner in symbols.SortedClasses()) {
+            if (owner.IsImported) { continue; }
+            if (owner.UnionCases != null && !PackedUnion._fits(owner.UnionStorage)) {
+                return "union `" + owner.Fqn() + "` requires a single-word layout with integer or boolean payloads";
+            }
+            foreach (var name in owner.Fields.Keys()) {
+                var field = owner.Fields.Get(name) as FieldSymbol;
+                if (field != null && PackedUnion.Contains(field.FieldType)) {
+                    return "union field storage requires runtime layout support";
+                }
+            }
+            if (PackedUnion._unsupportedSignatures(owner.Methods, owner.GenericParamCount > 0)) {
+                return "union values in exported, generic or indirect signatures require runtime type metadata";
+            }
+        }
+        foreach (var name in symbols.InterfacesByFqn.Keys()) {
+            var owner = symbols.InterfacesByFqn.Get(name) as Z42InterfaceType;
+            if (owner != null && !owner.IsImported && PackedUnion._unsupportedSignatures(owner.Methods, true)) {
+                return "union values in interface signatures require runtime type metadata";
+            }
+        }
+        if (PackedUnion._unsupportedSignatures(symbols.FunctionsByFqn, false)) {
+            return "union values in exported, generic or indirect signatures require runtime type metadata";
+        }
+        return "";
+    }
+
+    private static bool _fits(UnionStorageLayout layout) {
+        if (layout == null || layout.Size > 8) { return false; }
+        foreach (var branch in layout.Cases) {
+            foreach (var field in branch.Fields) {
+                if (field.Kind != StructLeafKind.Prim) { return false; }
+                int code = field.Type.PrimCode();
+                if (code < 0) { return false; }
+                int tag = PrimModel.IrTagOfCode(code);
+                if (tag != IrType.Bool && (tag < IrType.I8 || tag > IrType.U64)) { return false; }
+            }
+        }
+        return true;
+    }
+
+    private static bool _unsupportedSignatures(StrMap methods, bool needsMetadata) {
+        foreach (var name in methods.Keys()) {
+            var method = methods.Get(name) as MethodSymbol;
+            if (method == null || !PackedUnion.Contains(method.Signature)) { continue; }
+            if (needsMetadata || method.Visibility == "public" || method.Visibility == "protected"
+                || method.TypeParamCount > 0 || (method.Decl != null && Mod.Has(method.Decl.ModFlags, Mod.Extern))) { return true; }
+            Z42FuncType signature = method.Signature;
+            if (PackedUnion._nested(signature.Ret)) { return true; }
+            for (int i = 0; i < signature.ParamCount; i = i + 1) {
+                Z42Type type = signature.ParamTypes[i];
+                if (PackedUnion._nested(type)) { return true; }
+                if (signature.ParamIsRef != null && signature.ParamIsRef[i] && PackedUnion.Contains(type)) { return true; }
+            }
+        }
+        return false;
+    }
+
+    private static bool _nested(Z42Type type) {
+        return UnionCaseSymbol.UnionOf(type) == null && PackedUnion.Contains(type);
+    }
+
+    internal static bool Contains(Z42Type type) {
+        if (UnionCaseSymbol.UnionOf(type) != null) { return true; }
+        if (type is Z42ArrayType) { return PackedUnion.Contains((type as Z42ArrayType).Elem); }
+        if (type is Z42InstantiatedType) {
+            var instance = type as Z42InstantiatedType;
+            return PackedUnion._any(instance.TypeArgs, instance.ArgCount);
+        }
+        if (type is Z42InstantiatedInterfaceType) {
+            var instance = type as Z42InstantiatedInterfaceType;
+            return PackedUnion._any(instance.TypeArgs, instance.ArgCount);
+        }
+        if (type is Z42FuncType) {
+            var signature = type as Z42FuncType;
+            return PackedUnion.Contains(signature.Ret) || PackedUnion._any(signature.ParamTypes, signature.ParamCount);
+        }
+        return false;
+    }
+
+    private static bool _any(Z42Type[] args, int count) {
+        for (int i = 0; i < count; i = i + 1) {
+            if (PackedUnion.Contains(args[i])) { return true; }
+        }
+        return false;
+    }
+
+    internal static bool NeedsRuntimeMetadata(BoundExpr expr) {
+        if (PackedUnion._nested(expr.Type())) { return true; }
+        if (expr is BoundCall) {
+            var call = expr as BoundCall;
+            return (call.Receiver != null && PackedUnion.Contains(call.Receiver.Type()))
+                || PackedUnion._any(call.MethodTypeArgs, call.MethodTypeArgCount);
+        }
+        if (expr is BoundTypeof) { return PackedUnion.Contains((expr as BoundTypeof).Target); }
+        if (expr is BoundIsExpr) {
+            var test = expr as BoundIsExpr;
+            return PackedUnion._nested(test.TargetType) || PackedUnion._nested(test.E.Type());
+        }
+        if (expr is BoundCast) {
+            var cast = expr as BoundCast;
+            return PackedUnion.Contains(cast.E.Type()) || PackedUnion.Contains(cast.Type());
+        }
+        if (expr is BoundBox) { return PackedUnion.Contains((expr as BoundBox).E.Type()); }
+        if (expr is BoundRefArg) { return PackedUnion.Contains(expr.Type()); }
+        if (expr is BoundLambda) {
+            var lambda = expr as BoundLambda;
+            for (int i = 0; i < lambda.CaptureCount; i = i + 1) {
+                if (PackedUnion.Contains(lambda.Captures[i].CapType)) { return true; }
+            }
+        }
+        if (expr is BoundInterpolatedStr) {
+            var text = expr as BoundInterpolatedStr;
+            for (int i = 0; i < text.PartCount; i = i + 1) {
+                var hole = text.Parts[i] as BoundInterpHole;
+                if (hole != null && PackedUnion.Contains(hole.Inner.Type())) { return true; }
+            }
+        }
+        if (expr is BoundBinary) {
+            var binary = expr as BoundBinary;
+            return PackedUnion.Contains(binary.Left.Type()) || PackedUnion.Contains(binary.Right.Type());
+        }
+        return false;
+    }
+}

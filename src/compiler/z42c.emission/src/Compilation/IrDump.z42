@@ -230,7 +230,7 @@ public static class IrDump {
         int _cf = 0;
         while (_cf < count) { if (cachedModules == null || cachedModules[_cf] == null) { _anyFresh = true; } _cf = _cf + 1; }
         StructLayout layouts = null;
-        if (_anyFresh && symbols.FirstUnionDeclaration == null) { layouts = StructLayout.BuildFromSymbols(symbols); }
+        if (_anyFresh && coll.Diags.ErrorCount() == 0) { layouts = StructLayout.BuildFromSymbols(symbols); }
         // complete-generic-instantiation S1：**包级**泛型体登记表。
         // `IrGen` 按 CU 创建（`_compileCu`），若只扫本 CU 的 decls，泛型声明在**别的文件**时调用点
         // 就判不出该改派 ⇒ 落到擦除体 ⇒ 布局不符（实测：a.z42 声明、b.z42 调用，`UseInB` 报

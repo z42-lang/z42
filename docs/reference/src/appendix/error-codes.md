@@ -276,7 +276,7 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 
 | 码 | 含义 | 状态 | 触发示例 |
 |---|---|---|---|
-| E0501 | 编译器无法为当前语法生成可执行产物 | ✅ CuCompile.z42 | 编译含有 `union ReadResult { End, Bytes(int) }` 声明的程序 |
+| E0501 | 当前用法需要尚未接入的运行时支持 | ✅ PackedUnion.z42、ExprEmitter.z42 | 编译含有 `union ReadResult { End, Range(int, int) }` 声明的程序 |
 
 ---
 

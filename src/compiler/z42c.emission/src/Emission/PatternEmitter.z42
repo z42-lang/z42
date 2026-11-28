@@ -53,6 +53,11 @@ public sealed class PatternEmitter : IBoundPatternVisitor<Unit, PatCtx> {
         return Unit.Value;
     }
     public Unit VisitTypePattern(BoundTypePattern tp, PatCtx d) {
+        if (tp.StaticMatch != 0) {
+            if (tp.Bind != "") { this._ctx.Locals.Put(tp.Bind, d.Subj); }
+            this._ctx.EndBlock(new BrTerm(tp.StaticMatch > 0 ? d.MatchL : d.FailL));
+            return Unit.Value;
+        }
         string qn = this._qual(tp.BoundType, tp.TypeName);
         TypedReg isR = this._ctx.Alloc(IrType.Bool);
         this._ctx.Emit(new IsInstanceInstr(isR, d.Subj, qn));
@@ -60,8 +65,7 @@ public sealed class PatternEmitter : IBoundPatternVisitor<Unit, PatCtx> {
             string bindL = this._ctx.Fresh("pat_bind");
             this._ctx.EndBlock(new BrCondTerm(isR, bindL, d.FailL));
             this._ctx.StartBlock(bindL);
-            TypedReg vReg = this._ctx.Alloc(IrType.Ref);
-            this._ctx.Emit(new AsCastInstr(vReg, d.Subj, qn));   // 绑定用 as_cast（仅存局部，不接 field_get，安全）
+            TypedReg vReg = this._ee._emitCastWithLayout(d.Subj, tp.BoundType, qn);
             this._ctx.Locals.Put(tp.Bind, vReg);
             this._ctx.EndBlock(new BrTerm(d.MatchL));
         } else {
@@ -70,6 +74,7 @@ public sealed class PatternEmitter : IBoundPatternVisitor<Unit, PatCtx> {
         return Unit.Value;
     }
     public Unit VisitPositionalPattern(BoundPositionalPattern pp, PatCtx d) {
+        if (pp.UnionCase != null) { this._emitUnionPattern(pp, d); return Unit.Value; }
         // complete-struct：boxed struct subject（object/接口持装箱 struct）→ IsInstance + AsCast 拆箱后直读。
         if (pp.Boxed) {
             this._emitBoxedStructSeq(d.Subj, pp.Type, this._qual(pp.Type, pp.TypeName), pp.FieldNames, pp.FieldTypes, pp.Elems, pp.ElemCount, d.MatchL, d.FailL);
@@ -80,6 +85,19 @@ public sealed class PatternEmitter : IBoundPatternVisitor<Unit, PatCtx> {
         bool needTest = !this._ee._isBlobStruct(pp.Type);
         this._emitFieldSeq(d.Subj, pp.Type, this._qual(pp.Type, pp.TypeName), needTest, pp.FieldNames, pp.FieldTypes, pp.Elems, pp.ElemCount, d.MatchL, d.FailL);
         return Unit.Value;
+    }
+    private void _emitUnionPattern(BoundPositionalPattern pp, PatCtx d) {
+        UnionStorageLayout layout = UnionCaseSymbol.UnionOf(pp.Type).UnionStorage;
+        TypedReg matches = this._ee._emitUnionTagMatch(d.Subj, layout, pp.UnionCase.Tag);
+        string hit = pp.ElemCount == 0 ? d.MatchL : this._ctx.Fresh("union_match");
+        this._ctx.EndBlock(new BrCondTerm(matches, hit, d.FailL));
+        UnionPayloadLayout branch = layout.Cases[pp.UnionCase.Tag];
+        for (int i = 0; i < pp.ElemCount; i = i + 1) {
+            this._ctx.StartBlock(hit);
+            TypedReg field = this._ee._emitUnionField(d.Subj, layout.PayloadOffset, branch.Fields[i]);
+            hit = i == pp.ElemCount - 1 ? d.MatchL : this._ctx.Fresh("union_field");
+            this.EmitMatch(field, pp.Elems[i], hit, d.FailL);
+        }
     }
     public Unit VisitPropertyPattern(BoundPropertyPattern pp, PatCtx d) {
         if (pp.Boxed) {   // complete-struct：boxed struct 属性解构（HasType 恒真，拆箱后按名读）
@@ -146,8 +164,7 @@ public sealed class PatternEmitter : IBoundPatternVisitor<Unit, PatCtx> {
             string atL = this._ctx.Fresh("pat_at");
             this.EmitMatch(d.Subj, ap.Sub, atL, d.FailL);
             this._ctx.StartBlock(atL);
-            TypedReg aReg = this._ctx.Alloc(IrType.Ref);
-            this._ctx.Emit(new AsCastInstr(aReg, d.Subj, this._qual(ap.Type, ap.TypeName)));
+            TypedReg aReg = this._ee._emitCastWithLayout(d.Subj, ap.Type, this._qual(ap.Type, ap.TypeName));
             this._ctx.Locals.Put(ap.Name, aReg);
             this._ctx.EndBlock(new BrTerm(d.MatchL));
             return Unit.Value;
@@ -261,8 +278,7 @@ public sealed class PatternEmitter : IBoundPatternVisitor<Unit, PatCtx> {
         this._ctx.Emit(new IsInstanceInstr(isR, subj, qn));
         this._ctx.EndBlock(new BrCondTerm(isR, okL, failL));
         this._ctx.StartBlock(okL);
-        TypedReg unboxed = this._ctx.Alloc(IrType.Ref);
-        this._ctx.Emit(new AsCastInstr(unboxed, subj, qn));   // 拆箱到 arena StructRef 值副本
+        TypedReg unboxed = this._ee._emitCastWithLayout(subj, container, qn);
         int i = 0;
         while (i < count) {
             TypedReg fReg = this._emitPatFieldRead(unboxed, container, fieldNames[i], fieldTypes[i]);

@@ -540,6 +540,15 @@ pub mod typed {
             .map_err(map_error)
     }
 
+    /// Adapt an imported value after its exact type identity has been checked.
+    #[builtin(name = "__adapt_imported_struct")]
+    pub fn adapt_imported_struct(
+        ctx: &VmContext, value: &Value, layout: &crate::object::string::vstr::Str,
+    ) -> Result<Value, BuiltinError> {
+        crate::exec::ops::structs::adapt_imported_struct(ctx, value, &layout.to_string())
+            .map_err(|error| BuiltinError::Internal(format!("{error:#}")))
+    }
+
     /// Borrow an inline struct for the current activation's instance call.
     #[builtin(name = "__struct_field_receiver")]
     pub fn struct_field_receiver(
