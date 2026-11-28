@@ -242,6 +242,7 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 | E0508 | `fieldof(...)` / `propertyof(...)` 括号内形态错：缺 `Type.Member`、任何一段带类型实参（泛型类共享一份字段布局，`Box<int>.F` 与 `Box<string>.F` 是同一个槽）、或成员后带参数列表（字段/属性无重载，名字即身份） | ✅ MethodOfParser.z42（`_parseDataMember`） | `fieldof(Logger)`、`fieldof(Box<int>.Item)`、`fieldof(Logger.Level(int))` |
 | E0509 | `propertyof(T.P)` 的目标不是属性：不存在（含跨包访问器回落后仍无 `get_P`/`set_P`）、其实是字段（诊断给出 `fieldof(T.P)` 写法）。诊断列出该类型上可用的属性名 | ✅ TypeOpTyper.z42（`_bindFieldOfExpr`） | `propertyof(Logger.Nope)`、`propertyof(Logger.Level)`（Level 是字段） |
 | E0510 | union 的 `switch` 遗漏一个或多个分支，或遗漏分支的一些载荷值 | ✅ UnionCoverage.z42 | 只匹配 `ReadResult.End` 的 `switch` 漏掉 `ReadResult.Bytes(_)` |
+| E0511 | union 载荷形成无限大小的内联值环，或布局超过可表示的字节数 | ✅ StubCollector.Union.z42 | `union Tree { Empty, Child(Tree) }` |
 
 ### `[Forward]` 转发生成（⚠️ 常量名与实际发射不符，以本表为准）
 

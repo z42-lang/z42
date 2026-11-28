@@ -1,0 +1,133 @@
+namespace Z42.Symbols;
+
+using Std.Collections;
+using Z42.IR;
+
+internal sealed class UnionLayoutBuilder {
+    private StrMap _complete = new StrMap();
+    private List<string> _active = new List<string>();
+    internal string Error;
+
+    internal UnionStorageLayout Build(Z42ClassType owner) {
+        this.Error = "";
+        return this._layoutValue(owner);
+    }
+
+    private UnionStorageLayout _layoutValue(Z42ClassType owner) {
+        if (owner.GenericParamCount != 0) { return null; }
+        string key = owner.Fqn();
+        var cached = this._complete.Get(key) as UnionStorageLayout;
+        if (cached != null) { return cached; }
+        int cycle = this._active.IndexOf(key);
+        if (cycle >= 0) {
+            if (this.Error == "") {
+                string path = "";
+                for (int i = cycle; i < this._active.Count; i = i + 1) { path = path + this._active[i] + " -> "; }
+                this.Error = "inline value cycle: " + path + key;
+            }
+            return null;
+        }
+        this._active.Add(key);
+        UnionStorageLayout layout = owner.UnionCases == null ? this._layoutStruct(owner) : this._layoutUnion(owner);
+        this._active.RemoveAt(this._active.Count - 1);
+        if (layout != null) { this._complete.Put(key, layout); }
+        return layout;
+    }
+
+    private UnionStorageLayout _layoutUnion(Z42ClassType owner) {
+        int count = owner.UnionCases.Length;
+        if (count == 0) { return null; }
+        int tagBytes = count <= 256 ? 1 : (count <= 65536 ? 2 : 4);
+        var cases = new UnionPayloadLayout[count];
+        int payloadSize = 0;
+        int align = tagBytes;
+        bool complete = true;
+        foreach (var branch in owner.UnionCases) {
+            if (branch == null) { return null; }
+            UnionPayloadLayout payload = this._layoutFields(branch.Signature.ParamTypes, branch.Signature.ParamCount);
+            if (payload == null) {
+                complete = false;
+                continue;
+            }
+            cases[branch.Tag] = payload;
+            if (payload.Size > payloadSize) { payloadSize = payload.Size; }
+            if (payload.Align > align) { align = payload.Align; }
+        }
+        if (!complete) { return null; }
+        int payloadOffset = (int)UnionLayoutBuilder._alignUp(tagBytes, align);
+        long size = UnionLayoutBuilder._alignUp((long)payloadOffset + payloadSize, align);
+        if (!this._validSize(size)) { return null; }
+        return new UnionStorageLayout((int)size, align, tagBytes, payloadOffset, cases);
+    }
+
+    private UnionStorageLayout _layoutStruct(Z42ClassType owner) {
+        var types = new Z42Type[owner.OwnFieldCount];
+        for (int i = 0; i < types.Length; i = i + 1) { types[i] = StructLayout.OwnFieldStorageType(owner, i); }
+        UnionPayloadLayout fields = this._layoutFields(types, types.Length);
+        return fields == null ? null : new UnionStorageLayout(fields);
+    }
+
+    private UnionPayloadLayout _layoutFields(Z42Type[] types, int count) {
+        var fields = new UnionStorageField[count];
+        long size = 0L;
+        int align = 1;
+        bool complete = true;
+        for (int i = 0; i < count; i = i + 1) {
+            int fieldAlign = 1;
+            UnionStorageField field = this._layoutField(types[i], ref fieldAlign);
+            if (field == null) {
+                complete = false;
+                continue;
+            }
+            if (fieldAlign > align) { align = fieldAlign; }
+            long offset = UnionLayoutBuilder._alignUp(size, fieldAlign);
+            size = offset + field.Size;
+            if (!this._validSize(size)) { return null; }
+            field.Offset = (int)offset;
+            fields[i] = field;
+        }
+        size = UnionLayoutBuilder._alignUp(size, align);
+        if (!this._validSize(size) || !complete) { return null; }
+        return new UnionPayloadLayout(fields, (int)size, align);
+    }
+
+    private UnionStorageField _layoutField(Z42Type type, ref int align) {
+        align = 1;
+        if (type == null || type is Z42ErrorType || type is Z42UnknownType
+            || type is Z42VoidType || type is Z42GenericParamType) { return null; }
+        Z42ClassType owner = type as Z42ClassType;
+        if (type is Z42InstantiatedType) { owner = (type as Z42InstantiatedType).Def; }
+        int prim = owner == null ? PrimModel.Code(type.CanonName()) : owner.PrimCode();
+        if (owner != null && (owner.UnionCases != null || (owner.IsStruct && prim < 0))) {
+            UnionStorageLayout nested = this._layoutValue(owner);
+            if (nested == null) { return null; }
+            align = nested.Align;
+            int kind = owner.UnionCases == null ? StructLeafKind.Struct : StructLeafKind.Union;
+            return new UnionStorageField(type, 0, nested.Size, kind, nested);
+        }
+        string name = prim < 0 ? "" : PrimModel.KeywordOfCode(prim);
+        if (owner != null && owner.IsEnum) { name = "long"; }
+        int leaf = UnionLayoutBuilder._leafKind(type, owner, name);
+        int size = StructLayout.LeafSize(name, leaf);
+        align = size;
+        return new UnionStorageField(type, 0, size, leaf, null);
+    }
+
+    private static int _leafKind(Z42Type type, Z42ClassType owner, string name) {
+        if (name == "string") { return StructLeafKind.ArcString; }
+        if (name.Length > 0 && name != "object") { return StructLeafKind.Prim; }
+        if (type is Z42ArrayType) { return StructLeafKind.GcRefArray; }
+        if (owner != null && name != "object") { return StructLeafKind.GcRef; }
+        return StructLeafKind.GcRefClosure;
+    }
+
+    private bool _validSize(long size) {
+        if (size <= 2147483647L) { return true; }
+        if (this.Error == "") { this.Error = "inline value layout exceeds the maximum byte size"; }
+        return false;
+    }
+
+    private static long _alignUp(long offset, int align) {
+        return ((offset + align - 1L) / align) * align;
+    }
+}
