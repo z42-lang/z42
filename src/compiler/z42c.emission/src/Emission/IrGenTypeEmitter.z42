@@ -20,6 +20,17 @@ public sealed class IrGenTypeEmitter {
         this._members = new IrGenMemberEmitter(g, model, sink);
     }
 
+    internal void EmitUnion(UnionDecl decl) {
+        string name = this._g._q(decl.Name);
+        var owner = this._model.Symbols.ClassesByFqn.Get(name) as Z42ClassType;
+        if (UnionStorageLayout.WideFor(owner) == null) { return; }
+        IrClassDesc storage = this._g._classDescB._instLayoutDesc(name);
+        if (storage == null) { return; }
+        storage.Name = PackedUnion.StorageName(name);
+        storage.Visibility = 1;
+        this._out.AddClass(storage);
+    }
+
     // class / struct（rawDecl = cu.Decls[i]，带 attribute 包装；emittedPartial = 本 CU 已发 record 的 partial 名）。
     public void EmitClass(Decl rawDecl, ClassDecl c, StrMap emittedPartial) {
         IrGen g = this._g; SemanticModel model = this._model;

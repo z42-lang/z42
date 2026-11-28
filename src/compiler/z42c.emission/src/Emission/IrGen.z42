@@ -323,6 +323,8 @@ public sealed class IrGen {
                 if (c.Kind == "class" || c.Kind == "struct") { types.EmitClass(cu.Decls[i], c, emittedPartial); }
             } else if (d is ImplDecl) {
                 types.EmitImpl(d as ImplDecl);
+            } else if (d is UnionDecl) {
+                types.EmitUnion(d as UnionDecl);
             }
             i = i + 1;
         }

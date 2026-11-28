@@ -465,6 +465,7 @@ public sealed partial class ExprEmitter {
 
     // Register the constructed identity separately from the layout used for byte offsets.
     internal string _blobAllocationName(Z42Type type, string layout) {
+        if (UnionStorageLayout.WideFor(type) != null) { return PackedUnion.StorageName(layout); }
         string identity = this._instIdentityName(type);
         return this._ctx.QualifyLayout(identity == "" ? layout : identity);
     }

@@ -5,10 +5,27 @@ using Z42.Emission;
 using Z42.IR;
 
 [Test]
-void test_wide_union_requires_runtime_layout_support() {
-    var result = IrDump.BuildModuleD("union U { End, Pair(int, int) } U Make() => U.End;", "union.z42", null, null);
-    Assert.Equal(1, result.ErrorCount);
-    Assert.True(result.DiagMsgs[0].Contains("E0501"));
+void test_wide_union_allocates_exact_layout_slots_at_function_entry() {
+    string source = "union U { End, Pair(int, int) } U Make(int n) { U u = U.End; while (n > 0) { u = U.Pair(n, n); n = n - 1; } return u; }";
+    var result = IrDump.BuildModuleD(source, "union.z42", null, null);
+    Assert.Equal(0, result.ErrorCount);
+    IrModule module = result.Module;
+    Assert.Equal(1, module.ClassCount);
+    Assert.Equal("$union.U", module.Classes[0].Name);
+    Assert.Equal(3, module.Classes[0].FieldCount);
+    IrFunction make = module.Functions[0];
+    int slots = 0;
+    for (int b = 0; b < make.BlockCount; b = b + 1) {
+        IrBlock block = make.Blocks[b];
+        for (int i = 0; i < block.InstrCount; i = i + 1) {
+            if (block.Instrs[i] is StructAllocInstr allocation) {
+                Assert.Equal(0, b);
+                Assert.Equal(12, allocation.Size);
+                slots = slots + 1;
+            }
+        }
+    }
+    Assert.Equal(2, slots);
 }
 
 [Test]
@@ -27,16 +44,17 @@ void test_package_union_rejects_emission_before_compiling_consumers() {
 }
 
 [Test]
-void test_packed_union_can_be_constructed_and_matched_across_files() {
+void test_wide_union_can_be_constructed_and_matched_across_files() {
     string[] sources = new string[]{
-        "U Make(int n) => U.Bytes(n); int Read(U u) => u switch { U.End => 0, U.Bytes(n) => n };",
-        "union U { End, Bytes(int) }",
+        "namespace Demo; U Make(int n) => U.Pair(n, n); int Read(U u) => u switch { U.End => 0, U.Pair(a, b) => a + b };",
+        "namespace Demo; union U { End, Pair(int, int) }",
     };
     string[] files = new string[]{ "consumer.z42", "union.z42" };
     CompiledModuleZ[] result = IrDump.BuildPackage(sources, files, sources.Length, null, null, false);
     Assert.Equal(0, result[0].ErrorCount);
     Assert.Equal(0, result[1].ErrorCount);
     Assert.Equal(2, result[0].Module.FuncCount);
+    Assert.Equal("$union.Demo.U", result[1].Module.Classes[0].Name);
 }
 
 [Test]

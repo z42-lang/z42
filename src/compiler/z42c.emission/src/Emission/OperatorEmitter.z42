@@ -204,7 +204,7 @@ public sealed class OperatorEmitter {
     // cond 先求 → 3 标签 tern_then/else/end → result 在标签后 alloc）。
     // switch 表达式 → 等值比较链写结果寄存器（镜像 C# EmitBoundSwitchExpr）。
     internal TypedReg _emitSwitchExpr(BoundSwitchExpr sw) {
-        TypedReg subj = this._ee.Emit(sw.Subject);
+        TypedReg subj = this._ee._emitMatchSubject(sw.Subject);
         TypedReg result = this._ctx.Alloc(this._ctx.ToIrType(sw.Type()));
         string endL = this._ctx.Fresh("swx_end");
         int ai = 0;

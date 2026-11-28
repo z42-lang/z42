@@ -199,21 +199,7 @@ public sealed partial class StructLayout {
         int i = 0;
         while (i < keys.Length) {
             Z42ClassType ct = owner.Get(keys[i]) as Z42ClassType;
-            if (ct != null) {
-                StructFieldsDef def = new StructFieldsDef();
-                int j = 0;
-                while (j < ct.OwnFieldCount) {
-                    def.Add(ct.OwnFieldNames[j], StructLayout._ownFieldType(ct, j, shortIdx));
-                    j = j + 1;
-                }
-                // generic-struct-erased-slot-value-copy：记下定义的型参名，供实例化布局的代换表。
-                def.TypeParamNames = ct.GenericParamNames; def.TpCount = ct.GenericParamCount;
-                // unify-value-types Phase 1：**Scalar 基元 wrapper（Int32/Boolean/Char…）虽 IsStruct=true，
-                // 但绝不作为 blob struct 布局类型**——它们是裸 Value 标量（Repr=Scalar，不进字节 arena）。
-                // 否则（键为关键字 `int`）`int` 字段的 _kindOf 会误判为嵌套 struct ⇒ 布局尺寸/偏移全错。
-                if (ct.IsStruct && ct.UnionCases == null && !PrimModel.IsScalarValue(keys[i])) { defs.Put(keys[i], def); }
-                else if (!ct.IsStruct) { classDefs.Put(keys[i], def); }
-            }
+            if (ct != null) { StructLayout._addStorageDef(keys[i], ct, shortIdx, defs, classDefs); }
             i = i + 1;
         }
         StructLayout sl = new StructLayout(defs);
@@ -246,6 +232,36 @@ public sealed partial class StructLayout {
         int n = 0;
         while (n < ckeys.Length) { sl._computeObjectLayout(ckeys[n]); n = n + 1; }
         return sl;
+    }
+
+    private static void _addStorageDef(string key, Z42ClassType ct, StrMap shortIdx, StrMap defs, StrMap classDefs) {
+        if (ct.UnionCases != null) {
+            UnionStorageLayout storage = UnionStorageLayout.WideFor(ct);
+            if (storage != null && storage.SupportsIntegralStorage()) {
+                defs.Put(key, StructLayout._unionStorageDef(storage));
+            }
+            return;
+        }
+        // Scalar wrappers stay in scalar registers, even though IsStruct is true.
+        if (ct.IsStruct && PrimModel.IsScalarValue(key)) { return; }
+        StructFieldsDef def = new StructFieldsDef();
+        for (int j = 0; j < ct.OwnFieldCount; j = j + 1) {
+            def.Add(ct.OwnFieldNames[j], StructLayout._ownFieldType(ct, j, shortIdx));
+        }
+        def.TypeParamNames = ct.GenericParamNames;
+        def.TpCount = ct.GenericParamCount;
+        if (ct.IsStruct) { defs.Put(key, def); }
+        else { classDefs.Put(key, def); }
+    }
+
+    private static StructFieldsDef _unionStorageDef(UnionStorageLayout storage) {
+        StructFieldsDef def = new StructFieldsDef();
+        string typeName = storage.CellTypeName();
+        int count = storage.CellCount();
+        for (int i = 0; i < count; i = i + 1) {
+            def.Add("__union_cell_" + i.ToString(), typeName);
+        }
+        return def;
     }
 
     internal static Z42Type OwnFieldStorageType(Z42ClassType ct, int j) {

@@ -1,5 +1,7 @@
 namespace Z42.Symbols;
 
+using Z42.IR;
+
 // Field offsets are relative to their aggregate. A branch's aggregate starts
 // at PayloadOffset. A nested union retains its tag and branch layouts.
 public sealed class UnionStorageField {
@@ -50,5 +52,42 @@ public sealed class UnionStorageLayout {
         this.TagBytes = tagBytes;
         this.PayloadOffset = payloadOffset;
         this.Cases = cases;
+    }
+
+    public static UnionStorageLayout WideFor(Z42Type type) {
+        Z42ClassType owner = UnionCaseSymbol.UnionOf(type);
+        if (owner == null || owner.UnionStorage == null || owner.UnionStorage.Size <= 8) { return null; }
+        return owner.UnionStorage;
+    }
+
+    // A cell width that divides the value size is at least its natural alignment.
+    // Every integral field therefore fits within a single physical cell.
+    public int CellWidth() {
+        if (this.Size % 8 == 0) { return 8; }
+        if (this.Size % 4 == 0) { return 4; }
+        return this.Size % 2 == 0 ? 2 : 1;
+    }
+
+    public int CellCount() { return this.Size / this.CellWidth(); }
+
+    public string CellTypeName() {
+        int width = this.CellWidth();
+        if (width == 8) { return "long"; }
+        if (width == 4) { return "uint"; }
+        return width == 2 ? "ushort" : "byte";
+    }
+
+    public bool SupportsIntegralStorage() {
+        if (this.Cases == null || this.CellCount() > 65535) { return false; }
+        foreach (var branch in this.Cases) {
+            foreach (var field in branch.Fields) {
+                if (field.Kind != StructLeafKind.Prim) { return false; }
+                int code = field.Type.PrimCode();
+                if (code < 0) { return false; }
+                int tag = PrimModel.IrTagOfCode(code);
+                if (tag != IrType.Bool && (tag < IrType.I8 || tag > IrType.U64)) { return false; }
+            }
+        }
+        return true;
     }
 }

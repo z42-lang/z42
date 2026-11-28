@@ -116,7 +116,7 @@ public sealed class FunctionEmitter {
             // prim 名→prim tag / array→Ref / 其它非基本 NamedType（class·interface·func·泛型）→Unknown
             // （GetIrType 表只含 prim；体内局部值才走语义 ToIrType→class=Ref。REGT 字节实证两形态）。
             int ptag = IrType.Unknown;
-            if (pt is Z42ClassType && (pt as Z42ClassType).UnionCases != null) { ptag = IrType.I64; }
+            if (pt is Z42ClassType && (pt as Z42ClassType).UnionCases != null) { ptag = this._ctx.ToIrType(pt); }
             else if (pt is Z42ClassType) { int _pc = pt.PrimCode(); if (_pc >= 0) { ptag = PrimModel.IrTagOfCode(_pc); } }   // 内建形参（int→Z42ClassType(Int32)）按名归一到 IR 标签
             else if (pt is Z42ArrayType) { ptag = IrType.Ref; }
             this._ctx.Locals.Put(md.Params[p].Name, new TypedReg(p + paramOffset, ptag));
@@ -155,6 +155,7 @@ public sealed class FunctionEmitter {
             this._stmt._emitStmt(body);
         }
         if (!this._ctx.Ended) { this._ctx.EndBlock(new RetTerm(false, null)); }   // 隐式 ret
+        this._ctx.PrependValueSlots();
         string retName = "void";   // G11：ctor 返回 void（RetType 占位空名）
         if (!md.IsCtor) { retName = this._sigTypeName(md.RetType, tp, tpc); }   // G18f：SIGS 用源拼写（byte[]，非 u8[]）
         int[] regTypes = new int[this._ctx.RegTagCount];
@@ -343,6 +344,7 @@ public sealed class FunctionEmitter {
             }
         }
         if (!this._ctx.Ended) { this._ctx.EndBlock(new RetTerm(false, null)); }
+        this._ctx.PrependValueSlots();
         int[] regTypes = new int[this._ctx.RegTagCount];
         int rt = 0;
         while (rt < this._ctx.RegTagCount) { regTypes[rt] = this._ctx.RegTags[rt]; rt = rt + 1; }
@@ -421,6 +423,7 @@ public sealed class FunctionEmitter {
         }
         string retName = "void";
         if (ft != null) { retName = PrimModel.SurfaceName(ft.Ret.Name()); }
+        this._ctx.PrependValueSlots();
         if (this._ctx.RetIsStruct) { retName = this._lambdaStructIdentity(ft.Ret, retStruct); }   // unify-value-types P1：内建 leaf 回 keyword（SIGS 一致，见 _sigTypeName）
         int[] regTypes = new int[this._ctx.RegTagCount];
         int rt = 0;
