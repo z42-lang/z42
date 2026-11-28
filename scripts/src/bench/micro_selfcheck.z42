@@ -10,6 +10,8 @@ class MicroFixtureCapture : MicroCapture {
     public int FailAt;
     public bool Missing;
     public bool Throw;
+    public int OmitSuspectAt;
+    public bool DropUnrelatedOnResample;
     public string ExpectedOwners = "";
     public string ExpectedResampleOwners;
     public override int Capture(string tree, string vm, string libs, string driver, string output, string owners) {
@@ -17,14 +19,26 @@ class MicroFixtureCapture : MicroCapture {
         _gateAssert(owners == want, "round 1 keeps the planned scope; resample/confirmation rounds narrow to the suspects' packages");
         this.Calls = this.Calls + 1;
         if (this.Throw) { throw new Exception("capture fixture exception"); }
-        bool head = this.Calls % 2 == 1;
+        bool head = this.Calls % 4 == 1 || this.Calls % 4 == 0;
         _gateAssert(tree.EndsWith(head ? "/head-src" : "/base-src") && vm.EndsWith(head ? "/pr-vm" : "/base-vm")
             && libs.EndsWith(head ? "/pr-libs" : "/base-libs") && driver == Path.Join(libs, "z42c.driver.zpkg"), "capture keeps head/base tools and source trees paired");
         if (this.Calls == this.FailAt) { return 17; }
         if (!this.Missing) {
             string name = this.Scenario == "overlap" ? (head ? "micro-overlap" : "micro-base")
                 : "micro-rs-" + (head ? this.Scenario : "base") + "-r" + ((this.Calls + 1) / 2).ToString();
+            if (this.Calls == this.OmitSuspectAt) { name = "micro-rs-missing-r3"; }
             File.Copy(Path.Join(this.Fixtures, name + ".json"), output);
+            if (this.DropUnrelatedOnResample && this.Calls > 2) {
+                JsonValue doc = JsonValue.Parse(File.ReadAllText(output));
+                JsonValue entries = doc.Get("benchmarks");
+                JsonValue retained = JsonValue.OfArray();
+                for (int i = 0; i < entries.Count(); i = i + 1) {
+                    JsonValue entry = entries.At(i);
+                    if (entry.Get("name").AsString().StartsWith("z42.core.")) { retained.Add(entry); }
+                }
+                doc.Set("benchmarks", retained);
+                File.WriteAllText(output, JsonValue.StringifyPretty(doc));
+            }
         }
         return 0;
     }
@@ -45,9 +59,21 @@ void _microAbChecks() {
         cmd.Owners = "z42.json,z42.io,z42.json";
         var scoped = new MicroFixtureCapture(); scoped.Fixtures = Path.Join(_root(), "src/benches/testdata");
         scoped.Scenario = "real"; scoped.ExpectedOwners = "z42.io,z42.json"; scoped.ExpectedResampleOwners = "z42.core";
+        scoped.DropUnrelatedOnResample = true;
         _gateAssert(_benchMicroAbAt(root, cmd, scoped) == 1 && scoped.Calls == 8, "scoped round 1 keeps both owners; suspect rounds narrow to the flagged package");
         _microExecutionCheck(root, 1, 8, "z42.io,z42.json", "z42.core");
         cmd.Owners = "";
+        foreach (var omission in new int[]{ 5, 6, 7, 8 }) {
+            var incomplete = new MicroFixtureCapture();
+            incomplete.Fixtures = Path.Join(_root(), "src/benches/testdata");
+            incomplete.Scenario = "real";
+            incomplete.ExpectedResampleOwners = "z42.core";
+            incomplete.OmitSuspectAt = omission;
+            int calls = omission <= 6 ? 6 : 8;
+            _gateAssert(_benchMicroAbAt(root, cmd, incomplete) == 2 && incomplete.Calls == calls,
+                "missing required profile in either side of resampling or confirmation is a tool error");
+            _microExecutionCheck(root, 2, calls, "", "z42.core");
+        }
         _microScopeChecks();
         string[] ownerVocab = new string[]{ "z42.core", "z42.collections", "z42c.pipeline", "z42.core.extra" };
         _gateAssert(_microSuspectOwners(ownerVocab, "z42.core.Array.push\nz42.collections.bench_x\n") == "z42.collections,z42.core", "suspect owners map by package prefix and deduplicate");
@@ -94,7 +120,8 @@ void _microExecutionCheck(string root, int code, int calls, string owners, strin
     for (int i = 0; i < captures.Count(); i = i + 1) {
         JsonValue capture = captures.At(i);
         string wantOwners = i < 2 || resampleOwners.Length == 0 ? owners : resampleOwners;
-        _gateAssert(capture.Get("round").AsLong() == (long)(i / 2 + 1) && capture.Get("side").AsString() == (i % 2 == 0 ? "pr" : "base")
+        string side = i % 4 == 0 || i % 4 == 3 ? "pr" : "base";
+        _gateAssert(capture.Get("round").AsLong() == (long)(i / 2 + 1) && capture.Get("side").AsString() == side
             && capture.Get("elapsed_ms").AsLong() >= 0L && String.Join(",", _epJsonToStrArr(capture.Get("owners"))) == wantOwners,
             "capture timing retains round, side and canonical owner boundaries");
         int expected = (code == 17 || code == -1) && i == calls - 1 ? code : 0;
