@@ -155,12 +155,8 @@ public static class Blake2s {
         v[ai] = a; v[bi] = b; v[ci] = c; v[di] = d;
     }
 
-    // 32 位逻辑循环右移。z42 的 `int` 是有符号 i32，`>>` 会算术扩展，所以经 long 转换加掩码做
-    // 逻辑右移半边，再与左移半边做 OR。
     static int _rotr32(int x, int n) {
-        long lx = ((long)x) & 0xFFFFFFFFL;
-        long shifted = ((lx >> n) | (lx << (32 - n))) & 0xFFFFFFFFL;
-        return (int)shifted;
+        return (x >>> n) | (x << (32 - n));
     }
 
     // SIGMA 置换：BLAKE2b 用同一张表的前 10 行（RFC 7693 §2.7 / §A.4）。BLAKE2s 恰好循环 10 轮，

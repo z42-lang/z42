@@ -97,7 +97,7 @@ public static class Blake2b {
         while (b < outLen) {
             int laneIdx = b / 8;
             int byteIdx = b % 8;
-            out_[b] = (byte)(Blake2b._lshr64(h[laneIdx], byteIdx * 8) & 0xFFL);
+            out_[b] = (byte)((h[laneIdx] >>> (byteIdx * 8)) & 0xFFL);
             b = b + 1;
         }
         return out_;
@@ -223,14 +223,8 @@ public static class Blake2b {
 
     // ── 64-bit bit-twiddling helpers ─────────────────────────────────────────
 
-    static long _lshr64(long x, int n) {
-        if (n == 0) return x;
-        if (x >= 0L) return x >> n;
-        return (x >> n) ^ ((-1L) << (64 - n));
-    }
-
     static long _rotr64(long x, int n) {
-        return Blake2b._lshr64(x, n) | (x << (64 - n));
+        return (x >>> n) | (x << (64 - n));
     }
 
     // ── Little-endian byte I/O ───────────────────────────────────────────────

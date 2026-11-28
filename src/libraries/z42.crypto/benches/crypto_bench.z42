@@ -31,6 +31,22 @@ void bench_sha256_4k(Bencher b) {
 }
 
 [Benchmark]
+void bench_blake2s_4k(Bencher b) {
+    byte[] msg = _mkPayload(4096);
+    b.iter(() => {
+        GC.KeepAlive(Blake2s.Hash(msg));
+    });
+}
+
+[Benchmark]
+void bench_blake2b_4k(Bencher b) {
+    byte[] msg = _mkPayload(4096);
+    b.iter(() => {
+        GC.KeepAlive(Blake2b.Hash(msg));
+    });
+}
+
+[Benchmark]
 void bench_blake3_small(Bencher b) {
     byte[] msg = _mkPayload(64);
     b.iter(() => {
