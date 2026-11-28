@@ -4,10 +4,19 @@ using Std.IO;
 using Std.Json;
 using Std.Collections;
 
+class MicroBenchmarkKey {
+    public string Name;
+    public string Metric;
+    public string Profile;
+    public MicroBenchmarkKey(string name, string metric, string profile) {
+        this.Name = name; this.Metric = metric; this.Profile = profile;
+    }
+}
+
 // Match benchmark name, metric and execution profile before computing any ratio.
 // Each resampled comparison requires a matching entry in every captured round.
 // Single-round and repeated-round verdicts share the statistics module.
-int _benchMicroDiff(BenchCommand cmd) {
+int _benchMicroDiff(BenchCommand cmd, List<MicroBenchmarkKey> required = null, List<MicroBenchmarkKey> flagged = null) {
     string root = _root();
     string current = cmd.Current;
     if (current.Length == 0) { current = Path.Join(_benchDir(root), "micro-pr.json"); }
@@ -36,6 +45,16 @@ int _benchMicroDiff(BenchCommand cmd) {
         if (!File.Exists(bp)) { ConsoleError.WriteLine("error: micro baseline not found: " + basePaths[i]); return 2; }
         curDocs[i]  = JsonValue.Parse(File.ReadAllText(cp)).Get("benchmarks");
         baseDocs[i] = JsonValue.Parse(File.ReadAllText(bp)).Get("benchmarks");
+    }
+    if (required != null) {
+        bool complete = true;
+        foreach (var key in required) {
+            for (int i = 0; i < k; i = i + 1) {
+                if (!_microCheckRequired(curDocs[i], curPaths[i], key)) { complete = false; }
+                if (!_microCheckRequired(baseDocs[i], basePaths[i], key)) { complete = false; }
+            }
+        }
+        if (!complete) { return 2; }
     }
     JsonValue curBs  = curDocs[0];
     JsonValue baseBs = baseDocs[0];
@@ -81,7 +100,10 @@ int _benchMicroDiff(BenchCommand cmd) {
         }
         compared = compared + 1;
         _abPrint(name, mkey, v);
-        if (v.IsRegression) { regr = regr + 1; suspects = suspects + name + "\n"; }
+        if (v.IsRegression) {
+            regr = regr + 1; suspects = suspects + name + "\n";
+            if (flagged != null) { flagged.Add(new MicroBenchmarkKey(name, metric, mkey)); }
+        }
     }
     if (newb > 0) {
         Console.WriteLine("  (" + newb.ToString() + " new benchmark(s) with no base match — skipped)");
@@ -103,6 +125,14 @@ int _benchMicroDiff(BenchCommand cmd) {
     }
     Console.WriteLine("✅ no micro regression (same-runner A/B; " + compared.ToString() + " compared)");
     return 0;
+}
+
+bool _microCheckRequired(JsonValue entries, string path, MicroBenchmarkKey key) {
+    JsonValue entry = _findBenchObj(entries, key.Name, key.Metric, key.Profile);
+    if (entry != null && _microMean(entry) > 0.0) { return true; }
+    ConsoleError.WriteLine("error: required micro resample missing or invalid: " + key.Name
+        + " [" + key.Profile + ", " + key.Metric + "] in " + path);
+    return false;
 }
 
 // One benchmark's resampled verdict: its ratio in EVERY round, then

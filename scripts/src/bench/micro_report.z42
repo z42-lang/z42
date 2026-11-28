@@ -14,7 +14,7 @@ class MicroExecution {
         int index = this.Captures.Count();
         JsonValue item = JsonValue.OfObject();
         item.Set("round", JsonValue.OfLong((long)(index / 2 + 1)));
-        item.Set("side", JsonValue.OfString(index % 2 == 0 ? "pr" : "base"));
+        item.Set("side", JsonValue.OfString(Path.GetFileName(output).StartsWith("micro-pr") ? "pr" : "base"));
         item.Set("scope", JsonValue.OfString(owners.Length == 0 ? "all" : "owners"));
         item.Set("owners", owners.Length == 0 ? JsonValue.OfArray() : _jStrs(owners.Split(",")));
         item.Set("exit_code", JsonValue.OfLong((long)code));
