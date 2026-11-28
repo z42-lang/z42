@@ -24,37 +24,15 @@ pub(crate) fn build_declared_candidates(
     let loaded_has = |name: &str| initially_loaded.iter().any(|f| f == name);
     let declared_has = |d: &[(String, _)], name: &str| d.iter().any(|(f, _)| f == name);
 
-    let libs_paths = search_dirs.to_vec();
-
-    // .zpkg dependencies (DEPS): file field authoritative; fall back to the
-    // sibling `namespaces` field if the literal filename does not resolve.
+    // DEPS names the files the compiler bound. A missing file cannot be
+    // replaced with a different package that declares the same namespace.
     for dep in &entry_program.dependencies {
         if loaded_has(&dep.file) || declared_has(&declared, &dep.file) { continue; }
-        if let Ok(cand) = ZpkgCandidate::build_in_dirs(fs, search_dirs, &dep.file) {
-            declared.push((dep.file.clone(), cand));
-            continue;
-        }
-        for ns in &dep.namespaces {
-            let Ok(zpkg_paths) = resolve_namespace(fs, ns, &libs_paths) else {
-                continue;
-            };
-            for zpkg_path in zpkg_paths {
-                let Some(file_name) = zpkg_path
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .map(str::to_owned)
-                else { continue };
-                if loaded_has(&file_name) || declared_has(&declared, &file_name) { continue; }
-                match ZpkgCandidate::build_in_dirs(fs, search_dirs, &file_name) {
-                    Ok(cand) => declared.push((file_name, cand)),
-                    // Left as a warning on purpose: a namespace can resolve to several
-                    // candidates, so one unreadable file is not yet fatal. The hint
-                    // still names the remedy when it is a version mismatch rather
-                    // than a corrupt / unrelated file.
-                    Err(e)   => match version_mismatch_hint(&file_name, &e) {
-                        Some(hint) => tracing::warn!("{hint}"),
-                        None => tracing::warn!("cannot read zpkg meta `{}`: {e}", file_name),
-                    },
+        match ZpkgCandidate::build_in_dirs(fs, search_dirs, &dep.file) {
+            Ok(candidate) => declared.push((dep.file.clone(), candidate)),
+            Err(error) => {
+                if let Some(hint) = version_mismatch_hint(&dep.file, &error) {
+                    tracing::warn!("{hint}");
                 }
             }
         }
@@ -62,7 +40,7 @@ pub(crate) fn build_declared_candidates(
 
     // .zbc import_namespaces — reverse lookup
     for ns in &entry_program.import_namespaces {
-        let Ok(zpkg_paths) = resolve_namespace(fs, ns, &libs_paths) else {
+        let Ok(zpkg_paths) = resolve_namespace(fs, ns, search_dirs) else {
             continue;
         };
         for zpkg_path in zpkg_paths {
