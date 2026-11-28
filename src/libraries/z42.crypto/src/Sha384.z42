@@ -4,18 +4,12 @@ using Std.Encoding;
 
 /// SHA-384 哈希（FIPS 180-4 §6.5）——SHA-512 换初始哈希值并把输出截断为前 48 字节。
 ///
-/// 输出取最终状态的前 6 个 64 位字。压缩函数通过 `Sha512._compressBlock` 与 Sha512 共用。
+/// 输出取最终状态的前 6 个 64 位字，与 SHA-512 共用块处理。
 public static class Sha384 {
     /// 计算 SHA-384 原始摘要（48 字节）。
     public static byte[] Hash(byte[] data) {
-        byte[] padded = Sha512._pad(data);
         long[] h = Sha384._initialHash();
-        int blocks = padded.Length / 128;
-        int b = 0;
-        while (b < blocks) {
-            Sha512._compressBlock(h, padded, b * 128);
-            b = b + 1;
-        }
+        Sha512._hashBlocks(h, data);
         // Output is the first 48 bytes = first 6 of 8 state words.
         byte[] digest = new byte[48];
         int i = 0;
