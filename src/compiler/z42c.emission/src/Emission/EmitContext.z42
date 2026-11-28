@@ -678,8 +678,7 @@ public sealed class EmitContext {
 
     public void Emit(IrInstr ins) {
         if (ins is StructAllocInstr && PackedUnion.IsStorageName((ins as StructAllocInstr).TypeName)) {
-            if (this._entryValueAllocs == null) { this._entryValueAllocs = new List<IrInstr>(); }
-            this._entryValueAllocs.Add(ins);
+            this.ReserveValueSlot(ins as StructAllocInstr);
             return;
         }
         if (this.CurCount == this.Cur.Length) {
@@ -691,7 +690,12 @@ public sealed class EmitContext {
         this.CurCount = this.CurCount + 1;
     }
 
-    internal bool IsWideUnionSlot(TypedReg reg) {
+    internal void ReserveValueSlot(StructAllocInstr allocation) {
+        if (this._entryValueAllocs == null) { this._entryValueAllocs = new List<IrInstr>(); }
+        this._entryValueAllocs.Add(allocation);
+    }
+
+    internal bool IsReservedValueSlot(TypedReg reg) {
         if (reg == null || this._entryValueAllocs == null) { return false; }
         for (int i = 0; i < this._entryValueAllocs.Count; i = i + 1) {
             var allocation = this._entryValueAllocs[i] as StructAllocInstr;

@@ -8,22 +8,17 @@ using Z42.Symbols;
 public sealed partial class ExprEmitter {
     internal TypedReg _emitUnionConstruction(BoundCall call) {
         UnionStorageLayout layout = UnionCaseSymbol.UnionOf(call.Type()).UnionStorage;
-        if (layout.Size > 8) { return this._emitWideUnion(call, layout); }
         UnionPayloadLayout branch = layout.Cases[call.UnionCase.Tag];
-        TypedReg packed = this._unionI64((long)call.UnionCase.Tag);
+        int width = layout.CellWidth();
+        TypedReg[] cells = new TypedReg[layout.CellCount()];
+        cells[0] = this._unionI64((long)call.UnionCase.Tag);
         for (int i = 0; i < call.ArgCount; i = i + 1) {
             int slot = call.UnionArgumentOrder[i];
             UnionStorageField field = branch.Fields[slot];
             TypedReg value = this.Emit(call.Args[slot]);
-            TypedReg bits = this._unionPayloadBits(value, field.Type);
-            TypedReg masked = this._unionMask(bits, field.Size);
-            TypedReg shifted = this._ctx.Alloc(IrType.I64);
-            this._ctx.Emit(new ShlInstr(shifted, masked, this._unionI64((long)(layout.PayloadOffset + field.Offset) * 8L)));
-            TypedReg joined = this._ctx.Alloc(IrType.I64);
-            this._ctx.Emit(new BitOrInstr(joined, packed, shifted));
-            packed = joined;
+            this._packUnionField(cells, width, layout.PayloadOffset + field.Offset, field, value);
         }
-        return packed;
+        return this._materializeUnion(cells, call.Type(), layout);
     }
 
     internal TypedReg _emitUnionTagMatch(TypedReg packed, Z42Type type, UnionStorageLayout layout, int tag) {
@@ -36,14 +31,17 @@ public sealed partial class ExprEmitter {
 
     internal TypedReg _emitUnionField(TypedReg packed, Z42Type type, UnionStorageLayout layout, UnionStorageField field) {
         int offset = layout.PayloadOffset + field.Offset;
-        TypedReg word = packed;
-        if (layout.Size > 8) {
-            int width = layout.CellWidth();
-            word = this._readUnionCell(packed, type, layout, offset / width);
-            offset = offset % width;
+        if (field.Nested != null) {
+            return this._unpackUnionAggregate(packed, type, layout, offset, field);
         }
-        TypedReg shifted = this._ctx.Alloc(IrType.I64);
-        this._ctx.Emit(new ShrInstr(shifted, word, this._unionI64((long)offset * 8L)));
+        return this._unpackUnionScalar(packed, type, layout, offset, field);
+    }
+
+    private TypedReg _unpackUnionScalar(TypedReg packed, Z42Type type, UnionStorageLayout layout,
+                                       int offset, UnionStorageField field) {
+        int width = layout.CellWidth();
+        TypedReg word = this._readUnionCell(packed, type, layout, offset / width);
+        TypedReg shifted = this._shiftUnionRight(word, offset % width);
         int tag = this._ctx.ToIrType(field.Type);
         TypedReg result = this._ctx.Alloc(tag);
         if (tag == IrType.Bool) {
@@ -60,33 +58,34 @@ public sealed partial class ExprEmitter {
         return result;
     }
 
-    private TypedReg _emitWideUnion(BoundCall call, UnionStorageLayout layout) {
-        UnionPayloadLayout branch = layout.Cases[call.UnionCase.Tag];
-        int width = layout.CellWidth();
-        TypedReg[] cells = new TypedReg[layout.CellCount()];
-        cells[0] = this._unionI64((long)call.UnionCase.Tag);
-        for (int i = 0; i < call.ArgCount; i = i + 1) {
-            int slot = call.UnionArgumentOrder[i];
-            UnionStorageField field = branch.Fields[slot];
-            int offset = layout.PayloadOffset + field.Offset;
-            TypedReg value = this._unionPayloadBits(this.Emit(call.Args[slot]), field.Type);
-            int at = offset / width;
-            int shift = (offset % width) * 8;
-            TypedReg bits = this._unionMask(value, field.Size);
-            if (shift != 0) {
-                TypedReg shifted = this._ctx.Alloc(IrType.I64);
-                this._ctx.Emit(new ShlInstr(shifted, bits, this._unionI64((long)shift)));
-                bits = shifted;
-            }
-            if (cells[at] != null) {
-                TypedReg joined = this._ctx.Alloc(IrType.I64);
-                this._ctx.Emit(new BitOrInstr(joined, cells[at], bits));
-                bits = joined;
-            }
-            cells[at] = bits;
+    private void _mergeUnionBits(TypedReg[] cells, int width, int offset, TypedReg value, int bytes) {
+        int at = offset / width;
+        int shift = (offset % width) * 8;
+        TypedReg bits = this._unionMask(value, bytes);
+        if (shift != 0) {
+            TypedReg shifted = this._ctx.Alloc(IrType.I64);
+            this._ctx.Emit(new ShlInstr(shifted, bits, this._unionI64((long)shift)));
+            bits = shifted;
         }
-        TypedReg storage = this._allocWideUnion(call.Type(), layout);
-        this._writeUnionCells(storage, call.Type(), layout, cells);
+        if (cells[at] != null) {
+            TypedReg joined = this._ctx.Alloc(IrType.I64);
+            this._ctx.Emit(new BitOrInstr(joined, cells[at], bits));
+            bits = joined;
+        }
+        cells[at] = bits;
+    }
+
+    private TypedReg _shiftUnionRight(TypedReg word, int bytes) {
+        if (bytes == 0) { return word; }
+        TypedReg shifted = this._ctx.Alloc(IrType.I64);
+        this._ctx.Emit(new ShrInstr(shifted, word, this._unionI64((long)bytes * 8L)));
+        return shifted;
+    }
+
+    private TypedReg _materializeUnion(TypedReg[] cells, Z42Type type, UnionStorageLayout layout) {
+        if (layout.Size <= 8) { return cells[0]; }
+        TypedReg storage = this._allocWideUnion(type, layout);
+        this._writeUnionCells(storage, type, layout, cells);
         return storage;
     }
 
@@ -105,6 +104,7 @@ public sealed partial class ExprEmitter {
     }
 
     private TypedReg _readUnionCell(TypedReg storage, Z42Type type, UnionStorageLayout layout, int cell) {
+        if (layout.Size <= 8) { return storage; }
         string name = PackedUnion.StorageName(UnionCaseSymbol.UnionOf(type).Fqn());
         TypedReg result = this._ctx.Alloc(IrType.I64);
         this._ctx.Emit(new StructFieldGetPrimInstr(result, storage, name, new int[] { cell }, Tag.FromName(layout.CellTypeName())));

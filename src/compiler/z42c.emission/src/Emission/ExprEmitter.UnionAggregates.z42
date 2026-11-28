@@ -1,0 +1,94 @@
+namespace Z42.Emission;
+
+using Z42.IR;
+using Z42.IR.BinaryFormat;
+using Z42.Symbols;
+
+public sealed partial class ExprEmitter {
+    private void _packUnionField(TypedReg[] cells, int width, int offset, UnionStorageField field, TypedReg value) {
+        if (field.Kind == StructLeafKind.Union) {
+            this._copyUnionRegion(value, field.Type, field.Nested, 0, cells, width, offset, field.Size);
+        } else if (field.Kind == StructLeafKind.Struct) {
+            if (field.Size == 0) { return; }
+            string name = this._ctx.QualifyLayout(this._blobStructName(field.Type));
+            this._packUnionStruct(value, name, new int[0], field.Nested.StructFields, cells, width, offset);
+        } else {
+            TypedReg bits = this._unionPayloadBits(value, field.Type);
+            this._mergeUnionBits(cells, width, offset, bits, field.Size);
+        }
+    }
+
+    private TypedReg _unpackUnionAggregate(TypedReg source, Z42Type type, UnionStorageLayout layout,
+                                          int offset, UnionStorageField field) {
+        UnionStorageLayout nested = field.Nested;
+        if (field.Kind == StructLeafKind.Union) {
+            TypedReg[] cells = new TypedReg[nested.CellCount()];
+            this._copyUnionRegion(source, type, layout, offset, cells, nested.CellWidth(), 0, field.Size);
+            return this._materializeUnion(cells, field.Type, nested);
+        }
+        if (field.Size == 0) { return this._emitConcreteDefault(field.Type); }
+        string name = this._blobAllocationName(field.Type, this._blobStructName(field.Type));
+        TypedReg value = this._ctx.Alloc(IrType.Ref);
+        this._ctx.ReserveValueSlot(new StructAllocInstr(value, name, field.Size));
+        this._unpackUnionStruct(source, type, layout, offset, value, name, new int[0], nested.StructFields);
+        return value;
+    }
+
+    private void _packUnionStruct(TypedReg value, string name, int[] prefix, UnionPayloadLayout fields,
+                                  TypedReg[] cells, int width, int offset) {
+        for (int i = 0; i < fields.Fields.Length; i = i + 1) {
+            UnionStorageField field = fields.Fields[i];
+            int[] path = AccessEmitter._pathAppend(prefix, i);
+            int at = offset + field.Offset;
+            if (field.Kind == StructLeafKind.Struct) {
+                this._packUnionStruct(value, name, path, field.Nested.StructFields, cells, width, at);
+            } else {
+                int tag = Tag.FromName(PrimModel.KeywordOfCode(field.Type.PrimCode()));
+                TypedReg leaf = this._ctx.Alloc(this._ctx.ToIrType(field.Type));
+                this._ctx.Emit(new StructFieldGetPrimInstr(leaf, value, name, path, tag));
+                TypedReg bits = this._unionPayloadBits(leaf, field.Type);
+                this._mergeUnionBits(cells, width, at, bits, field.Size);
+            }
+        }
+    }
+
+    private void _unpackUnionStruct(TypedReg source, Z42Type type, UnionStorageLayout layout, int offset,
+                                    TypedReg value, string name, int[] prefix, UnionPayloadLayout fields) {
+        for (int i = 0; i < fields.Fields.Length; i = i + 1) {
+            UnionStorageField field = fields.Fields[i];
+            int[] path = AccessEmitter._pathAppend(prefix, i);
+            int at = offset + field.Offset;
+            if (field.Kind == StructLeafKind.Struct) {
+                this._unpackUnionStruct(source, type, layout, at, value, name, path, field.Nested.StructFields);
+            } else {
+                int tag = Tag.FromName(PrimModel.KeywordOfCode(field.Type.PrimCode()));
+                TypedReg leaf = this._unpackUnionScalar(source, type, layout, at, field);
+                this._ctx.Emit(new StructFieldSetPrimInstr(value, name, path, tag, leaf));
+            }
+        }
+    }
+
+    // The two layouts can have different cell widths. A segment ends at
+    // whichever cell boundary comes first, or at the end of the value.
+    private void _copyUnionRegion(TypedReg source, Z42Type type, UnionStorageLayout layout, int start,
+                                  TypedReg[] cells, int width, int destination, int bytes) {
+        int sourceWidth = layout.CellWidth();
+        int lastCell = -1;
+        TypedReg word = null;
+        int copied = 0;
+        while (copied < bytes) {
+            int at = start + copied;
+            int cell = at / sourceWidth;
+            if (cell != lastCell) {
+                word = this._readUnionCell(source, type, layout, cell);
+                lastCell = cell;
+            }
+            int offset = destination + copied;
+            int inCell = at % sourceWidth;
+            int count = Math.Min(bytes - copied, Math.Min(sourceWidth - inCell, width - offset % width));
+            TypedReg bits = this._shiftUnionRight(word, inCell);
+            this._mergeUnionBits(cells, width, offset, bits, count);
+            copied = copied + count;
+        }
+    }
+}
