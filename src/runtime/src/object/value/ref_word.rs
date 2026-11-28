@@ -199,6 +199,11 @@ pub fn store_word_recorded(c: &Cells, off: usize, w: u64) {
     }
 }
 
+/// Clear contiguous reference cells, recording the overwritten words during marking.
+pub(crate) fn clear_range(c: &Cells, index: usize, length: usize) -> bool {
+    c.clear_ref_words(index, length, record_old_word)
+}
+
 // Keep tag decoding and SATB queueing out of every inlined reference store.
 // A nonzero old word is returned only while a major mark is active.
 #[cold]

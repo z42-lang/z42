@@ -230,7 +230,7 @@ fn an_array_past_the_block_limit_is_refused() {
 }
 
 #[test]
-fn ref_array_bulk_clear_preserves_neighbors_across_batches_and_tails() {
+fn ref_array_bulk_clear_checks_the_whole_range_and_preserves_neighbors() {
     let h = heap();
     let _g = HeapGuard::enter(&h);
     let value = obj(&h);
@@ -238,12 +238,16 @@ fn ref_array_bulk_clear_preserves_neighbors_across_batches_and_tails() {
         for length in 0..13 {
             let len = start + length + 3;
             let a = arr(&h, ArrayObj::alloc_filled(&h, ElemType::intern("object"), ElemKind::Ref, len, value));
-            assert!(a.borrow().try_clear_elems(start, length).unwrap());
+            let array = a.borrow();
+            assert!(array.try_clear_elems(start, length).unwrap());
+            assert!(array.try_clear_elems(len - 1, 2).is_err());
+            assert!(array.try_clear_elems(usize::MAX, 1).is_err());
+            assert!(array.try_clear_elems(0, usize::MAX).is_err());
             for i in 0..len {
                 let expected = if (start..start + length).contains(&i) { Value::Null } else { value };
-                assert_eq!(a.borrow().get_boxed(i), expected);
+                assert_eq!(array.get_boxed(i), expected);
             }
-            assert!(a.borrow().try_clear_elems(len, 0).unwrap());
+            assert!(array.try_clear_elems(len, 0).unwrap());
         }
     }
 }
