@@ -28,8 +28,7 @@ public sealed class TypeOpEmitter {
         TypedReg obj = this._ee.Emit(e.E);
         string qn = this._typeOpTargetName(e.TargetType, e.TypeName);
         if (e.BindName != "") {
-            TypedReg vReg = this._ctx.Alloc(IrType.Ref);
-            this._ctx.Emit(new AsCastInstr(vReg, obj, qn));
+            TypedReg vReg = this._emitCastWithLayout(obj, IrType.Ref, e.TargetType, qn);
             this._ctx.Locals.Put(e.BindName, vReg);
         }
         TypedReg dst = this._ctx.Alloc(IrType.Bool);
@@ -217,9 +216,23 @@ public sealed class TypeOpEmitter {
     // （跨包接口 `as` 恒 null）。含 Array/Object 内建根类归一（同 _emitIs）。
     internal TypedReg _emitCast(BoundCast c) {
         TypedReg obj = this._ee.Emit(c.E);
-        TypedReg dst = this._ctx.Alloc(this._ctx.ToIrType(c.Type()));
         string qn = this._typeOpTargetName(c.Type(), c.TypeName);   // P2：携类型实参（见 _typeOpTargetName）
-        this._ctx.Emit(new AsCastInstr(dst, obj, qn));
+        return this._emitCastWithLayout(obj, this._ctx.ToIrType(c.Type()), c.Type(), qn);
+    }
+
+    internal TypedReg _emitCastWithLayout(TypedReg src, int irType, Z42Type type, string identity) {
+        TypedReg dst = this._ctx.Alloc(irType);
+        this._ctx.Emit(new AsCastInstr(dst, src, identity));
+        if (type is Z42InstantiatedType && !this._ctx.IsLocalReceiver(type) && this._ee._isBlobStruct(type)) {
+            // AsCast checks the closed identity. The consumer reads and copies
+            // fields using its independently chosen physical layout.
+            string storage = this._ee._blobAllocationName(type, this._ee._blobStructName(type));
+            TypedReg name = this._ctx.Alloc(IrType.Str);
+            this._ctx.Emit(new ConstStrInstr(name, this._ctx.Gen.Intern(storage)));
+            TypedReg adapted = this._ctx.Alloc(IrType.Ref);
+            this._ctx.Emit(new BuiltinInstr(adapted, "__adapt_imported_struct", new TypedReg[] { dst, name }, 2));
+            return adapted;
+        }
         return dst;
     }
 
@@ -381,9 +394,8 @@ public sealed class TypeOpEmitter {
     // （`StructCopy src: expected a struct value`），catch 不住、进程退出。
     // 与基元拆箱（ConvertInstr，`semantics::hard_cast_failure`）同一语义：源是 null → NullReferenceException，
     // 类型不符 → InvalidCastException。全用现有指令合成，不新增 opcode。
-    private TypedReg _emitStructUnbox(TypedReg src, string structName) {
-        TypedReg ud = this._ctx.Alloc(IrType.Ref);
-        this._ctx.Emit(new AsCastInstr(ud, src, structName));
+    private TypedReg _emitStructUnbox(TypedReg src, Z42Type type, string structName) {
+        TypedReg ud = this._emitCastWithLayout(src, IrType.Ref, type, structName);
         string okL = this._ctx.Fresh("unbox_ok");
         string failL = this._ctx.Fresh("unbox_fail");
         string nullL = this._ctx.Fresh("unbox_null");
@@ -433,11 +445,11 @@ public sealed class TypeOpEmitter {
         if (this._ee._isBlobStruct(c.Type()) && !this._ee._isBlobStruct(c.E.Type())) {
             string identity = this._importedStructIdentity(c.Type());
             if (identity == "") { identity = this._ctx.QualifyLayout(this._ee._blobStructName(c.Type())); }
-            return this._emitStructUnbox(src, identity);
+            return this._emitStructUnbox(src, c.Type(), identity);
         }
         if (TypeFacts.CanBoxToValueBase(c.Type(), c.E.Type())) {
             string target = this._typeOpTargetName(c.Type(), c.Type().Name());
-            TypedReg unboxed = this._emitStructUnbox(src, target);
+            TypedReg unboxed = this._emitStructUnbox(src, c.Type(), target);
             int targetIr = this._ctx.ToIrType(c.Type());
             if (targetIr == IrType.Ref) { return unboxed; }
             TypedReg scalar = this._ctx.Alloc(targetIr);

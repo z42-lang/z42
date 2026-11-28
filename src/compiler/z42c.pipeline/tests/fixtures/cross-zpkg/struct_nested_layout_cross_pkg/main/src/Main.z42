@@ -33,6 +33,31 @@ void Main() {
     Console.WriteLine(pr.Second);     // s
 
     CheckImportedEquals();
+    CheckImportedUnboxLayout();
+}
+
+void CheckImportedUnboxLayout() {
+    object boxed = BoxIntPair();
+    Pair<int, int> value = (Pair<int, int>)boxed;
+    Assert.Equal(-7, value.First);
+    Assert.Equal(42, value.Second);
+    value.First = 5;
+    Assert.Equal(-7, ((Pair<int, int>)boxed).First);
+    Assert.Equal(42, ((Pair<int, int>)boxed).Second);
+    Assert.Equal(typeof(Pair<int, int>), boxed.GetType());
+    if (boxed is Pair<int, int> matched) {
+        Assert.Equal(-7, matched.First);
+    } else {
+        Assert.True(false);
+    }
+    bool rejected = false;
+    try { Pair<long, long> wrong = (Pair<long, long>)boxed; }
+    catch (InvalidCastException) { rejected = true; }
+    Assert.True(rejected);
+
+    Pair<Point3, long> nested = (Pair<Point3, long>)BoxNestedPair();
+    Assert.Equal(3, nested.First.z);
+    Assert.Equal(4294967297L, nested.Second);
 }
 
 void CheckImportedEquals() {
