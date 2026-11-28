@@ -2,6 +2,7 @@
 //! 并做跨包继承 fixup（含 `try_fixup_inheritance` 的不动点循环）。解析路径在 `super::resolve`。
 
 use super::*;
+use crate::loader::locate::namespace_index::NamespaceLookup;
 
 /// 整包 owner 集合的累积器（fix-module-init-ownership）。
 ///
@@ -282,16 +283,15 @@ impl LazyLoader {
         // (which covered both); without the namespace path a test calling
         // `SortedSet.Add` (a dep's instance method) hits "VCall not found".
         self.note_symbol_owners(&decoded.dependencies);   // precise-pkg-refs
-        let declared_before = self.declared_zpkgs.len();
         if !self.search_dirs.is_empty() {
-            let dirs = self.search_dirs.clone();
+            let dirs = &self.search_dirs;
             for dep in &decoded.dependencies {
                 if self.loaded_zpkgs.contains(&dep.file)
                     || self.declared_zpkgs.contains_key(&dep.file)
                 {
                     continue;
                 }
-                match ZpkgCandidate::build_in_dirs(&*self.vfs, &dirs, &dep.file) {
+                match ZpkgCandidate::build_in_dirs(&*self.vfs, dirs, &dep.file) {
                     Ok(cand) => {
                         self.declared_zpkgs.insert(dep.file.clone(), cand);
                     }
@@ -300,22 +300,11 @@ impl LazyLoader {
                     ),
                 }
             }
-            // Namespace-derived candidates (covers bare-zbc test units with no
-            // `dependencies` list). Scan the search dirs once for zpkg candidates
-            // via the stateless `namespace_index` primitive, then register those
-            // whose exported namespaces exactly match a `using` clause. Replaces
-            // the former reverse call into `loader::resolve_namespace` (which
-            // re-scanned the dirs per namespace and then re-read each hit through
-            // `build_in_dirs`): one scan, no cross-module dependency, matched
-            // candidates retained directly. The stored path is now the dir where
-            // the namespace actually matched (was first-dir-by-name) — identical
-            // for real single-location zpkgs. (refactor-metadata-namespace-index)
-            let scanned = namespace_index::scan_zpkg_candidates(&*self.vfs, &dirs);
+            // A bare ZBC can locate dependencies by namespace. Retain the
+            // candidate at the path that actually declared the namespace.
+            let mut lookup = NamespaceLookup::new(&*self.vfs, dirs);
             for ns in &decoded.import_namespaces {
-                for cand in &scanned {
-                    if !cand.namespaces.iter().any(|n| n == ns) {
-                        continue;
-                    }
+                for cand in lookup.matching(ns) {
                     let Some(file) = cand.file_path
                         .file_name()
                         .and_then(|n| n.to_str())
@@ -331,10 +320,6 @@ impl LazyLoader {
                     self.declared_zpkgs.insert(file, cand.clone());
                 }
             }
-        }
-
-        if declared_before != self.declared_zpkgs.len() {
-
         }
 
         // Idempotent: a re-load of the same module is a no-op.

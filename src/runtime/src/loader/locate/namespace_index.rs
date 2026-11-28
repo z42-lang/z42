@@ -8,14 +8,17 @@
 //! [`ZpkgCandidate`]s that the caller either drops after matching (loader —
 //! transient) or retains in `declared_zpkgs` for on-demand load (lazy_loader).
 //!
-//! The candidate carries NO lifecycle state — *when* to load / *what* is already
+//! The candidate carries no lifecycle state — *when* to load / *what* is already
 //! loaded / *when* to release lives entirely in `lazy_loader`. This module is
 //! the boundary: parse here, lifecycle there.
 //!
 //! load-order determinism rule: filenames within a dir are sorted before reading, so
 //! the candidate order is deterministic across platforms (read_dir order is not).
 
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashSet,
+    path::{Path, PathBuf},
+};
 
 use anyhow::Result;
 
@@ -33,6 +36,30 @@ pub struct ZpkgCandidate {
     pub file_path: PathBuf,
     /// Namespaces exported by this decoded (from its NSPC section).
     pub namespaces: Vec<String>,
+}
+
+/// Namespace discovery shared by the queries of a single load operation.
+/// The first query scans the directories. Each query walks the same ordered candidates.
+pub(crate) struct NamespaceLookup<'a> {
+    fs: &'a dyn Vfs,
+    dirs: &'a [PathBuf],
+    candidates: Option<Vec<ZpkgCandidate>>,
+}
+
+impl<'a> NamespaceLookup<'a> {
+    pub(crate) fn new(fs: &'a dyn Vfs, dirs: &'a [PathBuf]) -> Self {
+        Self { fs, dirs, candidates: None }
+    }
+
+    pub(crate) fn matching<'query>(
+        &'query mut self,
+        namespace: &'query str,
+    ) -> impl Iterator<Item = &'query ZpkgCandidate> + 'query {
+        let candidates = self.candidates.get_or_insert_with(|| scan_zpkg_candidates(self.fs, self.dirs));
+        candidates.iter().filter(move |candidate| {
+            candidate.namespaces.iter().any(|name| name == namespace)
+        })
+    }
 }
 
 impl ZpkgCandidate {
@@ -92,10 +119,13 @@ fn is_file(fs: &dyn Vfs, path: &Path) -> bool {
 /// (load-order determinism rule) so the output order is deterministic.
 pub fn scan_zpkg_candidates(fs: &dyn Vfs, dirs: &[PathBuf]) -> Vec<ZpkgCandidate> {
     let mut out = Vec::new();
+    let mut seen_dirs = HashSet::new();
     for dir in dirs {
+        if !seen_dirs.insert(dir) { continue; }
         let dir_str = match dir.to_str() { Some(s) => s, None => continue };
         let mut names = match fs.read_dir(dir_str) { Ok(e) => e, Err(_) => continue };
         names.sort();
+        names.dedup();
         for name in names {
             let path = dir.join(&name);
             if path.extension().and_then(|e| e.to_str()) != Some("zpkg") { continue; }
@@ -110,10 +140,8 @@ pub fn scan_zpkg_candidates(fs: &dyn Vfs, dirs: &[PathBuf]) -> Vec<ZpkgCandidate
 /// 每文件的 NSPC 记忆化，按 **(size, mtime_ms)** 校验。
 ///
 /// cache-zpkg-candidate-scan：本扫描会把 libs 目录下**每个** zpkg 读进内存
-/// 再解析 NSPC，而 `loader::resolve_namespace` 每次调用都做一次完整扫描、
-/// `loader::dependency_candidates::build_declared_candidates` 又按入口的**每个** import 命名空间各调一次
-/// —— hello world 因此做了 75 次读+解析（3 个命名空间 × 25 个包），实测 5.8–10 ms，
-/// 是启动耗时的最大头。单个包的读+解析只要 0.01–0.11 ms，成本全在重复。
+/// 再解析 NSPC。一次加载通过 [`NamespaceLookup`] 共享扫描结果，跨加载时本地文件使用
+/// 这里的元数据缓存。
 ///
 /// **必须带 (size, mtime) 守卫**：REPL / z42b 会在运行中往 libs 目录写入新编译的 zpkg，
 /// 纯 path 键的缓存会读到旧导出面 —— `DepScanCache` 正是这么踩过一次
