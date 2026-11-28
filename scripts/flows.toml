@@ -333,6 +333,12 @@ select = ["e2e", "vm", "layout"]
 publish = false
 
 [[inputs]]
+id = "vm-golden-executor"
+include = ["scripts/src/test/e2e/goldens.z42", "scripts/src/test/e2e/goldens_selfcheck.z42"]
+select = ["xtask", "e2e", "vm"]
+publish = false
+
+[[inputs]]
 id = "libraries-workspace"
 include = ["src/libraries/z42.workspace.toml"]
 select = ["stdlib", "e2e", "z42-consumers"]
