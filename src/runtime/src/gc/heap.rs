@@ -268,6 +268,8 @@ unsafe fn var_drop_glue(bt: BlockType, header: std::ptr::NonNull<crate::object::
 
 pub struct Heap {
     config: crate::gc::GcConfig,
+    /// Resolved once at construction for variable-sized allocation and string cache misses.
+    loh_bytes: usize,
     inner: Mutex<RcHeapInner>,
     external_root_scanner: Mutex<Option<ExternalRootScanner>>,
     /// **add-lazy-context-unload**: collectible-context reclaimer hook. `None`

@@ -22,6 +22,19 @@ impl Heap {
         (chunk != u32::MAX).then_some((chunk, epoch))
     }
 
+    pub(in crate::gc) fn dedicated_var_chunk_stamp(
+        &self,
+        b: crate::object::header::VarGcRef,
+        payload: usize,
+    ) -> Option<(u32, u32)> {
+        let (_, size_class) = crate::gc::var_region::class_for_with_limit(payload, self.loh_bytes);
+        if size_class == crate::gc::var_region::OVERSIZED_CLASS {
+            self.var_chunk_stamp(b)
+        } else {
+            None
+        }
+    }
+
     pub fn var_chunk_unchanged(&self, chunk: u32, epoch: u32) -> bool {
         self.region_var.lock().chunk_epoch(chunk) == Some(epoch)
     }

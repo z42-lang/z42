@@ -41,6 +41,7 @@ impl RuntimeConfig {
             pause_window: self.gc_pause_window,
             soft_threshold: self.gc_soft_threshold,
             nursery_bytes: self.gc_nursery_bytes,
+            loh_bytes: self.gc_loh_bytes,
             promotion_age: self.gc_promotion_age,
             adaptive_promotion: self.gc_adaptive_promotion,
             incremental: self.gc_incremental,

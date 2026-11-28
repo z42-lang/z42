@@ -26,6 +26,7 @@ impl Heap {
         region_var.attach_footprint(footprint.clone());
         Self {
             config,
+            loh_bytes: crate::gc::var_region::resolve_loh_bytes(config.loh_bytes),
             inner: Mutex::new(RcHeapInner::default()),
             external_root_scanner: Mutex::new(None),
             context_reclaimer: Mutex::new(None),

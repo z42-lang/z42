@@ -290,7 +290,7 @@ fn a_weak_reference_to_a_dead_large_object_reads_none_after_its_chunk_is_freed()
     let heap = stw_heap();
     // Past the large-object threshold: the object gets a dedicated chunk, returned to the
     // allocator outright when it dies.
-    let big = sized(&heap, 2 * crate::gc::var_region::loh_bytes());
+    let big = sized(&heap, 2 * heap.loh_bytes);
     let addr = big.var_ref().addr();
     let weak = heap.make_weak(&Value::Object(big)).expect("object");
     assert!(heap.upgrade_weak(&weak).is_some());
@@ -299,7 +299,7 @@ fn a_weak_reference_to_a_dead_large_object_reads_none_after_its_chunk_is_freed()
     assert!(!heap.region_var_for_test().lock().owns_addr(addr), "the dedicated chunk was freed");
     assert!(heap.upgrade_weak(&weak).is_none(), "upgrade reads the epoch, never the freed memory");
     // The chunk slot is reused by the next large object; the old reference stays dead.
-    let again = sized(&heap, 2 * crate::gc::var_region::loh_bytes());
+    let again = sized(&heap, 2 * heap.loh_bytes);
     let _pin = heap.pin_root(Value::Object(again));
     assert!(heap.upgrade_weak(&weak).is_none());
 }
