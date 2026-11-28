@@ -1,0 +1,35 @@
+namespace Z42Xtask;
+
+using Std.IO;
+
+void _selfcheckVmGoldens() {
+    ProcessResult result = new ProcessResult("z42vm", 0, "same\nactual\n", "", new byte[0], new byte[0]);
+    _gateAssert(_goldenResultFailure("same\nactual", result).Length == 0, "golden accepts matching stdout after newline normalization");
+    string failure = _goldenResultFailure("same\nexpected\n", result);
+    _gateAssert(failure.Contains("stdout line 2") && failure.Contains("expected: expected")
+        && failure.Contains("actual:   actual"), "golden reports the first differing stdout line");
+    result.Stdout = "";
+    result.ExitCode = 7;
+    _gateAssert(_goldenResultFailure("", result).Contains("expected exit 0, got 7"), "silent nonzero golden fails");
+    result.ExitCode = 0;
+    result.Stderr = "expected\n";
+    failure = _goldenResultFailure("expected\n", result);
+    _gateAssert(failure.Contains("stderr: expected") && failure.Contains("stdout line 1"), "stderr cannot satisfy the stdout contract");
+
+    string dir = _xtaskWork(_root(), "vm-golden-selfcheck");
+    _resetDir(dir);
+    try {
+        string category = Path.Join(dir, "src/tests/basic");
+        Directory.Create(category);
+        File.WriteAllText(Path.Join(category, "missing.z42"), "void Main() {}");
+        File.WriteAllText(Path.Join(category, "interp.z42"), "void Main() {}");
+        File.WriteAllText(Path.Join(category, "interp.interp_only"), "");
+        _Case[] selected = _enumerateCasesF(dir, "jit", "basic", "");
+        _gateAssert(selected.Length == 1 && selected[0].name == "missing", "golden selection keeps sources with missing artifacts and skips interp-only cases");
+        Console.WriteLine("── VM golden selfcheck (missing bytecode must fail) ──");
+        int[] counts = _runVmCases(selected, "unused", "", "jit", 4);
+        _gateAssert(counts[0] == 0 && counts[1] == 1, "missing golden bytecode counts as a failure");
+    } finally {
+        Directory.Delete(dir, true);
+    }
+}
