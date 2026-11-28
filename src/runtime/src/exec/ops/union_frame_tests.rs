@@ -9,7 +9,7 @@ fn layout() -> Arc<StructTypeLayout> {
         ref_offsets: Box::new([8, 16]),
         ref_kinds: Box::new([STRUCT_REF_GCREF, STRUCT_REF_GCREF]),
         fields: Box::new([]),
-        float_field_ranges: Default::default(),
+        union_layout: None, float_field_ranges: Default::default(),
     })
 }
 

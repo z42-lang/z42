@@ -115,6 +115,7 @@ fn trace_children_visits_inline_struct_refs() {
         field_sizes:   Box::new([16]),
         field_kinds:   Box::new([STRUCT_LEAF_STRUCT]),
         ref_cells:     Box::new([8]),
+        union_refs: Box::new([]),
         tparam_cells:  Box::new([]),
         field_access:  Box::new([FieldAccess::struct_root(0, 16)]),
     });
@@ -148,6 +149,7 @@ fn inline_object_field_roundtrips_and_is_traced() {
         field_sizes:   Box::new([8]),
         field_kinds:   Box::new([STRUCT_LEAF_GCREF]),
         ref_cells:     Box::new([0]),
+        union_refs: Box::new([]),
         tparam_cells:  Box::new([]),
         field_access:  Box::new([FieldAccess::ref_word(0, TAG_OBJECT)]),
     });
@@ -210,6 +212,7 @@ fn clear_refs_for_sweep_erases_every_reference_word() {
         field_sizes:   Box::new([8]),
         field_kinds:   Box::new([STRUCT_LEAF_GCREF]),
         ref_cells:     Box::new([0]),
+        union_refs: Box::new([]),
         tparam_cells:  Box::new([]),
         field_access:  Box::new([FieldAccess::ref_word(0, TAG_OBJECT)]),
     });
@@ -258,6 +261,7 @@ fn clear_refs_for_sweep_skips_an_offset_past_the_payload() {
         field_kinds:   Box::new([STRUCT_LEAF_GCREF]),
         // Offset 64 against a 8-byte payload: out of range on purpose.
         ref_cells:     Box::new([64]),
+        union_refs: Box::new([]),
         tparam_cells:  Box::new([]),
         field_access:  Box::new([FieldAccess::ref_word(0, TAG_OBJECT)]),
     });
@@ -295,7 +299,7 @@ fn composed_object_layout_ref_matches_the_cloning_twin() {
 fn struct_array_backing_roundtrip_and_traced_leaves() {
     use crate::object::*;
     // Point[2] with element layout {x:i32@0, y:i32@4, tag:string@8}, size 16, 1 ref leaf.
-    let layout = Arc::new(StructTypeLayout { float_field_ranges: Default::default(),
+    let layout = Arc::new(StructTypeLayout { union_layout: None, float_field_ranges: Default::default(),
         size: 16,
         ref_offsets: Box::new([8]),
         ref_kinds: Box::new([STRUCT_REF_ARC_STRING]),
@@ -591,6 +595,7 @@ fn compose_object_layout_pads_base_to_8() {
         field_sizes:   Box::new([1]),
         field_kinds:   Box::new([0]),
         ref_cells:     Box::new([]),
+        union_refs: Box::new([]),
         tparam_cells:  Box::new([]),
         field_access: Box::new([]),
     };
@@ -619,6 +624,7 @@ fn compose_object_layout_already_aligned_base_no_extra_pad() {
         field_sizes:   Box::new([8, 8]),
         field_kinds:   Box::new([0, 0]),
         ref_cells:     Box::new([]),
+        union_refs: Box::new([]),
         tparam_cells:  Box::new([]),
         field_access: Box::new([]),
     };

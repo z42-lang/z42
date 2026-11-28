@@ -17,9 +17,11 @@ pub const CLASS_FLAG_STRUCT: u8 = 1 << 2;
 /// per-field struct layout table is present. **A flag bit, not a derived predicate**:
 /// that distinction is the whole reason `class_flags2` exists (see `ClassDesc::class_flags2`).
 pub const CLASS_FLAGS2_HAS_STRUCT_FIELD_TABLE: u16 = 1 << 0;
-/// fix-interface-overload-dispatch: `class_flags2` bit1 —— the class record ends with an
+/// fix-interface-overload-dispatch: `class_flags2` bit1 —— the class record contains an
 /// **interface-slot table** (`ClassDesc::iface_slots`), after the assoc block.
 pub const CLASS_FLAGS2_HAS_IFACE_SLOTS: u16 = 1 << 1;
+/// The class record ends with the reference layout of an inline union.
+pub const CLASS_FLAGS2_HAS_UNION_LAYOUT: u16 = 1 << 2;
 pub const CLASS_FLAG_RECORD: u8 = 1 << 3;
 /// add-reflection-interface-class-predicates (zbc 1.19): set on the minimal
 /// TYPE entry emitted for an `interface`. Backs `Type.IsInterface`; excluded
@@ -103,8 +105,10 @@ pub struct ClassDesc {
     /// duplicated-criterion pattern the 2026-09 structural audit calls R2.
     ///
     /// bit0 = `CLASS_FLAGS2_HAS_STRUCT_FIELD_TABLE`, bit1 = `CLASS_FLAGS2_HAS_IFACE_SLOTS`.
-    /// Other bits reserved.
+    /// bit2 = `CLASS_FLAGS2_HAS_UNION_LAYOUT`. Other bits reserved.
     pub class_flags2: u16,
+    /// Layout of the inline union represented by this synthetic value type.
+    pub union_layout: Option<std::sync::Arc<super::UnionLayoutDesc>>,
     /// type-section-flags2-and-struct-fields (zbc 1.45): per-field byte layout of a
     /// **value struct** — parallel to `fields` (same order, same length), each entry
     /// `(offset, size, kind)`. Names and type names are **not** repeated here;

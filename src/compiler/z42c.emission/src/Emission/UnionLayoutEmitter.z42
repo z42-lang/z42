@@ -1,0 +1,45 @@
+namespace Z42.Emission;
+
+using Std.Collections;
+using Z42.IR;
+using Z42.Symbols;
+
+internal sealed class UnionLayoutEmitter {
+    private List<IrUnionLayoutNode> _nodes = new List<IrUnionLayoutNode>();
+    private Dictionary<string, int> _indices = new Dictionary<string, int>();
+
+    internal IrUnionLayoutNode[] Build(string name, UnionStorageLayout layout) {
+        this._addNode(name, layout);
+        return this._nodes.ToArray();
+    }
+
+    private int _addNode(string name, UnionStorageLayout layout) {
+        if (this._indices.ContainsKey(name)) { return this._indices[name]; }
+        var cases = new IrUnionCaseLayout[layout.Cases.Length];
+        for (int i = 0; i < cases.Length; i = i + 1) {
+            var regions = new List<IrUnionRegion>();
+            this._collect(layout.Cases[i], layout.PayloadOffset, regions);
+            cases[i] = new IrUnionCaseLayout(regions.ToArray());
+        }
+        int index = this._nodes.Count;
+        this._nodes.Add(new IrUnionLayoutNode(layout.Size, layout.Align, layout.TagBytes, cases));
+        this._indices[name] = index;
+        return index;
+    }
+
+    private void _collect(UnionPayloadLayout layout, int offset, List<IrUnionRegion> regions) {
+        foreach (var field in layout.Fields) {
+            int at = offset + field.Offset;
+            if (StructLeafKind.IsRef(field.Kind)) {
+                regions.Add(new IrUnionRegion(at, -1));
+            } else if (field.Nested != null && field.Nested.ReferenceCount > 0) {
+                if (field.Kind == StructLeafKind.Union) {
+                    int child = this._addNode(UnionCaseSymbol.UnionOf(field.Type).Fqn(), field.Nested);
+                    regions.Add(new IrUnionRegion(at, child));
+                } else {
+                    this._collect(field.Nested.StructFields, at, regions);
+                }
+            }
+        }
+    }
+}

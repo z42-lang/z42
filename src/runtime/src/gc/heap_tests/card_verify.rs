@@ -105,7 +105,7 @@ fn every_array_mode_is_checked() {
         let a = match mode {
             "REF" => ArrayObj::alloc_filled(&heap, ElemType::intern("object"), ElemKind::Ref, 2, Value::Null),
             "MIXED" => ArrayObj::alloc_filled(&heap, ElemType::intern("T"), ElemKind::Mixed, 2, Value::Null),
-            _ => ArrayObj::alloc_struct(&heap, ElemType::intern("Demo.S"), 2, std::sync::Arc::new(StructTypeLayout { float_field_ranges: Default::default(),
+            _ => ArrayObj::alloc_struct(&heap, ElemType::intern("Demo.S"), 2, std::sync::Arc::new(StructTypeLayout { union_layout: None, float_field_ranges: Default::default(),
                 size: 16, ref_offsets: Box::new([8]), ref_kinds: Box::new([STRUCT_REF_GCREF]), fields: Box::new([]),
             })),
         };

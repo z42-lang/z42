@@ -1,0 +1,76 @@
+namespace InlineUnionArray;
+
+union Tiny {
+    Empty,
+    Bytes(byte, byte),
+}
+
+union Wide {
+    Count(long),
+    Pair(long, int),
+    Empty,
+}
+
+union Other {
+    Count(long),
+    Pair(long, int),
+    Empty,
+}
+
+void CheckPacked() {
+    var values = new Tiny[4];
+    Assert.True(values[0] is Tiny.Empty);
+    values[1] = Tiny.Bytes(11, 31);
+    Assert.True(values[1] is Tiny.Bytes(11, 31));
+    Assert.True(values[2] is Tiny.Empty);
+    Array.CopyRange(values, 0, values, 1, 3);
+    Assert.True(values[1] is Tiny.Empty);
+    Assert.True(values[2] is Tiny.Bytes(11, 31));
+    Assert.True(values[3] is Tiny.Empty);
+}
+
+void CheckWide() {
+    Wide value = Wide.Pair(19L, 23);
+    var values = new Wide[] { value, value = Wide.Count(42L), Wide.Empty };
+    Array typeView = values;
+    Assert.True(typeView is Wide[]);
+    Assert.True(!(typeView is Other[]));
+    Assert.True(values[0] is Wide.Pair(19L, 23));
+    Assert.True(values[1] is Wide.Count(42L));
+    var saved = values[0];
+    values[0] = Wide.Empty;
+    Assert.True(saved is Wide.Pair(19L, 23));
+    var target = new Wide[3];
+    Assert.True(target[0] is Wide.Count(0L));
+    Array.CopyRange(values, 0, target, 0, 3);
+    Assert.True(target[0] is Wide.Empty);
+    Assert.True(target[1] is Wide.Count(42L));
+    Assert.True(target[2] is Wide.Empty);
+    Array.CopyRange(target, 1, target, 0, 2);
+    Assert.True(target[0] is Wide.Count(42L));
+    Assert.True(target[1] is Wide.Empty);
+
+    bool caught = false;
+    try {
+        var outside = target[3];
+        Assert.True(outside is Wide.Empty);
+    } catch (IndexOutOfRangeException) {
+        caught = true;
+    }
+    Assert.True(caught);
+
+    caught = false;
+    var other = new Other[1];
+    try {
+        Array.CopyRange(target, 0, other, 0, 1);
+    } catch (ArrayTypeMismatchException) {
+        caught = true;
+    }
+    Assert.True(caught);
+    Assert.True(other[0] is Other.Count(0L));
+}
+
+void Main() {
+    CheckPacked();
+    CheckWide();
+}

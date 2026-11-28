@@ -13,6 +13,7 @@ pub mod field;
 pub mod statics;
 pub(crate) mod static_defaults;
 pub mod struct_leaf;
+pub(crate) mod union_field;
 
 pub use error::{ArrayOp, OpError, OpResult, Throw};
 

@@ -1,0 +1,61 @@
+namespace InlineReferenceUnionArray;
+
+class Item {
+    public int Code;
+    public Item(int code) { this.Code = code; }
+}
+
+class Watch { internal WeakHandle Weak; }
+
+union Payload { Empty, Item(Item), Number(long), Box(object) }
+union Envelope { Empty, Nested(Payload, string) }
+
+Payload Make(Watch watch) {
+    var item = new Item(42);
+    watch.Weak = WeakHandle.MakeWeak(item);
+    return Payload.Item(item);
+}
+
+void Fill(Envelope[] values, Watch watch) {
+    values[0] = Envelope.Nested(Make(watch), "outer");
+}
+
+void CheckLive(Envelope[] values, Watch watch) {
+    GC.ForceCollect();
+    Assert.True(WeakHandle.Upgrade(watch.Weak) != null);
+    if (values[1] is Envelope.Nested(Payload.Item(item), "outer")) {
+        Assert.Equal(42, item.Code);
+    } else {
+        Assert.True(false);
+    }
+}
+
+void Main() {
+    var watch = new Watch();
+    var values = new Envelope[2];
+    for (int i = 0; i < 4; i = i + 1) { GC.ForceCollect(); }
+    Fill(values, watch);
+    Array.CopyRange(values, 0, values, 1, 1);
+    values[0] = Envelope.Empty;
+    CheckLive(values, watch);
+    values[1] = Envelope.Nested(Payload.Number(-1L), "number");
+    GC.ForceCollect();
+    Assert.True(WeakHandle.Upgrade(watch.Weak) == null);
+    Assert.True(values[1] is Envelope.Nested(Payload.Number(-1L), "number"));
+
+    Array untyped = values;
+    bool untypedReadRejected = false;
+    try { untyped.GetValue(1); }
+    catch (NotSupportedException) { untypedReadRejected = true; }
+    Assert.True(untypedReadRejected);
+    bool untypedWriteRejected = false;
+    try { untyped.SetValue(null, 1); }
+    catch (NotSupportedException) { untypedWriteRejected = true; }
+    Assert.True(untypedWriteRejected);
+    Assert.True(values[1] is Envelope.Nested(Payload.Number(-1L), "number"));
+
+    var boxed = new Payload[] { Payload.Box(true), Payload.Empty };
+    GC.ForceCollect();
+    if (boxed[0] is Payload.Box(value)) { Assert.True((bool)value); }
+    else { Assert.True(false); }
+}

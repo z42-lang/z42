@@ -7,6 +7,7 @@ mod cells;
 pub mod ref_word;
 pub mod tparam_cell;
 pub mod struct_blob;
+pub(crate) mod union_blob;
 pub use value::*;
 pub use payloads::*;
 pub use codec::*;

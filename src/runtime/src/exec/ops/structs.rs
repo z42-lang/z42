@@ -42,7 +42,7 @@ pub(crate) fn resolve_layout(ctx: &VmContext, type_name: &str, size: u32) -> Arc
             return layout;
         }
     }
-    Arc::new(StructTypeLayout { float_field_ranges: Default::default(),
+    Arc::new(StructTypeLayout { union_layout: None, float_field_ranges: Default::default(),
         size: size as usize,
         ref_offsets: Box::new([]),
         ref_kinds: Box::new([]),

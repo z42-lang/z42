@@ -23,17 +23,19 @@ public sealed class IrGenTypeEmitter {
     internal void EmitUnion(UnionDecl decl) {
         string name = this._g._q(decl.Name);
         var owner = this._model.Symbols.ClassesByFqn.Get(name) as Z42ClassType;
-        UnionStorageLayout layout = UnionStorageLayout.WideFor(owner);
+        UnionStorageLayout layout = owner == null ? null : owner.UnionStorage;
         if (layout == null || !layout.SupportsInlineStorage()) { return; }
-        IrClassDesc storage = layout.ReferenceCount > 0
-            ? this._referenceUnionDesc(name, layout) : this._g._classDescB._instLayoutDesc(name);
+        IrClassDesc storage = layout.ReferenceCount > 0 || layout.Size <= 8
+            ? this._opaqueUnionDesc(name, layout) : this._g._classDescB._instLayoutDesc(name);
         if (storage == null) { return; }
         storage.Name = PackedUnion.StorageName(name);
         storage.Visibility = 1;
+        storage.Flags2 = storage.Flags2 | 4;
+        storage.UnionLayout = new UnionLayoutEmitter().Build(name, layout);
         this._out.AddClass(storage);
     }
 
-    private IrClassDesc _referenceUnionDesc(string name, UnionStorageLayout layout) {
+    private IrClassDesc _opaqueUnionDesc(string name, UnionStorageLayout layout) {
         var desc = new IrClassDesc(name, false, "", new IrFieldDesc[0], 0);
         desc.Flags = 4;
         desc.StructSize = layout.Size;

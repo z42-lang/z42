@@ -1,0 +1,43 @@
+namespace Z42.IR.BinaryFormat;
+
+using Z42.Package;
+
+public static class ZbcUnionLayout {
+    public static void Write(ByteWriter writer, IrUnionLayoutNode[] nodes) {
+        writer.WriteU32(nodes.Length);
+        foreach (var node in nodes) {
+            writer.WriteU32(node.Size);
+            writer.WriteU8(node.Align);
+            writer.WriteU8(node.TagBytes);
+            writer.WriteU32(node.Cases.Length);
+            foreach (var branch in node.Cases) {
+                IrUnionRegion[] entries = branch.Regions;
+                writer.WriteU16(entries.Length);
+                foreach (var entry in entries) {
+                    writer.WriteU32(entry.Offset);
+                    writer.WriteU32(entry.Child);
+                }
+            }
+        }
+    }
+
+    public static IrUnionLayoutNode[] Read(ZpkgCursor reader) {
+        int count = reader.U32();
+        var nodes = new IrUnionLayoutNode[count];
+        for (int n = 0; n < count; n = n + 1) {
+            int size = reader.U32();
+            int align = reader.U8();
+            int tagBytes = reader.U8();
+            var cases = new IrUnionCaseLayout[reader.U32()];
+            for (int c = 0; c < cases.Length; c = c + 1) {
+                var entries = new IrUnionRegion[reader.U16()];
+                for (int i = 0; i < entries.Length; i = i + 1) {
+                    entries[i] = new IrUnionRegion(reader.U32(), reader.U32());
+                }
+                cases[c] = new IrUnionCaseLayout(entries);
+            }
+            nodes[n] = new IrUnionLayoutNode(size, align, tagBytes, cases);
+        }
+        return nodes;
+    }
+}

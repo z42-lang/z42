@@ -357,6 +357,7 @@ public sealed class IrClassDesc {
     // bit0 = HAS_STRUCT_FIELD_TABLE（下面那张表在场）。
     // bit1 = HAS_IFACE_SLOTS（接口槽表在场，fix-interface-overload-dispatch，见下）。其余位留空。
     public int Flags2;
+    public IrUnionLayoutNode[] UnionLayout;
     // ── 接口槽表（Flags2 bit1 gated，TYPE 记录最末尾，assoc 块之后）─────────────────────
     //
     // 平行数组：接口槽键（`Demo.IFoo<string>#Get` / `Demo.IFoo#Get`，见 z42c.symbols `IfaceSlotKeys`）→

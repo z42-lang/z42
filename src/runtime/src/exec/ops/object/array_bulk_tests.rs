@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 /// `struct S { int N; object O; }`：`N` 打包在字节（offset 0），`O` 是引用叶子（offset 8）。
 fn layout() -> Arc<StructTypeLayout> {
-    Arc::new(StructTypeLayout { float_field_ranges: Default::default(),
+    Arc::new(StructTypeLayout { union_layout: None, float_field_ranges: Default::default(),
         size: 16,
         ref_offsets: Box::new([8]),
         ref_kinds: Box::new([STRUCT_REF_GCREF]),

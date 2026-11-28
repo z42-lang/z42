@@ -67,6 +67,7 @@ fn class(name: &str, id: u32, statics: &[(&str, &str)], cctor: bool) -> Arc<Type
     let layout = Arc::new(ObjectLayout {
         size: 0, field_offsets: Box::new([]), field_sizes: Box::new([]), field_kinds: Box::new([]),
         ref_cells: Box::new([]), tparam_cells: Box::new([]), field_access: Box::new([]),
+        union_refs: Box::new([]),
     });
     let static_fields = statics.iter().map(|(n, t)| FieldDesc {
         name: n.to_string(), type_tag: t.to_string(), attributes: Box::new([]), visibility: 0,

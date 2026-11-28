@@ -58,6 +58,7 @@ fn build_cycle_heavy(heap: &Heap, num_cycles: usize) {
             field_sizes:   Box::new([8]),
             field_kinds:   Box::new([2]), // StructLeafKind::GcRef
             ref_cells:     Box::new([0]),
+            union_refs: Box::new([]),
             tparam_cells:  Box::new([]),
             field_access:  Box::new([FieldAccess::ref_word(0, TAG_OBJECT)]),
         });

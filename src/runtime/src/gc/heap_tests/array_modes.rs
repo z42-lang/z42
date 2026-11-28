@@ -35,7 +35,7 @@ fn run(cut: Cut, barrier_on: bool) -> bool {
 
     let x = heap.alloc_object(dummy_type_desc("X"), vec![], NativeData::None);
     let (size, offsets) = if matches!(cut, Cut::ClearStruct(_, _)) { (24, vec![16, 8]) } else { (16, vec![8]) };
-    let layout = std::sync::Arc::new(StructTypeLayout { float_field_ranges: Default::default(),
+    let layout = std::sync::Arc::new(StructTypeLayout { union_layout: None, float_field_ranges: Default::default(),
         size, ref_kinds: vec![STRUCT_REF_GCREF; offsets.len()].into_boxed_slice(),
         ref_offsets: offsets.into_boxed_slice(), fields: Box::new([]),
     });
@@ -138,7 +138,7 @@ fn stw_heap() -> Heap {
 #[test]
 fn a_dead_struct_array_releases_its_layout() {
     let heap = stw_heap();
-    let layout = std::sync::Arc::new(StructTypeLayout { float_field_ranges: Default::default(),
+    let layout = std::sync::Arc::new(StructTypeLayout { union_layout: None, float_field_ranges: Default::default(),
         size: 16, ref_offsets: Box::new([8]), ref_kinds: Box::new([STRUCT_REF_GCREF]), fields: Box::new([]),
     });
     let a = ArrayObj::alloc_struct(&heap, ElemType::intern("P"), 3, layout.clone());

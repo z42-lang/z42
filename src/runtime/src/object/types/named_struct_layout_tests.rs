@@ -64,7 +64,7 @@ fn class_td(name: &str, fields: &[(&str, &str)], inline: StructTypeLayout) -> Ar
 }
 
 fn layout(size: usize, ref_offsets: &[u32]) -> StructTypeLayout {
-    StructTypeLayout { float_field_ranges: Default::default(),
+    StructTypeLayout { union_layout: None, float_field_ranges: Default::default(),
         size,
         ref_offsets: ref_offsets.to_vec().into_boxed_slice(),
         ref_kinds: vec![STRUCT_REF_ARC_STRING; ref_offsets.len()].into_boxed_slice(),

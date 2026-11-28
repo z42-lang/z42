@@ -11,6 +11,18 @@ internal static class PackedUnion {
     internal static string StorageName(string name) { return PackedUnion._storagePrefix + name; }
     internal static bool IsStorageName(string name) { return name.StartsWith(PackedUnion._storagePrefix); }
 
+    internal static bool HasInlineStorage(Z42Type type) {
+        Z42ClassType owner = UnionCaseSymbol.UnionOf(type);
+        return owner != null && owner.UnionStorage != null && owner.UnionStorage.SupportsInlineStorage();
+    }
+
+    internal static bool IsInlineField(Z42ClassType owner, FieldSymbol field) {
+        return owner != null && !owner.IsStruct && owner.GenericParamCount == 0
+            && field != null && !field.IsStatic && !field.IsProp
+            && field.Visibility != "public" && field.Visibility != "protected"
+            && PackedUnion.HasInlineStorage(field.FieldType);
+    }
+
     internal static bool CheckPackage(SymbolTable symbols, DiagnosticBag diags) {
         if (symbols.FirstUnionDeclaration == null) { return true; }
         string reason = PackedUnion._packageError(symbols);
@@ -27,7 +39,8 @@ internal static class PackedUnion {
             }
             foreach (var name in owner.Fields.Keys()) {
                 var field = owner.Fields.Get(name) as FieldSymbol;
-                if (field != null && PackedUnion.Contains(field.FieldType)) {
+                if (field != null && PackedUnion.Contains(field.FieldType)
+                    && !PackedUnion.IsInlineField(owner, field)) {
                     return "union field storage requires runtime layout support";
                 }
             }
@@ -65,6 +78,9 @@ internal static class PackedUnion {
     }
 
     private static bool _nested(Z42Type type) {
+        if (type is Z42ArrayType && PackedUnion.HasInlineStorage((type as Z42ArrayType).Elem)) {
+            return false;
+        }
         return UnionCaseSymbol.UnionOf(type) == null && PackedUnion.Contains(type);
     }
 

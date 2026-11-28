@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 /// Pure-primitive layout of `size` bytes (no reference leaves).
 fn prim_layout(size: usize) -> Arc<StructTypeLayout> {
-    Arc::new(StructTypeLayout { float_field_ranges: Default::default(), size, ref_offsets: Box::new([]), ref_kinds: Box::new([]), fields: Box::new([]) })
+    Arc::new(StructTypeLayout { union_layout: None, float_field_ranges: Default::default(), size, ref_offsets: Box::new([]), ref_kinds: Box::new([]), fields: Box::new([]) })
 }
 
 #[test]
@@ -59,7 +59,7 @@ fn truncate_frees_lifo() {
 fn ref_leaf_copy_is_independent_and_scanned() {
     let mut a = StructArena::default();
     // struct R { s: string @0 } → 16-byte blob, one reference leaf at offset 0.
-    let layout = Arc::new(StructTypeLayout { float_field_ranges: Default::default(),
+    let layout = Arc::new(StructTypeLayout { union_layout: None, float_field_ranges: Default::default(),
         size: 16,
         ref_offsets: Box::new([0]),
         ref_kinds: Box::new([STRUCT_REF_ARC_STRING]),
@@ -92,7 +92,7 @@ fn ref_leaf_copy_is_independent_and_scanned() {
 #[test]
 fn ref_leaf_bad_offset_errors() {
     let mut a = StructArena::default();
-    let layout = Arc::new(StructTypeLayout { float_field_ranges: Default::default(),
+    let layout = Arc::new(StructTypeLayout { union_layout: None, float_field_ranges: Default::default(),
         size: 16,
         ref_offsets: Box::new([0]),
         ref_kinds: Box::new([STRUCT_REF_ARC_STRING]),
@@ -196,7 +196,7 @@ fn copy_into_rejects_blobs_of_different_byte_size() {
 fn copy_into_rejects_blobs_with_different_reference_slot_counts() {
     let mut a = StructArena::default();
     // 同字节宽、引用槽数不同 —— 只比字节长度的门会漏掉这一格。
-    let refful = Arc::new(StructTypeLayout { float_field_ranges: Default::default(),
+    let refful = Arc::new(StructTypeLayout { union_layout: None, float_field_ranges: Default::default(),
         size: 8,
         ref_offsets: Box::new([0]),
         ref_kinds: Box::new([STRUCT_REF_ARC_STRING]),
@@ -290,7 +290,7 @@ fn dynamic_copy_rejects_same_size_slots_of_different_types_or_layouts() {
     let mut arena = StructArena::default();
     let destination = arena.alloc(1, Arc::from("Record"), prim_layout(16), |_, _| {});
     let other_type = arena.alloc(1, Arc::from("Other"), prim_layout(16), |_, _| {});
-    let other_layout = arena.alloc(1, Arc::from("Record"), Arc::new(StructTypeLayout { float_field_ranges: Default::default(),
+    let other_layout = arena.alloc(1, Arc::from("Record"), Arc::new(StructTypeLayout { union_layout: None, float_field_ranges: Default::default(),
         size: 16,
         fields: Box::new([crate::object::StructFieldLayout { offset: 0, size: 8, kind: 0 }]),
         ..Default::default()

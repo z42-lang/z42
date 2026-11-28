@@ -160,7 +160,7 @@ fn type_desc(name: &str, class_flags: u8, cold: TypeDescCold) -> Arc<TypeDesc> {
 
 /// `{ int a; int b; }`：两条 i32 叶子 @0/@4。
 fn two_int_struct(name: &str) -> Arc<TypeDesc> {
-    let layout = StructTypeLayout { float_field_ranges: Default::default(),
+    let layout = StructTypeLayout { union_layout: None, float_field_ranges: Default::default(),
         size: 8, ref_offsets: Box::new([]), ref_kinds: Box::new([]),
         fields: Box::new([
             StructFieldLayout { offset: 0, size: 4, kind: 0 },

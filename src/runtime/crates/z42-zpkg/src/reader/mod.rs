@@ -27,6 +27,7 @@ use super::ir::ExecMode;
 mod opcodes;
 mod cursor;
 mod type_reader;
+mod union_layout;
 mod func_reader;
 mod instr_decode;
 mod sidecar;

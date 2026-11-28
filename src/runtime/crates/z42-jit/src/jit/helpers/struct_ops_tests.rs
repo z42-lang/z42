@@ -26,7 +26,7 @@ fn register_pair(vm: &VmContext) {
     use crate::object::{FieldSlot, StructFieldLayout, StructTypeLayout, TypeDesc, TypeDescCold};
     use crate::metadata::ids::tokens::TypeId;
     use crate::zpkg::index::name::NameIndex;
-    let layout = StructTypeLayout { float_field_ranges: Default::default(),
+    let layout = StructTypeLayout { union_layout: None, float_field_ranges: Default::default(),
         size: 8,
         ref_offsets: Box::new([]),
         ref_kinds: Box::new([]),

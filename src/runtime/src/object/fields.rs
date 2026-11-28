@@ -176,6 +176,12 @@ impl ScriptObject {
             RefCell::Word(off) => ref_word::visit(&c, off, visit),
             RefCell::TypeParam(off) => tparam_cell::visit(&c, off, visit),
         });
+        if let Some(layout) = self.type_desc.composed_object_layout_ref() {
+            for (offset, plan) in &layout.union_refs {
+                super::value::union_blob::visit_refs(&c, *offset as usize, plan, &mut |_, value| visit(value))
+                    .expect("stored inline union layout");
+            }
+        }
     }
 
     /// Break every strong reference edge of a dead object so no tombstoned entry keeps a handle
@@ -188,6 +194,12 @@ impl ScriptObject {
             RefCell::Word(off) => ref_word::clear(&c, off),
             RefCell::TypeParam(off) => tparam_cell::clear(&c, off),
         });
+        if let Some(layout) = self.type_desc.composed_object_layout_ref() {
+            for (offset, plan) in &layout.union_refs {
+                super::value::union_blob::clear_for_sweep(&c, *offset as usize, plan)
+                    .expect("stored inline union layout");
+            }
+        }
     }
 }
 

@@ -29,6 +29,23 @@ fn functions_by_owner(module: &Module) -> FxHashMap<&str, Vec<usize>> {
     owners
 }
 
+fn attach_union_refs(
+    composed: &mut crate::object::ObjectLayout, fields: &[FieldSlot], own_count: usize,
+    lookup: impl Fn(&str) -> Option<Arc<crate::zpkg::ir::UnionLayoutDesc>>,
+) {
+    use crate::object::value::union_blob::is_storage_name;
+    let first = fields.len().saturating_sub(own_count);
+    let own = fields.iter().enumerate().skip(first).filter_map(|(i, field)| {
+        if !is_storage_name(&field.type_tag) { return None; }
+        let plan = lookup(&field.type_tag).filter(|plan| plan.root().reference_count != 0)?;
+        Some((*composed.field_offsets.get(i)?, plan))
+    });
+    let mut own = own.peekable();
+    if own.peek().is_some() {
+        composed.union_refs = composed.union_refs.iter().cloned().chain(own).collect();
+    }
+}
+
 /// Pre-build a `TypeDesc` for every class in `module.classes` and store the
 /// results in `module.type_registry` (by-name HashMap).
 ///
@@ -231,7 +248,7 @@ pub fn build_type_registry(module: &mut Module) {
                      plausible-looking wrong offset.",
                     class_name, desc.struct_field_table.len(), desc.fields.len(),
                 );
-                std::sync::Arc::new(crate::object::StructTypeLayout { float_field_ranges: Default::default(),
+                std::sync::Arc::new(crate::object::StructTypeLayout { union_layout: desc.union_layout.clone(), float_field_ranges: Default::default(),
                     size:        l.size as usize,
                     ref_offsets: l.ref_offsets.clone(),
                     ref_kinds:   l.ref_kinds.clone(),
@@ -247,7 +264,7 @@ pub fn build_type_registry(module: &mut Module) {
             // add-struct-heap-inline (P3b): the class's composed inline-struct layout
             // (zbc 1.32 inline block). `map` → shared `Arc`, same as struct_layout.
             inline_layout:          desc.inline_layout.as_ref().map(|l| {
-                std::sync::Arc::new(crate::object::StructTypeLayout { float_field_ranges: Default::default(),
+                std::sync::Arc::new(crate::object::StructTypeLayout { union_layout: None, float_field_ranges: Default::default(),
                     size:        l.size as usize,
                     ref_offsets: l.ref_offsets.clone(),
                     ref_kinds:   l.ref_kinds.clone(),
@@ -273,9 +290,13 @@ pub fn build_type_registry(module: &mut Module) {
                     let base_composed = desc.base_class.as_deref()
                         .and_then(|b| registry.get(b))
                         .and_then(|b| b.composed_object_layout());
-                    Some(std::sync::Arc::new(crate::object::compose_object_layout(
+                    let mut composed = crate::object::compose_object_layout(
                         base_composed.as_deref(), own, &fields, &desc.type_params,
-                    )))
+                    );
+                    attach_union_refs(&mut composed, &fields, own.field_offsets.len(), |name| {
+                        class_by_name.get(name).and_then(|child| child.union_layout.clone())
+                    });
+                    Some(Arc::new(composed))
                 }
                 // unify-object-byte-layout (PR-2): a normal reference class with fields
                 // but no zbc object block (module predating zbc 1.34, or synthetic) —
@@ -571,9 +592,14 @@ pub(crate) fn try_fixup_inheritance_with_erased_bases(
             Some(own) => {
                 let base_composed = base.composed_object_layout();
                 // `layout.0` = freshly merged fields (base ++ own) for the access table.
-                Some(Arc::new(crate::object::compose_object_layout(
+                let mut composed = crate::object::compose_object_layout(
                     base_composed.as_deref(), own, &layout.0, td.type_params(),
-                )))
+                );
+                attach_union_refs(&mut composed, &layout.0, own.field_offsets.len(), |name| {
+                    registry.get(name).and_then(|td| td.struct_layout_ref())
+                        .and_then(|storage| storage.union_layout.clone())
+                });
+                Some(Arc::new(composed))
             }
             // With no own fields the base's byte layout is the entire object layout.
             None if td.own_fields().is_empty() => base.composed_object_layout(),

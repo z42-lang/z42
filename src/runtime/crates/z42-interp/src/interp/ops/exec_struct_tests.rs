@@ -110,6 +110,7 @@ fn heap_object_inline_struct_field_roundtrips() {
         field_sizes: Box::new([]),
         field_kinds: Box::new([]),
         ref_cells: Box::new([8]), // the string leaf: an 8 B reference word, like the standalone blob
+        union_refs: Box::new([]),
         tparam_cells: Box::new([]),
         field_access: Box::new([]),
     });
@@ -170,7 +171,7 @@ fn struct_array_element_leaf_access_via_handle() {
     use crate::components::bridge::VmContext;
     use crate::object::{ArrayObj, StructArrayElem, STRUCT_REF_ARC_STRING};
 
-    let layout = Arc::new(StructTypeLayout { float_field_ranges: Default::default(),
+    let layout = Arc::new(StructTypeLayout { union_layout: None, float_field_ranges: Default::default(),
         size: 16,
         ref_offsets: Box::new([8]),
         ref_kinds: Box::new([STRUCT_REF_ARC_STRING]),
@@ -234,6 +235,7 @@ fn stack_object_inline_struct_field_roundtrips() {
         field_sizes: Box::new([]),
         field_kinds: Box::new([]),
         ref_cells: Box::new([8]),
+        union_refs: Box::new([]),
         tparam_cells: Box::new([]),
         field_access: Box::new([]),
     });
@@ -327,7 +329,7 @@ fn symbolization_cost_by_path_depth() {
             base_name: None,
             visibility: 0,
             cold: Some(Box::new(TypeDescCold {
-                struct_layout: Some(Arc::new(StructTypeLayout { float_field_ranges: Default::default(),
+                struct_layout: Some(Arc::new(StructTypeLayout { union_layout: None, float_field_ranges: Default::default(),
                     size: n * 8,
                     ref_offsets: Box::new([]),
                     ref_kinds: Box::new([]),

@@ -84,6 +84,7 @@ fn image() -> Arc<PackageImage> {
         class_flags: 0,
         visibility: 0,
         class_flags2: 0,
+        union_layout: None,
         struct_field_table: Box::new([]),
         iface_slots: Box::new([]),
         static_fields: Box::new([]),

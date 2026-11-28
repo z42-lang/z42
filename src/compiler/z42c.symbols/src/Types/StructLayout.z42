@@ -33,6 +33,7 @@ public sealed class StructFieldsDef {
     public string[] FieldNames;
     public string[] FieldTypeNames;
     public int      FieldCount;
+    internal int   UnionAlignment;
     // generic-struct-erased-slot-value-copy：**定义**的型参名（`Pair<A,B>` → ["A","B"]）。
     // 算**实例化**布局（`Pair<P2,int>`）时按位与实参配对成代换表，`_kindOf` 据此把字段声明
     // 类型名 `A` 换成 `P2` 再判种类 —— 这是「擦除槽变真内联字段」的全部机关。
@@ -66,6 +67,7 @@ public sealed class StructLayoutInfo {
     public string TypeName;
     public int    Size;    // 总字节数（对齐后）
     public int    Align;   // = 最大成员对齐
+    internal bool IsPackedUnion;
     // 直接字段（codegen 算 lvalue 地址 `obj.f` / 递归 `line.a.x`）：
     public string[] FieldNames; public int[] FieldOffsets; public int[] FieldSizes; public int[] FieldKinds; public string[] FieldTypeNames; public int FieldCount;
     // 扁平引用叶子（GC 位图 + StructCopy/析构分流）：byte offset + 种类（ArcString / GcRef）。
@@ -236,7 +238,7 @@ public sealed partial class StructLayout {
 
     private static void _addStorageDef(string key, Z42ClassType ct, StrMap shortIdx, StrMap defs, StrMap classDefs) {
         if (ct.UnionCases != null) {
-            UnionStorageLayout storage = UnionStorageLayout.WideFor(ct);
+            UnionStorageLayout storage = ct.UnionStorage;
             if (storage != null && storage.SupportsInlineStorage()) {
                 defs.Put(key, StructLayout._unionStorageDef(storage));
             }
@@ -256,8 +258,10 @@ public sealed partial class StructLayout {
 
     private static StructFieldsDef _unionStorageDef(UnionStorageLayout storage) {
         StructFieldsDef def = new StructFieldsDef();
-        string typeName = storage.CellTypeName();
-        int count = storage.CellCount();
+        def.UnionAlignment = storage.Align;
+        int width = storage.Size <= 8 ? storage.Align : storage.CellWidth();
+        string typeName = width == 8 ? "long" : width == 4 ? "uint" : width == 2 ? "ushort" : "byte";
+        int count = storage.Size / width;
         for (int i = 0; i < count; i = i + 1) {
             def.Add("__union_cell_" + i.ToString(), typeName);
         }
@@ -306,7 +310,7 @@ public sealed partial class StructLayout {
         while (i < def.FieldCount) {
             string ftype = def.FieldTypeNames[i];
             if (subst.ContainsKey(ftype)) { ftype = (subst.Get(ftype) as StrBox).Value; }
-            if (this.IsBlobStruct(ftype)) {
+            if (this._hasInlineFieldLayout(ftype)) {
                 StructLayoutInfo sub = this.LayoutOf(ftype);
                 int align = sub.Align;
                 if (align == 0) { align = 1; }   // 空/环兜底
@@ -545,6 +549,10 @@ public sealed partial class StructLayout {
         // 计算完成后 key 已入 cache，后续调用命中 cache 提前返回，永不重入 _inProgress 检查（StrMap 无 Remove）。
         this._inProgress.Put(key, "1");
         StructLayoutInfo info = this._compute(key, def, subst);
+        if (def.UnionAlignment != 0) {
+            info.Align = def.UnionAlignment;
+            info.IsPackedUnion = info.Size <= 8;
+        }
         this._cache.Put(key, info);
         return info;
     }

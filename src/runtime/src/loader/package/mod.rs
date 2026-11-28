@@ -28,6 +28,7 @@ pub mod decode;
 /// merge is retired — merge-retirement M4).
 pub mod merge;
 mod indices;
+mod union_layout;
 
 pub use decode::DecodedProgram;
 pub use indices::build_func_index;
@@ -40,6 +41,7 @@ pub(super) fn prepare_module(
     module: &mut Module,
     fusion_inputs: FusionInputSource,
 ) -> Result<()> {
+    union_layout::validate_fields(&module.classes)?;
     build_type_registry(module);
     verify_constraints(module)?;
     build_block_indices_with_fusion(module, fusion_inputs);

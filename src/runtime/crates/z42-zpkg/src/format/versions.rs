@@ -210,7 +210,8 @@ pub const ZBC_VERSION_MAJOR: u16 = 1;
 // interface-slot table at the end of each TYPE record (slot key → implementing method key);
 // interface call sites name the slot key in `VCall.Method`.
 // 1.49: source static interface calls emit LoadMethodWitness and a bound function in CallGeneric.
-pub const ZBC_VERSION_MINOR: u16 = 49;
+// #2065: TYPE class_flags2 bit2 gates a trailing inline union layout graph.
+pub const ZBC_VERSION_MINOR: u16 = 50;
 
 // ── zpkg wire format version (mirror of C# ZpkgWriter.VersionMajor/Minor) ────
 //
@@ -344,7 +345,8 @@ pub const ZPKG_VERSION_MAJOR: u16 = 0;
 // fix-interface-overload-dispatch: bumped to 0.54 — embeds zbc 1.48 (TYPE interface-slot
 // table). Outer layout unchanged.
 // 0.55 embeds zbc 1.49 (static interface witnesses).
-pub const ZPKG_VERSION_MINOR: u16 = 55;
+// #2065: 0.56 embeds zbc 1.50.
+pub const ZPKG_VERSION_MINOR: u16 = 56;
 
 // ── Strict-pin header verification ────────────────────────────────────────────
 //

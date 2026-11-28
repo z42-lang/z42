@@ -36,6 +36,7 @@ pub(crate) fn ref_cell_td(n: usize) -> Arc<TypeDesc> {
         field_sizes: vec![8; n].into(),
         field_kinds: vec![STRUCT_LEAF_GCREF_CLOSURE; n].into(),
         ref_cells: offs.clone().into(),
+        union_refs: Box::new([]),
         tparam_cells: Box::new([]),
         field_access: offs.iter().map(|&o| FieldAccess::ref_word(o, TAG_OBJECT)).collect(),
     });

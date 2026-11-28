@@ -149,6 +149,13 @@ impl OpError {
             "cannot copy {}[] elements into a {}[] array", elem_label(src_elem), elem_label(dst_elem)))
     }
 
+    /// Union elements currently require the typed value-read and value-write paths.
+    #[cold]
+    pub fn untyped_union_element(method: &str) -> Self {
+        Self::throw("Std.NotSupportedException", format!(
+            "`Array.{method}` requires an element type that supports boxing"))
+    }
+
     /// 无类型写入的实际值不能存进目的数组。类型校验失败时目的地不动。
     #[cold]
     pub fn array_elem_store_rejected(elem: &str, v: &Value) -> Self {
@@ -221,7 +228,7 @@ impl OpError {
 
 /// 数组元素类型在消息里的写法：未知（Rust 合成的数组）写 `object`。
 fn elem_label(elem: &str) -> &str {
-    if elem.is_empty() { "object" } else { elem }
+    if elem.is_empty() { "object" } else { elem.strip_prefix("$union.").unwrap_or(elem) }
 }
 
 /// 文本与 [`OpError::into_anyhow`] 相同：`<类名>: <消息>`（builtin 错误被折成字符串的出口看到的就是它）。

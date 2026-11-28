@@ -351,7 +351,7 @@ fn run_struct_copy_over_live_leaf(barrier_on: bool, within: bool) -> bool {
     crate::gc::satb::set_disabled_for_test(!barrier_on);
 
     // struct S { int N; object O; } — one reference leaf at byte offset 8.
-    let layout = std::sync::Arc::new(StructTypeLayout { float_field_ranges: Default::default(),
+    let layout = std::sync::Arc::new(StructTypeLayout { union_layout: None, float_field_ranges: Default::default(),
         size: 16, ref_offsets: Box::new([8]), ref_kinds: Box::new([STRUCT_REF_GCREF]), fields: Box::new([]),
     });
     let new_arr = |len| ArrayObj::alloc_struct(&heap, ElemType::intern("Demo.S"), len, layout.clone());
@@ -991,4 +991,74 @@ fn satb_bulk_clear_records_references_in_batches_and_tail() {
 #[test]
 fn without_satb_bulk_clear_loses_the_unscanned_referent() {
     assert!(!run_bulk_reference_clear(false));
+}
+
+#[test]
+fn clearing_inline_union_elements_preserves_active_references_during_a_major_snapshot() {
+    use crate::object::{ArrayObj, ElemType, StructTypeLayout, STRUCT_REF_GCREF};
+    use crate::object::value::ref_word;
+    use crate::zpkg::ir::{UnionLayoutDesc, UnionLayoutEntry, UnionLayoutNode};
+    use std::sync::Arc;
+
+    let heap = Heap::default();
+    heap.set_mode(GcMode::StwMarkSweep);
+    let _bound = Bound::to(&heap);
+    let layout = Arc::new(StructTypeLayout {
+        size: 16,
+        ref_offsets: Box::new([8]),
+        ref_kinds: Box::new([STRUCT_REF_GCREF]),
+        union_layout: Some(Arc::new(UnionLayoutDesc {
+            nodes: Box::new([UnionLayoutNode {
+                size: 16,
+                align: 8,
+                tag_bytes: 1,
+                reference_count: 1,
+                cases: vec![
+                    Box::new([]) as Box<[UnionLayoutEntry]>,
+                    Box::new([UnionLayoutEntry { offset: 8, slot: 0, child: None }]),
+                ].into_boxed_slice(),
+            }]),
+        })),
+        ..Default::default()
+    });
+    let owner = ArrayObj::alloc_struct(&heap, ElemType::intern("$union.Test"), 2, layout);
+    let Value::Array(array) = owner else { panic!("array allocation") };
+    let _root = heap.pin_root(owner);
+    let active = heap.alloc_object(dummy_type_desc("Active"), vec![], NativeData::None);
+    let inactive = heap.alloc_object(dummy_type_desc("Inactive"), vec![], NativeData::None);
+    let weak_active = heap.make_weak(&active).unwrap();
+    let weak_inactive = heap.make_weak(&inactive).unwrap();
+
+    let mut image = [0; 16];
+    image[0] = 1;
+    image[8..].copy_from_slice(&ref_word::encode(&active).unwrap().to_le_bytes());
+    array.borrow().write_inline_union_encoded(0, &image).unwrap();
+    // The scalar branch can have bits identical to a reference at the same offset.
+    image[0] = 0;
+    image[8..].copy_from_slice(&ref_word::encode(&inactive).unwrap().to_le_bytes());
+    array.borrow().write_inline_union_encoded(1, &image).unwrap();
+
+    heap.open_major_cycle();
+    heap.snapshot_roots_into_mark_queue(); // array is queued but its slots have not been traced
+    assert!(array.borrow().try_clear_elems(0, 2).unwrap());
+    heap.drain_mark_queue();
+    heap.close_major_marking();
+    heap.sweep_phase();
+
+    assert!(is_alive(&heap, &weak_active));
+    assert!(!is_alive(&heap, &weak_inactive));
+    for i in 0..2 {
+        let mut bytes = [0xff; 16];
+        let mut refs = [Value::Bool(true)];
+        array.borrow().read_inline_union(i, &mut bytes, &mut refs).unwrap();
+        assert_eq!(bytes, [0; 16]);
+        assert_eq!(refs, [Value::Null]);
+    }
+
+    heap.open_major_cycle();
+    heap.snapshot_roots_into_mark_queue();
+    heap.drain_mark_queue();
+    heap.close_major_marking();
+    heap.sweep_phase();
+    assert!(!is_alive(&heap, &weak_active));
 }

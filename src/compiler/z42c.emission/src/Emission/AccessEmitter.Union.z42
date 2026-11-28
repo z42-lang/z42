@@ -1,0 +1,42 @@
+namespace Z42.Emission;
+
+using Z42.IR;
+using Z42.Semantics;
+using Z42.Symbols;
+
+public sealed partial class AccessEmitter {
+    private TypedReg _tryReadWideUnionElement(BoundIndex index) {
+        if (!PackedUnion.HasInlineStorage(index.Type())) { return null; }
+        UnionStorageLayout layout = UnionStorageLayout.WideFor(index.Type());
+        if (layout == null) { return null; }
+        TypedReg array = this._ee.Emit(index.Target);
+        TypedReg subscript = this._ee.Emit(index.Index);
+        TypedReg value = this._ee._allocWideUnion(index.Type(), layout);
+        this._ctx.Emit(new BuiltinInstr(this._ctx.Alloc(IrType.Void), "__union_array_read",
+            new TypedReg[] { value, array, subscript }, 3));
+        return value;
+    }
+
+    private TypedReg _tryReadUnionField(BoundExpr receiver, string name, Z42Type type) {
+        if (!PackedUnion.HasInlineStorage(type)) { return null; }
+        Z42ClassType owner = receiver == null ? this._ctx.OwnerCt : this._ee._receiverClassType(receiver.Type());
+        var field = owner == null ? null : owner.Fields.Get(name) as FieldSymbol;
+        if (!PackedUnion.IsInlineField(owner, field)) { return null; }
+
+        TypedReg obj = receiver == null ? new TypedReg(0, IrType.Ref) : this._ee.Emit(receiver);
+        TypedReg key = this._ctx.Alloc(IrType.Str);
+        this._ctx.Emit(new ConstStrInstr(key, this._ctx.Gen.Intern(name)));
+        UnionStorageLayout layout = UnionStorageLayout.WideFor(type);
+        if (layout != null) {
+            TypedReg value = this._ee._allocWideUnion(type, layout);
+            this._ctx.Emit(new BuiltinInstr(this._ctx.Alloc(IrType.Void), "__union_field_read",
+                new TypedReg[] { obj, key, value }, 3));
+            return value;
+        }
+        TypedReg unused = this._ctx.Alloc(IrType.Ref);
+        this._ctx.Emit(new ConstNullInstr(unused));
+        TypedReg packed = this._ctx.Alloc(IrType.I64);
+        this._ctx.Emit(new BuiltinInstr(packed, "__union_field_read", new TypedReg[] { obj, key, unused }, 3));
+        return packed;
+    }
+}

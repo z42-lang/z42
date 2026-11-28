@@ -69,6 +69,8 @@ const UNDECLARED_ALLOWLIST: &[(&str, &str)] = &[
     ("__union_cell", "compiler-emitted: read a frame union cell"),
     ("__union_ref", "compiler-emitted: read a frame union reference slot"),
     ("__union_store", "compiler-emitted: replace a frame union value"),
+    ("__union_array_read", "compiler-emitted: copy an inline union into a frame slot"),
+    ("__union_field_read", "compiler-emitted: read an inline union instance field"),
     // 🪦 store-sync-values-in-heap 阶段 2 已落地：旧同步原语的 19 条豁免连同它们的
     // 表槽、`corelib/sync.rs`、三个 registry 一并删除 —— 所以这里**不再需要**对应条目。
     //

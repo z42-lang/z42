@@ -33,6 +33,7 @@ pub struct StructTypeLayout {
     pub size: usize,
     pub ref_offsets: Box<[u32]>,
     pub ref_kinds: Box<[u8]>,
+    pub union_layout: Option<Arc<crate::zpkg::ir::UnionLayoutDesc>>,
     /// **逐字段**布局，按字段声明位置索引（`fields[i]` = 第 i 个字段）。
     ///
     /// 来自 zbc 1.45 的 TYPE 段 struct 字段表（`ClassDesc.struct_field_table`，change
@@ -56,6 +57,7 @@ impl PartialEq for StructTypeLayout {
         self.size == other.size
             && self.ref_offsets == other.ref_offsets
             && self.ref_kinds == other.ref_kinds
+            && self.union_layout == other.union_layout
             && self.fields == other.fields
     }
 }
@@ -309,6 +311,8 @@ pub struct ObjectLayout {
     /// keeps its standalone blob layout — `struct_blob`). GC reads each word and decodes it
     /// (`ScriptObject::visit_refs`). Empty for synthesized layouts.
     pub ref_cells: Box<[u32]>,
+    /// Dynamic reference regions of inline unions, including inherited fields.
+    pub union_refs: Box<[(u32, Arc<crate::zpkg::ir::UnionLayoutDesc>)]>,
     /// Byte offsets of the **tag words** of the type-parameter cells (`T F;`, `T? F;`; base
     /// cells first, then own) — each the field's own 8 B slot of the compiler layout. Cell
     /// `i`'s payload word sits past the compiler region, at
@@ -447,12 +451,14 @@ pub fn compose_object_layout(
     let mut field_sizes   = Vec::with_capacity(base_fields + own.field_sizes.len());
     let mut field_kinds   = Vec::with_capacity(base_fields + own.field_kinds.len());
     let mut ref_cells     = Vec::new();
+    let mut union_refs    = Vec::new();
     let mut tparam_cells  = Vec::new();
     if let Some(b) = base {
         field_offsets.extend_from_slice(&b.field_offsets);
         field_sizes.extend_from_slice(&b.field_sizes);
         field_kinds.extend_from_slice(&b.field_kinds);
         ref_cells.extend_from_slice(&b.ref_cells);
+        union_refs.extend_from_slice(&b.union_refs);
         tparam_cells.extend_from_slice(&b.tparam_cells);
     }
     for &off in own.field_offsets.iter() { field_offsets.push(off + base_shift); }
@@ -523,6 +529,7 @@ pub fn compose_object_layout(
         field_sizes:   field_sizes.into(),
         field_kinds:   field_kinds.into(),
         ref_cells:     ref_cells.into(),
+        union_refs:    union_refs.into(),
         tparam_cells:  tparam_cells.into(),
         field_access,
     }
@@ -610,6 +617,7 @@ pub fn synthesize_object_layout(fields: &[FieldSlot]) -> ObjectLayout {
         field_sizes:   field_sizes.into(),
         field_kinds:   field_kinds.into(),
         ref_cells:     Box::new([]),
+        union_refs:    Box::new([]),
         tparam_cells:  tparam_cells.into(),
         field_access:  field_access.into(),
     }

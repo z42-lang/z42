@@ -322,12 +322,17 @@ public sealed partial class ExprEmitter : IBoundExprVisitor<TypedReg, Unit> {
         return dst;
     }
     public TypedReg VisitArrayLit(BoundArrayLit al, Unit d) {
+        Z42ArrayType at = al.Type() as Z42ArrayType;
+        bool inlineUnion = at != null && PackedUnion.HasInlineStorage(at.Elem);
         TypedReg[] elemRegs = new TypedReg[al.ElemCount];
         int ei = 0;
-        while (ei < al.ElemCount) { elemRegs[ei] = this.Emit(al.Elems[ei]); ei = ei + 1; }
+        while (ei < al.ElemCount) {
+            TypedReg value = this.Emit(al.Elems[ei]);
+            elemRegs[ei] = inlineUnion && ei + 1 < al.ElemCount ? this._snapshotUnion(value, at.Elem) : value;
+            ei = ei + 1;
+        }
         TypedReg dst = this._ctx.Alloc(IrType.Ref);
         string elemName = al.ElemName;
-        Z42ArrayType at = al.Type() as Z42ArrayType;
         if (at != null && !(at.Elem is Z42GenericParamType)) { elemName = this._arrayElemName(at.Elem); }
         string concrete = at != null && at.Elem is Z42GenericParamType
             ? this._arrayElementBlobName(at.Elem) : "";
@@ -337,7 +342,7 @@ public sealed partial class ExprEmitter : IBoundExprVisitor<TypedReg, Unit> {
         // 静默截成 `n & 0xFF`，产出不可解析的 zbc —— 查表常量一写长就中。
         // blob 值 struct 元素的整元素写要走句柄拷贝（见 AccessEmitter 的 BoundIndex 分支），这条下沉
         // 不覆盖它：仍发 arr.new.lit，由写端宽度检查响亮报错（>255 元素的 struct 字面量罕见）。
-        if (al.ElemCount > 255 && at != null && concrete == "" && !this._isBlobStruct(at.Elem)) {
+        if (al.ElemCount > 255 && at != null && concrete == "" && (inlineUnion || !this._isBlobStruct(at.Elem))) {
             TypedReg size = this._ctx.Alloc(IrType.I32);
             this._ctx.Emit(new ConstI32Instr(size, al.ElemCount.ToString()));
             this._ctx.Emit(new ArrayNewInstr(dst, size, this._ctx.ToIrType(at.Elem), elemName));

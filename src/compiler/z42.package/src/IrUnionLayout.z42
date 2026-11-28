@@ -1,0 +1,34 @@
+namespace Z42.IR;
+
+public sealed class IrUnionRegion {
+    public int Offset;
+    public int Child;
+
+    // Child is -1 for a reference leaf, otherwise an earlier node in the layout.
+    public IrUnionRegion(int offset, int child) {
+        this.Offset = offset;
+        this.Child = child;
+    }
+}
+
+public sealed class IrUnionCaseLayout {
+    public IrUnionRegion[] Regions;
+
+    public IrUnionCaseLayout(IrUnionRegion[] regions) {
+        this.Regions = regions;
+    }
+}
+
+public sealed class IrUnionLayoutNode {
+    public int Size;
+    public int Align;
+    public int TagBytes;
+    public IrUnionCaseLayout[] Cases;
+
+    public IrUnionLayoutNode(int size, int align, int tagBytes, IrUnionCaseLayout[] cases) {
+        this.Size = size;
+        this.Align = align;
+        this.TagBytes = tagBytes;
+        this.Cases = cases;
+    }
+}

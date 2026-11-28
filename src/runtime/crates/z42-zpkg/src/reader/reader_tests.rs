@@ -127,15 +127,15 @@ fn zbc_version_constants_pinned() {
     // `ZbcFormat.z42` / `ZpkgWriter.z42` and compares against these constants.
     assert_eq!(ZBC_VERSION_MAJOR, 1, "zbc major locked at 1 by freeze-zbc-v1");
     assert_eq!(
-        ZBC_VERSION_MINOR, 49,
-        "zbc minor at 1.49 (static interface witnesses)"
+        ZBC_VERSION_MINOR, 50,
+        "zbc minor at 1.50 (inline union layouts)"
     );
 }
 
 #[test]
 fn zpkg_version_constants_pinned() {
     assert_eq!(ZPKG_VERSION_MAJOR, 0, "zpkg major locked at 0 by freeze-zpkg-v0");
-    assert_eq!(ZPKG_VERSION_MINOR, 55, "zpkg minor at 0.55 (embeds zbc 1.49)");
+    assert_eq!(ZPKG_VERSION_MINOR, 56, "zpkg minor at 0.56 (embeds zbc 1.50)");
 }
 
 #[test]
