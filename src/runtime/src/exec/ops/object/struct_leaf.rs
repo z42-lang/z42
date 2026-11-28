@@ -217,16 +217,18 @@ fn hash_frame_struct(ctx: &VmContext, idx: u32, frame_id: u32) -> Result<i64> {
     use std::ops::ControlFlow;
 
     let plan = ctx.exec().with_struct_slot(idx, frame_id, |slot| {
-        if let Some(fields) = slot.layout.float_field_ranges.get().filter(|_| !slot.type_name.contains('<')) {
-            return ControlFlow::Break(hash_struct_with_floats(&slot.bytes, &slot.refs, fields));
+        match slot.layout.float_field_ranges.get() {
+            Some(fields) => ControlFlow::Break(hash_struct_with_floats(&slot.bytes, &slot.refs, fields)),
+            None => ControlFlow::Continue((slot.type_name.clone(), slot.layout.clone())),
         }
-        ControlFlow::Continue((slot.type_name.clone(), slot.layout.clone()))
     })?;
     let (name, layout) = match plan {
         ControlFlow::Break(hash) => return hash,
         ControlFlow::Continue(layout) => layout,
     };
 
+    // The float-range cache belongs to the layout actually used for hashing.
+    // A compact layout that needs conversion must never populate its own cache.
     if erased_layout(ctx, &name, &layout).is_some() {
         let (_, mut bytes, refs) = ctx.exec().snapshot_struct(idx, frame_id)?;
         return hash_snapshot(ctx, &name, &mut bytes, &refs, Some(&layout));
@@ -243,6 +245,10 @@ fn hash_snapshot(
     layout: Option<&StructTypeLayout>,
 ) -> Result<i64> {
     use crate::object::value::boxed_hash::{hash_struct_payload, normalize_signed_zero};
+    if let Some(fields) = layout.and_then(|layout| layout.float_field_ranges.get()) {
+        normalize_signed_zero(bytes, fields)?;
+        return Ok(hash_struct_payload(bytes, refs));
+    }
     if let Some(payload) = erased_payload(ctx, name, bytes, refs)? {
         let fields = named_struct_layout::float_field_ranges(
             &payload.layout, &|n| ctx.loader().try_lookup_type(n), payload.name,
