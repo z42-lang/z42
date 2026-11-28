@@ -2,6 +2,11 @@ use super::*;
 use std::io::Write;
 use std::path::PathBuf;
 
+const PACKED_MINIMAL: &[u8] = include_bytes!(concat!(
+    env!("Z42_RUNTIME_DIR"),
+    "/../compiler/z42.package/tests/fixtures/zpkg-format/packed-minimal/source.zpkg"
+));
+
 // Minimal zpkg builder: MAGIC + a directory with one NSPC section holding the
 // namespace list, mirroring what `read_zpkg_namespaces` parses. We only need a
 // buffer that round-trips through the real reader, so we lean on the existing
@@ -40,11 +45,7 @@ fn scan_skips_non_zpkg_and_bad_magic() {
 #[test]
 fn mounted_package_is_found_by_file_name_and_namespace() {
     let fs = crate::pal::fs::MemoryFs::new();
-    let package = include_bytes!(concat!(
-        env!("Z42_RUNTIME_DIR"),
-        "/../compiler/z42.package/tests/fixtures/zpkg-format/packed-minimal/source.zpkg"
-    ));
-    fs.mount("/libs/greeter.zpkg", package.to_vec());
+    fs.mount("/libs/greeter.zpkg", PACKED_MINIMAL.to_vec());
     let dirs = [PathBuf::from("/libs")];
     let expected = dirs[0].join("greeter.zpkg");
 
@@ -52,6 +53,26 @@ fn mounted_package_is_found_by_file_name_and_namespace() {
     assert_eq!(candidate.file_path, expected);
     assert!(candidate.namespaces.iter().any(|name| name == "Demo.Minimal"));
     assert_eq!(crate::loader::resolve_namespace(&fs, "Demo.Minimal", &dirs).unwrap(), vec![expected]);
+}
+
+#[test]
+fn namespace_lookup_scans_once_per_load_and_preserves_search_order() {
+    let fs = crate::pal::fs::MemoryFs::new();
+    let preferred = PathBuf::from("/preferred");
+    let fallback = PathBuf::from("/fallback");
+    let dirs = [preferred.clone(), preferred.clone(), fallback.clone()];
+    let mut lookup = NamespaceLookup::new(&fs, &dirs);
+
+    fs.mount("/preferred/z.zpkg", PACKED_MINIMAL.to_vec());
+    fs.mount("/preferred/a.zpkg", PACKED_MINIMAL.to_vec());
+    fs.mount("/fallback/a.zpkg", PACKED_MINIMAL.to_vec());
+    assert!(lookup.matching("Demo").next().is_none(), "match whole namespaces");
+    fs.mount("/preferred/b.zpkg", PACKED_MINIMAL.to_vec());
+
+    let paths: Vec<_> = lookup.matching("Demo.Minimal").map(|c| c.file_path.clone()).collect();
+    assert_eq!(paths, [preferred.join("a.zpkg"), preferred.join("z.zpkg"), fallback.join("a.zpkg")]);
+    let refreshed = crate::loader::resolve_namespace(&fs, "Demo.Minimal", &dirs).unwrap();
+    assert_eq!(refreshed, [preferred.join("a.zpkg"), preferred.join("b.zpkg"), preferred.join("z.zpkg"), fallback.join("a.zpkg")]);
 }
 
 

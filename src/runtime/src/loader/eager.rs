@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 
 use super::{
     decode::{decode_program_file_cached, decode_program_bytes_cached}, file_resolver::bytecode_dependencies,
-    resolve_namespace, DecodedProgram, FileKind, ImageCache,
+    locate::namespace_index::NamespaceLookup, DecodedProgram, FileKind, ImageCache,
 };
 use crate::pal::fs::Vfs;
 
@@ -30,16 +30,14 @@ pub(crate) fn load_eager_dependencies(
         .map(|dep| dep.file.clone())
         .collect();
     let mut namespace_queue: VecDeque<_> = entry.import_namespaces.iter().cloned().collect();
+    let mut lookup = NamespaceLookup::new(fs, search_dirs);
     loop {
         while let Some(namespace) = namespace_queue.pop_front() {
             if skip_loaded_namespaces && loaded_names.contains(&format!("{namespace}.zpkg")) {
                 continue;
             }
-            let Ok(paths) = resolve_namespace(fs, &namespace, search_dirs) else {
-                continue;
-            };
-            file_queue.extend(paths.iter().filter_map(|path| {
-                path.file_name()
+            file_queue.extend(lookup.matching(&namespace).filter_map(|candidate| {
+                candidate.file_path.file_name()
                     .and_then(|name| name.to_str())
                     .map(str::to_owned)
             }));

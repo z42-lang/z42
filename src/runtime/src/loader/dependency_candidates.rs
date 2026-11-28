@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 use crate::pal::fs::Vfs;
-use super::{DecodedProgram, lazy::ZpkgCandidate, resolve_namespace};
+use super::{DecodedProgram, lazy::ZpkgCandidate, locate::namespace_index::NamespaceLookup};
 
 /// Build the declared-but-not-loaded zpkg candidate set for the lazy loader.
 ///
@@ -39,12 +39,10 @@ pub(crate) fn build_declared_candidates(
     }
 
     // .zbc import_namespaces — reverse lookup
+    let mut lookup = NamespaceLookup::new(fs, search_dirs);
     for ns in &entry_program.import_namespaces {
-        let Ok(zpkg_paths) = resolve_namespace(fs, ns, search_dirs) else {
-            continue;
-        };
-        for zpkg_path in zpkg_paths {
-            let Some(file_name) = zpkg_path
+        for candidate in lookup.matching(ns) {
+            let Some(file_name) = candidate.file_path
                 .file_name()
                 .and_then(|n| n.to_str())
                 .map(str::to_owned)

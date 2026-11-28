@@ -6,7 +6,7 @@
 
 ## 功能索引
 
-- `namespace.rs` / `namespace_index.rs`：依赖和 namespace 候选查询。
+- `namespace.rs` / `namespace_index.rs`：依赖和 namespace 候选查询，旧版 ZBC 的反查在一次加载中共享同一个候选快照。
 - `search_paths.rs`：由显式入口、额外路径和 libs 构造稳定去重的目录序列，使用传入 VFS 检查入口目录；不读环境。
 - `probing.rs`：路径模式、SDK 占位符与缺失提示；纯展开入口接受显式根，进程便利入口供来源适配调用。
 
