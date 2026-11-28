@@ -179,6 +179,11 @@ path = "benches/gc_cycle_bench.rs"
 harness = false
 
 [[bench]]
+name = "gc_soft_cap_bench"
+path = "benches/gc_soft_cap_bench.rs"
+harness = false
+
+[[bench]]
 name = "smoke_bench"
 path = "benches/smoke_bench.rs"
 harness = false

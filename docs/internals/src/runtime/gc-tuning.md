@@ -712,6 +712,10 @@ region 与堆共用同一个 `Arc<Footprint>`（建堆时 `attach_footprint` 挂
 软上限判的是 `occupied = committed − pooled`：池里的 chunk 下一次分配就能直接用、不会让占用增长，
 回收也缩不了它；只有扑空池子的分配会让占用上涨。
 
+major 回收完 chunk 后，如果 `occupied` 仍高于软上限，变长区会释放已经清空的尺寸类空闲表缓冲区，
+随后更新侧表记账。这一步只释放空缓冲区，仍有可复用槽的表保留容量和条目顺序。minor 和未超上限的
+major 保留空闲表容量，供后续分配复用。
+
 软上限在策略里有两种读法（`heap/footprint.rs` 的 `SoftCap`）：
 
 - **近上限跳闸 / 压力事件 / strict OOM / 软引用压力**：直接拿 `occupied` 比上限。
