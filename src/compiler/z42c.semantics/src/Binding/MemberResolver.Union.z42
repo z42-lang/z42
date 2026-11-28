@@ -69,6 +69,7 @@ public sealed partial class MemberResolver {
                 }
                 i = i + 1;
             }
+            args = this._tc.BoxArgs(args, count, parameters, env.Symbols);
         }
         var value = new BoundCall("union", false, null, ownerType.Name(), branch.Name, args, count, ownerType, span);
         value.UnionCase = branch;

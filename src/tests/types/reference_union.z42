@@ -1,8 +1,13 @@
 namespace ReferenceUnion;
 
-class Item {
+interface ICode {
+    int Read();
+}
+
+class Item : ICode {
     public int Code;
     public Item(int code) { this.Code = code; }
+    public int Read() => this.Code;
 }
 
 class Watch {
@@ -30,6 +35,14 @@ union Envelope {
 
 union FirstText { Text(string?), Empty }
 
+union ReferenceKind {
+    Pair(string, string),
+    Code(ICode),
+    Read(Func<int>),
+    Box(object),
+    Number(double),
+}
+
 Value Create(Watch watch) {
     var item = new Item(42);
     watch.Weak = WeakHandle.MakeWeak(item);
@@ -50,6 +63,31 @@ void CheckLive(Watch watch) {
     }
     kept = Value.Empty;
     Assert.True(kept is Value.Empty);
+}
+
+ReferenceKind ReadLater(int code) {
+    Func<int> read = () => code;
+    return ReferenceKind.Read(read);
+}
+
+void CheckReferenceKinds() {
+    string label = "first";
+    var pair = ReferenceKind.Pair(label, label = "second");
+    Assert.True(pair is ReferenceKind.Pair("first", "second"));
+    var callback = ReadLater(42);
+    var interfaceValue = ReferenceKind.Code(new Item(13));
+    var integer = ReferenceKind.Box(7);
+    var boolean = ReferenceKind.Box(true);
+    GC.ForceCollect();
+    if (callback is ReferenceKind.Read(read)) { Assert.Equal(42, read()); }
+    else { Assert.True(false); }
+    if (interfaceValue is ReferenceKind.Code(code)) { Assert.Equal(13, code.Read()); }
+    else { Assert.True(false); }
+    if (integer is ReferenceKind.Box(boxedInt)) { Assert.Equal(7, (int)boxedInt); }
+    else { Assert.True(false); }
+    if (boolean is ReferenceKind.Box(boxedBool)) { Assert.True((bool)boxedBool); }
+    else { Assert.True(false); }
+    Assert.True(ReferenceKind.Number(42) is ReferenceKind.Number(42.0));
 }
 
 void Main() {
@@ -77,4 +115,5 @@ void Main() {
         Assert.True(value is Value.Text("loop"));
         value = Value.Empty;
     }
+    CheckReferenceKinds();
 }

@@ -43,8 +43,10 @@ fn check_slot(slot: &StructSlot) -> Result<()> {
     Ok(())
 }
 
-fn managed_reference(value: &Value) -> bool {
-    matches!(value, Value::Null | Value::Str(_) | Value::Object(_) | Value::Array(_)
+fn valid_reference_payload(value: &Value) -> bool {
+    // Values of type object also use these self-describing scalar representations.
+    matches!(value, Value::Bool(_) | Value::Char(_) | Value::F64(_)
+        | Value::Null | Value::Str(_) | Value::Object(_) | Value::Array(_)
         | Value::BoxedStruct(_) | Value::InterfaceRef(_) | Value::FuncRef(_) | Value::Closure(_))
 }
 
@@ -57,8 +59,8 @@ fn replace(slot: &mut StructSlot, args: &(impl ArgSource + ?Sized)) -> Result<()
     if !(1..ref_start).all(|index| matches!(args.arg(index), Value::I64(_))) {
         bail!("non-integer union cell for `{}`", slot.type_name);
     }
-    if !(ref_start..args.argc()).all(|index| managed_reference(args.arg(index))) {
-        bail!("non-reference union payload for `{}`", slot.type_name);
+    if !(ref_start..args.argc()).all(|index| valid_reference_payload(args.arg(index))) {
+        bail!("invalid union reference payload for `{}`", slot.type_name);
     }
 
     // Arguments are rooted in registers. After validation, update bytes and

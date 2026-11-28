@@ -15,6 +15,12 @@ public sealed partial class ExprEmitter {
             int slot = call.UnionArgumentOrder[i];
             UnionStorageField field = branch.Fields[slot];
             TypedReg value = this.Emit(call.Args[slot]);
+            if (StructLeafKind.IsRef(field.Kind) && i + 1 < call.ArgCount) {
+                // Later arguments may reassign the register holding this reference.
+                TypedReg copy = this._ctx.Alloc(value.Type);
+                this._ctx.Emit(new CopyInstr(copy, value));
+                value = copy;
+            }
             this._packUnionField(parts, layout.PayloadOffset + field.Offset, field, value);
         }
         return this._materializeUnion(parts, call.Type(), layout, storage);
